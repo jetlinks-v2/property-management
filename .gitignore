@@ -1,0 +1,12 @@
+target/
+.idea/
+*.iml
+data/
+config/application-local.yml
+config/application-local.yaml
+**/src/main/resources/application-local.yml
+**/src/main/resources/application-local.yaml
+.codegraph/
+.cursor/
+
+.agent-runtime/

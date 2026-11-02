@@ -1,0 +1,89 @@
+server:
+  port: 8503
+  error:
+    include-message: always
+  max-http-request-header-size: 200KB
+
+spring:
+  profiles:
+    active: default,local
+  config:
+    import: optional:file:./config/application-local.yml
+  application:
+    name: property-management-service
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    serialization:
+      WRITE_DATES_AS_TIMESTAMPS: true
+    default-property-inclusion: non_null
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:127.0.0.1}:${DB_PORT:5432}/${DB_DATABASE:jetlinks}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD}
+    pool:
+      max-size: 128
+      max-idle-time: 60s
+      max-life-time: 1m
+      max-acquire-time: 10s
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      timeout: 20s
+      password: ${REDIS_PASSWORD}
+      database: ${REDIS_DATABASE:0}
+
+easyorm:
+  default-schema: ${DB_SCHEMA:public}
+  dialect: postgres
+
+hsweb:
+  webflux:
+    response-wrapper:
+      enabled: true
+      excludes:
+        - org.springdoc
+  authorize:
+    auto-parse: true
+  cache:
+    type: redis
+    redis:
+      local-cache-type: caffeine
+
+jetlinks:
+  server-id: ${spring.application.name}:${server.port}
+  cluster:
+    id: ${jetlinks.server-id}
+    name: ${spring.application.name}
+    port: 1${server.port}
+    external-host: ${CLUSTER_EXTERNAL_HOST:127.0.0.1}
+    external-port: ${CLUSTER_EXTERNAL_PORT:${jetlinks.cluster.port}}
+    rpc-port: 2${server.port}
+    rpc-external-host: ${RPC_EXTERNAL_HOST:${jetlinks.cluster.external-host}}
+    rpc-external-port: ${RPC_EXTERNAL_PORT:${jetlinks.cluster.rpc-port}}
+    rpc-token: ${RPC_TOKEN}
+    seeds: ${CLUSTER_SEEDS:127.0.0.1:18800}
+    event-namespace: property-management
+    config-storage-namespace: property-management
+    namespace: default,property-management
+  microservice:
+    discovery:
+      enabled: true
+    token:
+      jwt:
+        decode-key: ${JWT_PUBLIC_KEY}
+
+logging:
+  file:
+    name: ./data/logs/${spring.application.name}_${server.port}.log
+    path: ./data/logs
+
+springdoc:
+  group-configs:
+    - group: ${spring.application.name}
+      display-name: 物业管理
+      packages-to-scan:
+        - org.jetlinks.pro.property
+  security:
+    enabled: true
