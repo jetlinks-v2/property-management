@@ -18,13 +18,20 @@
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
-                <excludes>
-                    <exclude>application-local.yml</exclude>
-                    <exclude>application-local.yaml</exclude>
-                </excludes>
             </resource>
         </resources>
         <plugins>
+            <!-- 本地配置参与 IDEA/Maven 的开发类路径，仅在生成发布 JAR 时排除。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>application-local.yml</exclude>
+                        <exclude>application-local.yaml</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

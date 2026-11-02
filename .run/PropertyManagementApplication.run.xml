@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="物业后端 PropertyManagementApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
-    <option name="ACTIVE_PROFILES" value="default,local" />
+    <option name="ACTIVE_PROFILES" value="default,dev,local" />
     <module name="property-management-service" />
     <option name="SHORTEN_COMMAND_LINE" value="ARGS_FILE" />
     <option name="SPRING_BOOT_MAIN_CLASS" value="org.jetlinks.pro.property.PropertyManagementApplication" />

@@ -15,7 +15,6 @@ property-management/
 │       └── property-patrol-manager/     巡更
 ├── services/
 │   └── property-management-service/     统一启动、配置与装配
-├── config/                             外部本地配置及样例
 ├── deploy/                             Docker SaaS 与 IDEA 联调配置
 └── .run/                               IDEA 启动和调试配置
 ```
@@ -28,11 +27,20 @@ Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT。Boot 版本与当前 J
 
 1. 用 IDEA 打开本目录 `pom.xml`，SDK 和 Maven Runner JRE 选择 JDK 17，使用现有 JetLinks Maven settings 与仓库权限。
 2. 启动现有 Docker PostgreSQL、Redis、SaaS 网关和运行端；运营控制端仍按 SaaS 原有方式运行。
-3. 首次配置时，将 `config/application-local.example.yml` 复制为 `config/application-local.yml`，填写现有 PostgreSQL、Redis、RPC token 和 JWT 公钥。已配置的本机文件无需覆盖；不需要 JWT 私钥。
-4. 在 PowerShell 执行 `./deploy/enable-host-dev.ps1`，为 Docker 网关及运行端叠加本机联调端口和注册地址。脚本读取带默认网关的唯一活动网卡地址；有多个候选时要求用 `-AdvertisedHost` 指定。脚本同时生成被 Git 忽略的 `config/application-host-dev.yml`，让物业服务与容器使用相同注册地址，不修改包含密码的本地配置。脚本只更新这两个服务，数据卷和数据库、Redis 等依赖容器保留。默认 SaaS 位于相邻 `cloud.jetlinks/runtime/all-in-one`，Compose 项目名为 `jetlinks-local`，均可通过参数调整。
+3. 在 `services/property-management-service/src/main/resources` 中创建 `application-local.yml`，参考同目录 `application-default.yml` 中的注释示例，填写现有 PostgreSQL、Redis、RPC token 和 JWT 公钥。已配置的本机文件无需覆盖；不需要 JWT 私钥。
+4. 在 PowerShell 执行 `./deploy/enable-host-dev.ps1`，为 Docker 网关及运行端叠加本机联调端口和注册地址。脚本读取带默认网关的唯一活动网卡地址；有多个候选时要求用 `-AdvertisedHost` 指定。脚本只更新 `application-local.yml` 中的 `CLUSTER_EXTERNAL_HOST`、`RPC_EXTERNAL_HOST`，其余设置和密钥原文保留。脚本只更新这两个服务，数据卷和数据库、Redis 等依赖容器保留。默认 SaaS 位于相邻 `cloud.jetlinks/runtime/all-in-one`，Compose 项目名为 `jetlinks-local`，均可通过参数调整。
 5. 等待网关与运行端健康，运行自带配置 **物业后端 PropertyManagementApplication**，或调试 `org.jetlinks.pro.property.PropertyManagementApplication`。工作目录必须为本仓库根目录。
 
-`config/application-local.yml` 由 `spring.config.import` 加载，已忽略且不会打入 JAR。共享默认配置和 IDEA 配置不得填写实际密钥。`application-local.example.yml` 是外部配置示例，实际本地配置放在 `config`，不用在每个业务模块重复创建。
+配置与 JetLinks 原工程统一，全部位于启动服务的 `src/main/resources`：
+
+| 文件 | 职责 |
+| --- | --- |
+| `application.yml` | 公共配置，默认激活 `default,dev,local` |
+| `application-default.yml` | 连接变量的注释示例，供本地配置参考 |
+| `application-dev.yml` | 开发日志配置 |
+| `application-local.yml` | 本机连接、密钥和注册地址，由 Spring Profile 自动加载 |
+
+`application-local.yml` 被 Git 忽略。开发编译时复制到类路径供 IDEA 运行，生成发布 JAR 时由 Maven JAR 插件排除；不在业务模块分别维护配置。共享配置与 IDEA 配置不填写实际密钥。
 
 | 用途 | 默认端口或地址 |
 | --- | --- |
@@ -45,7 +53,7 @@ Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT。Boot 版本与当前 J
 | PostgreSQL | `127.0.0.1:5432/jetlinks`，schema `public` |
 | Redis | `127.0.0.1:6379`，与运行端同一逻辑库 |
 
-容器与物业服务向集群发布同一个实际宿主机地址，种子为 `127.0.0.1:18800`，上述集群和 RPC 端口需双向可达。使用实际地址可以避免 Windows hosts 中过期的 `host.docker.internal` 记录。网卡地址改变后重新运行脚本并重启物业服务。服务器部署时替换为实际双向可达地址，并移除本机生成的 `config/application-host-dev.yml`。
+容器与物业服务向集群发布同一个实际宿主机地址，种子为 `127.0.0.1:18800`，上述集群和 RPC 端口需双向可达。使用实际地址可以避免 Windows hosts 中过期的 `host.docker.internal` 记录。网卡地址改变后重新运行脚本、重新编译并重启物业服务。服务器部署时通过环境变量或外部配置指定实际连接地址。
 
 联调覆盖文件位于本仓库，后续更新 Docker 网关或运行端时仍需带上它；再次运行脚本即可。恢复纯 Docker 模式时，用原来的两个 Compose 文件执行 `up -d --no-deps api-gateway-service all-in-one-service`；不要执行 `down -v`。
 
@@ -77,7 +85,8 @@ $propertyJvmOptions = @(
   '--add-opens=java.scripting/javax.script=ALL-UNNAMED',
   '-Dspring.reactor.debug-agent.enabled=false'
 )
-java @propertyJvmOptions -jar services/property-management-service/target/application.jar
+# 本机运行发布 JAR 时显式加载源码目录里的本地配置；JAR 本身不包含该文件。
+java @propertyJvmOptions -jar services/property-management-service/target/application.jar --spring.config.additional-location=file:services/property-management-service/src/main/resources/application-local.yml
 ```
 
 Java 17 的集群序列化需要这些 VM 参数，IDEA 配置已提供。仅启动物业后端即可调试三个业务模块，SaaS 及中间件继续在 Docker 运行。日志位于 `data/logs/`。原 `charging-management` 保留供对照，物业业务后续统一在本仓库开发。
