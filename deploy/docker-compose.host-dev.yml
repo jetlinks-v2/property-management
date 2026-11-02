@@ -1,0 +1,18 @@
+# 与 SaaS 的 docker-compose.yml、docker-compose.local.yml 叠加。
+# 容器和 IDEA 使用同一可达地址，避免向 Windows 发布仅容器内可解析的服务名。
+services:
+  api-gateway-service:
+    ports:
+      - "18800:18800"
+      - "28800:28800"
+    environment:
+      CLUSTER_EXTERNAL_HOST: ${PROPERTY_DEV_HOST:?Run enable-host-dev.ps1 to select the host address}
+      RPC_EXTERNAL_HOST: ${PROPERTY_DEV_HOST:?Run enable-host-dev.ps1 to select the host address}
+  all-in-one-service:
+    ports:
+      - "8200:8200"
+      - "18200:18200"
+      - "28200:28200"
+    environment:
+      CLUSTER_EXTERNAL_HOST: ${PROPERTY_DEV_HOST:?Run enable-host-dev.ps1 to select the host address}
+      RPC_EXTERNAL_HOST: ${PROPERTY_DEV_HOST:?Run enable-host-dev.ps1 to select the host address}

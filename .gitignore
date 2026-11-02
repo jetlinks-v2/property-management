@@ -4,6 +4,7 @@ target/
 data/
 config/application-local.yml
 config/application-local.yaml
+config/application-host-dev.yml
 **/src/main/resources/application-local.yml
 **/src/main/resources/application-local.yaml
 .codegraph/

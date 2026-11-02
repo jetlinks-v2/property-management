@@ -8,7 +8,9 @@ spring:
   profiles:
     active: default,local
   config:
-    import: optional:file:./config/application-local.yml
+    import:
+      - optional:file:./config/application-local.yml
+      - optional:file:./config/application-host-dev.yml
   application:
     name: property-management-service
   jackson:
