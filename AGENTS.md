@@ -4,6 +4,7 @@
 - JetLinks 保持 `2.20.0-SNAPSHOT`，Java 17、Spring Boot 3.4.13 与当前平台 BOM 一致，版本及插件由根 POM 管理。
 - 业务放入对应 `modules/property-*/property-*-manager`，统一由 `services/property-management-service` 装配。不要为一个业务模块增加第二个启动服务。
 - manager 承载接口、应用服务、持久化、权限和国际化；有跨模块共享的 DTO、命令、事件、SPI 契约时再增加 core。core 不依赖 manager。
+- 业务模块之间禁止直接依赖或引用对方的 manager，禁止跨模块注入内部 Service、Repository 或直接操作对方数据表。跨模块协作通过公开 core 契约及 JetLinks 命令服务、代理或事件完成，契约依赖必须单向、无循环；统一启动服务可以依赖各 manager，仅负责装配。
 - 先读相邻代码和对应业务设计，最小修改；跨模块通过明确公共契约交互，不直接操作其他领域的表。
 - 使用框架现有响应式 CRUD、查询与事务能力，运行时链路不调用 `block()` 或阻塞 I/O。
 - 登录复用 SaaS 网关。读取 `TenantHolder` 不代表取得业务授权，项目数据通过统一 `AssetsHolder` 体系校验；详情、批量、导入导出不能绕过权限。
