@@ -1,0 +1,126 @@
+package org.jetlinks.pro.property.base.service;
+
+import org.hswebframework.web.api.crud.entity.PagerResult;
+import org.hswebframework.web.api.crud.entity.QueryParamEntity;
+import org.junit.jupiter.api.Test;
+import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class SaasUserSourceTest {
+    @Test
+    void rpcMapResponseRestoresNestedUsersAndOrganizations() {
+        Object raw =
+                java.util.Map.of(
+                        "total",
+                        1,
+                        "pageIndex",
+                        0,
+                        "pageSize",
+                        200,
+                        "data",
+                        List.of(
+                                java.util.Map.of(
+                                        "id",
+                                        "user-id",
+                                        "username",
+                                        "account",
+                                        "type",
+                                        "user",
+                                        "status",
+                                        1,
+                                        "orgList",
+                                        List.of(java.util.Map.of("id", "park", "name", "园区")))));
+        var response =
+                (PagerResult<?>)
+                        SaasUserSource.pageCommand(new QueryParamEntity()).createResponseData(raw);
+        assertEquals(1, response.getTotal());
+        var user =
+                assertInstanceOf(
+                        org.jetlinks.sdk.server.auth.UserDetail.class, response.getData().get(0));
+        assertEquals("user-id", user.getId());
+        assertEquals("park", user.getOrgList().get(0).getId());
+    }
+
+    @Test
+    void stablePagingCollectsEveryIdOnceAndUsesFixedSizeAndSort() {
+        var source =
+                new SaasUserSource() {
+                    @Override
+                    protected Mono<PagerResult<org.jetlinks.sdk.server.auth.UserDetail>> page(
+                            QueryParamEntity query) {
+                        assertEquals(200, query.getPageSize());
+                        assertEquals("id", query.getSorts().get(0).getName());
+                        var data = new ArrayList<org.jetlinks.sdk.server.auth.UserDetail>();
+                        for (int i = query.getPageIndex() * 200;
+                                i < Math.min(401, (query.getPageIndex() + 1) * 200);
+                                i++) data.add(UserPersistenceTest.user(String.format("%04d", i)));
+                        return Mono.just(PagerResult.of(401, data, query));
+                    }
+                };
+        StepVerifier.create(source.fetchAll())
+                .assertNext(
+                        values -> {
+                            assertEquals(401, values.size());
+                            assertTrue(values.containsKey("0400"));
+                        })
+                .verifyComplete();
+    }
+
+    @Test
+    void duplicatePartialChangingTotalInvalidIdsAndOverLimitAreRejected() {
+        for (int mode = 0; mode < 5; mode++) {
+            final int scenario = mode;
+            var source =
+                    new SaasUserSource() {
+                        @Override
+                        protected Mono<PagerResult<org.jetlinks.sdk.server.auth.UserDetail>> page(
+                                QueryParamEntity query) {
+                            if (scenario == 4)
+                                return Mono.just(PagerResult.of(100001, List.of(), query));
+                            var data = new ArrayList<org.jetlinks.sdk.server.auth.UserDetail>();
+                            for (int i = 0; i < (scenario == 1 ? 199 : 200); i++)
+                                data.add(
+                                        UserPersistenceTest.user(
+                                                String.format(
+                                                        "%04d", i + query.getPageIndex() * 200)));
+                            if (scenario == 0) data.set(1, data.get(0));
+                            if (scenario == 3) data.get(0).setId(" ");
+                            return Mono.just(
+                                    PagerResult.of(
+                                            query.getPageIndex() > 0 ? 402 : 401, data, query));
+                        }
+                    };
+            StepVerifier.create(source.fetchAll()).expectError().verify();
+        }
+    }
+
+    @Test
+    void exactRecheckDistinguishesAbsenceFromFailure() {
+        var source =
+                new SaasUserSource() {
+                    @Override
+                    protected Mono<PagerResult<org.jetlinks.sdk.server.auth.UserDetail>> page(
+                            QueryParamEntity query) {
+                        assertEquals("id", query.getTerms().get(0).getColumn());
+                        return Mono.just(PagerResult.of(0, List.of(), query));
+                    }
+                };
+        StepVerifier.create(source.find("a"))
+                .assertNext(value -> assertTrue(value.isEmpty()))
+                .verifyComplete();
+        var failed =
+                new SaasUserSource() {
+                    @Override
+                    protected Mono<PagerResult<org.jetlinks.sdk.server.auth.UserDetail>> page(
+                            QueryParamEntity query) {
+                        return Mono.error(new IllegalStateException("upstream denied"));
+                    }
+                };
+        StepVerifier.create(failed.find("a")).expectError(IllegalStateException.class).verify();
+    }
+}

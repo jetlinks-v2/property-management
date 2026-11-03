@@ -12,6 +12,7 @@
     <packaging>pom</packaging>
     <name>Property Base</name>
     <modules>
+        <module>property-base-core</module>
         <module>property-base-manager</module>
     </modules>
 </project>

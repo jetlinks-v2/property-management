@@ -8,6 +8,7 @@
 property-management/
 ├── modules/
 │   ├── property-base/
+│   │   ├── property-base-core/          组织公共 DTO、类型及查询命令
 │   │   └── property-base-manager/       字典、空间、客户等基础档案
 │   ├── property-finance/
 │   │   └── property-finance-manager/    财务收费
@@ -59,9 +60,11 @@ Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT。Boot 版本与当前 J
 
 ## 接口与权限边界
 
-`GET /property/context` 返回平台标准响应包装，`result` 包含 `userId`、`username`、`projectId`（无项目时显式为 `null`）。前端通过 SaaS 网关调用 `/property/context`，沿用运行端的登录 token 和项目上下文。网关通过 JetLinks 集群发现服务和接口路由，业务模块不分别注册。
+基础模块提供 `/property/organization` 下的组织树、详情、类型标注与同步接口，由 SaaS 网关转发，沿用平台登录与组织资产权限。网关通过 JetLinks 集群发现服务和接口路由，业务模块不分别注册。
 
-接口只读取当前响应式认证与项目上下文，不接收用户或项目切换参数；未登录直接访问服务也会拒绝。`TenantHolder` 的项目上下文不能代替 `AssetsHolder` 数据权限。后续业务接口声明资源动作、资产类型并统一校验查询、详情、修改、逻辑删除、批量及导入导出权限。
+其他后端模块通过 `property-base-core` 的 `QueryPropertyOrganizationTreeCommand` 调用 `propertyService:organization`，获取带类型标注的完整可见组织树，具体契约及示例见 [基础模块说明](modules/property-base/README.md)。消费模块不依赖基础 manager，也不直接查询组织镜像表。
+
+`TenantHolder` 的项目上下文不能代替 `AssetsHolder` 数据权限。业务接口独立声明资源动作和资产类型，统一校验查询、详情、修改、逻辑删除、批量及导入导出权限。跨模块命令保留调用者的认证与资产上下文。
 
 SaaS 登录 token 应通过网关使用；网关处理登录身份并向后端传递平台内部认证上下文。不要把直接向 `8503` 发送原始登录 token 当成网关登录接入的验收路径，也不要为此在物业服务新增第二套 token 校验或登录接口。
 

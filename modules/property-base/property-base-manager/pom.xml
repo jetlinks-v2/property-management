@@ -13,6 +13,16 @@
     <dependencies>
         <dependency>
             <groupId>org.jetlinks.pro</groupId>
+            <artifactId>io-component</artifactId>
+            <version>${jetlinks.pro.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetlinks.pro</groupId>
+            <artifactId>property-base-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetlinks.pro</groupId>
             <artifactId>common-component</artifactId>
         </dependency>
         <dependency>
@@ -36,6 +46,11 @@
         <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hswebframework.web</groupId>
+            <artifactId>hsweb-authorization-basic</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
