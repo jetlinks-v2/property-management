@@ -1,7 +1,15 @@
-# 基础档案模块
+# 基础档案系统
 
-`property-base-manager` 承载本领域 Controller、Service、Entity、Repository、权限及国际化，统一由 `property-management-service` 装配。
+`property-base-manager` 承载本系统 Controller、Service、Entity、Repository、权限及国际化，由 `services/property-base-service` 独立装配、启动和发布。
 
-当前仅提供模块边界。字典、空间、客户档案按设计文档逐项实现；项目列表接口由项目模块提供。
+当前已有 `GET /property/context`，返回当前认证用户和项目上下文。字典、空间、客户等业务尚待实现。该接口仅属于基础系统，财务和巡更不依赖它获取上下文，均直接使用 SaaS 公共能力。
 
-跨模块共享 DTO、命令、事件、SPI 等公共契约出现时，再增加 `property-base-core`；core 不承载 CRUD，不反向依赖 manager。其他领域通过明确公共契约交互，不跨领域直接操作数据库表或注入内部服务。
+业务 CRUD 和权限留在 manager。系统内部确有领域类型或公共契约需求时再增加 core；core 不反向依赖 manager。
+
+禁止依赖、调用其他物业业务系统或读写其数据表。认证、租户、资产授权等直接复用 SaaS 公共组件。
+
+从仓库根目录只构建本系统：
+
+```bash
+mvn -pl :property-base-service -am verify
+```

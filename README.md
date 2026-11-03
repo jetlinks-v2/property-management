@@ -1,6 +1,6 @@
 # 物业管理后端
 
-基于 JetLinks SaaS 2.20 的独立物业后端仓库。按业务划分 Maven 模块，通过一个 Spring Boot 服务统一启动，复用现有 SaaS 网关、登录、租户、资产权限和 Docker 中间件。
+基于 JetLinks SaaS 2.20 的物业组后端单仓库。基础档案、财务收费、智能巡更各自拥有业务模块、启动服务和发布制品，可以只构建、启动或更新其中一个系统。各系统直接复用 SaaS 网关、认证、租户、资产权限和公共中间件，系统之间互不依赖、互不调用。
 
 ## 工程结构
 
@@ -8,85 +8,86 @@
 property-management/
 ├── modules/
 │   ├── property-base/
-│   │   └── property-base-manager/       字典、空间、客户等基础档案
+│   │   └── property-base-manager/
 │   ├── property-finance/
-│   │   └── property-finance-manager/    财务收费
+│   │   └── property-finance-manager/
 │   └── property-patrol/
-│       └── property-patrol-manager/     巡更
+│       ├── property-patrol-core/
+│       └── property-patrol-manager/
 ├── services/
-│   └── property-management-service/     统一启动、配置与装配
-├── deploy/                             Docker SaaS 与 IDEA 联调配置
-└── .run/                               IDEA 启动和调试配置
+│   ├── property-base-service/
+│   ├── property-finance-service/
+│   └── property-patrol-service/
+├── deploy/
+│   ├── patrol/                 巡更连接示例及认证服务应用模板
+│   ├── start-service.sh        单系统 JAR 启动脚本
+│   └── enable-host-dev.ps1     Windows Docker SaaS / IDEA 联调
+└── .run/                       三个独立 IDEA 启动配置
 ```
 
-Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT。Boot 版本与当前 JetLinks BOM 一致，根 POM 统一版本和依赖；业务 manager 由启动模块显式依赖，只有一个应用进程和服务发现身份。参考门禁的多模块与 SaaS 接入结构，不依赖门禁厂商插件。
+Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT，版本和插件由根 POM 管理。`modules/` 中的 POM 只负责构建聚合，不启动进程；每个 `service` 只依赖本系统 manager。单个系统可以包含多个菜单及对应 Controller、Service、Entity、权限和国际化。系统内部有需要时拆分 core，core 只承载领域类型、DTO、规则或契约，不承载 CRUD，也不反向依赖 manager。
 
-各 manager 承载领域接口、应用服务、持久化、权限及国际化。需要跨模块复用 DTO、命令、事件或 SPI 时，再在对应领域增加 core。core 不承载 CRUD，不反向依赖 manager；跨领域不直接读写其他模块的表或注入其内部服务。当前财务和巡更仅有模块边界，具体业务按后续设计实施。
+禁止业务系统之间的 Maven 依赖、内部服务注入、跨库读写，以及通过 HTTP、命令、代理或事件互相调用；SaaS 公共能力由各系统直接接入。基础档案不是其他系统的必启前置服务。各前端仍分别放在 SaaS 的 `runtime-ui/modules/`，不在本仓库合并前端。
 
-## IDEA 启动与 Docker SaaS 接入
+| 系统 | 启动类 | 默认 HTTP / 集群 / RPC | 服务发现名 | 默认业务库 |
+| --- | --- | --- | --- | --- |
+| 基础档案 | `org.jetlinks.pro.property.base.PropertyBaseApplication` | 8503 / 18503 / 28503 | `property-base-service` | `property_base` |
+| 财务收费 | `org.jetlinks.pro.property.finance.PropertyFinanceApplication` | 8504 / 18504 / 28504 | `property-finance-service` | `property_finance` |
+| 智能巡更 | `org.jetlinks.pro.patrol.PatrolApplication` | 8502 / 18502 / 28502 | `cloud-patrol-service` | `cloud_patrol` |
 
-1. 用 IDEA 打开本目录 `pom.xml`，SDK 和 Maven Runner JRE 选择 JDK 17，使用现有 JetLinks Maven settings 与仓库权限。
-2. 启动现有 Docker PostgreSQL、Redis、SaaS 网关和运行端；运营控制端仍按 SaaS 原有方式运行。
-3. 在 `services/property-management-service/src/main/resources` 中创建 `application-local.yml`，参考同目录 `application-default.yml` 中的注释示例，填写现有 PostgreSQL、Redis、RPC token 和 JWT 公钥。已配置的本机文件无需覆盖；不需要 JWT 私钥。
-4. 在 PowerShell 执行 `./deploy/enable-host-dev.ps1`，为 Docker 网关及运行端叠加本机联调端口和注册地址。脚本读取带默认网关的唯一活动网卡地址；有多个候选时要求用 `-AdvertisedHost` 指定。脚本只更新 `application-local.yml` 中的 `CLUSTER_EXTERNAL_HOST`、`RPC_EXTERNAL_HOST`，其余设置和密钥原文保留。脚本只更新这两个服务，数据卷和数据库、Redis 等依赖容器保留。默认 SaaS 位于相邻 `cloud.jetlinks/runtime/all-in-one`，Compose 项目名为 `jetlinks-local`，均可通过参数调整。
-5. 等待网关与运行端健康，运行自带配置 **物业后端 PropertyManagementApplication**，或调试 `org.jetlinks.pro.property.PropertyManagementApplication`。工作目录必须为本仓库根目录。
+各系统有独立的事件和配置命名空间。巡更保留已部署的 `cloud-patrol-service` 服务名、`cloud-patrol` 命名空间、`/park/patrol/**` 接口、资产/权限 ID 和 `CloudPatrol` 应用模板；目录与 Maven 制品名改为 `property-patrol-*` 不改变这些外部契约。
 
-配置与 JetLinks 原工程统一，全部位于启动服务的 `src/main/resources`：
+## 当前业务范围
 
-| 文件 | 职责 |
-| --- | --- |
-| `application.yml` | 公共配置，默认激活 `default,dev,local` |
-| `application-default.yml` | 连接变量的注释示例，供本地配置参考 |
-| `application-dev.yml` | 开发日志配置 |
-| `application-local.yml` | 本机连接、密钥和注册地址，由 Spring Profile 自动加载 |
+- [基础档案](modules/property-base/README.md)：已有 `GET /property/context` 当前用户/项目上下文接口，字典、空间、客户等业务尚待开发。
+- [财务收费](modules/property-finance/README.md)：已有模块和独立启动骨架，收费业务尚待开发。
+- [智能巡更](modules/property-patrol/README.md)：包含现有分类、点位、标准、岗位、排班、计划、任务、执行及统计实现与测试；后续巡更后端统一在本仓库开发。
 
-`application-local.yml` 被 Git 忽略。开发编译时复制到类路径供 IDEA 运行，生成发布 JAR 时由 Maven JAR 插件排除；不在业务模块分别维护配置。共享配置与 IDEA 配置不填写实际密钥。
+## 独立构建与启动
 
-| 用途 | 默认端口或地址 |
-| --- | --- |
-| 物业 HTTP | `8503` |
-| 物业集群 / RPC | `18503` / `28503` |
-| SaaS 网关 HTTP | `http://127.0.0.1:8800` |
-| SaaS 网关集群 / RPC | `18800` / `28800` |
-| SaaS 运行端 HTTP（网关回连） | `8200` |
-| SaaS 运行端集群 / RPC | `18200` / `28200` |
-| PostgreSQL | `127.0.0.1:5432/jetlinks`，schema `public` |
-| Redis | `127.0.0.1:6379`，与运行端同一逻辑库 |
+需要 JDK17、Maven 及目标 SaaS 对应 JetLinks 制品的仓库权限。根目录执行以下命令只构建所选系统和它自己的依赖，不会构建或启动兄弟系统：
 
-容器与物业服务向集群发布同一个实际宿主机地址，种子为 `127.0.0.1:18800`，上述集群和 RPC 端口需双向可达。使用实际地址可以避免 Windows hosts 中过期的 `host.docker.internal` 记录。网卡地址改变后重新运行脚本、重新编译并重启物业服务。服务器部署时通过环境变量或外部配置指定实际连接地址。
+```bash
+mvn -pl :property-patrol-service -am verify
+mvn -pl :property-base-service -am verify
+mvn -pl :property-finance-service -am verify
+```
 
-联调覆盖文件位于本仓库，后续更新 Docker 网关或运行端时仍需带上它；再次运行脚本即可。恢复纯 Docker 模式时，用原来的两个 Compose 文件执行 `up -d --no-deps api-gateway-service all-in-one-service`；不要执行 `down -v`。
+也可执行 `mvn verify` 构建全仓库；这仍只生成三个独立 JAR，不产生统一业务进程。产物分别位于 `services/property-<system>-service/target/application.jar`，发布时须保留系统目录或镜像名区别，不能把三个同名 JAR 混放。
 
-## 接口与权限边界
+先准备业务库、环境变量及可达的 SaaS 公共服务，再选择其中一个启动：
 
-`GET /property/context` 返回平台标准响应包装，`result` 包含 `userId`、`username`、`projectId`（无项目时显式为 `null`）。前端通过 SaaS 网关调用 `/property/context`，沿用运行端的登录 token 和项目上下文。网关通过 JetLinks 集群发现服务和接口路由，业务模块不分别注册。
+```bash
+# 连接变量见各 service 的 application-default.yml；巡更另有 deploy/patrol/patrol.env.example。
+# 服务器通过环境变量提供真实连接值，脚本不自行加载凭据文件。
+bash deploy/start-service.sh patrol
+# 本机可显式加载被 Git 忽略的 application-local.yml：
+bash deploy/start-service.sh base services/property-base-service/src/main/resources/application-local.yml
+```
 
-接口只读取当前响应式认证与项目上下文，不接收用户或项目切换参数；未登录直接访问服务也会拒绝。`TenantHolder` 的项目上下文不能代替 `AssetsHolder` 数据权限。后续业务接口声明资源动作、资产类型并统一校验查询、详情、修改、逻辑删除、批量及导入导出权限。
+脚本提供 Java17/21 下 Redis/FST 集群序列化需要的 `--add-opens` 参数。PowerShell/IDEA 运行也需要这些参数，自带 `.run/` 配置已提供。启动一个系统不要求启动另外两个，但数据库、Redis、网关等公共依赖仍需可用。
 
-SaaS 登录 token 应通过网关使用；网关处理登录身份并向后端传递平台内部认证上下文。不要把直接向 `8503` 发送原始登录 token 当成网关登录接入的验收路径，也不要为此在物业服务新增第二套 token 校验或登录接口。
+## IDEA 与本地连接配置
 
-OpenAPI 分组为 `property-management-service`，路由 `/v3/api-docs/property-management-service`。扫描覆盖 `org.jetlinks.pro.property` 下所有已装配模块的接口。
+1. 打开根 `pom.xml`，IDEA SDK 和 Maven Runner JRE 使用 JDK17，配置团队 JetLinks Maven settings。
+2. 在目标 `services/property-<system>-service/src/main/resources/` 中，复制 `application-default.yml` 为 `application-local.yml`，去掉示例键前的注释并填写实际连接值。不要复制本机凭据到另一个系统后仍使用同一业务库。
+3. 选择对应的“基础档案”“财务收费”或“智能巡更”运行配置，激活 `default,dev,local`。只有目标 service 的类路径会参与运行；不要人为把兄弟 manager 加入运行依赖。
+4. 对齐 SaaS 的 Redis、RPC token、JWT 公钥和集群种子。各系统的 HTTP、集群和 RPC 广播地址必须能被平台节点回连；多个本机服务同时启动时不能覆盖成同一个端口或 `SERVER_ID`。
 
-不新增独立登录、用户、角色或项目管理。项目列表由其他开发人员提供；收费前端已有统一项目列表接入入口。字典、空间、客户等业务设计位于相邻 `../设计文档`，所有业务删除遵循已确认的逻辑删除规则。
+`application.yml` 默认仅加载 `default`，生产连接值由环境变量或外部配置提供；`application-dev.yml` 只控制开发日志。`application-local.yml` 在开发编译时进入类路径供 IDEA 使用，但被 Git 忽略，且由 JAR 插件排除，不进入发布制品。本仓库不维护 SaaS 管理员初始密码或 JWT 私钥。
 
-## 构建与命令行运行
+Windows 连接本机 Docker SaaS 时可使用：
 
 ```powershell
-mvn clean verify
-$propertyJvmOptions = @(
-  '--add-opens=java.base/java.lang=ALL-UNNAMED',
-  '--add-opens=java.base/java.util=ALL-UNNAMED',
-  '--add-opens=java.base/java.util.concurrent=ALL-UNNAMED',
-  '--add-opens=java.base/java.io=ALL-UNNAMED',
-  '--add-opens=java.base/java.net=ALL-UNNAMED',
-  '--add-opens=java.base/java.text=ALL-UNNAMED',
-  '--add-opens=java.base/java.math=ALL-UNNAMED',
-  '--add-opens=java.base/java.time=ALL-UNNAMED',
-  '--add-opens=java.scripting/javax.script=ALL-UNNAMED',
-  '-Dspring.reactor.debug-agent.enabled=false'
-)
-# 本机运行发布 JAR 时显式加载源码目录里的本地配置；JAR 本身不包含该文件。
-java @propertyJvmOptions -jar services/property-management-service/target/application.jar --spring.config.additional-location=file:services/property-management-service/src/main/resources/application-local.yml
+./deploy/enable-host-dev.ps1 -System patrol -SaasComposeDirectory '实际 cloud.jetlinks/runtime/all-in-one 路径'
 ```
 
-Java 17 的集群序列化需要这些 VM 参数，IDEA 配置已提供。仅启动物业后端即可调试三个业务模块，SaaS 及中间件继续在 Docker 运行。日志位于 `data/logs/`。原 `charging-management` 保留供对照，物业业务后续统一在本仓库开发。
+脚本只更新所选服务本地配置中的两个注册地址，并为本机 Docker 网关/运行端叠加 `deploy/docker-compose.host-dev.yml`；不会启动其他物业系统。多网卡时用 `-AdvertisedHost` 指定地址。它面向本机 Docker 联调，不用于修改已部署的测试环境；连接远程测试公共服务时自行配置可达的地址和隧道。
+
+## SaaS 接入与部署边界
+
+各系统通过网关发现和公开路由接入，登录、用户、角色、组织和项目管理沿用 SaaS。`TenantHolder` 只代表项目上下文，业务数据权限仍由 `AssetsHolder` 控制。巡更业务与应用初始化步骤见 [巡更说明](modules/property-patrol/README.md)。基础系统的 `/property/context` 沿用响应式认证，不接收客户端传入的用户或项目 ID，也不向其他物业系统提供上下文中转服务。
+
+仅调整源码仓库和构建结构，不需要重新部署整个 SaaS。切换新产物时只更新对应系统后端，巡更继续使用原部署目录、业务库、服务名和应用模板；同一环境替换时先停止旧实例，避免保留相同节点 ID 的重复实例。运行端前端文件未变化时无需重发；只有页面变动才重建运行端宿主。基础、财务服务以后按需分别部署、初始化各自菜单和模板。
+
+SaaS 聚合工作区通过 `modules/property-management` 引用本仓库，前端仍各自维护。源码聚合不等于部署或应用开通；单系统打包成功也不等于网关、项目应用、资产权限及 PostgreSQL 业务验收通过。

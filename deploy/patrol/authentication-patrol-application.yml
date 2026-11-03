@@ -1,0 +1,91 @@
+# 加载到认证服务；先导入菜单，再创建/更新模板。
+jetlinks:
+  business-application:
+    template:
+      initialize:
+        enabled: true
+        custom-templates:
+          - template:
+              id: cloud-patrol
+              code: CloudPatrol
+              name: 智能巡更
+              provider: official
+              description: 巡更配置、计划、排班、任务与执行记录
+              sort-index: 75
+            menus:
+              - id: cloud-patrol
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+              - id: patrol-categories
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+                buttons:
+                  - {id: save, granted: true}
+              - id: patrol-points
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+                buttons:
+                  - {id: save, granted: true}
+              - id: patrol-standards
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+                buttons:
+                  - {id: save, granted: true}
+              - id: patrol-posts
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+                buttons:
+                  - {id: save, granted: true}
+              - id: patrol-rosters
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+                buttons:
+                  - {id: save, granted: true}
+              - id: patrol-plans
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+                buttons:
+                  - {id: save, granted: true}
+              - id: patrol-tasks
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+                buttons:
+                  - {id: generate, granted: true}
+              - id: patrol-records
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+              - id: patrol-reports
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+            asset-accesses:
+              - asset-type: patrolCategory
+                accesses: [{supportId: business_application}]
+                options: {scopeStrategy: SELECT_AND_BIND}
+              - asset-type: patrolPoint
+                accesses: [{supportId: business_application}]
+                options: {scopeStrategy: SELECT_AND_BIND}
+              - asset-type: patrolStandard
+                accesses: [{supportId: business_application}]
+                options: {scopeStrategy: SELECT_AND_BIND}
+              - asset-type: patrolPost
+                accesses: [{supportId: business_application}]
+                options: {scopeStrategy: SELECT_AND_BIND}
+              - asset-type: patrolRoster
+                accesses: [{supportId: business_application}]
+                options: {scopeStrategy: SELECT_AND_BIND}
+              - asset-type: patrolPlan
+                accesses: [{supportId: business_application}]
+                options: {scopeStrategy: SELECT_AND_BIND}
+              - asset-type: user
+                accesses: [{supportId: business_application}]
+                options: {scopeStrategy: SELECT}
