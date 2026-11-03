@@ -38,6 +38,9 @@ public class PatrolConfigurationValidator {
     private final PatrolPostService posts;
     private final SaasPersonDirectory people;
     private final PatrolScope scope;
+    private final PatrolAttachmentService attachments;
+    private final PatrolLevelService levels;
+    private final PatrolTagService tags;
 
     public Mono<Void> validate(PatrolConfigEntity entity) {
         return scope.current()
@@ -58,7 +61,11 @@ public class PatrolConfigurationValidator {
                                                 point.getCategoryId(),
                                                 categories.findById(point.getCategoryId()),
                                                 current.key())
-                                        .then();
+                                        .then(reactor.core.publisher.Flux.fromIterable(
+                                                point.getTagIds() == null ? List.<String>of() : point.getTagIds())
+                                                .concatMap(id -> reference(PatrolAssetType.patrolTag, id,
+                                                        tags.findById(id), current.key()))
+                                                .then());
                             }
                             if (entity instanceof PatrolCategoryEntity category)
                                 return checkParents(
@@ -66,15 +73,26 @@ public class PatrolConfigurationValidator {
                                         category.getParentId(),
                                         new HashSet<>(Set.of(category.getId())),
                                         current.key());
+                            if (entity instanceof org.jetlinks.pro.patrol.entity.PatrolWarningEntity warning) {
+                                if (!warning.getTriggerChildCode().startsWith(warning.getTriggerParentCode() + "_"))
+                                    return Mono.error(new BusinessException("error.patrol.warning.trigger"));
+                                warning.setWarningCode("YJ" + warning.getId().replace("-", "").toUpperCase());
+                                if (warning.getName().length() > 30)
+                                    return Mono.error(new BusinessException("error.patrol.warning.name"));
+                            }
+                            if (entity instanceof org.jetlinks.pro.patrol.entity.PatrolLevelEntity level) {
+                                try { RuleEngine.validate(level.getRule()); }
+                                catch (IllegalArgumentException error) {
+                                    return Mono.error(new BusinessException(error.getMessage()));
+                                }
+                            }
                             if (entity instanceof PatrolStandardEntity standard) {
-                                Set<String> ids = new HashSet<>();
-                                for (var item : standard.getItems())
-                                    if (!ids.add(item.id())
-                                            || new HashSet<>(item.options()).size()
-                                                    != item.options().size())
-                                        return Mono.error(
-                                                new BusinessException(
-                                                        "error.patrol.standard.duplicate_item"));
+                                PatrolInspection.validateStandard(standard.getItems());
+                                return attachments.assertReferences(standard.getItems().stream()
+                                                .map(PatrolStandardEntity.CheckItem::exampleFileId)
+                                                .filter(id -> id != null && !id.isBlank()).toList(),
+                                        org.jetlinks.pro.patrol.entity.PatrolAttachmentEntity.Purpose.example,
+                                        current.key(), null);
                             }
                             if (entity instanceof PatrolPostEntity post)
                                 return people.assertMembers(post.getUserIds());
@@ -105,6 +123,9 @@ public class PatrolConfigurationValidator {
                                                                 : Mono.error(
                                                                         new BusinessException(
                                                                                 "error.patrol.execution.unassigned")))
+                                        .then(people.query(org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
+                                                .is("id", roster.getUserId()).getParam()))
+                                        .doOnNext(page -> { if (!page.getData().isEmpty()) roster.setUserName(page.getData().get(0).name()); })
                                         .then();
                             }
                             if (entity instanceof PatrolPlanEntity plan) {
@@ -113,18 +134,12 @@ public class PatrolConfigurationValidator {
                                                 .isAfter(plan.getEffectiveFrom().plusYears(2)))
                                     return Mono.error(
                                             new BusinessException("error.patrol.plan.dates"));
-                                try {
-                                    RuleEngine.validate(plan.getRule());
-                                    // 覆盖有效期的日期和次日，保存时就拒绝跨天重叠，不等调度时才报错。
-                                    for (LocalDate day = plan.getEffectiveFrom();
-                                            !day.isAfter(plan.getEffectiveTo().plusDays(1));
-                                            day = day.plusDays(1))
-                                        RuleEngine.expand(
-                                                plan.getRule(), day, ZoneId.of("Asia/Shanghai"));
-                                } catch (IllegalArgumentException e) {
-                                    return Mono.error(new BusinessException(e.getMessage()));
-                                }
-                                return Mono.when(
+                                Mono<Void> levelCheck = plan.getLevelId() == null || plan.getLevelId().isBlank()
+                                        ? Mono.empty()
+                                        : reference(PatrolAssetType.patrolLevel, plan.getLevelId(),
+                                                levels.findById(plan.getLevelId()), current.key())
+                                                .doOnNext(level -> plan.setRule(level.getRule())).then();
+                                return levelCheck.then(Mono.fromRunnable(() -> validatePlanRule(plan))).then(Mono.when(
                                         reference(
                                                 PatrolAssetType.patrolPoint,
                                                 plan.getPointId(),
@@ -139,10 +154,21 @@ public class PatrolConfigurationValidator {
                                                 PatrolAssetType.patrolStandard,
                                                 plan.getStandardId(),
                                                 standards.findById(plan.getStandardId()),
-                                                current.key()));
+                                                current.key())));
                             }
                             return Mono.empty();
                         });
+    }
+
+    /** 先解析被选等级，再验证生效期内的规则及相邻日期跨天重叠。 */
+    private static void validatePlanRule(PatrolPlanEntity plan) {
+        try {
+            RuleEngine.validate(plan.getRule());
+            for (LocalDate day = plan.getEffectiveFrom(); !day.isAfter(plan.getEffectiveTo().plusDays(1)); day = day.plusDays(1))
+                RuleEngine.expand(plan.getRule(), day, ZoneId.of("Asia/Shanghai"));
+        } catch (IllegalArgumentException error) {
+            throw new BusinessException(error.getMessage());
+        }
     }
 
     private Mono<Void> checkParents(

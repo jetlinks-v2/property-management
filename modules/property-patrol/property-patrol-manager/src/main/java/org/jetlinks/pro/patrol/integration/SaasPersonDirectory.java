@@ -9,7 +9,6 @@ import org.jetlinks.core.command.CommandUtils;
 import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.authorize.BusinessApplicationDimension;
 import org.jetlinks.pro.command.CommandServices;
-import org.jetlinks.pro.tenant.TenantConstants;
 import org.jetlinks.sdk.server.SdkServices;
 import org.jetlinks.sdk.server.auth.AuthCommandSupportTypes;
 import org.jetlinks.sdk.server.auth.UserDetail;
@@ -26,7 +25,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
 
-/** 人员主数据只读公开 SDK；项目成员、应用成员及 user 资产权限必须同时满足。 */
+/** 人员沿用当前 SaaS 应用的公开 SDK；应用成员及 user 资产权限必须同时满足，不接入园区员工或业主表。 */
 @Component
 public class SaasPersonDirectory {
     private final PatrolScope scope;
@@ -58,7 +57,6 @@ public class SaasPersonDirectory {
                         current -> {
                             parameter
                                     .toNestQuery()
-                                    .and(TenantConstants.Fields.tenantId, current.projectId())
                                     .and("status", 1)
                                     .and(
                                             "id",
@@ -82,7 +80,8 @@ public class SaasPersonDirectory {
                         page ->
                                 PagerResult.of(
                                         page.getTotal(),
-                                        page.getData().stream().map(this::toPerson).toList(),
+                                        // RPC 分页元素可能是 Map，先按未知元素读取，再交给平台转换器。
+                                        ((List<?>) page.getData()).stream().map(this::toPerson).toList(),
                                         parameter));
     }
 

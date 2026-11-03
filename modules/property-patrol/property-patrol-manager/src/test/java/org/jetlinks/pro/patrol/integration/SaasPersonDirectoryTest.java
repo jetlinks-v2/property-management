@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -58,7 +59,9 @@ class SaasPersonDirectoryTest {
     private final SaasPersonDirectory directory =
             new SaasPersonDirectory(new PatrolScope(), () -> Mono.just(support));
 
-    private Context identity() {
+    private Context identity() { return identity(true); }
+
+    private Context identity(boolean withTenant) {
         var user = new SimpleUser();
         user.setId("operator");
         var auth = new SimpleAuthentication();
@@ -75,7 +78,7 @@ class SaasPersonDirectoryTest {
                         Map.of("user", AssetScopeStrategy.SELECT))
                 .write()
                 .apply(
-                        TenantHolder.makeCurrent("north")
+                        (withTenant ? TenantHolder.makeCurrent("north") : Context.empty())
                                 .put(
                                         AssetsHolder.class,
                                         new CreatorAssetsHolder(user, mock(AssetManager.class))));
@@ -99,12 +102,8 @@ class SaasPersonDirectoryTest {
         assertEquals(1000, request.getPageSize());
         assertEquals(original, request.getTerms().size());
         var terms = flatten(query.getTerms()).toList();
-        assertTrue(
-                terms.stream()
-                        .anyMatch(
-                                term ->
-                                        "tenantId".equals(term.getColumn())
-                                                && "north".equals(term.getValue())));
+        // 应用成员由 SaaS 管理，巡更不把技术租户当成园区项目再次筛选人员。
+        assertTrue(terms.stream().noneMatch(term -> "tenantId".equals(term.getColumn())));
         assertTrue(
                 terms.stream()
                         .anyMatch(
@@ -126,6 +125,38 @@ class SaasPersonDirectoryTest {
                                                 && "operator".equals(term.getValue())));
         // 客户端 OR 条件必须被嵌套，不能与强制范围条件成为同级 OR。
         assertTrue(query.getTerms().stream().noneMatch(term -> term.getType() == Term.Type.or));
+    }
+
+    @Test
+    void platformApplicationWithoutTenantStillUsesApplicationAndAssetBoundaries() {
+        when(support.execute(any(QueryUserDetailPageCommand.class)))
+                .thenReturn(Mono.just(PagerResult.empty()));
+        StepVerifier.create(new PatrolScope().current().contextWrite(identity(false)))
+                .assertNext(current -> {
+                    assertEquals("", current.tenantId());
+                    assertEquals("app-a", current.applicationId());
+                    assertEquals("|app-a", current.key());
+                }).verifyComplete();
+        StepVerifier.create(directory.query(new QueryParamEntity()).contextWrite(identity(false)))
+                .expectNextCount(1).verifyComplete();
+        var captor = ArgumentCaptor.forClass(QueryUserDetailPageCommand.class);
+        verify(support).execute(captor.capture());
+        var terms = flatten(captor.getValue().asQueryParam().getTerms()).toList();
+        assertTrue(terms.stream().anyMatch(term -> "in-dimension".equals(term.getTermType())
+                && List.of("app-a").equals(term.getValue())));
+        assertTrue(terms.stream().anyMatch(term -> "id".equals(term.getColumn())
+                && "operator".equals(term.getValue())));
+    }
+
+    @Test
+    void rpcMapElementsAreConvertedWithoutCastingBeforeTheAdapter() {
+        doReturn(Mono.just(PagerResult.of(1, List.of(Map.of("id", "operator", "name", "测试巡更员")))))
+                .when(support).execute(any(QueryUserDetailPageCommand.class));
+        StepVerifier.create(directory.query(new QueryParamEntity()).contextWrite(identity(false)))
+                .assertNext(page -> {
+                    assertEquals(1, page.getTotal());
+                    assertEquals(new SaasPersonDirectory.Person("operator", "测试巡更员"), page.getData().get(0));
+                }).verifyComplete();
     }
 
     @Test

@@ -8,26 +8,21 @@ import org.springframework.stereotype.Component;
 
 import reactor.core.publisher.Mono;
 
-/** 只从可信平台上下文取项目和应用；业务唯一键使用它，不用它替代 AssetsHolder 查询。 */
+/** 巡更以当前 SaaS 应用为业务范围；租户仅保留平台已有技术上下文，不等同于园区业务项目。 */
 @Component
 public class PatrolScope {
-    public record Current(String projectId, String applicationId) {
+    public record Current(String tenantId, String applicationId) {
         public String key() {
-            return projectId + "|" + applicationId;
+            return tenantId + "|" + applicationId;
         }
     }
 
     public Mono<Current> current() {
-        return TenantHolder.currentId()
-                .zipWith(
-                        AssetScopeContext.currentReactive()
-                                .flatMap(
-                                        scope ->
-                                                Mono.justOrEmpty(
-                                                        scope.getScope(
-                                                                BusinessApplicationDimension
-                                                                        .TYPE))))
-                .map(pair -> new Current(pair.getT1(), pair.getT2().id()))
+        // 平台创建的应用可以不属于租户；应用 Scope 仍须由平台激活，资产授权另由 AssetsHolder 负责。
+        return AssetScopeContext.currentReactive()
+                .flatMap(scope -> Mono.justOrEmpty(scope.getScope(BusinessApplicationDimension.TYPE)))
+                .zipWith(TenantHolder.currentId().defaultIfEmpty(""))
+                .map(pair -> new Current(pair.getT2(), pair.getT1().id()))
                 .switchIfEmpty(Mono.error(AccessDenyException.NoStackTrace::new));
     }
 }

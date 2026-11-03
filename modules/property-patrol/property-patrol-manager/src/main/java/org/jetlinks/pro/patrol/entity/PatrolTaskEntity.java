@@ -26,9 +26,24 @@ import javax.persistence.Table;
         indexes = {
             @Index(name = "pt_task_plan_time", columnList = "planId,startTime", unique = true),
             @Index(name = "pt_task_end", columnList = "endTime"),
+            @Index(name = "pt_task_group_period", columnList = "taskGroupId,periodNo", unique = true),
             @Index(name = "pt_task_date_plan", columnList = "businessDate,planId")
         })
 public class PatrolTaskEntity extends GenericEntity<String> {
+    /** 生成时确定的逻辑任务组；不得由查询端按点位和日期重新推算。 */
+    @Column(length = 64, updatable = false)
+    private String taskGroupId;
+
+    /** 规则归属日，跨天时段仍属于开始生成规则的业务日期。 */
+    @Column(length = 10, updatable = false)
+    private String belongDate;
+
+    @Column(updatable = false)
+    private Integer periodNo;
+
+    @Column(length = 64, updatable = false)
+    private String ruleVersion;
+
     @Column(length = 64, nullable = false, updatable = false)
     private String planId;
 
@@ -40,6 +55,15 @@ public class PatrolTaskEntity extends GenericEntity<String> {
 
     @Column(length = 128, updatable = false)
     private String pointName;
+
+    @Column(length = 64, updatable = false)
+    private String categoryId;
+
+    @Column(length = 64, updatable = false)
+    private String levelId;
+
+    @Column(length = 128, updatable = false)
+    private String levelName;
 
     @Column(length = 64, nullable = false, updatable = false)
     private String postId;

@@ -37,6 +37,16 @@ public class PatrolRosterEntity extends PatrolConfigEntity {
     @NotBlank
     private String userId;
 
+    @Column(length = 128)
+    private String userName;
+
+    @Column(length = 128)
+    private String shiftName;
+
+    /** 原排班的“休息”行保留展示，但不能成为在班资格。 */
+    @Column(nullable = false)
+    private boolean rest;
+
     @Column(nullable = false)
     @NotNull
     private Long startTime;

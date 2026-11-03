@@ -40,6 +40,8 @@ final class PatrolDatabase implements AutoCloseable {
     PatrolDatabase() {
         keepAlive = Mono.from(connections.create()).block(Duration.ofSeconds(10));
         RDBSchemaMetadata schema = new RDBSchemaMetadata("PUBLIC");
+        // 测试需要真实 SQL 分页；通用 schema 默认不注册 H2 分页器。
+        schema.addFeature(new org.hswebframework.ezorm.rdb.supports.h2.H2Paginator());
         metadata.addSchema(schema);
         metadata.setCurrentSchema(schema);
         metadata.addFeature(new CurrentTimeGenerator());

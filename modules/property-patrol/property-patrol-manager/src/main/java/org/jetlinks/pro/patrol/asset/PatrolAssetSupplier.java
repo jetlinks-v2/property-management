@@ -14,7 +14,11 @@ import org.jetlinks.pro.patrol.service.PatrolPointService;
 import org.jetlinks.pro.patrol.service.PatrolPostService;
 import org.jetlinks.pro.patrol.service.PatrolRosterService;
 import org.jetlinks.pro.patrol.service.PatrolStandardService;
+import org.jetlinks.pro.patrol.service.PatrolAttachmentService;
 import org.springframework.stereotype.Component;
+import org.jetlinks.pro.patrol.service.PatrolLevelService;
+import org.jetlinks.pro.patrol.service.PatrolTagService;
+import org.jetlinks.pro.patrol.service.PatrolWarningService;
 
 import reactor.core.publisher.Flux;
 
@@ -31,6 +35,11 @@ public class PatrolAssetSupplier implements AssetSupplier {
     private final PatrolPostService posts;
     private final PatrolRosterService rosters;
     private final PatrolPlanService plans;
+    private final PatrolAttachmentService attachments;
+
+    private final PatrolLevelService levels;
+    private final PatrolTagService tags;
+    private final PatrolWarningService warnings;
 
     public List<? extends AssetType> getTypes() {
         return List.of(PatrolAssetType.values());
@@ -39,12 +48,16 @@ public class PatrolAssetSupplier implements AssetSupplier {
     public Flux<? extends Asset> getAssets(AssetType type, Collection<?> ids) {
         GenericReactiveCrudService<? extends PatrolConfigEntity, String> service =
                 switch (PatrolAssetType.valueOf(type.getId())) {
+                    case patrolLevel -> levels;
+                    case patrolTag -> tags;
+                    case patrolWarning -> warnings;
                     case patrolCategory -> categories;
                     case patrolPoint -> points;
                     case patrolStandard -> standards;
                     case patrolPost -> posts;
                     case patrolRoster -> rosters;
                     case patrolPlan -> plans;
+                    case patrolAttachment -> attachments;
                 };
         if (ids.isEmpty()) return Flux.empty();
         return service.createQuery()

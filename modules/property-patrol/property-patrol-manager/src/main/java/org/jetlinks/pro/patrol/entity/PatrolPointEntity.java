@@ -9,6 +9,10 @@ import lombok.Setter;
 import org.hswebframework.web.crud.annotation.EnableEntityEvent;
 import org.jetlinks.pro.assets.annotation.Asset;
 
+import org.hswebframework.ezorm.rdb.mapping.annotation.ColumnType;
+import org.hswebframework.ezorm.rdb.mapping.annotation.JsonCodec;
+import java.sql.JDBCType;
+import java.util.List;
 import javax.persistence.Column;
 import javax.persistence.Index;
 import javax.persistence.Table;
@@ -34,6 +38,11 @@ public class PatrolPointEntity extends PatrolConfigEntity {
     @Column(length = 255)
     @Size(max = 255)
     private String location;
+
+    @Column
+    @JsonCodec
+    @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)
+    private List<String> tagIds = List.of();
 
     @Column(length = 128)
     @Size(max = 128)

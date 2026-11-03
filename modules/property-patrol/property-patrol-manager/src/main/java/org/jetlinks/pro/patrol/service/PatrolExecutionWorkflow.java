@@ -24,12 +24,8 @@ import reactor.core.publisher.Mono;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 
 /** 执行唯一事务 owner：资格、CAS 计数和执行事实一起提交；重试只恢复同一个已提交请求。 */
@@ -43,6 +39,7 @@ public class PatrolExecutionWorkflow {
     private final PatrolRosterService rosters;
     private final PatrolExecutionService executions;
     private final SaasPersonDirectory people;
+    private final PatrolAttachmentService attachments;
     private final TransactionalOperator transaction;
 
     public record Submission(
@@ -110,6 +107,11 @@ public class PatrolExecutionWorkflow {
             PatrolTaskEntity task, Authentication auth, String id, Submission submission) {
         Instant now = Instant.now();
         return checkEligibility(task, auth.getUser().getId(), now)
+                .flatMap(scopeKey -> attachments.assertReferences(
+                        submission.answers().stream().map(PatrolExecutionEntity.Answer::attachmentId)
+                                .filter(fileId -> fileId != null && !fileId.isBlank()).toList(),
+                        org.jetlinks.pro.patrol.entity.PatrolAttachmentEntity.Purpose.evidence,
+                        scopeKey, auth.getUser().getId()))
                 .then(Mono.fromCallable(() -> buildRecord(task, auth, id, submission, now)))
                 .flatMap(
                         record ->
@@ -136,7 +138,8 @@ public class PatrolExecutionWorkflow {
                                                                                 "error.patrol.execution.concurrent"))));
     }
 
-    private Mono<Void> checkEligibility(PatrolTaskEntity task, String userId, Instant now) {
+    /** 列表只预检；提交仍在事务中重新校验，不能把页面状态当成执行凭据。 */
+    Mono<String> checkEligibility(PatrolTaskEntity task, String userId, Instant now) {
         return Mono.zip(
                         plans.findById(task.getPlanId()),
                         points.findById(task.getPointId()),
@@ -145,6 +148,10 @@ public class PatrolExecutionWorkflow {
                         Mono.error(new BusinessException("error.patrol.reference.unavailable")))
                 .flatMap(
                         data -> {
+                            // 先判断岗位归属，手机列表不能因配置停用而显示其他岗位的任务。
+                            if (!data.getT3().getUserIds().contains(userId)) {
+                                return Mono.error(new BusinessException("error.patrol.execution.unassigned"));
+                            }
                             if (!data.getT1().isEnabled()
                                     || !data.getT2().isEnabled()
                                     || !data.getT3().isEnabled()) {
@@ -153,7 +160,8 @@ public class PatrolExecutionWorkflow {
                                                 "error.patrol.reference.unavailable"));
                             }
                             return checkRoster(
-                                    task, data.getT3(), data.getT1().getScopeKey(), userId, now);
+                                    task, data.getT3(), data.getT1().getScopeKey(), userId, now)
+                                    .thenReturn(data.getT1().getScopeKey());
                         });
     }
 
@@ -186,7 +194,7 @@ public class PatrolExecutionWorkflow {
                 rows.stream()
                         .anyMatch(
                                 row ->
-                                        task.getPostId().equals(row.getPostId())
+                                        !row.isRest() && task.getPostId().equals(row.getPostId())
                                                 && userId.equals(row.getUserId())
                                                 && now.toEpochMilli() >= row.getStartTime()
                                                 && now.toEpochMilli() < row.getEndTime());
@@ -219,23 +227,14 @@ public class PatrolExecutionWorkflow {
             String id,
             Submission submission,
             Instant now) {
-        Map<String, String> answers = new HashMap<>();
-        Set<String> expected = new HashSet<>();
-        for (var item : task.getStandardSnapshot()) expected.add(item.id());
-        for (var answer : submission.answers()) {
-            if (!expected.contains(answer.itemId())
-                    || answers.put(answer.itemId(), answer.value()) != null)
-                throw new BusinessException("error.patrol.execution.answers");
-        }
-        for (var item : task.getStandardSnapshot()) {
-            String value = answers.get(item.id());
-            if (item.required() && value == null
-                    || value != null && !item.options().contains(value))
-                throw new BusinessException("error.patrol.execution.answers");
-        }
+        var evaluation = PatrolInspection.evaluate(task.getStandardSnapshot(), submission.answers());
         var record = new PatrolExecutionEntity();
         record.setId(id);
         record.setTaskId(task.getId());
+        record.setTaskGroupId(task.getTaskGroupId());
+        record.setBelongDate(task.getBelongDate());
+        record.setPeriodNo(task.getPeriodNo());
+        record.setRuleVersion(task.getRuleVersion());
         record.setPlanId(task.getPlanId());
         record.setPointId(task.getPointId());
         record.setPointName(task.getPointName());
@@ -246,6 +245,8 @@ public class PatrolExecutionWorkflow {
         record.setRemark(submission.remark());
         record.setAnswers(List.copyOf(submission.answers()));
         record.setStandardSnapshot(task.getStandardSnapshot());
+        record.setItemResults(evaluation.items());
+        record.setResult(evaluation.result());
         return record;
     }
 }

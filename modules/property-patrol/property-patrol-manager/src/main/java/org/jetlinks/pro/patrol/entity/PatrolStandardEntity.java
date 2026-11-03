@@ -5,6 +5,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Digits;
+import com.fasterxml.jackson.annotation.JsonFormat;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -15,6 +17,7 @@ import org.hswebframework.web.crud.annotation.EnableEntityEvent;
 import org.jetlinks.pro.assets.annotation.Asset;
 
 import java.sql.JDBCType;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,10 +39,29 @@ public class PatrolStandardEntity extends PatrolConfigEntity {
     @Valid
     private List<@NotNull CheckItem> items = new ArrayList<>();
 
-    /** 历史任务保存此结构快照，不随标准编辑改变。 */
+    public enum ItemType { number, text, choice, image }
+
+    /** 历史任务保存完整标准；缺少 type 的已部署选项标准仍按 choice 解释。 */
     public record CheckItem(
             @NotBlank @Size(max = 64) String id,
             @NotBlank @Size(max = 128) String title,
             boolean required,
-            @NotEmpty @Size(max = 50) List<@NotBlank @Size(max = 128) String> options) {}
+            @Size(max = 50) List<@NotBlank @Size(max = 128) String> options,
+            ItemType type,
+            @Digits(integer = 18, fraction = 6) @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal lowerLimit,
+            @Digits(integer = 18, fraction = 6) @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal upperLimit,
+            @Size(max = 2000) String referenceText,
+            @Size(max = 50) List<@NotBlank @Size(max = 128) String> qualifiedOptions,
+            boolean photoRequired,
+            @Size(max = 64) String exampleFileId) {
+        public CheckItem {
+            type = type == null ? ItemType.choice : type;
+            options = options == null ? List.of() : List.copyOf(options);
+            qualifiedOptions = qualifiedOptions == null ? List.of() : List.copyOf(qualifiedOptions);
+        }
+
+        public CheckItem(String id, String title, boolean required, List<String> options) {
+            this(id, title, required, options, ItemType.choice, null, null, null, List.of(), false, null);
+        }
+    }
 }

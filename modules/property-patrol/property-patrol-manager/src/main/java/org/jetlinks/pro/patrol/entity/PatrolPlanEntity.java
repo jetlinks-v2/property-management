@@ -40,6 +40,13 @@ public class PatrolPlanEntity extends PatrolConfigEntity {
     @NotBlank
     private String standardId;
 
+    /** 可复用等级；为空时沿用计划自定义规则，兼容已生成的计划。 */
+    @Column(length = 64)
+    private String levelId;
+
+    /** 等级名称随规则一起解析，不接受其作为任务规则来源。 */
+    private transient String levelName;
+
     @Column(length = 10, nullable = false)
     @NotNull
     @DateTimeCodec(format = "yyyy-MM-dd")
