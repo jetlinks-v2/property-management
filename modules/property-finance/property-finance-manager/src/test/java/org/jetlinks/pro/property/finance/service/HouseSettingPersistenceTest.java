@@ -63,6 +63,8 @@ class HouseSettingPersistenceTest {
     @Autowired BillingTaskService tasks;
     @Autowired ReceivableService receivables;
     @Autowired ReceivableAdjustmentService adjustments;
+    @Autowired ReceivableSplitService splits;
+    @Autowired org.jetlinks.pro.property.finance.receivable.SplitRules splitRules;
     @Autowired org.jetlinks.pro.property.finance.receivable.AdjustmentRules adjustmentRules;
     @Autowired ReactiveRepository<ReceivableLogEntity, String> receivableLogs;
     @Autowired FinanceScope financeScope;
@@ -1196,6 +1198,304 @@ class HouseSettingPersistenceTest {
                 .isNotEmpty();
     }
 
+    @Test
+    void splitArchivesSourceAndConcurrentSubmitConservesAmountsThroughFutureAccrual() {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var source =
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        var input =
+                new org.jetlinks.pro.property.finance.receivable.SplitInput(
+                        source.getVersion(),
+                        LocalDate.of(2024, 2, 12),
+                        0,
+                        "link",
+                        "link",
+                        "按搬迁日期拆分");
+        var preview =
+                splits.preview(project, source.getId(), input, DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals("13.00", preview.parts().get(0).amount());
+        assertEquals("12.51", preview.parts().get(1).amount());
+        assertEquals("25.51", preview.total());
+        assertEquals(
+                1,
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .count()
+                        .block(WAIT));
+        var invalid =
+                new org.jetlinks.pro.property.finance.receivable.SplitInput(
+                        source.getVersion(), input.splitDate(), 2, "link", "not-this-house", "拆分");
+        conflict(splits.preview(project, source.getId(), invalid, DATE), 400);
+        var request = new ReceivableSplitService.Submit(input, preview.token());
+        var results =
+                Flux.merge(
+                                splits.submit(project, source.getId(), request, DATE)
+                                        .map(rows -> true)
+                                        .onErrorReturn(false),
+                                splits.submit(project, source.getId(), request, DATE)
+                                        .map(rows -> true)
+                                        .onErrorReturn(false))
+                        .collectList()
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(1, results.stream().filter(Boolean::booleanValue).count());
+        assertTrue(bills.findById(source.getId()).block(WAIT).getSplit());
+        var active =
+                receivables
+                        .query(
+                                project,
+                                new org.hswebframework.web.api.crud.entity.QueryParamEntity())
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(2, active.getTotal());
+        assertEquals(
+                new BigDecimal("25.51"),
+                active.getData().stream()
+                        .map(ReceivableEntity::getActualReceivableAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add));
+        generation
+                .generate(project, saved.setting().getId(), DATE.plusDays(1))
+                .contextWrite(allowed())
+                .block(WAIT);
+        var children =
+                bills.createQuery()
+                        .where("sourceReceivableId", source.getId())
+                        .fetch()
+                        .collectList()
+                        .block(WAIT);
+        assertEquals(
+                new BigDecimal("29.76"),
+                children.stream()
+                        .map(ReceivableEntity::getActualReceivableAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add));
+        assertEquals(
+                new BigDecimal("85.04"),
+                children.stream()
+                        .map(ReceivableEntity::getContractReceivableAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add));
+        assertEquals(
+                3,
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .count()
+                        .block(WAIT));
+        assertEquals(
+                "25.51",
+                bills.findById(source.getId())
+                        .block(WAIT)
+                        .getActualReceivableAmount()
+                        .toPlainString());
+        assertEquals(
+                1,
+                receivableLogs
+                        .createQuery()
+                        .where("receivableId", source.getId())
+                        .count()
+                        .block(WAIT));
+        conflict(splits.submit(project, source.getId(), request, DATE), 409);
+    }
+
+    @Test
+    void splitAuditFailureRollsBackArchivedFlagAndBothChildren() {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var source =
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        var input =
+                new org.jetlinks.pro.property.finance.receivable.SplitInput(
+                        source.getVersion(), LocalDate.of(2024, 2, 12), 2, "link", "link", "拆分");
+        var preview =
+                splits.preview(project, source.getId(), input, DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        @SuppressWarnings("unchecked")
+        ReactiveRepository<ReceivableLogEntity, String> failedLogs = mock(ReactiveRepository.class);
+        when(failedLogs.insert(any(ReceivableLogEntity.class)))
+                .thenReturn(Mono.error(new IllegalStateException("audit unavailable")));
+        var service =
+                new ReceivableSplitService(financeScope, archive, splitRules, bills, failedLogs);
+        StepVerifier.create(
+                        org.springframework.transaction.reactive.TransactionalOperator.create(
+                                        transactionManager)
+                                .transactional(
+                                        service.submit(
+                                                project,
+                                                source.getId(),
+                                                new ReceivableSplitService.Submit(
+                                                        input, preview.token()),
+                                                DATE))
+                                .contextWrite(allowed()))
+                .expectErrorMessage("audit unavailable")
+                .verify(WAIT);
+        assertFalse(bills.findById(source.getId()).block(WAIT).getSplit());
+        assertEquals(source.getVersion(), bills.findById(source.getId()).block(WAIT).getVersion());
+        assertEquals(
+                1,
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .count()
+                        .block(WAIT));
+    }
+
+    @Test
+    void splitUpgradeSqlBackfillsRootIdentityAndCanBeRepeated() throws Exception {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var source =
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        var legacyNullable =
+                DB.execInContainer(
+                        "psql",
+                        "-U",
+                        "postgres",
+                        "-d",
+                        "setting_test",
+                        "-v",
+                        "ON_ERROR_STOP=1",
+                        "-c",
+                        "ALTER TABLE public.pm_fin_receivable ALTER COLUMN bill_key DROP NOT NULL");
+        assertEquals(0, legacyNullable.getExitCode(), legacyNullable.getStderr());
+        bills.createUpdate().setNull("billKey").where("id", source.getId()).execute().block(WAIT);
+        var oldIndex =
+                DB.execInContainer(
+                        "psql",
+                        "-U",
+                        "postgres",
+                        "-d",
+                        "setting_test",
+                        "-v",
+                        "ON_ERROR_STOP=1",
+                        "-c",
+                        "CREATE UNIQUE INDEX uk_pm_fin_recv_period ON public.pm_fin_receivable"
+                                + " (setting_id,period_start,period_end)");
+        assertEquals(0, oldIndex.getExitCode(), oldIndex.getStderr());
+        var sql =
+                java.nio.file.Files.readString(
+                        java.nio.file.Path.of("../sql/migrate-receivable-split.sql"));
+        for (int i = 0; i < 2; i++) {
+            var result =
+                    DB.execInContainer(
+                            "psql",
+                            "-U",
+                            "postgres",
+                            "-d",
+                            "setting_test",
+                            "-v",
+                            "ON_ERROR_STOP=1",
+                            "-c",
+                            sql);
+            assertEquals(0, result.getExitCode(), result.getStderr());
+        }
+        assertEquals(source.getBillKey(), bills.findById(source.getId()).block(WAIT).getBillKey());
+        var input =
+                new org.jetlinks.pro.property.finance.receivable.SplitInput(
+                        source.getVersion(), LocalDate.of(2024, 2, 12), 2, "link", "link", "拆分");
+        var preview =
+                splits.preview(project, source.getId(), input, DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(
+                2,
+                splits.submit(
+                                project,
+                                source.getId(),
+                                new ReceivableSplitService.Submit(input, preview.token()),
+                                DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .size());
+    }
+
+    @Test
+    void splitHttpUsesStringsForMoneyAndReturnsOnlyImplementedActions() {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var source =
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        var row = receivables.detail(project, source.getId()).contextWrite(allowed()).block(WAIT);
+        assertTrue(row.getAllowedOperations().containsAll(Set.of("ADJUST", "SPLIT")));
+        var input =
+                new org.jetlinks.pro.property.finance.receivable.SplitInput(
+                        source.getVersion(), LocalDate.of(2024, 2, 12), 2, "link", "link", "拆分");
+        var client =
+                org.springframework.test.web.reactive.server.WebTestClient.bindToController(
+                                new org.jetlinks.pro.property.finance.web.ReceivableSplitController(
+                                        splits))
+                        .webFilter(
+                                (exchange, chain) -> chain.filter(exchange).contextWrite(allowed()))
+                        .build();
+        var path =
+                "/property/finance/projects/"
+                        + project
+                        + "/receivables/"
+                        + source.getId()
+                        + "/split";
+        client.get()
+                .uri(path + "/_options")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody()
+                .jsonPath("$[0].name")
+                .isEqualTo("龚超");
+        var body =
+                client.post()
+                        .uri(path + "/_preview")
+                        .bodyValue(input)
+                        .exchange()
+                        .expectStatus()
+                        .isOk()
+                        .expectBody()
+                        .jsonPath("$.parts[0].amount")
+                        .isEqualTo("12.76")
+                        .jsonPath("$.total")
+                        .isEqualTo("25.51")
+                        .returnResult()
+                        .getResponseBody();
+        var token =
+                com.alibaba
+                        .fastjson
+                        .JSON
+                        .parseObject(new String(body, java.nio.charset.StandardCharsets.UTF_8))
+                        .getString("token");
+        client.post()
+                .uri(path)
+                .bodyValue(new ReceivableSplitService.Submit(input, token))
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody()
+                .jsonPath("$[0].actualReceivableAmount")
+                .isEqualTo("12.76")
+                .jsonPath("$[0].sourceReceivableId")
+                .isEqualTo(source.getId())
+                .jsonPath("$[0].snapshotJson")
+                .doesNotExist();
+    }
+
     private void conflict(Mono<?> action, int status) {
         StepVerifier.create(action.contextWrite(allowed()))
                 .expectErrorMatches(error -> TaxItemPersistenceTest.status(error, status))
@@ -1216,6 +1516,8 @@ class HouseSettingPersistenceTest {
         BillingTaskService.class,
         ReceivableService.class,
         ReceivableAdjustmentService.class,
+        ReceivableSplitService.class,
+        org.jetlinks.pro.property.finance.receivable.SplitRules.class,
         org.jetlinks.pro.property.finance.receivable.AdjustmentRules.class
     })
     static class Config {

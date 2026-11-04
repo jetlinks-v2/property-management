@@ -139,6 +139,25 @@ public class AdjustmentRules {
             after.put(entry.getKey(), variableNumber(entry.getValue(), nonNegative));
         }
         // 使用原账单覆盖区间作边界，延续旧formulaAmount；不回读已被修改的标准价格或房屋面积。
+        if (JSON.parseObject(row.getSnapshotJson()).getString("principalRootStart") != null) {
+            var beforeAmount =
+                    calculation
+                            .principal(row, standard, before, beforeStart, beforeEnd, beforeEnd)
+                            .getContractReceivableAmount();
+            var afterAmount =
+                    calculation
+                            .principal(row, standard, after, afterStart, afterEnd, afterEnd)
+                            .getContractReceivableAmount();
+            return new FormulaChange(
+                    strings(before),
+                    strings(after),
+                    beforeStart,
+                    beforeEnd,
+                    afterStart,
+                    afterEnd,
+                    beforeAmount.toPlainString(),
+                    afterAmount.toPlainString());
+        }
         var period = new BillingPeriod(beforeStart, beforeEnd);
         if (standard.getFormulaExpression().contains("${PERIOD_MONTHS}")) {
             var proration = new BillingProrationService();

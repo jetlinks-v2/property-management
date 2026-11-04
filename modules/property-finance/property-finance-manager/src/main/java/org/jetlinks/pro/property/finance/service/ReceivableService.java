@@ -57,7 +57,14 @@ public class ReceivableService {
                     query.setForUpdate(false);
                     // 强制约束在独立AND分组，调用方OR条件不能扩大项目或读取逻辑删除记录。
                     query.toNestQuery(
-                            nested -> nested.and("projectId", project).and("deleted", false));
+                            nested ->
+                                    nested.and("projectId", project)
+                                            .and("deleted", false)
+                                            .nest()
+                                            .isNull("split")
+                                            .or()
+                                            .is("split", false)
+                                            .end());
                     if (query.getSorts().isEmpty())
                         query.toQuery().orderByDesc("createTime").orderByDesc("id");
                     return AssetsHolder.injectQueryParam(query, SPACE, "spaceId");

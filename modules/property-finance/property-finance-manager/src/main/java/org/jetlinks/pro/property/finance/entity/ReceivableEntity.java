@@ -20,16 +20,22 @@ import javax.persistence.*;
 @Table(
         name = "pm_fin_receivable",
         indexes = {
-            @Index(
-                    name = "uk_pm_fin_recv_period",
-                    columnList = "settingId,periodStart,periodEnd",
-                    unique = true),
+            @Index(name = "uk_pm_fin_recv_bill_key", columnList = "billKey", unique = true),
             @Index(
                     name = "idx_pm_fin_recv_scope",
                     columnList = "projectId,spaceId,subjectId,deleted"),
-            @Index(name = "idx_pm_fin_recv_customer", columnList = "customerId,deleted")
+            @Index(name = "idx_pm_fin_recv_customer", columnList = "customerId,deleted"),
+            @Index(name = "idx_pm_fin_recv_source", columnList = "sourceReceivableId,deleted")
         })
 public class ReceivableEntity extends FinanceEntity {
+    /** 根账按设置和自然账期标识；拆分子账使用来源账单及序号，均由后端生成。 */
+    @Column(length = 160, nullable = false)
+    @JsonIgnore
+    private String billKey;
+
+    @Column(length = 64)
+    private String sourceReceivableId;
+
     @Column(length = 64, nullable = false)
     private String projectId;
 

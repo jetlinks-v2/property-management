@@ -153,12 +153,14 @@ public class ReceivableGenerationService {
                 .where("settingId", setting.getId())
                 .and("periodStart", period.getStart().toString())
                 .and("periodEnd", period.getEnd().toString())
+                .isNull("sourceReceivableId")
                 .fetchOne()
                 .flatMap(
                         existing -> {
-                            if (Boolean.TRUE.equals(existing.getDeleted())
-                                    || Boolean.TRUE.equals(existing.getSplit()))
-                                return Mono.just(false);
+                            if (Boolean.TRUE.equals(existing.getDeleted())) return Mono.just(false);
+                            if (Boolean.TRUE.equals(existing.getSplit()))
+                                return refreshChildren(existing, date, auth, kind)
+                                        .thenReturn(false);
                             if (kind == BillingTaskKind.GENERATE) return Mono.just(false);
                             return refresh(existing, standard, date, auth, kind).thenReturn(false);
                         })
@@ -180,6 +182,7 @@ public class ReceivableGenerationService {
             Authentication auth) {
         var row = new ReceivableEntity();
         row.setId(UUID.randomUUID().toString());
+        row.setBillKey(setting.getId() + ":" + period.getStart() + ":" + period.getEnd());
         init(row, auth);
         row.setProjectId(setting.getProjectId());
         row.setSpaceId(setting.getSpaceId());
@@ -217,6 +220,31 @@ public class ReceivableGenerationService {
             if (field.getPropertyType() == BigDecimal.class)
                 wrapper.setPropertyValue(field.getName(), BigDecimal.ZERO);
         return row;
+    }
+
+    /** 原账只保留历史身份；沿来源链刷新叶子账，不以原设置重新生成拆分前的欠款。 */
+    private Mono<Void> refreshChildren(
+            ReceivableEntity source, LocalDate date, Authentication auth, BillingTaskKind kind) {
+        if (kind == BillingTaskKind.GENERATE) return Mono.empty();
+        var query = new QueryParamEntity();
+        query.setForUpdate(true);
+        query.toQuery().orderByAsc("id");
+        return bills.createQuery()
+                .setParam(query)
+                .where("sourceReceivableId", source.getId())
+                .and("deleted", false)
+                .fetch()
+                .concatMap(
+                        child ->
+                                Boolean.TRUE.equals(child.getSplit())
+                                        ? refreshChildren(child, date, auth, kind)
+                                        : refresh(
+                                                child,
+                                                SettingRules.standard(child.getSnapshotJson()),
+                                                date,
+                                                auth,
+                                                kind))
+                .then();
     }
 
     private Mono<Void> refresh(

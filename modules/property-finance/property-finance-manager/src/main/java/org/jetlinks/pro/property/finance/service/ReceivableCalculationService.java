@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Map;
 
 /** 无持久副作用的账单重算；自动任务、调整预览和正式写账复用同一金额与逾期入口。 */
 @Component
@@ -20,22 +21,11 @@ public class ReceivableCalculationService {
     public void calculate(
             ReceivableEntity row, StandardEntity standard, LocalDate date, BillingTaskKind kind) {
         row.setCalculatedAsOfDate(date.toString());
-        var context =
-                new ReceivableCalculationContext(
-                        new BillingPeriod(
-                                LocalDate.parse(row.getPeriodStart()),
-                                LocalDate.parse(row.getPeriodEnd())),
-                        LocalDate.parse(row.getCalcStartDate()),
-                        LocalDate.parse(row.getCalcEndDate()),
-                        standard.getFormulaExpression(),
-                        SettingRules.values(row.getSnapshotJson()),
-                        SettingRules.names(standard),
-                        standard.getChargeRoundType(),
-                        SettingRules.rounding(standard));
-        var principal = calculator.calculate(context, date);
+        var principal = principal(row, standard, date);
         boolean closed =
                 "CLOSED".equals(row.getPeriodStatus())
-                        || kind.closePeriod() && date.isAfter(context.getCoveredEnd());
+                        || kind.closePeriod()
+                                && date.isAfter(LocalDate.parse(row.getCalcEndDate()));
         if (kind.accrue()) {
             row.setContractReceivableAmount(
                     SettingRules.money(principal.getContractReceivableAmount()));
@@ -89,5 +79,65 @@ public class ReceivableCalculationService {
         row.setActualReceivableAmount(SettingRules.money(base.add(row.getFinalLateFeeAmount())));
         row.setArrears(
                 row.getActualReceivableAmount().subtract(row.getPaidAmount()).max(BigDecimal.ZERO));
+    }
+
+    public ReceivableAmountSnapshot principal(
+            ReceivableEntity row, StandardEntity standard, LocalDate date) {
+        return principal(
+                row,
+                standard,
+                SettingRules.values(row.getSnapshotJson()),
+                LocalDate.parse(row.getCalcStartDate()),
+                LocalDate.parse(row.getCalcEndDate()),
+                date);
+    }
+
+    /** 累计金额相减使相邻拆分区间合计严格等于原账，元/角/分及非线性公式均不重复舍入。 */
+    public ReceivableAmountSnapshot principal(
+            ReceivableEntity row,
+            StandardEntity standard,
+            Map<String, BigDecimal> values,
+            LocalDate start,
+            LocalDate end,
+            LocalDate date) {
+        var rootText =
+                com.alibaba
+                        .fastjson
+                        .JSON
+                        .parseObject(row.getSnapshotJson())
+                        .getString("principalRootStart");
+        var root = rootText == null ? start : LocalDate.parse(rootText);
+        var period =
+                new BillingPeriod(
+                        LocalDate.parse(row.getPeriodStart()), LocalDate.parse(row.getPeriodEnd()));
+        var through =
+                calculator.calculate(
+                        new ReceivableCalculationContext(
+                                period,
+                                root,
+                                end,
+                                standard.getFormulaExpression(),
+                                values,
+                                SettingRules.names(standard),
+                                standard.getChargeRoundType(),
+                                SettingRules.rounding(standard)),
+                        date);
+        if (root.equals(start)) return through;
+        var prior =
+                calculator.calculate(
+                        new ReceivableCalculationContext(
+                                period,
+                                root,
+                                start.minusDays(1),
+                                standard.getFormulaExpression(),
+                                values,
+                                SettingRules.names(standard),
+                                standard.getChargeRoundType(),
+                                SettingRules.rounding(standard)),
+                        date);
+        return new ReceivableAmountSnapshot(
+                through.getContractReceivableAmount().subtract(prior.getContractReceivableAmount()),
+                through.getAccruedReceivableAmount().subtract(prior.getAccruedReceivableAmount()),
+                date);
     }
 }
