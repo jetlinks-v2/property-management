@@ -216,6 +216,8 @@ public class DocumentReverseService {
     }
 
     private static void assertOpen(DocumentEntity row, Input input, LocalDateTime now) {
+        if ("RECEIPT".equals(row.getDocumentType()) && Boolean.TRUE.equals(row.getVerified()))
+            throw error("receipt_verified", 409);
         var expected = "INVOICE".equals(row.getDocumentType()) ? "SIMULATED_ISSUED" : "ISSUED";
         if (!row.getVersion().equals(input.version())
                 || !expected.equals(row.getStatus())

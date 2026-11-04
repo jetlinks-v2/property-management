@@ -97,6 +97,21 @@ public class DocumentEntity extends FinanceEntity {
     @Column(length = 30, nullable = false)
     private String issuedAt;
 
+    /** 票据核销仅作核验登记；历史空值按未核销处理，不修改资金核销或票据金额。 */
+    @Column private Boolean verified = false;
+
+    @Column(length = 30)
+    private String verifiedAt;
+
+    @Column(length = 64)
+    private String verifiedBy;
+
+    @Column(length = 128)
+    private String verifiedName;
+
+    @Column(length = 200)
+    private String verificationRemark;
+
     @Column(length = 1000)
     private String remark;
 

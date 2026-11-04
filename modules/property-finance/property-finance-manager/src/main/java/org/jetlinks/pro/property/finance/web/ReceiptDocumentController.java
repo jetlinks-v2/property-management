@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
 import java.time.*;
+import java.util.List;
 
 /** 收据管理独立授权；预览只读，销方和税务信息从后端来源读取。 */
 @RestController
@@ -25,6 +26,7 @@ public class ReceiptDocumentController {
     private final DocumentReverseService reverse;
     private final DocumentRecordService records;
     private final DocumentCandidateService candidates;
+    private final ReceiptVerificationService verification;
     private final BillingJobProperties properties;
 
     @PostMapping("/_query")
@@ -91,5 +93,13 @@ public class ReceiptDocumentController {
                 id,
                 input,
                 LocalDateTime.now(ZoneId.of(properties.getZone())));
+    }
+
+    @PostMapping("/_verify")
+    @ResourceAction(id = "verify", name = "核销")
+    public Mono<List<DocumentStore.Detail>> verify(
+            @PathVariable String projectId, @RequestBody ReceiptVerificationService.Input input) {
+        return verification.verify(
+                projectId, input, LocalDateTime.now(ZoneId.of(properties.getZone())));
     }
 }

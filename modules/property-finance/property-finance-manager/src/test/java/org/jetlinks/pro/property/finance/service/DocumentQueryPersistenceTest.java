@@ -516,7 +516,13 @@ class DocumentQueryPersistenceTest extends DocumentIssuePersistenceTest {
                                         null,
                                         props),
                                 new org.jetlinks.pro.property.finance.web.ReceiptDocumentController(
-                                        preparation, issue, reverse, history, candidates, props))
+                                        preparation,
+                                        issue,
+                                        reverse,
+                                        history,
+                                        candidates,
+                                        null,
+                                        props))
                         .controllerAdvice(new TaxItemPersistenceTest.HttpErrors())
                         .webFilter(
                                 (exchange, chain) ->
