@@ -47,6 +47,17 @@ public class PropertyDictionaryService {
                 .collectList();
     }
 
+    /** 跨模块新业务选值入口；维护查询仍可查看停用项，不能混用两种语义。 */
+    public Mono<List<org.jetlinks.pro.property.base.dictionary.PropertyDictionaryOption>> availableOptions(String code) {
+        return authenticated().then(Mono.defer(() -> {
+            code(code);
+            return type(code).flatMap(type -> Boolean.TRUE.equals(type.getEnabled())
+                    ? items(code).map(rows -> rows.stream().filter(row -> Boolean.TRUE.equals(row.getEnabled()))
+                            .map(row -> new org.jetlinks.pro.property.base.dictionary.PropertyDictionaryOption(row.getValue(),row.getText())).toList())
+                    : Mono.error(error("dictionary_disabled",409)));
+        }));
+    }
+
     @Transactional
     public Mono<PropertyDictionaryTypeEntity> createType(TypeRequest input) {
         return authenticated().flatMap(auth -> insertType(input, auth)).onErrorMap(this::duplicate);

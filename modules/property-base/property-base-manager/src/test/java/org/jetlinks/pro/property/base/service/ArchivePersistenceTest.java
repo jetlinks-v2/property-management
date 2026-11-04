@@ -16,6 +16,9 @@ import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.base.entity.*;
 import org.jetlinks.pro.property.base.organization.OrganizationType;
+import org.jetlinks.pro.property.base.command.QueryPropertyProjectCommand;
+import org.jetlinks.pro.property.base.command.PropertyProjectCommandSupport;
+import org.jetlinks.pro.command.CommandSupportManagerProviders;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +57,29 @@ class ArchivePersistenceTest {
     @Autowired PropertySpaceService spaceService;
     @Autowired PropertyHouseService houseService;
     @Autowired PropertyDictionaryService dictionary;
+
+    @Test
+    void dictionaryCommandOnlyReturnsCurrentOptionsAndDoesNotHideMissingOrDisabledCategory() {
+        var type=dictionary.createType(new PropertyDictionaryService.TypeRequest("billing-method-test","测试收费方式",true,null))
+                .contextWrite(all()).block(WAIT);
+        dictionary.createItem(type.getCode(),new PropertyDictionaryService.ItemRequest("cash","现金",true,null,type.getCode()))
+                .contextWrite(all()).block(WAIT);
+        dictionary.createItem(type.getCode(),new PropertyDictionaryService.ItemRequest("old","停用方式",false,null,type.getCode()))
+                .contextWrite(all()).block(WAIT);
+        var support=new org.jetlinks.pro.property.base.command.PropertyDictionaryCommandSupport(dictionary);
+        var command=new org.jetlinks.pro.property.base.command.QueryPropertyDictionaryOptionsCommand();
+        command.setTypeCode(type.getCode());
+        var options=support.queryOptions(command).contextWrite(all()).block(WAIT);
+        assertEquals(List.of(new org.jetlinks.pro.property.base.dictionary.PropertyDictionaryOption("cash","现金")),options);
+        dictionary.updateType(type.getId(),new PropertyDictionaryService.TypeRequest(type.getCode(),type.getName(),false,type.getVersion()))
+                .contextWrite(all()).block(WAIT);
+        StepVerifier.create(support.queryOptions(command).contextWrite(all()))
+                .expectErrorMatches(error -> status(error,409)).verify(WAIT);
+        command.setTypeCode("missing-category");
+        StepVerifier.create(support.queryOptions(command).contextWrite(all()))
+                .expectErrorMatches(error -> status(error,404)).verify(WAIT);
+        StepVerifier.create(support.queryOptions(command)).expectError(UnAuthorizedException.class).verify(WAIT);
+    }
     @Autowired ReactiveRepository<PropertyOrganizationEntity, String> organizations;
     @Autowired ReactiveRepository<PropertySpaceEntity, String> spaces;
     @Autowired ReactiveRepository<PropertySpaceBindingEntity, String> bindings;
@@ -112,6 +138,23 @@ class ArchivePersistenceTest {
                 .createItem("house-state", item("delivered", true, null))
                 .contextWrite(all())
                 .block(WAIT);
+    }
+
+    @Test
+    void projectCommandPreservesAssetAuthorizationAndRejectsNonProjectOrganizations() {
+        var command = new QueryPropertyProjectCommand();
+        command.setProjectId("project");
+        var query = CommandSupportManagerProviders.getCommandSupport(QueryPropertyProjectCommand.SERVICE_ID)
+                .switchIfEmpty(Mono.error(new IllegalStateException("Project command not registered")))
+                .flatMap(support -> support.execute(command));
+        var project = query.contextWrite(all()).block(WAIT);
+        assertEquals("project", project.id());
+        StepVerifier.create(query.contextWrite(access(Set.of(), Set.of("other-project"))))
+                .expectError(AccessDenyException.class).verify(WAIT);
+        command.setProjectId("untyped");
+        StepVerifier.create(query.contextWrite(all()))
+                .expectErrorMatches(error -> status(error, 404)).verify(WAIT);
+        StepVerifier.create(query).expectError(UnAuthorizedException.class).verify(WAIT);
     }
 
     @Test
@@ -883,6 +926,6 @@ class ArchivePersistenceTest {
         return Context.of(AssetsHolder.class, holder, Authentication.class, auth);
     }
 
-    @Import({CustomerPersistenceTest.Config.class, PropertySpaceService.class})
+    @Import({CustomerPersistenceTest.Config.class, PropertySpaceService.class, PropertyProjectCommandSupport.class})
     static class Config {}
 }
