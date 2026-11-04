@@ -129,17 +129,25 @@ public class PatrolConfigurationValidator {
                                         .then();
                             }
                             if (entity instanceof PatrolPlanEntity plan) {
-                                if (plan.getEffectiveTo().isBefore(plan.getEffectiveFrom())
+                                if (plan.getStandardId() == null && (plan.getRule() != null || plan.getLevelId() != null))
+                                    return Mono.error(new BusinessException("error.patrol.assignment.incomplete"));
+                                if (plan.getEffectiveFrom() != null && plan.getEffectiveTo() != null
+                                        && (plan.getEffectiveTo().isBefore(plan.getEffectiveFrom())
                                         || plan.getEffectiveTo()
-                                                .isAfter(plan.getEffectiveFrom().plusYears(2)))
+                                                .isAfter(plan.getEffectiveFrom().plusYears(2))))
                                     return Mono.error(
                                             new BusinessException("error.patrol.plan.dates"));
                                 Mono<Void> levelCheck = plan.getLevelId() == null || plan.getLevelId().isBlank()
                                         ? Mono.empty()
                                         : reference(PatrolAssetType.patrolLevel, plan.getLevelId(),
-                                                levels.findById(plan.getLevelId()), current.key())
+                                                levels.findForUpdate(plan.getLevelId()), current.key())
                                                 .doOnNext(level -> plan.setRule(level.getRule())).then();
-                                return levelCheck.then(Mono.fromRunnable(() -> validatePlanRule(plan))).then(Mono.when(
+                                Mono<Void> ruleCheck = plan.getStandardId() == null && plan.getRule() == null
+                                        && plan.getLevelId() == null ? Mono.empty()
+                                        : levelCheck.then(Mono.fromRunnable(() -> validatePlanRule(plan)))
+                                            .then(reference(PatrolAssetType.patrolStandard, plan.getStandardId(),
+                                                    standards.findForUpdate(plan.getStandardId()), current.key())).then();
+                                return ruleCheck.then(Mono.when(
                                         reference(
                                                 PatrolAssetType.patrolPoint,
                                                 plan.getPointId(),
@@ -149,11 +157,6 @@ public class PatrolConfigurationValidator {
                                                 PatrolAssetType.patrolPost,
                                                 plan.getPostId(),
                                                 posts.findById(plan.getPostId()),
-                                                current.key()),
-                                        reference(
-                                                PatrolAssetType.patrolStandard,
-                                                plan.getStandardId(),
-                                                standards.findById(plan.getStandardId()),
                                                 current.key())));
                             }
                             return Mono.empty();
@@ -164,8 +167,7 @@ public class PatrolConfigurationValidator {
     private static void validatePlanRule(PatrolPlanEntity plan) {
         try {
             RuleEngine.validate(plan.getRule());
-            for (LocalDate day = plan.getEffectiveFrom(); !day.isAfter(plan.getEffectiveTo().plusDays(1)); day = day.plusDays(1))
-                RuleEngine.expand(plan.getRule(), day, ZoneId.of("Asia/Shanghai"));
+            // RuleEngine 已覆盖整周与全部高级日期边界，无需扫描人工生效期。
         } catch (IllegalArgumentException error) {
             throw new BusinessException(error.getMessage());
         }

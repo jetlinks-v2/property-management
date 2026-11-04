@@ -5,6 +5,7 @@ import org.jetlinks.pro.patrol.asset.PatrolAssetType;
 import org.jetlinks.pro.patrol.entity.PatrolTagEntity;
 import org.jetlinks.pro.patrol.service.PatrolTagService;
 import org.jetlinks.pro.patrol.service.PatrolConfigurationValidator;
+import org.jetlinks.pro.patrol.service.PatrolConfigTransferService;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -12,9 +13,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/park/patrol/tags")
 @Resource(id = "patrol-tag", name = "标签")
-public class PatrolTagController extends PatrolConfigController<PatrolTagEntity> {
+public class PatrolTagController extends PatrolWorkbookConfigController<PatrolTagEntity> {
     public PatrolTagController(
-            PatrolTagService service, PatrolConfigurationValidator validator) {
-        super(service, validator, PatrolAssetType.patrolTag);
+            PatrolTagService service, PatrolConfigurationValidator validator, PatrolConfigTransferService transfer) {
+        super(service, validator, PatrolAssetType.patrolTag, transfer);
     }
 }

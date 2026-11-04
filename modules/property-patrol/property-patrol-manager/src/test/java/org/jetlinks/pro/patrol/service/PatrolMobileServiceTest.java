@@ -65,8 +65,11 @@ class PatrolMobileServiceTest {
     void assignedPostIsRequiredAndOutsideWindowIsVisibleButNotExecutable() {
         var task = fixture.seedTask(1);
         task.setId("future-task"); task.setTaskGroupId("future-group");
-        task.setStartTime(System.currentTimeMillis() + 3600000);
-        task.setEndTime(System.currentTimeMillis() + 7200000);
+        // Keep the future period in the requested end-date even when tests run late at night.
+        long end = LocalDate.now().plusDays(1).atStartOfDay(java.time.ZoneId.of("Asia/Shanghai"))
+                .toInstant().toEpochMilli() - 1;
+        task.setStartTime(System.currentTimeMillis() + (end - System.currentTimeMillis()) / 2);
+        task.setEndTime(end);
         fixture.tasks.insert(task).block();
         var rows = mobile.tasks(LocalDate.now()).contextWrite(fixture.identity).block();
         var future = rows.stream().filter(row -> "future-task".equals(row.task().getId())).findFirst().orElseThrow();
@@ -130,6 +133,34 @@ class PatrolMobileServiceTest {
         var history = mobile.history(query).contextWrite(fixture.identity).block();
         assertEquals(1, history.getTotal()); assertEquals(own.getId(), history.getData().get(0).getId());
         assertEquals(10000, query.getPageSize()); // 不改调用方对象。
+    }
+
+    @Test
+    void historyCategoryAndLevelFiltersUseTaskSnapshotsBeforePagingAndKeepPersonalScope() {
+        var task = fixture.seedTask(3);
+        fixture.workflow.submit(fixture.submission("without-filter")).contextWrite(fixture.identity).block();
+        task.setId("matched-task"); task.setPeriodNo(2); task.setStartTime(task.getStartTime() + 1);
+        task.setCategoryId("category-snapshot"); task.setCategoryName("Original category");
+        task.setLevelId("level-snapshot"); task.setLevelName("Original level"); task.setPointName("Water pump");
+        fixture.tasks.insert(task).block();
+        var saved = fixture.workflow.submit(new PatrolExecutionWorkflow.Submission(task.getId(), "matched",
+                List.of(new PatrolExecutionEntity.Answer("lock", "normal")), "checked", null, null))
+                .contextWrite(fixture.identity).block();
+        var other = copyRecord(saved, "other-user-matched", "plan", "bob"); other.setTaskId(task.getId());
+        fixture.executions.insert(other).block();
+        fixture.seedPlan("foreign", "south");
+        var foreign = copyRecord(saved, "foreign-matched", "foreign", "alice"); foreign.setTaskId(task.getId());
+        fixture.executions.insert(foreign).block();
+        var query = QueryParamEntity.newQuery().is("categoryId", "category-snapshot")
+                .is("levelId", "level-snapshot").like("pointName", "%Water%")
+                .gte("receiveTime", saved.getReceiveTime() - 1).lt("receiveTime", saved.getReceiveTime() + 1).getParam();
+        query.setPageSize(1);
+        var page = mobile.history(query).contextWrite(fixture.identity).block();
+        assertEquals(1, page.getTotal()); assertEquals(saved.getId(), page.getData().get(0).getId());
+        assertEquals("Original category", page.getData().get(0).getCategoryName());
+        assertEquals("Original level", page.getData().get(0).getLevelName());
+        query.toNestQuery().is("levelId", "different");
+        assertEquals(0, mobile.history(query).contextWrite(fixture.identity).block().getTotal());
     }
 
     private PatrolExecutionEntity copyRecord(PatrolExecutionEntity source, String id, String plan, String user) {

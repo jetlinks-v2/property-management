@@ -21,7 +21,7 @@ import java.time.LocalDate;
 import javax.persistence.Column;
 import javax.persistence.Table;
 
-/** 巡更计划配置；只保存业务关系，身份与授权仍由 SaaS 管理。 */
+/** 点位岗位指派及其巡更规则；未配置标准和规则时仅表示岗位关系，不生成任务。 */
 @Getter
 @Setter
 @EnableEntityEvent
@@ -36,25 +36,26 @@ public class PatrolPlanEntity extends PatrolConfigEntity {
     @NotBlank
     private String postId;
 
-    @Column(length = 64, nullable = false)
-    @NotBlank
+    @Column(length = 64)
     private String standardId;
 
     /** 可复用等级；为空时沿用计划自定义规则，兼容已生成的计划。 */
     @Column(length = 64)
     private String levelId;
 
+    @Column
+    private int sortIndex;
+
     /** 等级名称随规则一起解析，不接受其作为任务规则来源。 */
     private transient String levelName;
 
-    @Column(length = 10, nullable = false)
-    @NotNull
+    /** 历史计划的人工期限；新岗位规则无需填写，空表示不设该端边界。 */
+    @Column(length = 10)
     @DateTimeCodec(format = "yyyy-MM-dd")
     @ColumnType(javaType = String.class)
     private LocalDate effectiveFrom;
 
-    @Column(length = 10, nullable = false)
-    @NotNull
+    @Column(length = 10)
     @DateTimeCodec(format = "yyyy-MM-dd")
     @ColumnType(javaType = String.class)
     private LocalDate effectiveTo;
@@ -62,7 +63,6 @@ public class PatrolPlanEntity extends PatrolConfigEntity {
     @Column
     @JsonCodec
     @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)
-    @NotNull
     private PatrolRule rule;
 
     @Column(length = 16, nullable = false)

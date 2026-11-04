@@ -8,12 +8,22 @@ import org.hswebframework.web.api.crud.entity.GenericEntity;
 import javax.persistence.Column;
 import javax.persistence.Table;
 import javax.persistence.Index;
+import javax.persistence.Transient;
 
 /** 计划指派+归属日期的逻辑任务组及生成封印；ID 同时写入全部时段，生成后不随规则编辑重建。 */
 @Getter
 @Setter
 @Table(name = "pt_generation", indexes = @Index(name = "pt_group_point_date", columnList = "pointId,belongDate"))
 public class PatrolGenerationEntity extends GenericEntity<String> {
+    /** 查询投影，取自首个时段的生成快照；不从当前点位/等级回填历史。 */
+    @Transient private String categoryId;
+    @Transient private String categoryName;
+    @Transient private String levelId;
+    @Transient private String levelName;
+    /** 当前真实时段进度；不保存第二份可漂移的计数器。 */
+    @Transient private int completedCount;
+    @Transient private Long lastExecutionTime;
+
     @Column(length = 128, updatable = false)
     private String name;
     @Column(length = 64, updatable = false)

@@ -79,7 +79,8 @@ public class PatrolRosterImportService {
             long now = System.currentTimeMillis();
             rows.forEach(row -> {
                 row.setId(UUID.randomUUID().toString()); row.setScopeKey(key);
-                row.setCreatorId(user); row.setModifierId(user); row.setCreateTime(now); row.setModifyTime(now);
+                row.setCreatorId(user); row.setModifierId(user);
+                row.setCreatorName(java.util.Objects.requireNonNullElse(pair.getT2().getUser().getName(), "")); row.setModifierName(row.getCreatorName()); row.setCreateTime(now); row.setModifyTime(now);
                 row.setDescription(""); row.setExtensions(new HashMap<>());
             });
             return lockMonth(key, month)
@@ -91,6 +92,7 @@ public class PatrolRosterImportService {
                     .concatMap(row -> AssetsHolder.assertPermission(PatrolAssetType.patrolRoster, row.getId(), CrudAssetPermission.save))
                     .then(rosters.createUpdate().set(PatrolRosterEntity::isEnabled, false)
                             .set(PatrolRosterEntity::getModifierId, user).set(PatrolRosterEntity::getModifyTime, now)
+                            .set(PatrolRosterEntity::getModifierName, java.util.Objects.requireNonNullElse(pair.getT2().getUser().getName(), ""))
                             .where(PatrolRosterEntity::getScopeKey, key)
                             .and(PatrolRosterEntity::getBusinessDate, "gte", month.atDay(1))
                             .and(PatrolRosterEntity::getBusinessDate, "lte", month.atEndOfMonth())

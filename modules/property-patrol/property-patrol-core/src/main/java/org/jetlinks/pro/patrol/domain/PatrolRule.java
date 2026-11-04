@@ -9,6 +9,16 @@ public record PatrolRule(
         Map<Integer, List<Window>> weekly,
         Map<LocalDate, List<Window>> dates,
         int cooldownMinutes) {
-    /** 分钟值范围 start=[0,1439], end=[1,1440]；end 小于 start 表示跨天，等值不表示全天。 */
-    public record Window(int startMinute, int endMinute, int intervalMinutes, int requiredCount) {}
+    /** 一个配置时段。单位只保留录入表达，计算统一用分钟；未配置独立间隔的历史规则沿用全局值。 */
+    public record Window(
+            int startMinute, int endMinute, int intervalMinutes, int requiredCount,
+            Integer cooldownMinutes, String frequencyUnit, String cooldownUnit) {
+        public Window(int startMinute, int endMinute, int intervalMinutes, int requiredCount) {
+            this(startMinute, endMinute, intervalMinutes, requiredCount, null, null, null);
+        }
+
+        public int cooldown(PatrolRule rule) {
+            return cooldownMinutes == null ? rule.cooldownMinutes() : cooldownMinutes;
+        }
+    }
 }

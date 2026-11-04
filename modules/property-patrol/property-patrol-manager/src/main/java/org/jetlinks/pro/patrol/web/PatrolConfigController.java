@@ -78,6 +78,8 @@ public abstract class PatrolConfigController<E extends PatrolConfigEntity>
                 .flatMap(
                         auth -> {
                             entity.setCreatorId(auth.getUser().getId());
+                            entity.setCreatorName(Objects.requireNonNullElse(auth.getUser().getName(), ""));
+                            entity.setModifierName(entity.getCreatorName());
                             entity.setCreateTime(System.currentTimeMillis());
                             entity.setModifierId(entity.getCreatorId());
                             entity.setModifyTime(entity.getCreateTime());
@@ -89,7 +91,8 @@ public abstract class PatrolConfigController<E extends PatrolConfigEntity>
                                                     Flux.just(entity),
                                                     type,
                                                     PatrolConfigEntity::getId))
-                                    .single();
+                                    .single()
+                                    .flatMap(this::created);
                         });
     }
 
@@ -99,7 +102,7 @@ public abstract class PatrolConfigController<E extends PatrolConfigEntity>
     @Transactional
     public Mono<E> update(@PathVariable String id, @RequestBody @Valid E entity) {
         return AssetsHolder.assertPermission(type, id, CrudAssetPermission.save)
-                .then(service.findById(id).switchIfEmpty(Mono.error(NotFoundException::new)))
+                .then(findForUpdate(id).switchIfEmpty(Mono.error(NotFoundException::new)))
                 .zipWith(ReactiveAuthenticationHolder.get())
                 .flatMap(
                         pair -> {
@@ -108,6 +111,8 @@ public abstract class PatrolConfigController<E extends PatrolConfigEntity>
                             entity.setExtensions(old.getExtensions());
                             entity.setScopeKey(old.getScopeKey());
                             entity.setCreatorId(old.getCreatorId());
+                            entity.setCreatorName(old.getCreatorName());
+                            entity.setModifierName(Objects.requireNonNullElse(pair.getT2().getUser().getName(), ""));
                             entity.setCreateTime(old.getCreateTime());
                             entity.setModifierId(pair.getT2().getUser().getId());
                             entity.setModifyTime(System.currentTimeMillis());
@@ -122,9 +127,22 @@ public abstract class PatrolConfigController<E extends PatrolConfigEntity>
                                                             return Mono.error(
                                                                     new AccessDenyException
                                                                             .NoStackTrace());
-                                                        return service.updateById(id, entity)
-                                                                .thenReturn(entity);
+                                                        return persistUpdate(old, entity);
                                                     }));
                         });
+    }
+
+    @SuppressWarnings("unchecked")
+    private Mono<E> findForUpdate(String id) {
+        if (service instanceof org.jetlinks.pro.patrol.service.PatrolRemovableConfigService<?> removable)
+            return (Mono<E>) removable.findForUpdate(id);
+        return service.findById(id);
+    }
+
+    /** 需要业务修改记录的配置在同一事务追加事实；普通配置不引入审计副作用。 */
+    protected Mono<E> created(E entity) { return Mono.just(entity); }
+
+    protected Mono<E> persistUpdate(E old, E entity) {
+        return service.updateById(entity.getId(), entity).thenReturn(entity);
     }
 }

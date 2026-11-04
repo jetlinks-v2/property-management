@@ -4,6 +4,7 @@ import jakarta.annotation.Nonnull;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 import lombok.AllArgsConstructor;
@@ -55,6 +56,12 @@ public class PatrolExecutionController
         return "planId";
     }
 
+    @Override
+    public reactor.core.publisher.Flux<PatrolExecutionEntity> query(
+            org.hswebframework.web.api.crud.entity.QueryParamEntity query) {
+        return injectQueryParam(query).flatMapMany(service::query);
+    }
+
     public ReactiveCrudService<PatrolExecutionEntity, String> getService() {
         return service;
     }
@@ -63,7 +70,9 @@ public class PatrolExecutionController
             @NotBlank String taskId,
             @NotBlank @Size(max = 64) String requestId,
             @NotNull @Size(max = 100) @Valid List<@NotNull Answer> answers,
-            @Size(max = 1000) String remark) {}
+            @Size(max = 1000) String remark,
+            @Positive Long collectedTime,
+            PatrolExecutionEntity.NetworkStatus networkStatus) {}
 
     @PostMapping
     @ResourceAction(id = "submit", name = "提交巡更结果")
@@ -73,6 +82,8 @@ public class PatrolExecutionController
                         request.taskId(),
                         request.requestId(),
                         request.answers(),
-                        request.remark()));
+                        request.remark(),
+                        request.collectedTime(),
+                        request.networkStatus()));
     }
 }

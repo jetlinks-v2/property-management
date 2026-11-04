@@ -17,6 +17,7 @@ import java.util.List;
 import javax.persistence.Column;
 import javax.persistence.Index;
 import javax.persistence.Table;
+import javax.persistence.Transient;
 
 /** 执行事实只追加。ID 按执行者+客户端请求号生成，重试不能增加计数。 */
 @Getter
@@ -30,6 +31,14 @@ import javax.persistence.Table;
             @Index(name = "pt_exec_group_time", columnList = "taskGroupId,receiveTime")
         })
 public class PatrolExecutionEntity extends GenericEntity<String> {
+    /** 关联不可变时段快照的只读投影，PC 与 H5 统一追溯所属时段。 */
+    @Transient private Long periodStartTime;
+    @Transient private Long periodEndTime;
+    @Transient private String categoryId;
+    @Transient private String categoryName;
+    @Transient private String levelId;
+    @Transient private String levelName;
+
     /** 生成时确定的逻辑任务组；不得由查询端按点位和日期重新推算。 */
     @Column(length = 64, updatable = false)
     private String taskGroupId;
@@ -68,6 +77,18 @@ public class PatrolExecutionEntity extends GenericEntity<String> {
     @Column(nullable = false, updatable = false)
     private Long receiveTime;
 
+    /** 客户端首次提交时的采集时间，只用于追溯，不能参与时段、冷却或计次校验。历史缺失不回填。 */
+    @Column(updatable = false)
+    private Long collectedTime;
+
+    /** 客户端采集时报告的连接状态，不代表服务器认证的现场或离线执行凭据。 */
+    @Column(length = 20, updatable = false)
+    @org.hswebframework.ezorm.rdb.mapping.annotation.EnumCodec
+    @ColumnType(javaType = String.class)
+    private NetworkStatus networkStatus;
+
+    public enum NetworkStatus { online, offline }
+
     @Column(length = 1000, updatable = false)
     private String remark;
 
@@ -98,8 +119,10 @@ public class PatrolExecutionEntity extends GenericEntity<String> {
 
     public record Answer(
             @NotBlank @Size(max = 64) String itemId,
-            @Size(max = 2000) String value,
+            // 避免当前 FastBeanCopier record 生成代码中 value 局部变量重名；JSON 契约仍为 value。
+            @com.fasterxml.jackson.annotation.JsonProperty("value") @Size(max = 2000) String answerValue,
             @Size(max = 64) String attachmentId) {
         public Answer(String itemId, String value) { this(itemId, value, null); }
+        public String value() { return answerValue; }
     }
 }
