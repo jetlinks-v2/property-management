@@ -427,6 +427,7 @@ class FundsPersistenceTest {
         FundSourceService.class,
         CollectionStandardSource.class,
         FundLedger.class,
+        FundCreditLedger.class,
         FundOffsetService.class
     })
     static class Config {}

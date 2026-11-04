@@ -20,6 +20,7 @@ import java.math.BigDecimal;
 public class FundLedger {
     private final ReactiveRepository<FundAccountEntity, String> accounts;
     private final ReactiveRepository<FundEntryEntity, String> entries;
+    private final FundCreditLedger credits;
 
     Mono<FundEntryEntity> apply(
             String transaction,
@@ -100,6 +101,32 @@ public class FundLedger {
                                         a.setVersion(a.getVersion() + 1);
                                     });
         }
-        return persist.then(entries.insert(entry)).thenReturn(entry);
+        return snapshot(entry)
+                .then(persist)
+                .then(credits.record(entry, auth))
+                .then(entries.insert(entry))
+                .thenReturn(entry);
+    }
+
+    /** 撤销显示原存入的名称快照，不把当前账户资料改回历史版本。 */
+    private Mono<Void> snapshot(FundEntryEntity entry) {
+        if (!"REVOKE_TOPUP".equals(entry.getAction())) return Mono.empty();
+        return entries.createQuery()
+                .where("id", entry.getSourceEntryId())
+                .and("projectId", entry.getProjectId())
+                .and("accountId", entry.getAccountId())
+                .and("action", "TOPUP")
+                .and("deleted", false)
+                .fetchOne()
+                .switchIfEmpty(Mono.error(FinanceScope.error("fund_revoke_source_blocked", 409)))
+                .doOnNext(
+                        original -> {
+                            entry.setFullName(original.getFullName());
+                            entry.setCustomerName(original.getCustomerName());
+                            entry.setSubjectName(original.getSubjectName());
+                            entry.setStandardName(original.getStandardName());
+                            entry.setCompanyName(original.getCompanyName());
+                        })
+                .then();
     }
 }
