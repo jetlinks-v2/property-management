@@ -94,6 +94,16 @@ public class RefundSourceService {
                                     .switchIfEmpty(Mono.error(error("payment_not_found", 404)))
                                     .doOnNext(
                                             line -> {
+                                                if (!("RECEIVABLE".equals(line.getSourceType())
+                                                                && line.getReceivableId() != null)
+                                                        && !("TEMPORARY"
+                                                                        .equals(
+                                                                                line
+                                                                                        .getSourceType())
+                                                                && line.getReceivableId() == null))
+                                                    throw error("refund_source_blocked", 409);
+                                                if (positive(line.getInvoiceOccupiedAmount()))
+                                                    throw error("refund_source_blocked", 409);
                                                 if (!org.jetlinks.pro.property.finance.payment
                                                         .PaymentRules.MANUAL_METHODS
                                                         .contains(line.getMethod()))
@@ -115,6 +125,7 @@ public class RefundSourceService {
         return Flux.fromIterable(
                         sources.stream()
                                 .map(PaymentAllocationEntity::getReceivableId)
+                                .filter(Objects::nonNull)
                                 .distinct()
                                 .sorted()
                                 .toList())
@@ -168,7 +179,20 @@ public class RefundSourceService {
                                         .switchIfEmpty(Mono.error(error("payment_not_found", 404)))
                                         .doOnNext(
                                                 payment -> {
-                                                    if (!"SUCCEEDED".equals(payment.getStatus())
+                                                    if (sources.stream()
+                                                                    .anyMatch(
+                                                                            line ->
+                                                                                    id.equals(
+                                                                                                    line
+                                                                                                            .getPaymentId())
+                                                                                            && !Objects
+                                                                                                    .equals(
+                                                                                                            line
+                                                                                                                    .getSourceType(),
+                                                                                                            payment
+                                                                                                                    .getSourceType()))
+                                                            || !"SUCCEEDED"
+                                                                    .equals(payment.getStatus())
                                                             || !input.getCompanyId()
                                                                     .equals(payment.getCompanyId()))
                                                         throw error("refund_source_blocked", 409);

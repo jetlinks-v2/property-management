@@ -94,11 +94,29 @@ public class PaymentRules {
     }
 
     private static void validate(CashierInput input, LocalDate date, Set<String> methods) {
+        validateFunding(input, date, methods);
+        if (input.getItems() == null || input.getItems().isEmpty() || input.getItems().size() > 100)
+            throw error("cashier_invalid", 400);
+        var ids = new HashSet<String>();
+        for (var item : input.getItems()) {
+            if (item == null
+                    || blank(item.id())
+                    || item.id().length() > 64
+                    || item.version() == null
+                    || item.version() < 0
+                    || !ids.add(item.id())) throw error("cashier_invalid", 400);
+            money(item.amount());
+        }
+    }
+
+    /** 人工支付字段校验由应收和临时收款共用，不要求伪造账单。 */
+    public static void validateFunding(CashierInput input, LocalDate date) {
+        validateFunding(input, date, MANUAL_METHODS);
+    }
+
+    private static void validateFunding(CashierInput input, LocalDate date, Set<String> methods) {
         if (input == null
                 || date == null
-                || input.getItems() == null
-                || input.getItems().isEmpty()
-                || input.getItems().size() > 100
                 || input.getTenders() == null
                 || input.getTenders().isEmpty()
                 || input.getTenders().size() > 10
@@ -118,16 +136,6 @@ public class PaymentRules {
         }
         if (blank(input.getAttachmentFileId()) != blank(input.getAttachmentName()))
             throw error("cashier_invalid", 400);
-        var ids = new HashSet<String>();
-        for (var item : input.getItems()) {
-            if (item == null
-                    || blank(item.id())
-                    || item.id().length() > 64
-                    || item.version() == null
-                    || item.version() < 0
-                    || !ids.add(item.id())) throw error("cashier_invalid", 400);
-            money(item.amount());
-        }
         var tenders = new HashSet<String>();
         for (var tender : input.getTenders()) {
             if (tender == null

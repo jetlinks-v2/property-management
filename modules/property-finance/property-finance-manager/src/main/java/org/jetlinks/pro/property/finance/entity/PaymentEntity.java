@@ -21,6 +21,14 @@ import javax.persistence.*;
         name = "pm_fin_payment",
         indexes = {@Index(name = "idx_pm_fin_payment_scope", columnList = "projectId,paidAt")})
 public class PaymentEntity extends FinanceEntity {
+    @Column(length = 32, nullable = false)
+    private String sourceType = "RECEIVABLE";
+
+    /** 非应收收款冻结业务依据，公开详情返回经解析的业务快照。 */
+    @JsonIgnore
+    @Column(length = 60000)
+    private String sourceSnapshotJson;
+
     @Column(length = 64, nullable = false)
     private String projectId;
 

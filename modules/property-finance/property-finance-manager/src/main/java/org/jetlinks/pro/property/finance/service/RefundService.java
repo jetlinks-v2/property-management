@@ -193,6 +193,7 @@ public class RefundService {
                                     return new Allocation(
                                             source.getId(),
                                             source.getPaymentId(),
+                                            source.getSourceType(),
                                             source.getReceivableId(),
                                             source.getFullName(),
                                             source.getCustomerName(),
@@ -283,6 +284,7 @@ public class RefundService {
     public record Allocation(
             String sourceLineId,
             String paymentId,
+            String sourceType,
             String receivableId,
             String fullName,
             String customerName,

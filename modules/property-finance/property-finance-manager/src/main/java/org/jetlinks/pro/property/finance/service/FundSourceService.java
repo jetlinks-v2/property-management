@@ -14,7 +14,6 @@ import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.base.archive.PropertyHouseContext;
 import org.jetlinks.pro.property.base.archive.PropertyHouseCustomer;
 import org.jetlinks.pro.property.finance.entity.FundAccountEntity;
-import org.jetlinks.pro.property.finance.entity.ProjectSubjectEntity;
 import org.jetlinks.pro.property.finance.entity.StandardEntity;
 import org.jetlinks.pro.property.finance.payment.FundsInput;
 import org.jetlinks.pro.property.finance.setting.SettingRules;
@@ -38,10 +37,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class FundSourceService {
     private final HouseArchiveSource archive;
-    private final SubjectService subjects;
+    private final CollectionStandardSource collectionStandards;
     private final ReactiveRepository<FundAccountEntity, String> accounts;
-    private final ReactiveRepository<StandardEntity, String> standards;
-    private final ReactiveRepository<ProjectSubjectEntity, String> issued;
 
     Mono<Prepared> prepare(String project, FundsInput input, boolean lock) {
         Mono<Prepared> source =
@@ -259,92 +256,15 @@ public class FundSourceService {
     }
 
     Mono<StandardEntity> standard(String project, String id, String company, boolean unused) {
-        // 本方法只读取；财务引用锁统一在公司锁之后获取，防止与标准维护形成反向锁序。
-        return standards
-                .createQuery()
-                .where("id", id)
-                .and("projectId", project)
-                .and("companyId", company)
-                .and("deleted", false)
-                .fetchOne()
-                .switchIfEmpty(Mono.error(error("setting_standard_unavailable", 409)))
-                .flatMap(
-                        standard ->
-                                subjects.subject(standard.getSubjectId(), false)
-                                        .filter(
-                                                subject ->
-                                                        Boolean.TRUE.equals(subject.getEnabled()))
-                                        .switchIfEmpty(
-                                                Mono.error(
-                                                        error("setting_subject_unavailable", 409)))
-                                        .then(
-                                                issued.createQuery()
-                                                        .where("projectId", project)
-                                                        .and("subjectId", standard.getSubjectId())
-                                                        .and("deleted", false)
-                                                        .fetchOne()
-                                                        .switchIfEmpty(
-                                                                Mono.error(
-                                                                        error(
-                                                                                "setting_subject_unavailable",
-                                                                                409))))
-                                        .thenReturn(standard));
+        return collectionStandards.current(project, id, company);
     }
 
-    /** 标准变更先锁公司；调用方加锁后重读来源，使预览校验涵盖最新引用版本。 */
     Mono<Void> lockReferences(String project, FundsInput input) {
         var ids = new TreeSet<String>();
         if ("TOPUP".equals(input.getAction())) ids.add(input.getStandardId());
         if (Set.of("TRANSFER", "DEDUCT").contains(input.getAction()))
             ids.add(input.getTargetStandardId());
-        return Flux.fromIterable(ids)
-                .concatMap(id -> standard(project, id, input.getCompanyId(), false))
-                .collectList()
-                .flatMapMany(
-                        rows ->
-                                Flux.fromIterable(
-                                                rows.stream()
-                                                        .map(StandardEntity::getSubjectId)
-                                                        .distinct()
-                                                        .sorted()
-                                                        .toList())
-                                        .concatMap(
-                                                id ->
-                                                        subjects.subject(id, true)
-                                                                .then(lockIssued(project, id)))
-                                        .thenMany(
-                                                Flux.fromIterable(rows)
-                                                        .concatMap(
-                                                                row ->
-                                                                        lockStandard(
-                                                                                project,
-                                                                                row.getId()))))
-                .then();
-    }
-
-    private Mono<ProjectSubjectEntity> lockIssued(String project, String subject) {
-        var query = new QueryParamEntity();
-        query.setForUpdate(true);
-        return issued.createQuery()
-                .setParam(query)
-                .where("projectId", project)
-                .and("subjectId", subject)
-                .and("deleted", false)
-                .fetchOne()
-                .switchIfEmpty(Mono.error(error("setting_subject_unavailable", 409)));
-    }
-
-    private Mono<StandardEntity> lockStandard(String project, String id) {
-        var query = new QueryParamEntity();
-        query.setForUpdate(true);
-        return standards
-                .createQuery()
-                .setParam(query)
-                .where("projectId", project)
-                .and("id", id)
-                .and("deleted", false)
-                .fetchOne()
-                .switchIfEmpty(Mono.error(error("setting_standard_unavailable", 409)));
+        return collectionStandards.lock(project, input.getCompanyId(), ids);
     }
 
     Mono<FundAccountEntity> account(String project, String id, boolean lock) {

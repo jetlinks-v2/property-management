@@ -12,7 +12,7 @@ import java.math.BigDecimal;
 
 import javax.persistence.*;
 
-/** 一行代表一笔应收在一种支付方式上的核销；退款沿此来源恢复余额，不覆盖原金额。 */
+/** 一行代表一种支付方式的实收来源；可关联应收或临时款，退款保留原金额及来源。 */
 @Getter
 @Setter
 @EnableEntityEvent
@@ -20,9 +20,13 @@ import javax.persistence.*;
         name = "pm_fin_payment_line",
         indexes = {
             @Index(name = "idx_pm_fin_payment_line", columnList = "paymentId"),
-            @Index(name = "idx_pm_fin_payment_bill", columnList = "receivableId")
+            @Index(name = "idx_pm_fin_payment_bill", columnList = "receivableId"),
+            @Index(name = "idx_pm_fin_payment_standard", columnList = "standardId")
         })
 public class PaymentAllocationEntity extends FinanceEntity {
+    @Column(length = 32, nullable = false)
+    private String sourceType = "RECEIVABLE";
+
     @Column(length = 64, nullable = false)
     private String paymentId;
 
@@ -32,8 +36,15 @@ public class PaymentAllocationEntity extends FinanceEntity {
     @Column(length = 64, nullable = false)
     private String spaceId;
 
-    @Column(length = 64, nullable = false)
+    /** 临时收款没有应收来源，不生成占位账单。 */
+    @Column(length = 64)
     private String receivableId;
+
+    @Column(length = 64)
+    private String standardId;
+
+    @Column(length = 64)
+    private String subjectId;
 
     @Column(length = 64, nullable = false)
     private String customerId;
@@ -81,4 +92,8 @@ public class PaymentAllocationEntity extends FinanceEntity {
     @Column(precision = 20, scale = 2, nullable = false)
     @JsonSerialize(using = ToStringSerializer.class)
     private BigDecimal refundedAmount;
+
+    @Column(precision = 20, scale = 2, nullable = false)
+    @JsonSerialize(using = ToStringSerializer.class)
+    private BigDecimal invoiceOccupiedAmount = BigDecimal.ZERO.setScale(2);
 }

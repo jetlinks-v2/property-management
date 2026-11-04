@@ -425,6 +425,7 @@ class FundsPersistenceTest {
         CashierPersistenceTest.Config.class,
         FundsService.class,
         FundSourceService.class,
+        CollectionStandardSource.class,
         FundLedger.class,
         FundOffsetService.class
     })

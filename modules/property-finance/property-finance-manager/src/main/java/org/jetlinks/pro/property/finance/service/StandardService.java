@@ -46,6 +46,7 @@ public class StandardService {
     private final ReactiveRepository<SubjectEntity, String> subjectRepository;
     private final ReactiveRepository<StandardVariableReferenceEntity, String> references;
     private final ReactiveRepository<HouseSettingEntity, String> houseSettings;
+    private final ReactiveRepository<PaymentAllocationEntity, String> paymentLines;
 
     public Mono<PagerResult<StandardView>> query(
             String projectId,
@@ -372,12 +373,27 @@ public class StandardService {
                                                     if (!Objects.equals(old.getVersion(), version))
                                                         return Mono.error(
                                                                 error("version_conflict", 409));
-                                                    return fundAccounts
+                                                    return paymentLines
                                                             .createQuery()
                                                             .where("standardId", id)
-                                                            .and("deleted", false)
+                                                            .and("projectId", projectId)
                                                             .fetchOne()
                                                             .hasElement()
+                                                            .flatMap(
+                                                                    used ->
+                                                                            used
+                                                                                    ? Mono.error(
+                                                                                            error(
+                                                                                                    "standard_referenced",
+                                                                                                    409))
+                                                                                    : Mono.empty())
+                                                            .then(
+                                                                    fundAccounts
+                                                                            .createQuery()
+                                                                            .where("standardId", id)
+                                                                            .and("deleted", false)
+                                                                            .fetchOne()
+                                                                            .hasElement())
                                                             .flatMap(
                                                                     used ->
                                                                             used

@@ -37,12 +37,12 @@ public class RefundLedger {
         var bySource = new HashMap<String, PaymentAllocationEntity>();
         original.lines().forEach(line -> bySource.put(line.getId(), line));
         var byBill = new HashMap<String, BigDecimal>();
+        // 临时收款只退原资金来源；仅实际关联应收的核销才恢复欠费。
         shares.forEach(
-                share ->
-                        byBill.merge(
-                                bySource.get(share.sourceId()).getReceivableId(),
-                                share.amount(),
-                                BigDecimal::add));
+                share -> {
+                    var billId = bySource.get(share.sourceId()).getReceivableId();
+                    if (billId != null) byBill.merge(billId, share.amount(), BigDecimal::add);
+                });
         return refunds.insert(refund)
                 .thenMany(
                         Flux.fromIterable(original.bills())

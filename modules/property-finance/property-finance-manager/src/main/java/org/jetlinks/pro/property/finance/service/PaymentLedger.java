@@ -143,6 +143,8 @@ public class PaymentLedger {
                                             line.setCustomerName(bill.getCustomerName());
                                             line.setFullName(bill.getFullName());
                                             line.setSubjectName(bill.getSubjectName());
+                                            line.setStandardId(bill.getStandardId());
+                                            line.setSubjectId(bill.getSubjectId());
                                             line.setCalcStartDate(bill.getCalcStartDate());
                                             line.setCalcEndDate(bill.getCalcEndDate());
                                             line.setSortIndex(index);

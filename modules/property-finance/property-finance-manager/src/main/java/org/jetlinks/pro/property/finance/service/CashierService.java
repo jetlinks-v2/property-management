@@ -3,6 +3,8 @@ package org.jetlinks.pro.property.finance.service;
 import static org.jetlinks.pro.property.finance.service.FinanceScope.error;
 import static org.jetlinks.pro.property.finance.service.InvoiceCompanyService.init;
 
+import com.alibaba.fastjson.JSON;
+
 import lombok.RequiredArgsConstructor;
 
 import org.hswebframework.ezorm.rdb.mapping.ReactiveRepository;
@@ -255,7 +257,7 @@ public class CashierService {
         payment.setAttachmentName(input.getAttachmentName());
         payment.setAttachmentFileId(input.getAttachmentFileId());
         return ledger.persist(payment, rows, result, config, auth)
-                .map(lines -> new Detail(payment, lines));
+                .map(lines -> new Detail(payment, lines, snapshot(payment)));
     }
 
     private Mono<List<ReceivableEntity>> rows(String project, CashierInput input, boolean lock) {
@@ -325,7 +327,7 @@ public class CashierService {
                                                 Comparator.comparing(
                                                         PaymentAllocationEntity::getSortIndex))
                                         .collectList()
-                                        .map(rows -> new Detail(payment, rows)));
+                                        .map(rows -> new Detail(payment, rows, snapshot(payment))));
     }
 
     private Mono<Payer> payer(String project, CashierInput input, boolean lock) {
@@ -485,7 +487,16 @@ public class CashierService {
             List<ReceivableView> rows,
             List<Allocation> allocations) {}
 
-    public record Detail(PaymentEntity payment, List<PaymentAllocationEntity> lines) {}
+    static Map<String, Object> snapshot(PaymentEntity payment) {
+        return "TEMPORARY".equals(payment.getSourceType())
+                ? JSON.parseObject(payment.getSourceSnapshotJson())
+                : Map.of();
+    }
+
+    public record Detail(
+            PaymentEntity payment,
+            List<PaymentAllocationEntity> lines,
+            Map<String, Object> snapshot) {}
 
     public record PayerOption(String relationshipId, String name) {}
 }

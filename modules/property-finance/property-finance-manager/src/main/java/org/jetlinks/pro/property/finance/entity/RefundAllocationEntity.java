@@ -36,7 +36,7 @@ public class RefundAllocationEntity extends FinanceEntity {
     @Column(length = 64, nullable = false)
     private String paymentId;
 
-    @Column(length = 64, nullable = false)
+    @Column(length = 64)
     private String receivableId;
 
     @Column(length = 64, nullable = false)
