@@ -78,7 +78,9 @@ public class CarryForwardRunService {
     Mono<CarryForwardRunEntity> retry(String project, String id) {
         return scope.project(project, CrudAssetPermission.save)
                 .then(row(project, id))
-                .flatMap(run -> store.retry(id).then(resume(project, id)));
+                .flatMap(run -> scope.authenticated().flatMap(auth -> store.retry(id, auth)))
+                .then(resume(project, id))
+                .as(MonoTracer.create("/property/finance/carry-run/retry"));
     }
 
     private Mono<Void> batch(CarryForwardRunEntity run, String owner) {

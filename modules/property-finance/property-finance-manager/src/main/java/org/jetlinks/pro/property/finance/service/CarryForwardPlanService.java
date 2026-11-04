@@ -34,6 +34,37 @@ public class CarryForwardPlanService {
     private final ReactiveRepository<CarryForwardPlanEntity, String> plans;
     private final ReactiveRepository<CarryForwardSubjectEntity, String> claims;
     private final ReactiveRepository<CarryForwardPlanLogEntity, String> logs;
+    private final ReactiveRepository<SubjectEntity, String> subjectRows;
+
+    /** 只提供本项目已下发科目，不要求配置人员拥有全局科目维护权限。 */
+    public Mono<List<SubjectOption>> options(String project) {
+        return scope.project(project, CrudAssetPermission.read)
+                .thenMany(
+                        issued.createQuery()
+                                .where("projectId", project)
+                                .and("deleted", false)
+                                .fetch())
+                .map(ProjectSubjectEntity::getSubjectId)
+                .collectList()
+                .flatMap(
+                        ids ->
+                                ids.isEmpty()
+                                        ? Mono.just(List.of())
+                                        : subjectRows
+                                                .createQuery()
+                                                .in("id", ids)
+                                                .and("deleted", false)
+                                                .fetch()
+                                                .sort(Comparator.comparing(SubjectEntity::getCode))
+                                                .map(
+                                                        row ->
+                                                                new SubjectOption(
+                                                                        row.getId(),
+                                                                        row.getName(),
+                                                                        row.getCode(),
+                                                                        row.getEnabled()))
+                                                .collectList());
+    }
 
     public Mono<PagerResult<Detail>> query(String project, QueryParamEntity input) {
         return scope.project(project, CrudAssetPermission.read)
@@ -458,4 +489,6 @@ public class CarryForwardPlanService {
 
     /** input为可读配置，plan只提供身份和版本；不返回后台租户、内部原始JSON。 */
     public record Detail(CarryForwardPlanEntity plan, CarryForwardPlanInput input) {}
+
+    public record SubjectOption(String id, String name, String code, Boolean enabled) {}
 }

@@ -82,6 +82,28 @@ class CarryForwardPlanPersistenceTest {
     }
 
     @Test
+    void optionsOnlyExposeIssuedProjectSubjectsAndRetainDisabledNamesForReadOnlyDetails() {
+        assertEquals(
+                List.of(fixture.subjectId),
+                run(service.options(fixture.project)).stream()
+                        .map(CarryForwardPlanService.SubjectOption::id)
+                        .toList());
+        subjects.createUpdate()
+                .set("enabled", false)
+                .where("id", fixture.subjectId)
+                .execute()
+                .block(WAIT);
+        assertFalse(run(service.options(fixture.project)).get(0).enabled());
+        assertTrue(run(service.options("other-project")).isEmpty());
+        issued.createUpdate()
+                .set("deleted", true)
+                .where("projectId", fixture.project)
+                .execute()
+                .block(WAIT);
+        assertTrue(run(service.options(fixture.project)).isEmpty());
+    }
+
+    @Test
     void createAndReadReturnBusinessConfigurationAndClaimIssuedSubjects() {
         var d = create();
         assertEquals(fixture.project, d.plan().getProjectId());
@@ -370,7 +392,7 @@ class CarryForwardPlanPersistenceTest {
         // 通用持久化fixture隔离了项目命令，拒绝路径改用真实FinanceScope验证实际资产边界。
         var secured =
                 new CarryForwardPlanService(
-                        new FinanceScope(), subjectService, issued, plans, claims, logs);
+                        new FinanceScope(), subjectService, issued, plans, claims, logs, subjects);
         StepVerifier.create(secured.create(fixture.project, input())).expectError().verify(WAIT);
         var holder = org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetsHolder.class);
         org.mockito.Mockito.when(

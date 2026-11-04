@@ -20,6 +20,13 @@ import reactor.core.publisher.Mono;
 public class CarryForwardPlanController {
     private final CarryForwardPlanService service;
 
+    @GetMapping("/_options")
+    @ResourceAction(id = "query", name = "查询")
+    public Mono<java.util.List<CarryForwardPlanService.SubjectOption>> options(
+            @PathVariable String projectId) {
+        return service.options(projectId);
+    }
+
     @PostMapping("/_query")
     @ResourceAction(id = "query", name = "查询")
     public Mono<PagerResult<CarryForwardPlanService.Detail>> query(

@@ -1,6 +1,8 @@
 package org.jetlinks.pro.property.finance.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -56,12 +58,15 @@ public class CarryForwardItemEntity extends FinanceEntity {
     private String reason;
 
     @Column(precision = 20, scale = 2, nullable = false)
+    @JsonSerialize(using = ToStringSerializer.class)
     private BigDecimal amount;
 
     @Column(precision = 20, scale = 2, nullable = false)
+    @JsonSerialize(using = ToStringSerializer.class)
     private BigDecimal feeReduction;
 
     @Column(precision = 20, scale = 2, nullable = false)
+    @JsonSerialize(using = ToStringSerializer.class)
     private BigDecimal lateFeeReduction;
 
     @Column(length = 64, nullable = false)

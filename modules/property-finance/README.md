@@ -40,6 +40,10 @@ property:
 
 计划创建、编辑或启停时保存执行人的认证上限和应用范围，执行时重新读取当前身份并取权限交集，恢复原租户。执行人被删除、维护权限或房屋资产授权被收回时拒绝入账；无保存授权的旧计划需由有权限人员重新保存或启用。授权快照只在服务端保存，不通过详情或配置审计返回。`org.jetlinks:type=PropertyManagement,name=CarryForwardJob` 提供运行状态、成功/失败/跳过计数、最近时间及错误键；停机释放定时订阅和MBean。
 
+计划与执行日志位于 `/property/finance/projects/{projectId}/carry-plans`。`GET /_options` 仅返回本项目已下发科目；`POST /{planId}/runs/_query` 和 `GET /{planId}/runs/{runId}` 查询批次，逻辑删除计划后历史仍保留。批次的 `/works/_query` 分页返回有空间读取权限的房屋明细，`GET /works/{workId}` 只读查看，`POST /works/{workId}/items/_query` 分页核对原账户入账结果；金额以字符串返回，不暴露后台授权、租户、配置原文和租约。
+
+`POST /{planId}/runs/{runId}/_retry` 使用独立的 `property-finance-carry:retry` 按钮权限。仅有失败明细的已完成批次可以重试；原计划须启用、未删除且版本未变化，并校验全部失败房屋的空间写权限。重置失败明细与 `RUN_RETRY` 审计同事务，失败不部分提交。重试仍使用原批次、应收、账户和业务日期，已入账结果不会重复扣款；每轮上限后的剩余工作由后台继续处理。不能通过请求指定执行人、业务日期或金额。
+
 ## 柜台收款与实收查询
 
 接口位于 `/property/finance/projects/{projectId}/cashier`，由 `property-finance-cashier` 的 `collect` 与 `query` 动作控制，并校验项目组织、每笔账单的空间资产权限。前端菜单为“收款管理 / 收银台、实收款管理”。

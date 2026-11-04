@@ -10,6 +10,8 @@ import lombok.RequiredArgsConstructor;
 import org.hswebframework.ezorm.rdb.mapping.ReactiveRepository;
 import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.authorization.Authentication;
+import org.jetlinks.pro.assets.*;
+import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.finance.carry.*;
 import org.jetlinks.pro.property.finance.entity.*;
 import org.springframework.stereotype.Service;
@@ -30,6 +32,8 @@ public class CarryForwardRunStore {
     private final ReactiveRepository<CarryForwardWorkEntity, String> works;
     private final ReactiveRepository<ReceivableEntity, String> bills;
     private final ReactiveRepository<FundAccountEntity, String> funds;
+    private final ReactiveRepository<CarryForwardPlanEntity, String> plans;
+    private final ReactiveRepository<CarryForwardPlanLogEntity, String> logs;
 
     Mono<CarryForwardRunEntity> ensure(
             CarryForwardPlanEntity plan, String slot, Authentication auth) {
@@ -288,7 +292,7 @@ public class CarryForwardRunStore {
     }
 
     @Transactional
-    public Mono<Void> retry(String id) {
+    public Mono<Void> retry(String id, Authentication auth) {
         var q = new QueryParamEntity();
         q.setForUpdate(true);
         return runs.createQuery()
@@ -299,21 +303,80 @@ public class CarryForwardRunStore {
                         run -> {
                             if (!"PARTIAL".equals(run.getStatus()))
                                 return Mono.error(error("carry_retry_invalid", 409));
-                            return works.createUpdate()
-                                    .set("status", "PENDING")
-                                    .setNull("errorCode")
-                                    .setNull("finishTime")
-                                    .where("runId", id)
-                                    .and("status", "FAILED")
-                                    .execute()
+                            // 整批重试必须覆盖全部失败房屋，不能先重置再发现部分无权。
+                            return plans.createQuery()
+                                    .where("id", run.getPlanId())
+                                    .and("projectId", run.getProjectId())
+                                    .and("version", run.getPlanVersion())
+                                    .and("enabled", true)
+                                    .and("deleted", false)
+                                    .count()
+                                    .flatMap(
+                                            count ->
+                                                    count == 1
+                                                            ? Mono.empty()
+                                                            : Mono.error(
+                                                                    error(
+                                                                            "carry_plan_changed",
+                                                                            409)))
+                                    .thenMany(
+                                            works.createQuery()
+                                                    .where("runId", id)
+                                                    .and("status", "FAILED")
+                                                    .fetch())
+                                    .buffer(100)
+                                    .concatMap(
+                                            rows ->
+                                                    AssetsHolder.currentReactive()
+                                                            .switchIfEmpty(
+                                                                    Mono.error(
+                                                                            error(
+                                                                                    "permission_denied",
+                                                                                    403)))
+                                                            .flatMap(
+                                                                    holder ->
+                                                                            holder.assertPermission(
+                                                                                    "space",
+                                                                                    rows.stream()
+                                                                                            .map(
+                                                                                                    CarryForwardWorkEntity
+                                                                                                            ::getSpaceId)
+                                                                                            .distinct()
+                                                                                            .toList(),
+                                                                                    CrudAssetPermission
+                                                                                            .save)))
+                                    .then(
+                                            works.createUpdate()
+                                                    .set("status", "PENDING")
+                                                    .setNull("errorCode")
+                                                    .setNull("finishTime")
+                                                    .where("runId", id)
+                                                    .and("status", "FAILED")
+                                                    .execute())
                                     .then(
                                             runs.createUpdate()
                                                     .set("status", "PENDING")
                                                     .setNull("finishTime")
                                                     .where("id", id)
                                                     .execute())
-                                    .flatMap(CarryForwardRunStore::owned);
+                                    .flatMap(CarryForwardRunStore::owned)
+                                    .then(retryLog(run, auth));
                         });
+    }
+
+    private Mono<Void> retryLog(CarryForwardRunEntity run, Authentication auth) {
+        var log = new CarryForwardPlanLogEntity();
+        log.setId(UUID.randomUUID().toString());
+        log.setProjectId(run.getProjectId());
+        log.setPlanId(run.getPlanId());
+        log.setOperation("RUN_RETRY");
+        log.setBeforeJson(
+                JSON.toJSONString(Map.of("runId", run.getId(), "status", run.getStatus())));
+        log.setAfterJson(JSON.toJSONString(Map.of("runId", run.getId(), "status", "PENDING")));
+        log.setOperatorId(auth.getUser().getId());
+        log.setOperatorName(auth.getUser().getUsername());
+        log.setCreateTime(System.currentTimeMillis());
+        return logs.insert(log).then();
     }
 
     private Mono<Integer> count(String run, String status) {
