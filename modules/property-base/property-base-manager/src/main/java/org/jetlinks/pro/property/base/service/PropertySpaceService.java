@@ -10,6 +10,7 @@ import org.hswebframework.ezorm.rdb.mapping.ReactiveRepository;
 import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.base.entity.*;
+import org.jetlinks.pro.property.base.organization.OrganizationType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -200,8 +201,9 @@ public class PropertySpaceService {
                         ? Mono.empty()
                         : organizations
                                 .findById(organizationId)
-                                .filter(o -> !o.getDeleted() && o.getOrganizationType() != null)
-                                .switchIfEmpty(Mono.error(error("organization_untyped", 409)))
+                                // 与组织类型修改共用组织行锁，确保只有项目能绑定空间。
+                                .filter(o -> !o.getDeleted() && o.getOrganizationType() == OrganizationType.project)
+                                .switchIfEmpty(Mono.error(error("organization_not_project", 409)))
                                 .then();
         Mono<Void> guard =
                 Objects.equals(current.getOrganizationId(), organizationId)

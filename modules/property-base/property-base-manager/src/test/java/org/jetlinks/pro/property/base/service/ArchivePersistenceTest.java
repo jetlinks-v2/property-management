@@ -52,6 +52,7 @@ class ArchivePersistenceTest {
 
     @Autowired ArchiveScope scope;
     @Autowired PropertySpaceService spaceService;
+    @Autowired PropertyOrganizationService organizationService;
     @Autowired PropertyHouseService houseService;
     @Autowired PropertyDictionaryService dictionary;
     @Autowired ReactiveRepository<PropertyOrganizationEntity, String> organizations;
@@ -254,6 +255,20 @@ class ArchivePersistenceTest {
         StepVerifier.create(spaceService.bind("single", "untyped", 0).contextWrite(all()))
                 .expectErrorMatches(error -> status(error, 409))
                 .verify(WAIT);
+        organizations.createUpdate()
+                .set(PropertyOrganizationEntity::getOrganizationType, OrganizationType.external)
+                .where(PropertyOrganizationEntity::getId, "other-project")
+                .execute().block(WAIT);
+        StepVerifier.create(spaceService.bind("single", "other-project", 0).contextWrite(all()))
+                .expectErrorMatches(error -> status(error, 409)
+                        && "error.property_archive_organization_not_project".equals(error.getMessage()))
+                .verify(WAIT);
+        assertEquals("project", bindings.findById("single").block(WAIT).getOrganizationId());
+        assertEquals(0L, bindings.findById("single").block(WAIT).getVersion());
+        organizations.createUpdate()
+                .set(PropertyOrganizationEntity::getOrganizationType, OrganizationType.project)
+                .where(PropertyOrganizationEntity::getId, "other-project")
+                .execute().block(WAIT);
         StepVerifier.create(
                         spaceService
                                 .bind("single", "other-project", 0)
@@ -286,6 +301,27 @@ class ArchivePersistenceTest {
         spaceService.bind("single", null, 1).contextWrite(all()).block(WAIT);
         assertNull(bindings.findById("single").block(WAIT).getOrganizationId());
         assertEquals(2L, bindings.findById("single").block(WAIT).getVersion());
+    }
+
+    @Test
+    void boundOrganizationTypeCannotChangeOrClearUntilSpaceIsUnbound() {
+        bindings.deleteById("tower").block(WAIT);
+        for (OrganizationType type : new OrganizationType[] {OrganizationType.external, null}) {
+            StepVerifier.create(organizationService.updateType("project", type, 0).contextWrite(all()))
+                    .expectErrorMatches(error -> status(error, 409)
+                            && "error.property_archive_organization_in_use".equals(error.getMessage()))
+                    .verify(WAIT);
+        }
+        var unchanged = organizations.findById("project").block(WAIT);
+        assertEquals(OrganizationType.project, unchanged.getOrganizationType());
+        assertEquals(0L, unchanged.getVersion());
+        spaceService.bind("single", null, 0).contextWrite(all()).block(WAIT);
+        var changed = organizationService.updateType("project", OrganizationType.external, 0)
+                .contextWrite(all()).block(WAIT);
+        assertEquals(OrganizationType.external, changed.getOrganizationType());
+        var cleared = organizationService.updateType("project", null, changed.getVersion())
+                .contextWrite(all()).block(WAIT);
+        assertNull(cleared.getOrganizationType());
     }
 
     @Test
