@@ -15,6 +15,74 @@ import java.time.LocalDate;
 import java.util.*;
 
 class AdjustmentRulesTest {
+    @Test
+    void carryCanReduceOutstandingAfterPartialCollectionWhileOrdinaryAdjustmentStaysBlocked() {
+        var original = bill();
+        original.setPaidAmount(new BigDecimal("1.00"));
+        original.setArrears(
+                original.getActualReceivableAmount().subtract(original.getPaidAmount()));
+        var input = new AdjustmentInput();
+        input.setVersion(original.getVersion());
+        input.setAdjustmentMode("REDUCTION");
+        input.setFeeReductionAmount("10.00");
+        input.setReason("预收结转减免");
+        var result = rules.calculateReduction(original, input, TODAY);
+        assertEquals(new BigDecimal("1.00"), result.after().getPaidAmount());
+        assertEquals(
+                new BigDecimal("10.00"),
+                result.effectiveBefore().getArrears().subtract(result.after().getArrears()));
+        input.setAdjustmentMode("DIRECT");
+        input.setDirectDirection("INCREASE");
+        input.setDirectAmount("1.00");
+        assertThrows(RuntimeException.class, () -> rules.calculate(original, input, TODAY));
+    }
+
+    @Test
+    void internalCarryReductionDoesNotInventADirectAmountOrChangeTheFormula() {
+        var original = bill();
+        var input = new AdjustmentInput();
+        input.setVersion(original.getVersion());
+        input.setAdjustmentMode("REDUCTION");
+        input.setFeeReductionAmount("20.00");
+        input.setReason("预收结转减免");
+        var result = rules.calculateReduction(original, input, TODAY);
+        assertEquals(0, result.delta().signum());
+        assertEquals(original.getAdjustmentAmount(), result.after().getAdjustmentAmount());
+        assertEquals(
+                original.getContractReceivableAmount(),
+                result.after().getContractReceivableAmount());
+        assertEquals(new BigDecimal("20.00"), result.after().getFeeReductionAmount());
+        assertEquals(
+                new BigDecimal("20.00"),
+                result.effectiveBefore().getArrears().subtract(result.after().getArrears()));
+        assertThrows(RuntimeException.class, () -> rules.calculate(original, input, TODAY));
+        input.setDirectAmount("0.01");
+        assertThrows(
+                RuntimeException.class, () -> rules.calculateReduction(original, input, TODAY));
+    }
+
+    @Test
+    void internalCarryReductionRespectsBillLocksPaidFloorAndLateFeeLimit() {
+        var original = bill();
+        var input = new AdjustmentInput();
+        input.setVersion(original.getVersion());
+        input.setAdjustmentMode("REDUCTION");
+        input.setFeeReductionAmount("20.00");
+        input.setReason("预收结转减免");
+        original.setFrozen(true);
+        assertThrows(
+                RuntimeException.class, () -> rules.calculateReduction(original, input, TODAY));
+        original.setFrozen(false);
+        input.setFeeReductionAmount("9999.00");
+        assertThrows(
+                RuntimeException.class, () -> rules.calculateReduction(original, input, TODAY));
+        input.setFeeReductionAmount("0.00");
+        input.setLateFeeReductionAmount("0.01");
+        input.setLateFeeReductionReason("结转减免");
+        assertThrows(
+                RuntimeException.class, () -> rules.calculateReduction(original, input, TODAY));
+    }
+
     static final LocalDate TODAY = LocalDate.of(2024, 2, 15);
     final ReceivableAmountCalculator amounts =
             new ReceivableAmountCalculator(

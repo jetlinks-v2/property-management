@@ -29,7 +29,6 @@ public class AdjustmentRules {
 
     public Result calculate(ReceivableEntity original, AdjustmentInput input, LocalDate today) {
         validate(original, input, today);
-        var asOf = input.getCalculationAsOfDate() == null ? today : input.getCalculationAsOfDate();
         var standard = SettingRules.standard(original.getSnapshotJson());
         FormulaChange formula = null;
         BigDecimal delta;
@@ -46,7 +45,33 @@ public class AdjustmentRules {
                     new BigDecimal(formula.afterAmount())
                             .subtract(new BigDecimal(formula.beforeAmount()));
         } else throw error("adjustment_invalid", 400);
+        return components(original, input, today, delta, formula);
+    }
 
+    /** 内部结转减免不伪造正数直接调整，也不重建公式；普通调整接口仍只接受原有两种模式。 */
+    public Result calculateReduction(
+            ReceivableEntity original, AdjustmentInput input, LocalDate today) {
+        ReceivablePolicy.assertCarryReductionAllowed(original);
+        validateInput(original, input, today);
+        if (!"REDUCTION".equals(input.getAdjustmentMode())
+                || input.getDirectAmount() != null
+                || input.getDirectDirection() != null
+                || input.getFormulaLine() != null
+                || input.getAssessmentAmount() != null
+                || input.getTemporaryDispatchCount() != null
+                || input.getTemporaryDispatchUnitPrice() != null)
+            throw error("adjustment_invalid", 400);
+        return components(original, input, today, BigDecimal.ZERO, null);
+    }
+
+    private Result components(
+            ReceivableEntity original,
+            AdjustmentInput input,
+            LocalDate today,
+            BigDecimal delta,
+            FormulaChange formula) {
+        var asOf = input.getCalculationAsOfDate() == null ? today : input.getCalculationAsOfDate();
+        var standard = SettingRules.standard(original.getSnapshotJson());
         var assessment = number(input.getAssessmentAmount());
         int count =
                 input.getTemporaryDispatchCount() == null ? 0 : input.getTemporaryDispatchCount();
@@ -209,6 +234,11 @@ public class AdjustmentRules {
 
     private static void validate(ReceivableEntity row, AdjustmentInput input, LocalDate today) {
         ReceivablePolicy.assertAllowed(row, "ADJUST");
+        validateInput(row, input, today);
+    }
+
+    private static void validateInput(
+            ReceivableEntity row, AdjustmentInput input, LocalDate today) {
         if (input == null || !Objects.equals(input.getVersion(), row.getVersion()))
             throw error("version_conflict", 409);
         if (input.getReason() == null

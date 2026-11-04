@@ -67,32 +67,61 @@ public class ReceivableAdjustmentService {
                     var result = rules.calculate(before, request.input(), today);
                     if (!Objects.equals(request.token(), result.token()))
                         return Mono.error(error("adjustment_preview_expired", 409));
-                    var after = result.after();
-                    var log = log(project, before, after, request.input(), result, auth);
-                    return audit(bills.createUpdate(), auth, before.getVersion())
-                            .set("adjustmentAmount", after.getAdjustmentAmount())
-                            .set("assessmentAmount", after.getAssessmentAmount())
-                            .set("temporaryDispatchAmount", after.getTemporaryDispatchAmount())
-                            .set("feeReductionAmount", after.getFeeReductionAmount())
-                            .set("lateFeeReductionAmount", after.getLateFeeReductionAmount())
-                            .set("contractReceivableAmount", after.getContractReceivableAmount())
-                            .set("accruedReceivableAmount", after.getAccruedReceivableAmount())
-                            .set("accruedLateFeeAmount", after.getAccruedLateFeeAmount())
-                            .set("finalLateFeeAmount", after.getFinalLateFeeAmount())
-                            .set("actualReceivableAmount", after.getActualReceivableAmount())
-                            .set("arrears", after.getArrears())
-                            .set("accruedAsOfDate", after.getAccruedAsOfDate())
-                            .set("calculatedAsOfDate", after.getCalculatedAsOfDate())
-                            .set("periodStatus", after.getPeriodStatus())
-                            .where("id", before.getId())
-                            .and("projectId", project)
-                            .and("version", before.getVersion())
-                            .and("deleted", false)
-                            .execute()
-                            .flatMap(SubjectService::changed)
-                            .then(logs.insert(log))
-                            .thenReturn(ReceivableView.of(after, false));
+                    return persist(project, before, request.input(), result, auth);
                 });
+    }
+
+    /** 仅内部结转应用服务调用，锁和审计沿用普通调整，不能通过HTTP请求启用此模式。 */
+    @Transactional
+    Mono<ReceivableView> reduceForCarry(
+            String project, String id, AdjustmentInput input, LocalDate today) {
+        return scope.project(project, CrudAssetPermission.save)
+                .then(scope.authenticated())
+                .flatMap(
+                        auth ->
+                                row(project, id, true)
+                                        .flatMap(
+                                                before ->
+                                                        persist(
+                                                                project,
+                                                                before,
+                                                                input,
+                                                                rules.calculateReduction(
+                                                                        before, input, today),
+                                                                auth)));
+    }
+
+    private Mono<ReceivableView> persist(
+            String project,
+            ReceivableEntity before,
+            AdjustmentInput input,
+            AdjustmentRules.Result result,
+            org.hswebframework.web.authorization.Authentication auth) {
+        var after = result.after();
+        var log = log(project, before, after, input, result, auth);
+        return audit(bills.createUpdate(), auth, before.getVersion())
+                .set("adjustmentAmount", after.getAdjustmentAmount())
+                .set("assessmentAmount", after.getAssessmentAmount())
+                .set("temporaryDispatchAmount", after.getTemporaryDispatchAmount())
+                .set("feeReductionAmount", after.getFeeReductionAmount())
+                .set("lateFeeReductionAmount", after.getLateFeeReductionAmount())
+                .set("contractReceivableAmount", after.getContractReceivableAmount())
+                .set("accruedReceivableAmount", after.getAccruedReceivableAmount())
+                .set("accruedLateFeeAmount", after.getAccruedLateFeeAmount())
+                .set("finalLateFeeAmount", after.getFinalLateFeeAmount())
+                .set("actualReceivableAmount", after.getActualReceivableAmount())
+                .set("arrears", after.getArrears())
+                .set("accruedAsOfDate", after.getAccruedAsOfDate())
+                .set("calculatedAsOfDate", after.getCalculatedAsOfDate())
+                .set("periodStatus", after.getPeriodStatus())
+                .where("id", before.getId())
+                .and("projectId", project)
+                .and("version", before.getVersion())
+                .and("deleted", false)
+                .execute()
+                .flatMap(SubjectService::changed)
+                .then(logs.insert(log))
+                .thenReturn(ReceivableView.of(after, false));
     }
 
     private static ReceivableLogEntity log(
