@@ -38,7 +38,7 @@ class DocumentQueryScope {
                 .flatMap(holder -> holder.injectQuery(query, "space", "spaceId", permission));
     }
 
-    private <T> Mono<SqlTerm> allRelated(
+    <T> Mono<SqlTerm> allRelated(
             ReactiveRepository<T, String> rows,
             String parent,
             String project,
