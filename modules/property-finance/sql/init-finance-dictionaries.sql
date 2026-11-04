@@ -11,7 +11,8 @@ WITH defaults(id,code,name,sort_index) AS (
     ('246d9d53-f060-3456-b301-ceac4ce42556', 'source_charge', '收费来源', 100),
     ('339c91f8-4473-340f-bc7c-d200228ab307', 'pattern_payment', '支付方式', 110),
     ('5e737be2-450f-3c7f-a9d2-a0d783291598', 'charge-item-in-type', '费用类型', 120),
-    ('9087aad1-12e1-3006-a83d-bc2ceab2c917', 'arrears-level', '欠费等级', 130)
+    ('9087aad1-12e1-3006-a83d-bc2ceab2c917', 'arrears-level', '欠费等级', 130),
+    ('02bc3063-1897-36cc-bf28-1d4315816b1d', 'promotion-type', '活动类型', 140)
 )
 INSERT INTO public.pm_dictionary_type(id,code,name,enabled,sort_index,version,deleted,create_time,modify_time,modifier_id,modifier_name)
 SELECT id,code,name,true,sort_index,0,false,
@@ -23,6 +24,7 @@ ON CONFLICT DO NOTHING;
 
 WITH defaults(id,type_code,value,text,sort_index) AS (
     VALUES
+    ('907d7d24-fb96-3f26-8a3a-350e8d299f8a', 'promotion-type', 'prepay', '充值赠送', 10),
     ('54c150ad-827a-3c06-8d29-157cb0fbf666', 'source_charge', '1', 'PC', 10),
     ('dd608d84-3a6c-3718-9453-f1df835311f6', 'source_charge', '2', '微信公众号', 20),
     ('3c419dac-7442-3f41-9fac-04af6a875dde', 'source_charge', '3', 'POS机', 30),

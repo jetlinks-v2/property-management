@@ -92,6 +92,8 @@ return CommandSupportManagerProviders
 
 ## 字典与批量操作
 
+公共命令 `QueryPropertySpacesCommand`（服务 `propertyService:space`）按调用者身份返回指定项目有权读取的全部层级空间，包含稳定ID、父ID、根ID、完整位置及来源类型。`leaf` 保持来源事实，不按权限裁剪后的树重新推断。消费模块只依赖 `property-base-core`，不得读取基础内部空间表；优惠范围等业务可直接引用任意层节点，不要求固定空间层级。
+
 字典全系统统一，分类编码和同分类选项值保存后不可改，删除后的编码仍占用。分类/选项均支持排序、说明和独立启停；恢复分类不会启用此前单独停用的项。业务分类为 `house-type`、`house-state`、`customer-nature`、`certificate-type`，选项统一维护；初始选项可按需执行 `modules/property-base/sql/init-property-dictionaries.sql` 补齐，不覆盖既有状态。已有值允许保留停用编码，新选值必须同时满足分类和项启用。绑定业务字段的分类、有未删除选项的分类、被当前或历史资料引用的选项不能删除，应使用停用。
 
 列表使用标准 `QueryParamEntity`，支持白名单字段、嵌套条件、排序和分页；未知字段或操作明确拒绝，不静默忽略。导出使用同一权限和筛选，返回全部匹配记录，上限 10000；不能把当前页当完整导出。模板、导入、导出均由后端提供。模板为 `GET /property/{house|customer}/template.xlsx?projectId=`，客户另必传 `customerType=person/company`，复用 import 权限，按项目返回中文填写表、真实空间和字典/用户参考；房屋全部已完善仍可下载空填写表。`POST _import` 为 multipart，字段 `file`，仅 xls/xlsx、10MB、1–500 行；`POST _export` 接收同列表 QueryParam，返回 XLSX 文件流。前端不解析 Excel 或提交 JSON 行数组。

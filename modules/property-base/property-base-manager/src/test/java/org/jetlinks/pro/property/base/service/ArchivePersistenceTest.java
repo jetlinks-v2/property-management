@@ -59,6 +59,34 @@ class ArchivePersistenceTest {
     @Autowired PropertyDictionaryService dictionary;
 
     @Test
+    void publicSpaceCommandKeepsArbitraryLevelsAndSourceLeafFlagsUnderAssetFiltering() {
+        var command = new org.jetlinks.pro.property.base.command.QueryPropertySpacesCommand();
+        command.setProjectId("project");
+        var support = new org.jetlinks.pro.property.base.command.PropertySpaceCommandSupport(scope);
+        var allNodes = support.querySpaces(command).contextWrite(all()).block(WAIT);
+        assertEquals(
+                Set.of("single", "tower", "middle", "room"),
+                allNodes.stream()
+                        .map(org.jetlinks.pro.property.base.archive.PropertySpaceInfo::id)
+                        .collect(java.util.stream.Collectors.toSet()));
+        var limited =
+                support.querySpaces(command)
+                        .contextWrite(access(Set.of("middle"), Set.of("project")))
+                        .block(WAIT);
+        assertEquals(1, limited.size());
+        assertEquals("middle", limited.get(0).id());
+        assertFalse(limited.get(0).leaf());
+        StepVerifier.create(support.querySpaces(command))
+                .expectError(UnAuthorizedException.class)
+                .verify(WAIT);
+        StepVerifier.create(
+                        support.querySpaces(command)
+                                .contextWrite(access(SPACE_IDS, Set.of("other-project"))))
+                .expectError(AccessDenyException.class)
+                .verify(WAIT);
+    }
+
+    @Test
     void dictionaryCommandOnlyReturnsCurrentOptionsAndDoesNotHideMissingOrDisabledCategory() {
         var type =
                 dictionary
