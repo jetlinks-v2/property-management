@@ -83,34 +83,51 @@ public class PatrolPointTransferService {
     }
 
     public Mono<byte[]> export(QueryParamEntity query) {
+        return export(query, null);
+    }
+
+    /** 分类侧栏导出仅包含该分类及其岗位；概览导出全部当前分类，取消后的旧字段不参与展示。 */
+    public Mono<byte[]> export(QueryParamEntity source, String categoryId) {
+        var query = source.clone();
         query.setPageIndex(0); query.setPageSize(EXPORT_LIMIT + 1); query.setPaging(true);
         return scope.current().flatMap(current -> {
             query.toNestQuery().and("scopeKey", current.key());
+            if (categoryId != null) query.toNestQuery().and("categoryId", categoryId);
             // 全部当前筛选结果，权限在此入口注入，不能以页面勾选或前端分页代替。
             return AssetsHolder.injectQueryParam(query, PatrolAssetType.patrolPoint, "id").flatMap(points::queryPager)
                     .flatMap(page -> {
                         if (page.getTotal() > EXPORT_LIMIT) return Mono.error(new BusinessException("error.patrol.point.export_limit"));
                         var rows = page.getData();
-                        var categoryIds = rows.stream().map(PatrolPointEntity::getCategoryId).toList();
+                        var categoryIds = rows.stream().flatMap(row -> row.getCategoryIds().stream()).toList();
                         var tagIds = rows.stream().flatMap(row -> (row.getTagIds() == null ? List.<String>of() : row.getTagIds()).stream()).toList();
                         return Mono.zip(names(categories, PatrolAssetType.patrolCategory, categoryIds, current.key()),
                                         names(tags, PatrolAssetType.patrolTag, tagIds, current.key()),
-                                        pointPosts(rows.stream().map(PatrolPointEntity::getId).toList(), current.key()))
-                                .flatMap(refs -> Mono.fromCallable(() -> PatrolPointWorkbook.export(rows, refs.getT1(), refs.getT2(), refs.getT3()))
+                                        pointPosts(rows, categoryId, current.key()))
+                                .flatMap(refs -> Mono.fromCallable(() -> {
+                                            if (categoryId != null) rows.forEach(row -> row.setCategoryIds(List.of(categoryId)));
+                                            return PatrolPointWorkbook.export(rows, refs.getT1(), refs.getT2(), refs.getT3());
+                                        })
                                         .subscribeOn(Schedulers.boundedElastic()));
                     });
         });
     }
 
-    private Mono<Map<String, String>> pointPosts(List<String> pointIds, String key) {
+    private Mono<Map<String, String>> pointPosts(List<PatrolPointEntity> points, String categoryId, String key) {
+        var pointIds = points.stream().map(PatrolPointEntity::getId).toList();
         if (pointIds.isEmpty()) return Mono.just(Map.of());
+        var byId = points.stream().collect(Collectors.toMap(PatrolPointEntity::getId, row -> row));
         var query = QueryParamEntity.newQuery().in("pointId", pointIds).is("enabled", true).is("scopeKey", key).getParam();
         query.setPaging(false);
         return AssetsHolder.injectQueryParam(query, PatrolAssetType.patrolPlan, "id").flatMapMany(plans::query)
                 .take(EXPORT_LIMIT * 20L + 1).collectList().flatMap(rows -> {
                     if (rows.size() > EXPORT_LIMIT * 20L) return Mono.error(new BusinessException("error.patrol.point.export_limit"));
-                    return names(posts, PatrolAssetType.patrolPost, rows.stream().map(PatrolPlanEntity::getPostId).toList(), key)
-                            .map(names -> rows.stream().filter(row -> names.containsKey(row.getPostId()))
+                    var active = rows.stream().filter(row -> {
+                        var point = byId.get(row.getPointId());
+                        String category = row.getCategoryId() == null ? point.getCategoryId() : row.getCategoryId();
+                        return point.getCategoryIds().contains(category) && (categoryId == null || categoryId.equals(category));
+                    }).toList();
+                    return names(posts, PatrolAssetType.patrolPost, active.stream().map(PatrolPlanEntity::getPostId).toList(), key)
+                            .map(names -> active.stream().filter(row -> names.containsKey(row.getPostId()))
                                     .collect(Collectors.groupingBy(PatrolPlanEntity::getPointId, Collectors.mapping(row -> names.get(row.getPostId()),
                                             Collectors.collectingAndThen(Collectors.toCollection(TreeSet::new), set -> String.join("、", set))))));
                 });

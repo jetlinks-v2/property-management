@@ -62,11 +62,16 @@ class SaasPersonDirectoryTest {
     private Context identity() { return identity(true); }
 
     private Context identity(boolean withTenant) {
+        return identity(withTenant, false);
+    }
+
+    private Context identity(boolean withTenant, boolean userQuery) {
         var user = new SimpleUser();
         user.setId("operator");
         var auth = new SimpleAuthentication();
         auth.setUser(user);
-        auth.setPermissions(List.of());
+        auth.setPermissions(userQuery ? List.of(org.hswebframework.web.authorization.simple.SimplePermission.builder()
+                .id("user").actions(java.util.Set.of("query")).build()) : List.of());
         auth.setDimensions(List.of());
         return AssetScopeActivation.activate(
                         auth,
@@ -172,6 +177,33 @@ class SaasPersonDirectoryTest {
     }
 
     @Test
+    void ownMembershipUsesTrustedSaasDimensionWithoutUserDirectoryPermission() {
+        var user = new SimpleUser(); user.setId("operator");
+        var auth = new SimpleAuthentication(); auth.setUser(user); auth.setPermissions(List.of());
+        auth.setDimensions(List.of(SimpleDimension.of("app-a", "Patrol",
+                SimpleDimensionType.of("business_application"), Map.of())));
+        StepVerifier.create(directory.assertMembers(List.of("operator"))
+                .contextWrite(identity(false).put(org.hswebframework.web.authorization.Authentication.class, auth)))
+                .verifyComplete();
+        verifyNoInteractions(support);
+    }
+
+    @Test
+    void selectedApplicationDoesNotMakeNonMemberEligible() {
+        // 只有激活的应用上下文、没有认证成员维度时必须拒绝；其他应用成员也不能冒用当前入口。
+        for (String memberApp : List.of("", "app-b")) {
+            var user = new SimpleUser(); user.setId("operator");
+            var auth = new SimpleAuthentication(); auth.setUser(user); auth.setPermissions(List.of());
+            auth.setDimensions(memberApp.isEmpty() ? List.of() : List.of(SimpleDimension.of(memberApp,
+                    "Other", SimpleDimensionType.of("business_application"), Map.of())));
+            StepVerifier.create(directory.assertMembers(List.of("operator"))
+                    .contextWrite(identity(false).put(org.hswebframework.web.authorization.Authentication.class, auth)))
+                    .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+        }
+        verifyNoInteractions(support);
+    }
+
+    @Test
     void unavailableMemberCannotPassExecutionOrAssignmentValidation() {
         when(support.execute(any(QueryUserDetailPageCommand.class)))
                 .thenReturn(Mono.just(PagerResult.empty()));
@@ -179,6 +211,34 @@ class SaasPersonDirectoryTest {
                         directory.assertMembers(List.of("removed-user")).contextWrite(identity()))
                 .expectError()
                 .verify();
+    }
+
+    @Test
+    void calendarContactsStayEmptyWithoutUserQueryPermission() {
+        StepVerifier.create(directory.telephones(List.of("operator")).contextWrite(identity(false)))
+                .assertNext(phones -> assertTrue(phones.isEmpty())).verifyComplete();
+        verifyNoInteractions(support);
+    }
+
+    @Test
+    void calendarContactsUseTheOriginalApplicationAndUserAssetQuery() {
+        doReturn(Mono.just(PagerResult.of(1, List.of(Map.of("id", "operator", "name", "巡更员",
+                "telephone", "13800000001")))))
+                .when(support).execute(any(QueryUserDetailPageCommand.class));
+        StepVerifier.create(directory.telephones(List.of("operator", "unreadable-user", "operator"))
+                .contextWrite(identity(false, true)))
+                .expectNext(Map.of("operator", "13800000001")).verifyComplete();
+        var captor = ArgumentCaptor.forClass(QueryUserDetailPageCommand.class);
+        verify(support).execute(captor.capture());
+        var query = captor.getValue().asQueryParam();
+        var terms = flatten(query.getTerms()).toList();
+        assertEquals(200, query.getPageSize());
+        assertTrue(terms.stream().anyMatch(term -> "id".equals(term.getColumn())
+                && List.of("operator", "unreadable-user").equals(term.getValue())));
+        assertTrue(terms.stream().anyMatch(term -> "in-dimension".equals(term.getTermType())
+                && List.of("app-a").equals(term.getValue())));
+        assertTrue(terms.stream().anyMatch(term -> "id".equals(term.getColumn())
+                && "operator".equals(term.getValue())));
     }
 
     private Stream<Term> flatten(List<Term> terms) {

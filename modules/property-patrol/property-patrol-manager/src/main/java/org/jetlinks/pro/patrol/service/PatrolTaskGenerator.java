@@ -144,7 +144,7 @@ public class PatrolTaskGenerator {
 
     private static String ruleVersion(PatrolPlanEntity plan) {
         var rule = plan.getRule();
-        String snapshot = "v2-configured-period|" + plan.getLevelId() + "|" + plan.getPointId() + "|" + plan.getPostId() + "|"
+        String snapshot = "v2-configured-period|" + plan.getLevelId() + "|" + plan.getPointId() + "|" + plan.getCategoryId() + "|" + plan.getPostId() + "|"
                 + plan.getStandardId() + "|" + plan.getRosterPolicy() + "|" + rule.cooldownMinutes()
                 + "|" + new TreeMap<>(rule.weekly()) + "|" + new TreeMap<>(rule.dates());
         return UUID.nameUUIDFromBytes(snapshot.getBytes(StandardCharsets.UTF_8)).toString();
@@ -165,13 +165,15 @@ public class PatrolTaskGenerator {
                         Mono.error(new BusinessException("error.patrol.reference.unavailable")))
                 .flatMapMany(
                         data -> {
+                            String categoryId = plan.getCategoryId() == null ? data.getT1().getCategoryId() : plan.getCategoryId();
                             if (!data.getT1().isEnabled()
                                     || !data.getT2().isEnabled()
-                                    || !data.getT3().isEnabled())
+                                    || !data.getT3().isEnabled()
+                                    || !data.getT1().getCategoryIds().contains(categoryId))
                                 return Flux.error(
                                         new BusinessException(
                                                 "error.patrol.reference.unavailable"));
-                            return categories.findById(data.getT1().getCategoryId())
+                            return categories.findById(categoryId)
                                     .map(category -> category.getName()).defaultIfEmpty("")
                                     .flatMapMany(categoryName -> Flux.fromIterable(
                                             RuleEngine.expand(
@@ -210,7 +212,7 @@ public class PatrolTaskGenerator {
         task.setName(plan.getName());
         task.setPointId(point.getId());
         task.setPointName(point.getName());
-        task.setCategoryId(point.getCategoryId());
+        task.setCategoryId(plan.getCategoryId() == null ? point.getCategoryId() : plan.getCategoryId());
         task.setCategoryName(categoryName);
         task.setLevelId(plan.getLevelId());
         task.setLevelName(plan.getLevelName());

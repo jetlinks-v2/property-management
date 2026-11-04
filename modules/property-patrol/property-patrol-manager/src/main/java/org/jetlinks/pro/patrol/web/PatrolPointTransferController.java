@@ -35,8 +35,9 @@ public class PatrolPointTransferController {
 
     @PostMapping("/export")
     @QueryAction
-    public Mono<ResponseEntity<byte[]>> export(@RequestBody QueryParamEntity query) {
-        return service.export(query).map(bytes -> file(bytes, "patrol-points.xlsx"));
+    public Mono<ResponseEntity<byte[]>> export(@RequestBody QueryParamEntity query,
+                                              @RequestParam(required = false) String categoryId) {
+        return service.export(query, categoryId).map(bytes -> file(bytes, "patrol-points.xlsx"));
     }
 
     private Mono<byte[]> bytes(FilePart file) {

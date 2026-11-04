@@ -43,7 +43,19 @@ public class PatrolConfigurationValidator {
     private final PatrolTagService tags;
 
     public Mono<Void> validate(PatrolConfigEntity entity) {
-        return scope.current()
+        return validate(entity, null);
+    }
+
+    /** 更新点位时沿已读取的分类关系校验，初始 categoryId 不能作为变更关系的旁路。 */
+    public Mono<Void> validate(PatrolConfigEntity entity, PatrolConfigEntity previous) {
+        // categoryId 为服务端只读字段；完整编辑计划也必须保留原分类，不能按当前单分类重新推断。
+        Mono<Void> retainPlanCategory = Mono.empty();
+        if (entity instanceof PatrolPlanEntity plan && previous instanceof PatrolPlanEntity old) {
+            retainPlanCategory = old.getCategoryId() == null
+                    ? points.findById(old.getPointId()).doOnNext(point -> plan.setCategoryId(point.getCategoryId())).then()
+                    : Mono.fromRunnable(() -> plan.setCategoryId(old.getCategoryId()));
+        }
+        return retainPlanCategory.then(scope.current())
                 .flatMap(
                         current -> {
                             entity.setScopeKey(current.key());
@@ -52,15 +64,19 @@ public class PatrolConfigurationValidator {
                             if (entity instanceof PatrolCategoryEntity category
                                     && category.getParentId() == null) category.setParentId("");
                             if (entity instanceof PatrolPointEntity point) {
+                                if (previous instanceof PatrolPointEntity old
+                                        && !java.util.Objects.equals(old.getCategoryId(), point.getCategoryId()))
+                                    return Mono.error(new BusinessException("error.patrol.point.category_managed"));
                                 point.setLocation(
                                         point.getLocation() == null ? "" : point.getLocation());
                                 point.setNfcCode(
                                         point.getNfcCode() == null ? "" : point.getNfcCode());
-                                return reference(
-                                                PatrolAssetType.patrolCategory,
-                                                point.getCategoryId(),
-                                                categories.findById(point.getCategoryId()),
-                                                current.key())
+                                var categoryIds = previous instanceof PatrolPointEntity old
+                                        ? old.getCategoryIds() : List.of(point.getCategoryId());
+                                point.setCategoryIds(categoryIds);
+                                return reactor.core.publisher.Flux.fromIterable(categoryIds)
+                                        .concatMap(id -> reference(PatrolAssetType.patrolCategory, id,
+                                                categories.findById(id), current.key())).then()
                                         .then(reactor.core.publisher.Flux.fromIterable(
                                                 point.getTagIds() == null ? List.<String>of() : point.getTagIds())
                                                 .concatMap(id -> reference(PatrolAssetType.patrolTag, id,
@@ -152,7 +168,15 @@ public class PatrolConfigurationValidator {
                                                 PatrolAssetType.patrolPoint,
                                                 plan.getPointId(),
                                                 points.findById(plan.getPointId()),
-                                                current.key()),
+                                                current.key()).doOnNext(point -> {
+                                            if (plan.getCategoryId() == null) {
+                                                if (point.getCategoryIds().size() != 1)
+                                                    throw new BusinessException("error.patrol.point.category_required");
+                                                plan.setCategoryId(point.getCategoryIds().get(0));
+                                            }
+                                            if (!point.getCategoryIds().contains(plan.getCategoryId()))
+                                                throw new BusinessException("error.patrol.reference.unavailable");
+                                        }),
                                         reference(
                                                 PatrolAssetType.patrolPost,
                                                 plan.getPostId(),

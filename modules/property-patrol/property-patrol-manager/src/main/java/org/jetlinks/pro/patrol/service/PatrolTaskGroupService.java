@@ -30,6 +30,7 @@ public class PatrolTaskGroupService extends GenericReactiveCrudService<PatrolGen
 
     private QueryHelper.SortSpec<PatrolGenerationEntity> snapshotQuery(QueryParamEntity query) {
         if (query.getSorts().isEmpty()) query.toQuery().orderByDesc("belongDate").orderByAsc("id");
+        // 首时段内连接排除休息日的空生成封印；保留封印防重，列表、计数和导出只查询真实任务组。
         // 唯一索引保证每组只有一个 periodNo=1；类别/等级来自真实时段快照，筛选在分页前完成。
         return helper.select(PatrolGenerationEntity.class)
                 .all(PatrolGenerationEntity.class)
@@ -38,7 +39,7 @@ public class PatrolTaskGroupService extends GenericReactiveCrudService<PatrolGen
                 .as(PatrolTaskEntity::getLevelId, PatrolGenerationEntity::setLevelId)
                 .as(PatrolTaskEntity::getLevelName, PatrolGenerationEntity::setLevelName)
                 .from(PatrolGenerationEntity.class)
-                .leftJoin(PatrolTaskEntity.class, join -> join
+                .innerJoin(PatrolTaskEntity.class, join -> join
                         .is(PatrolTaskEntity::getTaskGroupId, PatrolGenerationEntity::getId)
                         .and(PatrolTaskEntity::getPeriodNo, 1))
                 .where(query);

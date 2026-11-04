@@ -38,47 +38,84 @@ public class PatrolPointAssignmentService {
     private final TransactionalOperator transaction;
 
     public record Rule(String postId, String levelId, String standardId) {}
-    public record Detail(String pointId, List<PatrolPlanEntity> assignments) {}
+    public record Detail(String pointId, String categoryId, List<PatrolPlanEntity> assignments) {}
+
+    /** 全部分类概览仅汇总可读计划；编辑入口仍要求明确分类并校验完整计划集合。 */
+    public Mono<List<Detail>> summary(List<String> pointIds) {
+        if (pointIds.isEmpty()) return Mono.just(List.of());
+        if (pointIds.size() > 100) return Mono.error(new BusinessException("error.patrol.assignment.limit"));
+        return authorizePoints(pointIds, CrudAssetPermission.read).then(scope.current()).flatMap(current -> {
+            var query = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
+                    .in("pointId", pointIds).is("scopeKey", current.key()).is("enabled", true).getParam();
+            query.setPaging(false);
+            return AssetsHolder.injectQueryParam(query, PatrolAssetType.patrolPlan, "id")
+                    .flatMapMany(plans::query).take(10001).collectList().flatMap(rows -> {
+                        if (rows.size() > 10000) return Mono.error(new BusinessException("error.patrol.assignment.limit"));
+                        return Mono.just(pointIds.stream().map(id -> new Detail(id, null,
+                                rows.stream().filter(row -> id.equals(row.getPointId())).toList())).toList());
+                    });
+        });
+    }
 
     public Mono<List<Detail>> detail(List<String> pointIds) {
+        return detail(pointIds, null);
+    }
+
+    public Mono<List<Detail>> detail(List<String> pointIds, String categoryId) {
+        if (pointIds.isEmpty()) return Mono.just(List.of());
+        if (pointIds.size() > 100) return Mono.error(new BusinessException("error.patrol.assignment.limit"));
         return authorizePoints(pointIds, CrudAssetPermission.read)
-                .then(load(pointIds))
-                .map(rows -> rows.stream().filter(PatrolPlanEntity::isEnabled).toList())
-                .flatMap(rows -> authorizePlans(rows, CrudAssetPermission.read).thenReturn(rows))
-                .map(rows -> pointIds.stream().map(id -> new Detail(id,
-                        rows.stream().filter(row -> row.isEnabled() && id.equals(row.getPointId())).toList())).toList());
+                .thenMany(points.findById(pointIds)).collectList()
+                .flatMap(selected -> scope.current().flatMap(current -> {
+                    checkPoints(selected, pointIds, current.key());
+                    var selection = selectCategories(selected, categoryId);
+                    return load(selected, selection)
+                            .map(rows -> rows.stream().filter(PatrolPlanEntity::isEnabled).toList())
+                            .flatMap(rows -> authorizePlans(rows, CrudAssetPermission.read).thenReturn(rows))
+                            .map(rows -> pointIds.stream().map(id -> new Detail(id, selection.get(id),
+                                    rows.stream().filter(row -> id.equals(row.getPointId())).toList())).toList());
+                }));
     }
 
     public Mono<Void> assign(List<String> pointIds, List<String> postIds) {
-        return replace(pointIds, postIds, null);
+        return assign(pointIds, postIds, null);
+    }
+
+    public Mono<Void> assign(List<String> pointIds, List<String> postIds, String categoryId) {
+        return replace(pointIds, postIds, null, categoryId);
     }
 
     public Mono<Void> configure(List<String> pointIds, List<Rule> rules) {
-        return replace(pointIds, rules.stream().map(Rule::postId).toList(), rules);
+        return configure(pointIds, rules, null);
     }
 
-    private Mono<Void> replace(List<String> pointIds, List<String> postIds, List<Rule> rules) {
+    public Mono<Void> configure(List<String> pointIds, List<Rule> rules, String categoryId) {
+        return replace(pointIds, rules.stream().map(Rule::postId).toList(), rules, categoryId);
+    }
+
+    private Mono<Void> replace(List<String> pointIds, List<String> postIds, List<Rule> rules, String categoryId) {
         return Mono.defer(() -> {
+            if (pointIds.isEmpty() || pointIds.size() > 100)
+                return Mono.error(new BusinessException("error.patrol.assignment.limit"));
             if (new HashSet<>(pointIds).size() != pointIds.size()
                     || new HashSet<>(postIds).size() != postIds.size())
                 return Mono.error(new BusinessException("error.patrol.assignment.duplicate"));
             // 新入口同时控制点位配置和已有计划资产；混入一个越权对象则整体拒绝。
             return authorizePoints(pointIds, CrudAssetPermission.save)
-                    .then(points.createQuery().in(PatrolPointEntity::getId, pointIds).fetch().collectList())
+                    .thenMany(points.findById(pointIds)).collectList()
                     .zipWith(ReactiveAuthenticationHolder.get())
                     .flatMap(pair -> scope.current().flatMap(current -> {
                         var selected = pair.getT1();
-                        if (selected.size() != pointIds.size() || selected.stream()
-                                .anyMatch(point -> !point.isEnabled() || !current.key().equals(point.getScopeKey())))
-                            return Mono.error(new BusinessException("error.patrol.reference.unavailable"));
+                        checkPoints(selected, pointIds, current.key());
+                        var selection = selectCategories(selected, categoryId);
                         String userId = pair.getT2().getUser().getId();
                         String userName = Objects.requireNonNullElse(pair.getT2().getUser().getName(), "");
                         long now = System.currentTimeMillis();
                         // 按稳定顺序 CAS 点位，串行化同一点位的批量覆盖；失败时所有写入回滚。
                         return Flux.fromIterable(selected.stream().sorted(Comparator.comparing(PatrolPointEntity::getId)).toList())
-                                .concatMap(point -> lock(point, userId, userName, now)).then(load(pointIds))
+                                .concatMap(point -> lock(point, userId, userName, now)).then(load(selected, selection))
                                 .flatMap(existing -> authorizePlans(existing, CrudAssetPermission.save)
-                                        .then(prepare(selected, existing, postIds, rules, userId, userName, now))
+                                        .then(prepare(selected, existing, selection, postIds, rules, userId, userName, now))
                                         .flatMap(rows -> persist(existing, rows, userId, userName, now, rules != null)));
                     })).then().as(transaction::transactional);
         });
@@ -94,8 +131,37 @@ public class PatrolPointAssignmentService {
                 PatrolPlanEntity::getId, permission).then();
     }
 
-    private Mono<List<PatrolPlanEntity>> load(List<String> ids) {
-        return plans.createQuery().in(PatrolPlanEntity::getPointId, ids)
+    private static void checkPoints(List<PatrolPointEntity> selected, List<String> ids, String scopeKey) {
+        if (selected.size() != ids.size() || selected.stream()
+                .anyMatch(point -> !point.isEnabled() || !scopeKey.equals(point.getScopeKey())))
+            throw new BusinessException("error.patrol.reference.unavailable");
+    }
+
+    private static Map<String, String> selectCategories(List<PatrolPointEntity> selected, String categoryId) {
+        var selection = new HashMap<String, String>();
+        for (var point : selected) {
+            String chosen = categoryId;
+            if (chosen == null) {
+                if (point.getCategoryIds().size() != 1)
+                    throw new BusinessException("error.patrol.point.category_required");
+                chosen = point.getCategoryIds().get(0);
+            }
+            if (!point.getCategoryIds().contains(chosen))
+                throw new BusinessException("error.patrol.reference.unavailable");
+            selection.put(point.getId(), chosen);
+        }
+        return selection;
+    }
+
+    private Mono<List<PatrolPlanEntity>> load(List<PatrolPointEntity> selected, Map<String, String> selection) {
+        var filter = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery();
+        for (var point : selected) {
+            String category = selection.get(point.getId());
+            var part = filter.orNest().and("pointId", point.getId()).nest().and("categoryId", category);
+            if (category.equals(point.getCategoryId())) part.or().isNull("categoryId");
+            part.end().end();
+        }
+        return plans.createQuery().setParam(filter.getParam())
                 .orderBy(org.hswebframework.ezorm.rdb.operator.dml.query.SortOrder.asc(PatrolPlanEntity::getSortIndex),
                         org.hswebframework.ezorm.rdb.operator.dml.query.SortOrder.asc(PatrolPlanEntity::getId))
                 .fetch().take(10001).collectList().flatMap(rows -> rows.size() > 10000
@@ -113,6 +179,7 @@ public class PatrolPointAssignmentService {
     }
 
     private Mono<List<PatrolPlanEntity>> prepare(List<PatrolPointEntity> selected, List<PatrolPlanEntity> existing,
+                                                Map<String, String> selection,
                                                 List<String> postIds, List<Rule> rules, String userId, String userName, long now) {
         List<PatrolPlanEntity> replacements = new ArrayList<>();
         Map<String, PatrolPlanEntity> current = new HashMap<>();
@@ -135,10 +202,12 @@ public class PatrolPointAssignmentService {
                 var old = current.get(key);
                 var row = old == null ? new PatrolPlanEntity() : old;
                 if (old == null) {
-                    row.setId(UUID.nameUUIDFromBytes(("point-post|" + key).getBytes(StandardCharsets.UTF_8)).toString());
+                    row.setId(UUID.nameUUIDFromBytes(("point-category-post|" + point.getId() + "|" + selection.get(point.getId())
+                            + "|" + postIds.get(i)).getBytes(StandardCharsets.UTF_8)).toString());
                     row.setPointId(point.getId()); row.setPostId(postIds.get(i));
                     row.setCreatorId(userId); row.setCreatorName(userName); row.setCreateTime(now); row.setExtensions(new HashMap<>());
                 }
+                row.setCategoryId(selection.get(point.getId()));
                 row.setName(point.getName()); row.setEnabled(true); row.setSortIndex(i);
                 row.setModifierId(userId); row.setModifierName(userName); row.setModifyTime(now);
                 if (rules != null) {

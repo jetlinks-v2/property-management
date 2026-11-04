@@ -26,26 +26,31 @@ import java.util.List;
 @AllArgsConstructor
 public class PatrolPointAssignmentController {
     private final PatrolPointAssignmentService service;
-    public record Selection(@NotEmpty @Size(max = 100) List<@NotBlank String> pointIds) {}
+    public record Selection(@NotEmpty @Size(max = 100) List<@NotBlank String> pointIds, @Size(max = 64) String categoryId) {}
     public record Posts(@NotEmpty @Size(max = 100) List<@NotBlank String> pointIds,
-                        @NotEmpty @Size(max = 20) List<@NotBlank String> postIds) {}
+                        @NotEmpty @Size(max = 20) List<@NotBlank String> postIds, @Size(max = 64) String categoryId) {}
     public record Rule(@NotBlank String postId, @NotBlank String levelId, @NotBlank String standardId) {}
     public record Rules(@NotEmpty @Size(max = 100) List<@NotBlank String> pointIds,
-                        @NotEmpty @Size(max = 20) List<@NotNull @Valid Rule> rules) {}
+                        @NotEmpty @Size(max = 20) List<@NotNull @Valid Rule> rules, @Size(max = 64) String categoryId) {}
+    @PostMapping("/_summary")
+    @QueryAction
+    public Mono<List<PatrolPointAssignmentService.Detail>> summary(@RequestBody @Valid Selection value) {
+        return service.summary(value.pointIds());
+    }
     @PostMapping("/_detail")
     @QueryAction
     public Mono<List<PatrolPointAssignmentService.Detail>> detail(@RequestBody @Valid Selection value) {
-        return service.detail(value.pointIds());
+        return service.detail(value.pointIds(), value.categoryId());
     }
     @PostMapping("/posts")
     @SaveAction
     public Mono<Void> assign(@RequestBody @Valid Posts value) {
-        return service.assign(value.pointIds(), value.postIds());
+        return service.assign(value.pointIds(), value.postIds(), value.categoryId());
     }
     @PostMapping("/rules")
     @SaveAction
     public Mono<Void> configure(@RequestBody @Valid Rules value) {
         return service.configure(value.pointIds(), value.rules().stream().map(rule ->
-                new PatrolPointAssignmentService.Rule(rule.postId(), rule.levelId(), rule.standardId())).toList());
+                new PatrolPointAssignmentService.Rule(rule.postId(), rule.levelId(), rule.standardId())).toList(), value.categoryId());
     }
 }

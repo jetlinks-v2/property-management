@@ -117,7 +117,7 @@ public abstract class PatrolConfigController<E extends PatrolConfigEntity>
                             entity.setModifierId(pair.getT2().getUser().getId());
                             entity.setModifyTime(System.currentTimeMillis());
                             return validator
-                                    .validate(entity)
+                                    .validate(entity, old)
                                     .then(
                                             Mono.defer(
                                                     () -> {

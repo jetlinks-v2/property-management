@@ -7,6 +7,7 @@ import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.patrol.asset.PatrolAssetType;
 import org.jetlinks.pro.patrol.entity.PatrolRosterEntity;
 import org.jetlinks.pro.patrol.entity.PatrolTaskEntity;
+import org.jetlinks.pro.patrol.integration.SaasPersonDirectory;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import java.time.*;
@@ -20,6 +21,7 @@ public class PatrolCalendarService {
     private static final int MAX_ROWS = 50000;
     private final PatrolRosterService rosters;
     private final PatrolTaskService tasks;
+    private final SaasPersonDirectory people;
 
     public record Shift(String name, long startTime, long endTime, long staffCount, long taskCount,
                         long expectedCount, long completedCount, long missedCount, String status) {}
@@ -31,7 +33,8 @@ public class PatrolCalendarService {
     public record Month(String month, Summary summary, List<Day> days) {}
     public record Detail(String date, long staffCount, long shiftCount, long pointCount,
                          long expectedCount, long completedCount, long missedCount,
-                         List<PatrolRosterEntity> staff, List<PatrolTaskEntity> tasks) {}
+                         List<PatrolRosterEntity> staff, List<PatrolTaskEntity> tasks,
+                         Map<String, String> staffTelephones) {}
     record Rows(List<PatrolRosterEntity> staff, List<PatrolTaskEntity> tasks) {}
 
     public Mono<Month> month(YearMonth month) {
@@ -39,10 +42,13 @@ public class PatrolCalendarService {
     }
 
     public Mono<Detail> day(LocalDate day) {
-        return rows(day, day.plusDays(1)).map(rows -> new Detail(day.toString(),
-                staffCount(rows.staff()), shiftCount(rows.staff()),
-                rows.tasks().stream().map(PatrolTaskEntity::getPointId).distinct().count(),
-                expected(rows.tasks()), completed(rows.tasks()), missed(rows.tasks()), rows.staff(), rows.tasks()));
+        return rows(day, day.plusDays(1)).flatMap(rows ->
+                people.telephones(rows.staff().stream().map(PatrolRosterEntity::getUserId).distinct().toList())
+                        .map(telephones -> new Detail(day.toString(),
+                                staffCount(rows.staff()), shiftCount(rows.staff()),
+                                rows.tasks().stream().map(PatrolTaskEntity::getPointId).distinct().count(),
+                                expected(rows.tasks()), completed(rows.tasks()), missed(rows.tasks()),
+                                rows.staff(), rows.tasks(), telephones)));
     }
 
     private Mono<Rows> rows(LocalDate from, LocalDate until) {

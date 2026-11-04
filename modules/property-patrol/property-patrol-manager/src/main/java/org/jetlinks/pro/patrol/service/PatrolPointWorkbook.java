@@ -86,7 +86,8 @@ public final class PatrolPointWorkbook {
             var format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.of("Asia/Shanghai"));
             int index = 1;
             for (var point : points) {
-                String[] values = {point.getName(), point.getCode(), categories.getOrDefault(point.getCategoryId(), ""),
+                String[] values = {point.getName(), point.getCode(), point.getCategoryIds().stream()
+                        .map(categories::get).filter(Objects::nonNull).collect(java.util.stream.Collectors.joining("、")),
                         pointPosts.getOrDefault(point.getId(), ""),
                         String.join("、", (point.getTagIds() == null ? List.<String>of() : point.getTagIds()).stream()
                                 .map(tags::get).filter(Objects::nonNull).toList()), point.getLocation(),

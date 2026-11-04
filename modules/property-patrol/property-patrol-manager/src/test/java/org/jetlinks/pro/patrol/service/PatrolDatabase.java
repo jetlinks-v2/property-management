@@ -47,6 +47,7 @@ final class PatrolDatabase implements AutoCloseable {
         metadata.addFeature(new CurrentTimeGenerator());
         metadata.addFeature(new DefaultIdGenerator());
         metadata.addFeature(new org.jetlinks.pro.patrol.service.terms.PatrolPointPlanTermBuilder());
+        metadata.addFeature(new org.jetlinks.pro.patrol.service.terms.PatrolPointCategoryTermBuilder());
         metadata.addFeature(new org.jetlinks.pro.patrol.service.terms.PatrolGroupMissedTermBuilder());
         metadata.addFeature(new org.jetlinks.pro.patrol.service.terms.PatrolPointTagsTermBuilder(
                 new com.fasterxml.jackson.databind.ObjectMapper()));

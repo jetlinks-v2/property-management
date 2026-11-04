@@ -1,5 +1,6 @@
 package org.jetlinks.pro.patrol.entity;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
@@ -31,6 +32,11 @@ public class PatrolPlanEntity extends PatrolConfigEntity {
     @Column(length = 64, nullable = false)
     @NotBlank
     private String pointId;
+
+    /** 岗位规则属于点位在此分类中的关系；已发布的空值由关系迁移解析原点位分类。 */
+    @Column(length = 64)
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private String categoryId;
 
     @Column(length = 64, nullable = false)
     @NotBlank

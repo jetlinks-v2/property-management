@@ -20,6 +20,7 @@ import javax.persistence.Table;
 /** 巡更点位配置；只保存业务关系，身份与授权仍由 SaaS 管理。 */
 @Getter
 @Setter
+@com.fasterxml.jackson.annotation.JsonIgnoreProperties(value = "categoryIds", allowGetters = true)
 @EnableEntityEvent
 @Table(
         name = "pt_point",
@@ -34,6 +35,14 @@ public class PatrolPointEntity extends PatrolConfigEntity {
     @Column(length = 64, nullable = false)
     @NotBlank
     private String categoryId;
+
+    /** 当前分类关系的只读投影；旧 categoryId 保留首次归属，不能代表当前全部分类。 */
+    @javax.persistence.Transient
+    private List<String> categoryIds;
+
+    public List<String> getCategoryIds() {
+        return categoryIds == null ? List.of(categoryId) : categoryIds;
+    }
 
     @Column(length = 255)
     @Size(max = 255)

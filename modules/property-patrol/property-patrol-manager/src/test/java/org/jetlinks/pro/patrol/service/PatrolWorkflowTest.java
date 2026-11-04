@@ -82,7 +82,9 @@ class PatrolWorkflowTest {
         posts = new PatrolPostService(db.repository(PatrolPostEntity.class, PatrolPostEntity::new));
         points =
                 new PatrolPointService(
-                        db.repository(PatrolPointEntity.class, PatrolPointEntity::new));
+                        db.repository(PatrolPointEntity.class, PatrolPointEntity::new),
+                        db.repository(org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity.class,
+                                org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity::new));
         standards =
                 new PatrolStandardService(
                         db.repository(PatrolStandardEntity.class, PatrolStandardEntity::new));
@@ -230,6 +232,366 @@ class PatrolWorkflowTest {
     void close() {
         if (provider != null) provider.dispose();
         if (db != null) db.close();
+    }
+
+    private PatrolPointCategoryService pointCategories(
+            ReactiveRepository<org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity, String> repository) {
+        var scope = mock(org.jetlinks.pro.patrol.integration.PatrolScope.class);
+        when(scope.current()).thenReturn(Mono.just(new org.jetlinks.pro.patrol.integration.PatrolScope.Current("north", "app")));
+        return new PatrolPointCategoryService(repository, points, categories, plans, scope,
+                TransactionalOperator.create(new R2dbcTransactionManager(db.connections)));
+    }
+
+    private void secondCategory() {
+        var category = new PatrolCategoryEntity();
+        category.setId("category2"); category.setName("Fire safety"); category.setScopeKey("north|app");
+        category.setExtension("tenantId", "north"); categories.insert(category).block();
+    }
+
+    @Test
+    void cancellingOneCategoryKeepsOtherCategoryPlanPhysicalPointAndAllHistoricalFacts() {
+        var relations = db.repository(org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity.class,
+                org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity::new);
+        var service = pointCategories(relations);
+        secondCategory();
+        assertEquals(List.of("category"), service.categoryIds(points.findById("point").block()).block());
+        seedTask(2);
+        workflow.submit(submission("before-cancel")).contextWrite(identity).block();
+        var historical = tasks.findById("task").block();
+        var execution = executions.createQuery().fetchOne().block();
+        service.link(List.of("point"), "category2").contextWrite(identity).block();
+        seedPlan("category2-plan", "north");
+        plans.createUpdate().set(PatrolPlanEntity::getCategoryId, "category2")
+                .where(PatrolPlanEntity::getId, "category2-plan").execute().block();
+
+        service.cancel(List.of("point"), "category").contextWrite(identity).block();
+        service.cancel(List.of("point"), "category").contextWrite(identity).block();
+        assertEquals(List.of("category2"), service.categoryIds(points.findById("point").block()).block());
+        assertTrue(points.findById("point").block().isEnabled());
+        var originalPlan = plans.findById("plan").block();
+        assertEquals("category", originalPlan.getCategoryId());
+        org.junit.jupiter.api.Assertions.assertFalse(originalPlan.isEnabled());
+        assertTrue(plans.findById("category2-plan").block().isEnabled());
+        assertEquals(2, relations.createQuery().count().block());
+        assertEquals(historical.getCompletedCount(), tasks.findById("task").block().getCompletedCount());
+        assertEquals(historical.getLastExecutionTime(), tasks.findById("task").block().getLastExecutionTime());
+        assertEquals(execution.getId(), executions.createQuery().fetchOne().block().getId());
+        assertEquals(1, executions.createQuery().count().block());
+        StepVerifier.create(workflow.submit(submission("after-cancel")).contextWrite(identity))
+                .expectError(org.hswebframework.web.exception.BusinessException.class).verify();
+    }
+
+    @Test
+    void lastCategoryCancellationCannotResurrectLegacyFallbackAndRebindingDoesNotEnableOldPlans() {
+        var relations = db.repository(org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity.class,
+                org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity::new);
+        var service = pointCategories(relations);
+        service.cancel(List.of("point"), "category").contextWrite(identity).block();
+        var physical = points.findById("point").block();
+        assertTrue(physical.isEnabled());
+        assertEquals("category", physical.getCategoryId());
+        assertEquals(List.of(), service.categoryIds(physical).block());
+        var tombstone = relations.createQuery().fetchOne().block();
+        service.link(List.of("point"), "category").contextWrite(identity).block();
+        assertEquals(List.of("category"), service.categoryIds(physical).block());
+        assertEquals(tombstone.getId(), relations.createQuery().fetchOne().block().getId());
+        assertEquals(tombstone.getCreateTime(), relations.createQuery().fetchOne().block().getCreateTime());
+        org.junit.jupiter.api.Assertions.assertFalse(plans.findById("plan").block().isEnabled());
+    }
+
+    @Test
+    void categoryChangesRejectForeignApplicationAndMixedUnauthorizedPointsWithoutWrites() {
+        var relations = db.repository(org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity.class,
+                org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity::new);
+        var service = pointCategories(relations);
+        var foreignCategory = new PatrolCategoryEntity(); foreignCategory.setId("other-app-category");
+        foreignCategory.setName("Other application"); foreignCategory.setScopeKey("north|other-app");
+        foreignCategory.setExtension("tenantId", "north"); categories.insert(foreignCategory).block();
+        StepVerifier.create(service.link(List.of("point"), foreignCategory.getId()).contextWrite(identity))
+                .expectError(org.hswebframework.web.exception.BusinessException.class).verify();
+        var foreign = new PatrolPointEntity(); foreign.setId("foreign"); foreign.setName("Other tenant point");
+        foreign.setCode("FOREIGN"); foreign.setCategoryId("category"); foreign.setScopeKey("south|other-app");
+        foreign.setExtension("tenantId", "south"); points.insert(foreign).block();
+        StepVerifier.create(service.cancel(List.of("point", "foreign"), "category").contextWrite(identity))
+                .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+        assertEquals(0, relations.createQuery().count().block());
+        assertTrue(plans.findById("plan").block().isEnabled());
+        org.junit.jupiter.api.Assertions.assertNull(plans.findById("plan").block().getCategoryId());
+    }
+
+    @Test
+    void categoryBindingFailureRollsBackPublishedMembershipAndPlanMigration() {
+        var relations = db.repository(org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity.class,
+                org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity::new);
+        var failing = spy(relations);
+        doReturn(Mono.error(new IllegalStateException("injected relation insert failure"))).when(failing)
+                .insert(org.mockito.ArgumentMatchers.argThat(
+                        (org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity row) -> "category2".equals(row.getCategoryId())));
+        secondCategory();
+        StepVerifier.create(pointCategories(failing).link(List.of("point"), "category2").contextWrite(identity))
+                .expectError(IllegalStateException.class).verify();
+        assertEquals(0, relations.createQuery().count().block());
+        assertTrue(plans.findById("plan").block().isEnabled());
+        org.junit.jupiter.api.Assertions.assertNull(plans.findById("plan").block().getCategoryId());
+    }
+
+    @Test
+    void relationUpdateFailureRollsBackPlanStopAndLegacyMaterialization() {
+        var relations = db.repository(org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity.class,
+                org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity::new);
+        var failing = spy(relations);
+        var update = spy(relations.createUpdate());
+        doReturn(Mono.error(new IllegalStateException("injected relation update failure"))).when(update).execute();
+        doReturn(update).when(failing).createUpdate();
+        StepVerifier.create(pointCategories(failing).cancel(List.of("point"), "category").contextWrite(identity))
+                .expectError(IllegalStateException.class).verify();
+        assertEquals(0, relations.createQuery().count().block());
+        assertTrue(plans.findById("plan").block().isEnabled());
+        org.junit.jupiter.api.Assertions.assertNull(plans.findById("plan").block().getCategoryId());
+    }
+
+    @Test
+    void categoryBatchSupportsOneHundredPointsAndRejectsEmptyOrOversizedOperations() {
+        var relations = db.repository(org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity.class,
+                org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity::new);
+        var service = pointCategories(relations);
+        secondCategory();
+        var selected = new java.util.ArrayList<PatrolPointEntity>();
+        for (int n = 0; n < 100; n++) {
+            var point = new PatrolPointEntity(); point.setId("category-batch-" + n);
+            point.setName("Batch point " + n); point.setCode("CB" + n); point.setCategoryId("category");
+            point.setScopeKey("north|app"); point.setExtension("tenantId", "north"); selected.add(point);
+        }
+        points.insertBatch(Mono.just(selected)).block();
+        var ids = selected.stream().map(PatrolPointEntity::getId).toList();
+        long started = System.nanoTime();
+        service.link(ids, "category2").contextWrite(identity).block(Duration.ofSeconds(30));
+        service.cancel(ids, "category").contextWrite(identity).block(Duration.ofSeconds(30));
+        System.out.println("100-point category link+cancel elapsed ms=" + (System.nanoTime() - started) / 1_000_000);
+        assertEquals(200, relations.createQuery().count().block());
+        assertEquals(100, relations.createQuery().where("enabled", true).and("categoryId", "category2").count().block());
+        assertEquals(100, points.createQuery().in(PatrolPointEntity::getId, ids).and("enabled", true).count().block());
+        StepVerifier.create(service.cancel(List.of(), "category").contextWrite(identity))
+                .expectError(org.hswebframework.web.exception.BusinessException.class).verify();
+        var excessive = new java.util.ArrayList<>(ids); excessive.add("point");
+        StepVerifier.create(service.cancel(excessive, "category2").contextWrite(identity))
+                .expectError(org.hswebframework.web.exception.BusinessException.class).verify();
+        assertEquals(100, relations.createQuery().where("enabled", true).count().block());
+    }
+
+    @Test
+    void categoryFiltersUseAllCurrentRelationsAndPreserveExclusionsPagingAndLegacyRows() {
+        var relations = db.repository(org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity.class,
+                org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity::new);
+        var service = pointCategories(relations);
+        secondCategory();
+        var other = new PatrolPointEntity(); other.setId("point2"); other.setName("Pump"); other.setCode("P002");
+        other.setScopeKey("north|app"); other.setCategoryId("category"); other.setExtension("tenantId", "north");
+        points.insert(other).block();
+        var first = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery().is("categoryId", "category").getParam();
+        assertEquals(2, points.count(first).block());
+        service.link(List.of("point"), "category2").contextWrite(identity).block();
+        assertEquals(List.of("category", "category2"), points.findById("point").block().getCategoryIds());
+        var excluded = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
+                .notIn("categoryId", List.of("category")).getParam();
+        assertEquals(0, points.count(excluded).block());
+        var filter = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
+                .in("categoryId", List.of("category2")).or().is("name", "Missing name").orderByAsc("id").getParam();
+        filter.setPageSize(1);
+        var page = points.queryPager(filter).block();
+        assertEquals(1, page.getTotal());
+        assertEquals("point", page.getData().get(0).getId());
+        assertEquals(List.of("category", "category2"), page.getData().get(0).getCategoryIds());
+        assertEquals("categoryId", filter.getTerms().get(0).getColumn());
+        assertEquals("in", filter.getTerms().get(0).getTermType());
+        service.cancel(List.of("point"), "category").contextWrite(identity).block();
+        assertEquals(List.of("point2"), points.query(first).map(PatrolPointEntity::getId).collectList().block());
+        assertEquals(List.of("point"), points.query(excluded).map(PatrolPointEntity::getId).collectList().block());
+        service.cancel(List.of("point"), "category2").contextWrite(identity).block();
+        assertEquals(List.of(), points.findById("point").block().getCategoryIds());
+        assertEquals(0, points.count(filter).block());
+        assertEquals(2, points.createQuery().count().block());
+    }
+
+    @Test
+    void categorySpecificAssignmentsGenerateIndependentSnapshotsAndCannotBeImplicitlyMerged() {
+        var relations = db.repository(org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity.class,
+                org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity::new);
+        var service = pointCategories(relations);
+        secondCategory();
+        service.link(List.of("point"), "category2").contextWrite(identity).block();
+        var assignments = pointAssignments();
+        StepVerifier.create(assignments.assign(List.of("point"), List.of("post")).contextWrite(identity))
+                .expectError(org.hswebframework.web.exception.BusinessException.class).verify();
+        assignments.assign(List.of("point"), List.of("post"), "category2").contextWrite(identity).block();
+        ownNewAssignments();
+        var primary = assignments.detail(List.of("point"), "category").contextWrite(identity).block().get(0);
+        var secondary = assignments.detail(List.of("point"), "category2").contextWrite(identity).block().get(0);
+        assertEquals("plan", primary.assignments().get(0).getId());
+        assertEquals("category2", secondary.categoryId());
+        assertEquals(1, secondary.assignments().size());
+        org.junit.jupiter.api.Assertions.assertNotEquals("plan", secondary.assignments().get(0).getId());
+        var level = new org.jetlinks.pro.patrol.entity.PatrolLevelEntity();
+        level.setId("level2"); level.setName("Fire schedule"); level.setScopeKey("north|app");
+        level.setExtension("tenantId", "north"); level.setRule(new PatrolRule(Map.of(),
+                Map.of(LocalDate.now(), List.of(new PatrolRule.Window(480, 600, 60, 1))), 0));
+        new PatrolLevelService(db.repository(org.jetlinks.pro.patrol.entity.PatrolLevelEntity.class,
+                org.jetlinks.pro.patrol.entity.PatrolLevelEntity::new)).insert(level).block();
+        assignments.configure(List.of("point"), List.of(new PatrolPointAssignmentService.Rule("post", "level2", "standard")), "category2")
+                .contextWrite(identity).block();
+        var first = generator.generate("plan", LocalDate.now()).contextWrite(identity).collectList().block();
+        String secondaryId = secondary.assignments().get(0).getId();
+        var second = generator.generate(secondaryId, LocalDate.now()).contextWrite(identity).collectList().block();
+        assertEquals("category", first.get(0).getCategoryId());
+        assertEquals("category2", second.get(0).getCategoryId());
+        assertEquals("Fire safety", second.get(0).getCategoryName());
+        assertEquals(2, second.get(0).getRequiredCount());
+        assertEquals(24, first.get(0).getRequiredCount());
+        org.junit.jupiter.api.Assertions.assertNotEquals(first.get(0).getTaskGroupId(), second.get(0).getTaskGroupId());
+        service.cancel(List.of("point"), "category").contextWrite(identity).block();
+        assertTrue(plans.findById(secondaryId).block().isEnabled());
+        assertEquals("category2", generator.preview(secondaryId, LocalDate.now()).contextWrite(identity).blockFirst().getCategoryId());
+        assertEquals(2, tasks.createQuery().count().block());
+    }
+
+    private PatrolConfigurationValidator categoryValidator() {
+        var scope = mock(org.jetlinks.pro.patrol.integration.PatrolScope.class);
+        when(scope.current()).thenReturn(Mono.just(new org.jetlinks.pro.patrol.integration.PatrolScope.Current("north", "app")));
+        return new PatrolConfigurationValidator(categories, points, standards, posts,
+                mock(SaasPersonDirectory.class), scope, attachments,
+                new PatrolLevelService(db.repository(org.jetlinks.pro.patrol.entity.PatrolLevelEntity.class,
+                        org.jetlinks.pro.patrol.entity.PatrolLevelEntity::new)),
+                new PatrolTagService(db.repository(org.jetlinks.pro.patrol.entity.PatrolTagEntity.class,
+                        org.jetlinks.pro.patrol.entity.PatrolTagEntity::new)));
+    }
+
+    @Test
+    void pointMetadataEditPreservesMembershipAndCannotChangeCategoryThroughGenericSave() throws Exception {
+        var relations = db.repository(org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity.class,
+                org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity::new);
+        secondCategory();
+        var service = pointCategories(relations);
+        service.link(List.of("point"), "category2").contextWrite(identity).block();
+        service.cancel(List.of("point"), "category").contextWrite(identity).block();
+        categories.createUpdate().set(PatrolCategoryEntity::isEnabled, false)
+                .where(PatrolCategoryEntity::getId, "category").execute().block();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var input = mapper.readValue("{\"name\":\"Renamed\",\"code\":\"P001\",\"categoryId\":\"category\",\"categoryIds\":[\"forged\"]}", PatrolPointEntity.class);
+        var controller = new org.jetlinks.pro.patrol.web.PatrolPointController(points, categoryValidator());
+        var saved = controller.update("point", input).contextWrite(identity).block();
+        assertEquals(List.of("category2"), saved.getCategoryIds());
+        assertEquals("category", saved.getCategoryId());
+        assertEquals("Renamed", points.findById("point").block().getName());
+        assertEquals(List.of("category2"), points.findById("point").block().getCategoryIds());
+        input.setCategoryId("category2");
+        StepVerifier.create(controller.update("point", input).contextWrite(identity))
+                .expectErrorMessage("error.patrol.point.category_managed").verify();
+        assertEquals("category", points.findById("point").block().getCategoryId());
+    }
+
+    @Test
+    void assignmentReadBeforeConcurrentCancellationCannotRestoreCancelledCategoryPlans() {
+        var selected = reactor.core.publisher.Sinks.<Boolean>one();
+        var resume = reactor.core.publisher.Sinks.<Boolean>one();
+        var staleReader = spy(points);
+        doReturn(points.findById(List.of("point")).collectList().flatMapMany(snapshot -> {
+            selected.tryEmitValue(true);
+            return resume.asMono().thenMany(Flux.fromIterable(snapshot));
+        })).when(staleReader).findById(List.of("point"));
+        var scope = mock(org.jetlinks.pro.patrol.integration.PatrolScope.class);
+        when(scope.current()).thenReturn(Mono.just(new org.jetlinks.pro.patrol.integration.PatrolScope.Current("north", "app")));
+        var assignments = new PatrolPointAssignmentService(staleReader, plans, categoryValidator(), scope,
+                TransactionalOperator.create(new R2dbcTransactionManager(db.connections)));
+        var pending = assignments.assign(List.of("point"), List.of("post"), "category")
+                .contextWrite(identity).subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic()).toFuture();
+        try {
+            assertTrue(selected.asMono().block(Duration.ofSeconds(10)));
+            var relations = db.repository(org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity.class,
+                    org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity::new);
+            pointCategories(relations).cancel(List.of("point"), "category").contextWrite(identity).block(Duration.ofSeconds(10));
+            resume.tryEmitValue(true);
+            StepVerifier.create(Mono.fromFuture(pending)).expectErrorMessage("error.patrol.assignment.changed").verify(Duration.ofSeconds(10));
+            assertEquals(List.of(), points.findById("point").block().getCategoryIds());
+            org.junit.jupiter.api.Assertions.assertFalse(plans.findById("plan").block().isEnabled());
+        } finally { resume.tryEmitValue(true); pending.cancel(true); }
+    }
+
+    @Test
+    void genericPlanUpdateRetainsAuthoritativeCategoryEvenWithReadOnlyJsonField() throws Exception {
+        secondCategory();
+        var relations = db.repository(org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity.class,
+                org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity::new);
+        pointCategories(relations).link(List.of("point"), "category2").contextWrite(identity).block();
+        var old = plans.findById("plan").block();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        var input = mapper.readValue(mapper.writeValueAsString(old), PatrolPlanEntity.class);
+        org.junit.jupiter.api.Assertions.assertNull(input.getCategoryId());
+        categoryValidator().validate(input, old).contextWrite(identity).block();
+        assertEquals("category", input.getCategoryId());
+        input.setCategoryId("category2");
+        categoryValidator().validate(input, old).contextWrite(identity).block();
+        assertEquals("category", input.getCategoryId());
+    }
+
+    @Test
+    void assignmentOverviewIncludesReadableActivePlansAcrossCategoriesOnly() {
+        db.enableTenantQueries();
+        secondCategory();
+        var relations = db.repository(org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity.class,
+                org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity::new);
+        pointCategories(relations).link(List.of("point"), "category2").contextWrite(identity).block();
+        seedPlan("secondary", "north");
+        plans.createUpdate().set(PatrolPlanEntity::getCategoryId, "category2")
+                .where(PatrolPlanEntity::getId, "secondary").execute().block();
+        seedPlan("hidden", "north");
+        var hidden = plans.findById("hidden").block();
+        hidden.setExtension("tenantId", "south"); plans.updateById("hidden", hidden).block();
+        seedPlan("disabled", "north");
+        plans.createUpdate().set(PatrolPlanEntity::isEnabled, false)
+                .where(PatrolPlanEntity::getId, "disabled").execute().block();
+        var summary = pointAssignments().summary(List.of("point")).contextWrite(identity).block();
+        assertEquals(Set.of("plan", "secondary"), summary.get(0).assignments().stream()
+                .map(PatrolPlanEntity::getId).collect(java.util.stream.Collectors.toSet()));
+        pointCategories(relations).cancel(List.of("point"), "category2").contextWrite(identity).block();
+        assertEquals(List.of("plan"), pointAssignments().summary(List.of("point")).contextWrite(identity).block()
+                .get(0).assignments().stream().map(PatrolPlanEntity::getId).toList());
+    }
+
+    @Test
+    void pointExportsUseCurrentCategoriesAndCategorySpecificPostsWithoutResurrectingCancelledLinks() throws Exception {
+        db.enableTenantQueries();
+        secondCategory(); secondAssignmentPost();
+        var relations = db.repository(org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity.class,
+                org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity::new);
+        var service = pointCategories(relations);
+        service.link(List.of("point"), "category2").contextWrite(identity).block();
+        pointAssignments().assign(List.of("point"), List.of("post2"), "category2").contextWrite(identity).block();
+        ownNewAssignments();
+        var query = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery().is("id", "point").getParam();
+        query.setPageIndex(7); query.setPageSize(1);
+        var transfer = pointTransfer(points);
+        try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new java.io.ByteArrayInputStream(
+                transfer.export(query).contextWrite(identity).block()))) {
+            assertEquals("Building、Fire safety", book.getSheetAt(0).getRow(1).getCell(2).getStringCellValue());
+            assertEquals("Evening、Security", book.getSheetAt(0).getRow(1).getCell(3).getStringCellValue());
+        }
+        try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new java.io.ByteArrayInputStream(
+                transfer.export(query, "category2").contextWrite(identity).block()))) {
+            assertEquals("Fire safety", book.getSheetAt(0).getRow(1).getCell(2).getStringCellValue());
+            assertEquals("Evening", book.getSheetAt(0).getRow(1).getCell(3).getStringCellValue());
+        }
+        assertEquals(7, query.getPageIndex());
+        service.cancel(List.of("point"), "category").contextWrite(identity).block();
+        service.cancel(List.of("point"), "category2").contextWrite(identity).block();
+        try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new java.io.ByteArrayInputStream(
+                transfer.export(query).contextWrite(identity).block()))) {
+            assertEquals("", book.getSheetAt(0).getRow(1).getCell(2).getStringCellValue());
+            assertEquals("", book.getSheetAt(0).getRow(1).getCell(3).getStringCellValue());
+        }
+        try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new java.io.ByteArrayInputStream(
+                transfer.export(query, "category").contextWrite(identity).block()))) {
+            assertEquals(0, book.getSheetAt(0).getLastRowNum());
+        }
     }
 
     @Test
@@ -650,6 +1012,34 @@ class PatrolWorkflowTest {
     }
 
     @Test
+    void restDaySealsRemainIdempotentButDoNotAppearAsTasksOrConsumePages() {
+        db.enableTenantQueries();
+        var date = LocalDate.now();
+        plans.createUpdate().set(PatrolPlanEntity::getRule,
+                new PatrolRule(Map.of(), Map.of(date, List.of()), 0))
+                .where(PatrolPlanEntity::getId, "plan").execute().block();
+        assertTrue(generator.generate("plan", date).contextWrite(identity).collectList().block().isEmpty());
+        assertTrue(generator.generate("plan", date).contextWrite(identity).collectList().block().isEmpty());
+        assertEquals(1, generationRepository.createQuery().count().block());
+        seedPlan("plan-b", "north");
+        generator.generate("plan-b", date).contextWrite(identity).collectList().block();
+        var controller = new org.jetlinks.pro.patrol.web.PatrolTaskGroupController(
+                new PatrolTaskGroupService(generationRepository,
+                        new org.hswebframework.web.crud.query.DefaultQueryHelper(db.operator()), tasks));
+        // OR 条件也不能使空封印进入分页；导出复用同一分页查询。
+        var query = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
+                .is("planId", "plan").or("planId", "plan-b").getParam();
+        query.setPageSize(1);
+        var page = controller.queryPager(query.clone()).contextWrite(identity).block();
+        assertEquals(1, page.getTotal());
+        assertEquals("plan-b", page.getData().get(0).getPlanId());
+        assertEquals(1, controller.count(query.clone()).contextWrite(identity).block());
+        assertEquals(1, controller.query(query.clone().noPaging()).contextWrite(identity).count().block());
+        var seal = generationRepository.createQuery().where("planId", "plan").fetchOne().block();
+        StepVerifier.create(controller.getById(seal.getId()).contextWrite(identity)).expectError().verify();
+    }
+
+    @Test
     void taskGroupsFilterSnapshotsBeforePagingAndSumAllPeriods() {
         db.enableTenantQueries();
         plans.createUpdate().set(PatrolPlanEntity::getRule,
@@ -696,6 +1086,7 @@ class PatrolWorkflowTest {
         var missed = db.repository(org.jetlinks.pro.patrol.entity.PatrolMissedItemEntity.class,
                 org.jetlinks.pro.patrol.entity.PatrolMissedItemEntity::new);
         var states = List.of("pending", "approved", "rejected", "withdrawn", "none", "foreign");
+        seedTask(2);
         for (String state : states) {
             String planId = "missed-" + state;
             seedPlan(planId, state.equals("foreign") ? "south" : "north");
@@ -705,6 +1096,10 @@ class PatrolWorkflowTest {
             group.setId(groupId); group.setPlanId(planId); group.setBusinessDate(LocalDate.now().toString());
             group.setBelongDate(LocalDate.now().toString()); group.setPointName(state);
             generationRepository.insert(group).block();
+            // 漏检必须关联真实时段，不能只用生成封印模拟业务任务组。
+            var period = tasks.findById("task").block();
+            period.setId(planId); period.setPlanId(planId); period.setTaskGroupId(groupId); period.setPeriodNo(1);
+            tasks.insert(period).block();
             for (int n = 1; n <= 2; n++) {
                 var item = new org.jetlinks.pro.patrol.entity.PatrolMissedItemEntity();
                 item.setId(planId + n); item.setTaskId(planId); item.setTaskGroupId(groupId);
@@ -821,10 +1216,14 @@ class PatrolWorkflowTest {
         foreign.setBusinessDate(day.plusDays(1)); foreign.setScopeKey("south|app");
         foreign.setStartTime(start + 3600000); foreign.setEndTime(start + 7200000); foreign.setExtension("tenantId", "south");
         rosters.insert(foreign).block();
-        var calendar = new PatrolCalendarService(rosters, tasks);
+        var calendarPeople = mock(SaasPersonDirectory.class);
+        when(calendarPeople.telephones(List.of("alice"))).thenReturn(Mono.just(Map.of("alice", "13800000001")));
+        when(calendarPeople.telephones(List.of())).thenReturn(Mono.just(Map.of()));
+        var calendar = new PatrolCalendarService(rosters, tasks, calendarPeople);
         assertEquals(0, calendar.day(day).contextWrite(identity).block().tasks().size());
         var detail = calendar.day(day.plusDays(1)).contextWrite(identity).block();
         assertEquals(1, detail.tasks().size()); assertEquals(1, detail.staff().size());
+        assertEquals(Map.of("alice", "13800000001"), detail.staffTelephones());
         assertEquals(0, detail.staffCount()); assertEquals(0, detail.shiftCount());
         assertEquals(3, detail.expectedCount()); assertEquals(1, detail.completedCount());
         var month = calendar.month(java.time.YearMonth.from(day.plusDays(1))).contextWrite(identity).block();
@@ -1540,6 +1939,10 @@ class PatrolWorkflowTest {
                 org.jetlinks.pro.patrol.entity.PatrolWarningEntity::new));
         var validator = mock(PatrolConfigurationValidator.class);
         when(validator.validate(any())).thenAnswer(invocation -> {
+            org.jetlinks.pro.patrol.entity.PatrolConfigEntity entity = invocation.getArgument(0);
+            entity.setScopeKey("north|app"); entity.setExtension("tenantId", "north"); return Mono.empty();
+        });
+        when(validator.validate(any(), any())).thenAnswer(invocation -> {
             org.jetlinks.pro.patrol.entity.PatrolConfigEntity entity = invocation.getArgument(0);
             entity.setScopeKey("north|app"); entity.setExtension("tenantId", "north"); return Mono.empty();
         });

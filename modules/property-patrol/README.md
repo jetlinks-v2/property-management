@@ -2,6 +2,8 @@
 
 本仓库是巡更后端的唯一开发入口。巡更是独立的 JetLinks SaaS 业务服务，只依赖自己的 manager/core，不调用基础档案或财务系统，不在门禁服务内实现巡更，不复制 SaaS 的登录、用户、组织或授权角色。面向 PC 管理端和后续执行端，业务时间统一为 `Asia/Shanghai`。
 
+本人巡更资格校验 SaaS 已认证身份中的当前业务应用成员维度，入口 Scope 不是成员凭据；配置其他人员继续沿 SDK 人员目录和 user 资产权限。普通巡更人员无需因此取得系统用户查询权限。任务执行仍受计划资产、业务岗位和排班约束。无真实时段的生成封印保留防重，但不进入 PC 任务组列表、计数、详情或导出。
+
 ## 模块与能力入口
 
 | 模块 | 职责 |
@@ -19,14 +21,14 @@ PC 模块位于 SaaS 的 `runtime-ui/modules/cloud-patrol-ui`，前端仍独立�
 - 各类配置是独立资产，使用 `AssetsHolder` 维护项目与应用范围。任务、执行记录和统计关联 `patrolPlan`，不能通过自传项目 ID 扩大查询范围。
 - 新增 ID、归属和审计由服务端维护；创建/修改姓名快照取自可信SaaS身份，覆盖配置入口、导入和岗位规则操作，编辑保留原创建人。历史缺失不按当前人员姓名回填，客户端不能改写姓名快照。新增配置与资产绑定在同一事务；编辑不能移动归属。配置不开放物理删除；等级、标准、预警另有逻辑删除，停用不是删除。删除项从列表/分页/详情/候选/导出排除，底层及历史快照保留；引用中的等级/标准（含停用岗位关系）不可删除，引用和删除共用行锁。
 - `scopeKey` 是项目和应用组成的业务唯一性边界，不是数据权限过滤的替代物。点位编码在此范围内唯一。分类不能循环，计划的点位、岗位和标准必须同范围且可用。
-- 岗位是巡更业务分组，不是应用管理员等授权角色。人员只通过认证服务公开 SDK 读取，必须同时为启用账号、当前项目成员、当前应用成员并通过 `user` 资产权限。
+- 岗位是巡更业务分组，不是应用管理员等授权角色。人员只通过认证服务公开 SDK 读取，必须同时为启用账号、当前应用成员并通过 `user` 资产权限；园区业务项目成员关系尚未接入，不以技术租户代替。
 - `pt_plan` 先承载点位和岗位的指派，可暂不配置标准与规则；未配置不生成任务。规则配置只选择等级与标准，不要求人工名称、生效期限或排班策略；新配置按星期和高级日期决定巡更日期，历史期限在仅调整岗位时保留，重新配置规则时取消人工期限。**同岗位的任务完成次数共享，不按岗位内每个人各生成一份任务**；不同岗位使用独立计划。
 - 指定岗位保留仍选岗位的规则，移除只停用关系，重新选择复用计划ID及全部历史。批量规则要求所有点位岗位相同，按第一点位配置覆盖。每次最多100点位、20岗位；点位与已有计划分别校验资产read/save，引用read由统一校验器负责；事务内CAS点位版本、批量保存和绑定，失败整体回滚。
 - 日期覆盖优先于星期规则，空覆盖表示当日休巡。时段左闭右开，结束分钟小于开始分钟表示跨天，开始等于结束表示从开始起24小时，结束 `1440` 表示当日24点。每个配置时段保留一条任务和完整起止，应巡次数为 `floor(时段分钟数/频率分钟数) × times`，不足一周期仍保留应巡0次的时段；每时段独立配置冷却，录入单位支持分钟/小时/天。跨天任务归开始的逻辑日期。
 - 排班也归班次开始日，单班不超过24小时。`optional` 表示同应用当日完全没有排班时放行排班条件；已有排班则必须命中本人、本岗位和时窗。`required` 始终要求有效排班。岗位成员资格、任务时窗和冷却校验不会因此放宽。
 - 任务每天上海时间 00:01 自动生成，按持久化计划归属恢复租户；HTTP 手动生成仍要求计划资产 save。多节点使用同一数据库封印防重，失败按计划记录日志。
 - 月排班使用岗位/人员 ID，前四行表头、第五行示例、第六行起填写；班次表明确起止时间，结束小于开始表示跨天，休息不计在班。最多1000行、5MB、100个班次，不直接接受旧手机号模板。整月替换先验证岗位成员和既有排班资产 save，再在事务内停用旧排班、插入和绑定新排班；失败整批回滚，并发版本防止交错覆盖。
-- 日历按原系统的任务结束日展示，任务组使用规则归属日，二者口径独立。
+- 日历按原系统的任务结束日展示，任务组使用规则归属日，二者口径独立。任务分类沿生成时的名称快照展示及导出，不回查当前分类名称。日详情及导出的手机号仅对具有 `user:query` 且能读取对应用户资产的操作者补充，并限定当前应用成员；无权限或未录号码时留空，不扩大巡更人员权限，不把联系方式保存到排班历史。
 - 首次生成某计划某日的封印及全部任务在同一事务内写入；即使该日无任务，也保留封印。并发依靠数据库唯一键防重，规则/标准编辑不会覆盖该日任务快照，也不会因为规则版本变化重复应巡。
 - 任务保存点位/岗位名称、分类ID与名称、等级ID与名称、时窗、次数、冷却、排班策略、检查项等快照。执行资格复核当前计划/点位/岗位启用状态、实时岗位成员、当前账号/应用成员和排班。历史记录按快照解释。
 - `pt_execution.collectedTime`和`networkStatus`保存客户端首次提交时的采集时间（毫秒）及连接状态（`online/offline`），允许已发布客户端省略，历史缺失不按接收时间回填。这些信息只用于追溯，在线资格、冷却与计次仍由服务器时间决定；不构成离线补传接口。
@@ -43,6 +45,14 @@ PC 模块位于 SaaS 的 `runtime-ui/modules/cloud-patrol-ui`，前端仍独立�
 
 等级修改记录只从启用此能力后的真实操作追加，保存可信操作人姓名和名称/状态/说明/规则前后快照，写入与配置同一事务；不回填虚构历史。标准与标签不额外开放该历史入口。配置导出规则/检查项使用独立明细表及流式写入，不扩展未经授权的图片、人员或集团信息。删除按钮在模板中默认不授予，既有环境只增量同步菜单并按职责授权。
 
+## 点位分类关系
+
+一个物理点位可关联多个分类，岗位和规则按“点位＋分类＋岗位”独立配置。`pt_point_category` 保存当前关系及取消后的停用行；`pt_point.categoryId` 保留初始分类，仅在尚无关系行时兼容历史数据。首次调整分类时在点位锁内迁移旧关系和计划分类，保留原计划ID；`categoryIds` 为服务端只读投影，不接受客户端覆盖。
+
+`POST /park/patrol/point-categories/link`、`/cancel` 接收 `{pointIds:[...],categoryId}`，最多100点位。操作使用点位save、引用分类read及受影响计划save权限，当前应用校验和整批事务同时生效。取消仅停用所选分类下的计划，保留物理点位、任务封印、执行及漏检历史；重新关联不自动启用旧计划。岗位编辑与分类取消通过点位锁及版本比较防止交错覆盖。
+
+分类侧栏、岗位规则编辑、任务生成和点位导出使用当前关系。多分类点位配置岗位时必须选择分类；全部分类概览汇总可读的有效计划。按分类导出只显示该分类及其岗位，概览导出全部当前分类；全部取消后保留物理点位供重新关联，不以初始分类回填。
+
 ## 人员与业务边界
 
 巡更人员沿用 SaaS 当前应用的人员管理，使用公开用户 SDK、应用成员关系和 `AssetsHolder` 权限；不依赖园区员工、业主、组织标签或空间项目模块。巡更业务岗位不等于平台授权角色。SaaS 技术租户不等于园区业务项目：平台创建的应用允许没有租户，内部范围键保留可空租户部分与应用 ID；应用 Scope 始终必需。有租户的定时计划恢复原上下文，无租户应用不伪造租户。
@@ -58,12 +68,12 @@ PC 模块位于 SaaS 的 `runtime-ui/modules/cloud-patrol-ui`，前端仍独立�
 | 等级修改记录 | `POST /park/patrol/levels/{id}/history/_query` | `patrol-level:query` + 等级资产read + 当前应用，最大50条/页 |
 | 配置XLSX导出 | `POST /park/patrol/{levels\|standards\|tags}/_export` | 对应query + 当前应用及资产read；10000配置/100000明细上限 |
 | 配置逻辑删除 | `DELETE /park/patrol/{levels\|standards\|warnings}/{id}` | 对应delete + 配置资产delete + 当前应用，不级联历史 |
-| 点位岗位回填 | `POST /park/patrol/point-assignments/_detail`，`{pointIds:[...]}` | `patrol-plan:query` + 点位及有效计划资产read |
+| 点位岗位回填 | `POST /park/patrol/point-assignments/_detail`，`{pointIds:[...],categoryId}`；概览使用 `/_summary` | `patrol-plan:query` + 点位及有效计划资产read |
 | 点位导入模板 | `GET /park/patrol/points/workbook/template` | `patrol-point:query`，仅含有读取权限的当前应用分类参考 |
 | 点位导入预检/提交 | `POST /park/patrol/points/workbook/preview`、`/import`，multipart字段`file` | `patrol-point:save`；重新检查分类read/当前应用；新增资产绑定与插入同一事务 |
-| 点位导出 | `POST /park/patrol/points/workbook/export`，QueryParam | `patrol-point:query` + 点位资产read；名称引用独立read；全筛选最多10000点位 |
-| 批量指定岗位 | `POST /park/patrol/point-assignments/posts`，`{pointIds:[...],postIds:[...]}` | `patrol-plan:save` + 点位及已有计划资产save |
-| 批量配置规则 | `POST /park/patrol/point-assignments/rules`，`{pointIds:[...],rules:[{postId,levelId,standardId}]}` | `patrol-plan:save` + 点位及已有计划资产save |
+| 点位导出 | `POST /park/patrol/points/workbook/export?categoryId=...`，QueryParam；分类参数可省略 | `patrol-point:query` + 点位资产read；名称引用独立read；全筛选最多10000点位 |
+| 批量指定岗位 | `POST /park/patrol/point-assignments/posts`，`{pointIds:[...],categoryId,postIds:[...]}` | `patrol-plan:save` + 点位及已有计划资产save |
+| 批量配置规则 | `POST /park/patrol/point-assignments/rules`，`{pointIds:[...],categoryId,rules:[{postId,levelId,standardId}]}` | `patrol-plan:save` + 点位及已有计划资产save |
 | 可用人员分页 | `POST /park/patrol/persons/_query` | `patrol-post:query` |
 | 任务分页/详情 | `/park/patrol/tasks/**` 只读查询 | `patrol-task:query` + 计划资产 read |
 | 任务预览 | `POST /park/patrol/tasks/_preview` | `patrol-task:query` + 计划资产 read |
