@@ -33,10 +33,7 @@ public final class ArchiveImportSchema {
                             "address",
                             "email",
                             "certificateType",
-                            "certificateNumber",
-                            "familyMode",
-                            "familyName",
-                            "startTime");
+                            "certificateNumber");
             case "company" ->
                     List.of(
                             "spacePath",
@@ -46,8 +43,7 @@ public final class ArchiveImportSchema {
                             "address",
                             "creditCode",
                             "legalRepresentative",
-                            "registeredAddress",
-                            "startTime");
+                            "registeredAddress");
             default -> throw ArchiveExcel.failure("customer_type");
         };
     }

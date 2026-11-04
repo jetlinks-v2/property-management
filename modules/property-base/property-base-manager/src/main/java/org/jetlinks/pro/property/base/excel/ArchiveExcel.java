@@ -49,10 +49,6 @@ public final class ArchiveExcel {
                     "registeredAddress",
                     "spaceId",
                     "nature",
-                    "familyMode",
-                    "familyName",
-                    "familyId",
-                    "familyGroup",
                     "startTime");
     private static final Map<String, String> HEADERS = new LinkedHashMap<>();
     private static final Map<String, String> GUIDES = new LinkedHashMap<>();
@@ -89,12 +85,8 @@ public final class ArchiveExcel {
         HEADERS.put("legalRepresentative", "法定代表人");
         HEADERS.put("registeredAddress", "注册地址");
         HEADERS.put("nature", "客户性质");
-        HEADERS.put("familyMode", "家庭关联方式");
-        HEADERS.put("familyName", "家庭名称");
-        HEADERS.put("familyId", "已有家庭标识");
-        HEADERS.put("familyGroup", "新建家庭分组");
-        HEADERS.put("startTime", "关联开始时间");
-        HEADERS.put("endTime", "关联结束时间");
+        HEADERS.put("startTime", "开始时间");
+        HEADERS.put("endTime", "结束时间");
         HEADERS.put("endReason", "结束原因");
         HEADERS.put("customerId", "客户标识");
         HEADERS.put("relationshipId", "关联标识");
@@ -137,11 +129,7 @@ public final class ArchiveExcel {
         GUIDES.put("legalRepresentative", "企业选填，个人留空");
         GUIDES.put("registeredAddress", "企业选填，个人留空");
         GUIDES.put("nature", "个人必填，填写客户性质名称，例如业主、租户、家人；企业留空");
-        GUIDES.put("familyMode", "个人必填，填写新建家庭或加入已有家庭；企业留空");
-        GUIDES.put("familyName", "个人必填；新建时自由填写，同文件同房屋同名共用新家庭；加入已有家庭时选择当前房屋有效家庭，重名时拒绝");
-        GUIDES.put("familyId", "加入已有家庭必填，从当前客户导出中的“已有家庭标识”复制；其他情况留空");
-        GUIDES.put("familyGroup", "新建家庭必填；同一文件、同房屋、同家庭填相同分组，例如张三家庭；企业留空");
-        GUIDES.put("startTime", "必填，YYYY-MM-DD HH:mm:ss，也支持YYYY-MM-DD或ISO时间");
+        GUIDES.put("startTime", "系统自动记录开始时间，无需填写");
     }
 
     private ArchiveExcel() {}
@@ -158,10 +146,9 @@ public final class ArchiveExcel {
             String filename,
             SheetData data,
             List<SheetData> references,
-            Map<String, List<String>> options,
-            Map<String, List<String>> families) {
+            Map<String, List<String>> options) {
         public Document(String filename, SheetData data, List<SheetData> references) {
-            this(filename, data, references, Map.of(), Map.of());
+            this(filename, data, references, Map.of());
         }
     }
 

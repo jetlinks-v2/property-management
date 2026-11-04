@@ -1,9 +1,12 @@
 package org.jetlinks.pro.property.base.customer;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import lombok.Getter;
 import lombok.Setter;
+
 import org.jetlinks.pro.property.base.entity.PropertyCustomerEntity;
+
 import java.util.List;
 import java.util.Objects;
 
@@ -11,6 +14,7 @@ import java.util.Objects;
 @Getter
 @Setter
 public class CustomerView extends PropertyCustomerEntity {
+    private String recordId;
     private List<RelationshipView> relationships = List.of();
 
     /** 仅用于当前列表查询，基于已经按资产范围裁剪的当前关系派生。 */

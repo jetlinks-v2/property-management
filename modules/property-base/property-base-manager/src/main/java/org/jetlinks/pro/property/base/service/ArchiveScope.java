@@ -1,6 +1,7 @@
 package org.jetlinks.pro.property.base.service;
 
 import lombok.RequiredArgsConstructor;
+
 import org.hswebframework.ezorm.rdb.mapping.ReactiveRepository;
 import org.hswebframework.web.authorization.Authentication;
 import org.hswebframework.web.authorization.exception.UnAuthorizedException;
@@ -11,8 +12,10 @@ import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.base.entity.*;
 import org.jetlinks.pro.property.base.organization.OrganizationType;
 import org.springframework.stereotype.Service;
+
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
 import java.util.*;
 
 /** 先校验组织归属，再按 SaaS space 资产授权；叶子判定始终来自完整源树。 */
@@ -24,6 +27,27 @@ public class ArchiveScope {
     private final ReactiveRepository<PropertyOrganizationEntity, String> organizations;
     private final ReactiveRepository<PropertySpaceBindingEntity, String> bindings;
     private final ReactiveRepository<PropertySpaceEntity, String> spaces;
+
+    /** 沿完整镜像的父链派生展示字段；权限裁剪后仅返回允许访问的空间记录。 */
+    static void attachSpaceInformation(List<PropertySpaceEntity> nodes) {
+        var index = new HashMap<String, PropertySpaceEntity>();
+        nodes.forEach(node -> index.put(node.getId(), node));
+        for (var node : nodes) {
+            var segments = new LinkedList<PropertySpaceEntity.SpaceSegment>();
+            var seen = new HashSet<String>();
+            var current = node;
+            while (current != null && seen.add(current.getId())) {
+                segments.addFirst(
+                        new PropertySpaceEntity.SpaceSegment(
+                                current.getId(),
+                                current.getName(),
+                                current.getSpaceTypeId(),
+                                current.getSpaceTypeName()));
+                current = current.getParentId() == null ? null : index.get(current.getParentId());
+            }
+            node.setSpaceSegments(List.copyOf(segments));
+        }
+    }
 
     public Mono<Authentication> authenticated() {
         return Authentication.currentReactive()
@@ -79,6 +103,7 @@ public class ArchiveScope {
                 .flatMap(
                         all -> {
                             if (all.size() > 20000) return Mono.error(error("too_many", 400));
+                            attachSpaceInformation(all);
                             Set<String> selected = new HashSet<>();
                             if (spaceId != null && !spaceId.isBlank()) {
                                 if (all.stream().noneMatch(e -> e.getId().equals(spaceId)))

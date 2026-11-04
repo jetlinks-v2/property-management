@@ -407,6 +407,7 @@ public class PropertyHouseService {
         view.setSpaceTypeId(node.getSpaceTypeId());
         view.setSpaceTypeName(node.getSpaceTypeName());
         view.setSpaceLocation(node.getSpaceLocation());
+        view.setSpaceSegments(node.getSpaceSegments());
         view.setVersion(entity == null ? 0L : entity.getVersion());
         view.setCompleted(sameProject && !Boolean.TRUE.equals(entity.getDeleted()));
         return view;
@@ -417,6 +418,8 @@ public class PropertyHouseService {
     public static class HouseView extends PropertyHouseEntity {
         private String spaceId, name, fullName;
         private String spaceTypeId, spaceTypeName, spaceLocation;
+        private java.util.List<PropertySpaceEntity.SpaceSegment> spaceSegments =
+                java.util.List.of();
         private Boolean completed;
     }
 

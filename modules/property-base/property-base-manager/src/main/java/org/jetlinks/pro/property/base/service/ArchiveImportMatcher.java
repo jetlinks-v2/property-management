@@ -3,7 +3,6 @@ package org.jetlinks.pro.property.base.service;
 import static org.jetlinks.pro.property.base.excel.ArchiveExcel.*;
 
 import org.hswebframework.web.exception.BusinessException;
-import org.jetlinks.pro.property.base.customer.CustomerRequests;
 import org.jetlinks.pro.property.base.entity.PropertyUserEntity;
 
 import java.util.*;
@@ -17,8 +16,7 @@ final class ArchiveImportMatcher {
             List<Map<String, Object>> rows,
             String type,
             List<PropertyHouseService.HouseView> spaces,
-            List<PropertyUserEntity> users,
-            Map<String, List<CustomerRequests.Family>> families) {
+            List<PropertyUserEntity> users) {
         var spaceIndex =
                 spaces.stream()
                         .filter(s -> s.getFullName() != null)
@@ -58,33 +56,10 @@ final class ArchiveImportMatcher {
                 row.put("userId", user.getId());
                 row.put("name", name);
                 row.put("customerType", type);
-                if ("person".equals(type))
-                    resolveFamily(row, families.getOrDefault(space.getSpaceId(), List.of()), line);
             }
             result.add(row);
         }
         return result;
-    }
-
-    private static void resolveFamily(
-            Map<String, Object> row, List<CustomerRequests.Family> families, int line) {
-        String mode = text(row, "familyMode", line, true);
-        String name = text(row, "familyName", line, true);
-        if ("新建家庭".equals(mode)) {
-            row.put("familyMode", "new");
-            // 组只在本次领域导入中生效，房屋ID由领域分组键再次限定。
-            row.put("familyGroup", name);
-        } else if ("加入已有家庭".equals(mode)) {
-            var family =
-                    unique(
-                            families.stream().filter(f -> name.equals(f.name())).toList(),
-                            line,
-                            "familyName",
-                            name);
-            row.put("familyMode", "existing");
-            row.put("familyId", family.id());
-            row.remove("familyName");
-        } else throw cell(line, "familyMode");
     }
 
     private static <T> T unique(List<T> matches, int row, String field, String value) {

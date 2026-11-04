@@ -26,7 +26,7 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/** 项目锁保护主档、家庭和房屋关系的原子写入；通过空间资产范围访问客户。 */
+/** 项目锁保护客户资料和空间记录的原子写入；通过空间资产范围访问客户。 */
 @Service
 @RequiredArgsConstructor
 public class PropertyCustomerService {
@@ -39,6 +39,7 @@ public class PropertyCustomerService {
                     "userId",
                     "customerType",
                     "nature",
+                    "recordId",
                     "name",
                     "telephone",
                     "email",
@@ -60,8 +61,6 @@ public class PropertyCustomerService {
                     "spaceName",
                     "fullName",
                     "nature",
-                    "familyId",
-                    "familyName",
                     "startTime",
                     "endTime",
                     "endReason",
@@ -71,7 +70,6 @@ public class PropertyCustomerService {
                     "customer.userId");
     private final ReactiveRepository<PropertyCustomerEntity, String> customers;
     private final ReactiveRepository<PropertyCustomerRelationshipEntity, String> relationships;
-    private final ReactiveRepository<PropertyCustomerFamilyEntity, String> families;
     private final ReactiveRepository<PropertyUserEntity, String> users;
     private final ArchiveScope scope;
     private final PropertyDictionaryService dictionaries;
@@ -111,44 +109,64 @@ public class PropertyCustomerService {
 
     private Mono<List<CustomerView>> assembleCurrent(
             List<PropertyCustomerRelationshipEntity> rows, List<PropertySpaceEntity> spaces) {
-        if (rows.isEmpty()) return Mono.just(List.of());
-        return Mono.zip(customerMap(rows), familyMap(rows))
+        return customerMap(rows)
                 .map(
-                        tuple -> {
-                            var bySpace = indexSpaces(spaces);
-                            // 已结束的有权关系仍让主档可见，便于复用或删除；关系明细只回显当前有效项。
-                            var grouped =
-                                    rows.stream()
-                                            .collect(
-                                                    Collectors.groupingBy(
-                                                            PropertyCustomerRelationshipEntity
-                                                                    ::getCustomerId,
-                                                            LinkedHashMap::new,
-                                                            Collectors.toList()));
+                        byCustomer -> {
                             var result = new ArrayList<CustomerView>();
-                            grouped.forEach(
-                                    (id, links) -> {
-                                        var customer = tuple.getT1().get(id);
-                                        if (customer == null
-                                                || Boolean.TRUE.equals(customer.getDeleted()))
-                                            return;
-                                        var view = customerView(customer);
-                                        view.setRelationships(
-                                                links.stream()
-                                                        .filter(PropertyCustomerService::active)
-                                                        .map(
-                                                                link ->
-                                                                        relationshipView(
-                                                                                link,
-                                                                                bySpace,
-                                                                                tuple.getT2(),
-                                                                                null))
-                                                        .toList());
-                                        result.add(view);
-                                    });
-                            result.sort(Comparator.comparing(CustomerView::getId));
+                            var bySpace = indexSpaces(spaces);
+                            for (var row : rows) {
+                                var customer = byCustomer.get(row.getCustomerId());
+                                if (!active(row)
+                                        || customer == null
+                                        || Boolean.TRUE.equals(customer.getDeleted())) continue;
+                                var view = customerView(customer);
+                                view.setRecordId(row.getId());
+                                view.setRelationships(
+                                        List.of(relationshipView(row, bySpace, null)));
+                                result.add(view);
+                            }
+                            result.sort(Comparator.comparing(CustomerView::getRecordId));
                             return result;
                         });
+    }
+
+    /** 已有客户选择按资料去重；有权历史记录仍是复用资料的访问依据。 */
+    public Mono<PagerResult<CustomerView>> profiles(String projectId, QueryParamEntity query) {
+        return scope.spaces(projectId, null, CrudAssetPermission.read)
+                .flatMap(
+                        spaces ->
+                                scopedRelations(projectId, spaces)
+                                        .flatMap(
+                                                rows ->
+                                                        customerMap(rows)
+                                                                .map(
+                                                                        byCustomer -> {
+                                                                            var values =
+                                                                                    byCustomer
+                                                                                            .values()
+                                                                                            .stream()
+                                                                                            .filter(
+                                                                                                    row ->
+                                                                                                            !Boolean
+                                                                                                                    .TRUE
+                                                                                                                    .equals(
+                                                                                                                            row
+                                                                                                                                    .getDeleted()))
+                                                                                            .map(
+                                                                                                    PropertyCustomerService
+                                                                                                            ::customerView)
+                                                                                            .sorted(
+                                                                                                    Comparator
+                                                                                                            .comparing(
+                                                                                                                    CustomerView
+                                                                                                                            ::getId))
+                                                                                            .toList();
+                                                                            return ArchiveQuery
+                                                                                    .page(
+                                                                                            values,
+                                                                                            query,
+                                                                                            CUSTOMER_FIELDS);
+                                                                        })));
     }
 
     private Mono<List<RelationshipView>> historical(String projectId, String spaceId) {
@@ -160,23 +178,11 @@ public class PropertyCustomerService {
                                                 rows -> {
                                                     var ended =
                                                             rows.stream()
-                                                                    .filter(
-                                                                            row ->
-                                                                                    !Boolean.TRUE
-                                                                                                    .equals(
-                                                                                                            row
-                                                                                                                    .getDeleted())
-                                                                                            && row
-                                                                                                            .getEndTime()
-                                                                                                    != null)
+                                                                    .filter(row -> !active(row))
                                                                     .toList();
-                                                    if (ended.isEmpty())
-                                                        return Mono.just(List.of());
-                                                    return Mono.zip(
-                                                                    customerMap(ended),
-                                                                    familyMap(ended))
+                                                    return customerMap(ended)
                                                             .map(
-                                                                    tuple ->
+                                                                    byCustomer ->
                                                                             ended.stream()
                                                                                     .map(
                                                                                             row ->
@@ -184,9 +190,7 @@ public class PropertyCustomerService {
                                                                                                             row,
                                                                                                             indexSpaces(
                                                                                                                     spaces),
-                                                                                                            tuple
-                                                                                                                    .getT2(),
-                                                                                                            tuple.getT1()
+                                                                                                            byCustomer
                                                                                                                     .get(
                                                                                                                             row
                                                                                                                                     .getCustomerId())))
@@ -207,9 +211,12 @@ public class PropertyCustomerService {
                                         .flatMap(
                                                 spaces ->
                                                         scopedRelations(projectId, spaces)
-                                                                .flatMap(
+                                                                .map(
                                                                         rows -> {
-                                                                            var links =
+                                                                            var view =
+                                                                                    customerView(
+                                                                                            customer);
+                                                                            view.setRelationships(
                                                                                     rows.stream()
                                                                                             .filter(
                                                                                                     row ->
@@ -219,29 +226,15 @@ public class PropertyCustomerService {
                                                                                                                                             .getCustomerId())
                                                                                                                     && active(
                                                                                                                             row))
-                                                                                            .toList();
-                                                                            return familyMap(links)
-                                                                                    .map(
-                                                                                            byFamily -> {
-                                                                                                var
-                                                                                                        view =
-                                                                                                                customerView(
-                                                                                                                        customer);
-                                                                                                view
-                                                                                                        .setRelationships(
-                                                                                                                links
-                                                                                                                        .stream()
-                                                                                                                        .map(
-                                                                                                                                row ->
-                                                                                                                                        relationshipView(
-                                                                                                                                                row,
-                                                                                                                                                indexSpaces(
-                                                                                                                                                        spaces),
-                                                                                                                                                byFamily,
-                                                                                                                                                null))
-                                                                                                                        .toList());
-                                                                                                return view;
-                                                                                            });
+                                                                                            .map(
+                                                                                                    row ->
+                                                                                                            relationshipView(
+                                                                                                                    row,
+                                                                                                                    indexSpaces(
+                                                                                                                            spaces),
+                                                                                                                    null))
+                                                                                            .toList());
+                                                                            return view;
                                                                         })));
     }
 
@@ -264,7 +257,7 @@ public class PropertyCustomerService {
     private Mono<List<PropertyCustomerRelationshipEntity>> scopedRelations(
             String projectId, List<PropertySpaceEntity> spaces) {
         if (spaces.isEmpty()) return Mono.just(List.of());
-        // 逻辑删除的关系仅保留主档访问证据，避免最后一个误建关联删除后形成无法管理的孤儿主档。
+        // 逻辑删除的空间记录用于历史展示，也允许最后一条记录删除后复用已有资料。
         return bounded(
                 relationships
                         .createQuery()
@@ -276,7 +269,7 @@ public class PropertyCustomerService {
     @Transactional
     public Mono<CustomerView> create(String projectId, CustomerRequests.Create request) {
         return writeLock(projectId)
-                .then(Mono.defer(() -> createOne(projectId, request, false, new HashMap<>())))
+                .then(Mono.defer(() -> createOne(projectId, request)))
                 .flatMap(row -> detail(projectId, row.getId()));
     }
 
@@ -290,10 +283,8 @@ public class PropertyCustomerService {
             return Mono.error(error("import_invalid", 400));
         return Mono.defer(
                 () -> {
-                    var groups = new HashMap<String, PropertyCustomerFamilyEntity>();
                     var pairs = new HashSet<String>();
                     var profiles = new HashMap<String, List<String>>();
-                    var familyNames = new HashMap<String, String>();
                     return writeLock(projectId)
                             .thenMany(
                                     Flux.range(0, requests.size())
@@ -321,7 +312,7 @@ public class PropertyCustomerService {
                                                                                     error(
                                                                                             "relationship_exists",
                                                                                             409));
-                                                                        // 同账号多房屋可复用主档，但不能默默丢弃文件内互相矛盾的个人资料。
+                                                                        // 性质属于空间，允许同一客户在不同空间填写不同性质；共用资料须一致。
                                                                         var profile =
                                                                                 Arrays.asList(
                                                                                         request
@@ -357,35 +348,11 @@ public class PropertyCustomerService {
                                                                                     error(
                                                                                             "import_profile_conflict",
                                                                                             400));
-                                                                        if (StringUtils.isNotBlank(
-                                                                                request
-                                                                                        .getFamilyGroup())) {
-                                                                            String key =
-                                                                                    request
-                                                                                                    .getSpaceId()
-                                                                                            + "\0"
-                                                                                            + request
-                                                                                                    .getFamilyGroup();
-                                                                            var name =
-                                                                                    familyNames
-                                                                                            .putIfAbsent(
-                                                                                                    key,
-                                                                                                    request
-                                                                                                            .getFamilyName());
-                                                                            if (name != null
-                                                                                    && !name.equals(
-                                                                                            request
-                                                                                                    .getFamilyName()))
-                                                                                return Mono.error(
-                                                                                        error(
-                                                                                                "family_invalid",
-                                                                                                400));
-                                                                        }
                                                                         return preflightImport(
                                                                                 projectId, request);
                                                                     })))
                             .then()
-                            // 全量预检通过后才开始插入。事务继续兜底并发变化，禁止逐行容错后部分成功。
+                            // 全部行预检成功之后才写入；任一并发校验失败整批事务回滚。
                             .thenMany(
                                     Flux.range(0, requests.size())
                                             .concatMap(
@@ -396,20 +363,14 @@ public class PropertyCustomerService {
                                                                             createOne(
                                                                                     projectId,
                                                                                     requests.get(
-                                                                                            index),
-                                                                                    true,
-                                                                                    groups))))
+                                                                                            index)))))
                             .count()
                             .map(count -> new CustomerRequests.ImportResult(count.intValue()));
                 });
     }
 
     private Mono<Void> preflightImport(String projectId, CustomerRequests.Create request) {
-        String id =
-                UUID.nameUUIDFromBytes(
-                                (projectId + "\0" + request.getUserId())
-                                        .getBytes(StandardCharsets.UTF_8))
-                        .toString();
+        String id = customerId(projectId, request.getUserId());
         return selectableUser(request.getUserId())
                 .then(
                         houses.requireCompleted(
@@ -418,122 +379,106 @@ public class PropertyCustomerService {
                 .flatMap(
                         existing -> {
                             if (existing.isPresent()) {
-                                var old = existing.get();
-                                if (Boolean.TRUE.equals(old.getDeleted())
-                                        || !Objects.equals(
-                                                old.getCustomerType(), request.getCustomerType()))
-                                    return Mono.error(error("exists", 409));
+                                if (!Objects.equals(
+                                        existing.get().getCustomerType(),
+                                        request.getCustomerType()))
+                                    return Mono.error(error("identity_immutable", 400));
                                 return authorizedCustomer(
-                                                projectId, id, CrudAssetPermission.save, false)
+                                                projectId, id, CrudAssetPermission.save, true)
                                         .then();
                             }
                             var row = new PropertyCustomerEntity();
                             BeanUtils.copyProperties(request, row);
                             return validateProfileDictionary(row, null);
                         })
+                .then(assertNoCurrent(projectId, id, request.getSpaceId()))
                 .then(
-                        relationships
-                                .createQuery()
-                                .where("projectId", projectId)
-                                .and("customerId", id)
-                                .and("spaceId", request.getSpaceId())
-                                .and("deleted", false)
-                                .isNull("endTime")
-                                .count())
-                .flatMap(
-                        count ->
-                                count > 0
-                                        ? Mono.error(error("relationship_exists", 409))
-                                        : Mono.empty())
-                .then(
-                        Mono.defer(
-                                () -> {
-                                    if (!"person".equals(request.getCustomerType()))
-                                        return Mono.empty();
-                                    Mono<Void> family =
-                                            "existing".equals(request.getFamilyMode())
-                                                    ? families(projectId, request.getSpaceId())
-                                                            .filter(
-                                                                    list ->
-                                                                            list.stream()
-                                                                                    .anyMatch(
-                                                                                            f ->
-                                                                                                    f.id().equals(
-                                                                                                                    request
-                                                                                                                            .getFamilyId())))
-                                                            .switchIfEmpty(
-                                                                    Mono.error(
-                                                                            error(
-                                                                                    "family_invalid",
-                                                                                    400)))
-                                                            .then()
-                                                    : Mono.empty();
-                                    return dictionaries
-                                            .validateSelection(
-                                                    "customer-nature", request.getNature(), null)
-                                            .then(family);
-                                }));
+                        "person".equals(request.getCustomerType())
+                                ? dictionaries.validateSelection(
+                                        "customer-nature", request.getNature(), null)
+                                : Mono.empty());
     }
 
     private Mono<PropertyCustomerEntity> createOne(
-            String projectId,
-            CustomerRequests.Create request,
-            boolean reuse,
-            Map<String, PropertyCustomerFamilyEntity> groups) {
+            String projectId, CustomerRequests.Create request) {
         if (request == null) return Mono.error(error("invalid", 400));
-        validateProfile(request, request.getCustomerType());
-        String id =
-                UUID.nameUUIDFromBytes(
-                                (projectId + "\0" + request.getUserId())
-                                        .getBytes(StandardCharsets.UTF_8))
-                        .toString();
+        validateLink(request.getCustomerType(), request.link());
+        String id = customerId(projectId, request.getUserId());
         return selectableUser(request.getUserId())
-                .then(
-                        customers
-                                .findById(id)
-                                .flatMap(
-                                        existing -> {
-                                            // 再次建档只恢复有权管理的同一主档；旧关联保持结束或删除状态。
-                                            if (!reuse
-                                                    && Boolean.TRUE.equals(existing.getDeleted())) {
-                                                return authorizedCustomer(
-                                                                projectId,
-                                                                existing.getId(),
-                                                                CrudAssetPermission.save,
-                                                                true)
-                                                        .flatMap(
-                                                                old -> {
-                                                                    request.setVersion(
-                                                                            old.getVersion());
-                                                                    return updateProfile(
-                                                                                    old, request,
-                                                                                    true)
-                                                                            .then(
-                                                                                    customers
-                                                                                            .findById(
-                                                                                                    old
-                                                                                                            .getId()));
-                                                                });
-                                            }
-                                            if (!reuse
-                                                    || Boolean.TRUE.equals(existing.getDeleted())
-                                                    || !Objects.equals(
+                .flatMap(
+                        source ->
+                                customers
+                                        .findById(id)
+                                        .flatMap(
+                                                existing -> {
+                                                    if (!Objects.equals(
                                                             existing.getCustomerType(),
                                                             request.getCustomerType()))
-                                                return Mono.error(error("exists", 409));
-                                            // 批导复用与单条新增关联遵循同一授权边界，不能利用可选账号认领不可见主档。
-                                            return authorizedCustomer(
-                                                    projectId,
-                                                    existing.getId(),
-                                                    CrudAssetPermission.save,
-                                                    false);
-                                        })
-                                .switchIfEmpty(
-                                        Mono.defer(() -> insertCustomer(projectId, id, request))))
+                                                        return Mono.error(
+                                                                error("identity_immutable", 400));
+                                                    // 复用已保存资料，包括本地补充的电话；再次新增不能被来源资料覆盖。
+                                                    return authorizedCustomer(
+                                                                    projectId,
+                                                                    id,
+                                                                    CrudAssetPermission.save,
+                                                                    true)
+                                                            .flatMap(
+                                                                    old ->
+                                                                            Boolean.TRUE.equals(
+                                                                                            old
+                                                                                                    .getDeleted())
+                                                                                    ? restoreCustomer(
+                                                                                            old)
+                                                                                    : Mono.just(
+                                                                                            old));
+                                                })
+                                        .switchIfEmpty(
+                                                Mono.defer(
+                                                        () -> {
+                                                            if (StringUtils.isNotBlank(
+                                                                    source.getName()))
+                                                                request.setName(source.getName());
+                                                            if (StringUtils.isNotBlank(
+                                                                    source.getTelephone()))
+                                                                request.setTelephone(
+                                                                        source.getTelephone());
+                                                            if (StringUtils.isNotBlank(
+                                                                    source.getEmail()))
+                                                                request.setEmail(source.getEmail());
+                                                            validateProfile(
+                                                                    request,
+                                                                    request.getCustomerType());
+                                                            return insertCustomer(
+                                                                    projectId, id, request);
+                                                        })))
                 .flatMap(
                         customer ->
-                                addRelationship(projectId, customer, request.link(), groups)
+                                addRelationship(projectId, customer, request.link())
                                         .thenReturn(customer));
+    }
+
+    private static String customerId(String projectId, String userId) {
+        return UUID.nameUUIDFromBytes((projectId + "\0" + userId).getBytes(StandardCharsets.UTF_8))
+                .toString();
+    }
+
+    private Mono<PropertyCustomerEntity> restoreCustomer(PropertyCustomerEntity old) {
+        return scope.authenticated()
+                .flatMap(
+                        auth ->
+                                PropertyDictionaryService.audit(
+                                                customers
+                                                        .createUpdate()
+                                                        .set("deleted", false)
+                                                        .setNull("deletedTime"),
+                                                auth,
+                                                old.getVersion())
+                                        .where("id", old.getId())
+                                        .and("deleted", true)
+                                        .and("version", old.getVersion())
+                                        .execute())
+                .flatMap(this::checkChanged)
+                .then(customers.findById(old.getId()));
     }
 
     private Mono<PropertyCustomerEntity> insertCustomer(
@@ -575,7 +520,10 @@ public class PropertyCustomerService {
             return Mono.error(error("invalid", 400));
         return writeLock(projectId)
                 .then(authorizedCustomer(projectId, id, CrudAssetPermission.save, false))
-                .flatMap(old -> updateProfile(old, request, false))
+                .flatMap(
+                        old ->
+                                updateProfile(old, request, false)
+                                        .then(updateNature(projectId, old, request)))
                 .then(detail(projectId, id));
     }
 
@@ -625,93 +573,47 @@ public class PropertyCustomerService {
     }
 
     @Transactional
-    public Mono<Void> delete(String projectId, String id, long version) {
-        if (version < 0) return Mono.error(error("invalid", 400));
-        return writeLock(projectId, CrudAssetPermission.delete)
-                .then(authorizedCustomer(projectId, id, CrudAssetPermission.delete, false))
-                .then(
-                        relationships
-                                .createQuery()
-                                .where("projectId", projectId)
-                                .and("customerId", id)
-                                .and("deleted", false)
-                                .isNull("endTime")
-                                .count())
-                .flatMap(
-                        count ->
-                                count > 0
-                                        ? Mono.error(error("active_relationship", 409))
-                                        : scope.authenticated()
-                                                .flatMap(
-                                                        auth ->
-                                                                PropertyDictionaryService.audit(
-                                                                                customers
-                                                                                        .createUpdate()
-                                                                                        .set(
-                                                                                                "deleted",
-                                                                                                true)
-                                                                                        .set(
-                                                                                                "deletedTime",
-                                                                                                System
-                                                                                                        .currentTimeMillis()),
-                                                                                auth,
-                                                                                version)
-                                                                        .where("id", id)
-                                                                        .and("projectId", projectId)
-                                                                        .and("version", version)
-                                                                        .and("deleted", false)
-                                                                        .execute())
-                                                .flatMap(this::checkChanged));
-    }
-
-    @Transactional
     public Mono<RelationshipView> link(
             String projectId, String customerId, CustomerRequests.Link request) {
         return writeLock(projectId)
                 .then(authorizedCustomer(projectId, customerId, CrudAssetPermission.save, false))
-                .flatMap(customer -> addRelationship(projectId, customer, request, new HashMap<>()))
+                .flatMap(customer -> addRelationship(projectId, customer, request))
                 .flatMap(row -> relationshipDetail(projectId, row));
     }
 
     private Mono<PropertyCustomerRelationshipEntity> addRelationship(
-            String projectId,
-            PropertyCustomerEntity customer,
-            CustomerRequests.Link request,
-            Map<String, PropertyCustomerFamilyEntity> groups) {
+            String projectId, PropertyCustomerEntity customer, CustomerRequests.Link request) {
         validateLink(customer.getCustomerType(), request);
         return houses.requireCompleted(projectId, request.getSpaceId(), CrudAssetPermission.save)
-                .then(
-                        relationships
-                                .createQuery()
-                                .where("projectId", projectId)
-                                .and("customerId", customer.getId())
-                                .and("spaceId", request.getSpaceId())
-                                .and("deleted", false)
-                                .isNull("endTime")
-                                .count())
+                .then(assertNoCurrent(projectId, customer.getId(), request.getSpaceId()))
+                .then(insertRelationship(projectId, customer, request));
+    }
+
+    private Mono<Void> assertNoCurrent(String projectId, String customerId, String spaceId) {
+        return relationships
+                .createQuery()
+                .where("projectId", projectId)
+                .and("customerId", customerId)
+                .and("spaceId", spaceId)
+                .and("deleted", false)
+                .isNull("endTime")
+                .count()
                 .flatMap(
                         count ->
-                                count > 0
-                                        ? Mono.error(error("relationship_exists", 409))
-                                        : resolveFamily(projectId, customer, request, groups))
-                .flatMap(familyId -> insertRelationship(projectId, customer, request, familyId))
-                .switchIfEmpty(
-                        Mono.defer(() -> insertRelationship(projectId, customer, request, null)));
+                                count == 0
+                                        ? Mono.empty()
+                                        : Mono.error(error("relationship_exists", 409)));
     }
 
     private Mono<PropertyCustomerRelationshipEntity> insertRelationship(
-            String projectId,
-            PropertyCustomerEntity customer,
-            CustomerRequests.Link request,
-            String familyId) {
+            String projectId, PropertyCustomerEntity customer, CustomerRequests.Link request) {
         var row = new PropertyCustomerRelationshipEntity();
         row.setId(UUID.randomUUID().toString());
         row.setProjectId(projectId);
         row.setCustomerId(customer.getId());
         row.setSpaceId(request.getSpaceId());
         row.setNature(request.getNature());
-        row.setFamilyId(familyId);
-        row.setStartTime(request.getStartTime());
+        row.setStartTime(System.currentTimeMillis());
         Mono<Void> nature =
                 "person".equals(customer.getCustomerType())
                         ? dictionaries.validateSelection(
@@ -725,74 +627,16 @@ public class PropertyCustomerService {
                         });
     }
 
-    private Mono<String> resolveFamily(
-            String projectId,
-            PropertyCustomerEntity customer,
-            CustomerRequests.Link request,
-            Map<String, PropertyCustomerFamilyEntity> groups) {
-        if ("company".equals(customer.getCustomerType())) return Mono.empty();
-        if ("existing".equals(request.getFamilyMode())) {
-            return families.findById(request.getFamilyId())
-                    .filter(
-                            row ->
-                                    projectId.equals(row.getProjectId())
-                                            && request.getSpaceId().equals(row.getSpaceId()))
-                    .flatMap(
-                            row ->
-                                    relationships
-                                            .createQuery()
-                                            .where("projectId", projectId)
-                                            .and("spaceId", request.getSpaceId())
-                                            .and("familyId", row.getId())
-                                            .and("deleted", false)
-                                            .isNull("endTime")
-                                            .count()
-                                            .filter(count -> count > 0)
-                                            .map(count -> row.getId()))
-                    .switchIfEmpty(Mono.error(error("family_invalid", 400)));
-        }
-        String key =
-                StringUtils.isBlank(request.getFamilyGroup())
-                        ? null
-                        : request.getSpaceId() + "\0" + request.getFamilyGroup();
-        if (key != null && groups.containsKey(key)) {
-            var row = groups.get(key);
-            if (!Objects.equals(row.getName(), request.getFamilyName()))
-                return Mono.error(error("family_invalid", 400));
-            return Mono.just(row.getId());
-        }
-        var row = new PropertyCustomerFamilyEntity();
-        row.setId(UUID.randomUUID().toString());
-        row.setProjectId(projectId);
-        row.setSpaceId(request.getSpaceId());
-        row.setName(request.getFamilyName());
-        return scope.authenticated()
-                .flatMap(
-                        auth -> {
-                            PropertyDictionaryService.init(row, auth);
-                            return families.insert(row).thenReturn(row);
-                        })
-                .map(
-                        saved -> {
-                            if (key != null) groups.put(key, saved);
-                            return saved.getId();
-                        });
-    }
-
     @Transactional
-    public Mono<RelationshipView> end(String projectId, String id, CustomerRequests.End request) {
-        if (request == null
-                || request.version() == null
-                || request.version() < 0
-                || request.endTime() == null
-                || request.endTime() <= 0
-                || StringUtils.isBlank(request.endReason())
-                || request.endReason().length() > 512) return Mono.error(error("end_invalid", 400));
-        return writeLock(projectId)
-                .then(authorizedRelationship(projectId, id, CrudAssetPermission.save))
+    public Mono<Void> deleteRelationship(String projectId, String id, long version) {
+        if (version < 0) return Mono.error(error("invalid", 400));
+        return writeLock(projectId, CrudAssetPermission.delete)
+                .then(authorizedRelationship(projectId, id, CrudAssetPermission.delete))
                 .flatMap(
                         row -> {
-                            if (row.getEndTime() != null || request.endTime() < row.getStartTime())
+                            if (!active(row)) return Mono.error(error("version_conflict", 409));
+                            long now = System.currentTimeMillis();
+                            if (row.getStartTime() > now)
                                 return Mono.error(error("end_invalid", 400));
                             return scope.authenticated()
                                     .flatMap(
@@ -800,51 +644,69 @@ public class PropertyCustomerService {
                                                     PropertyDictionaryService.audit(
                                                                     relationships
                                                                             .createUpdate()
-                                                                            .set(
-                                                                                    "endTime",
-                                                                                    request
-                                                                                            .endTime())
-                                                                            .set(
-                                                                                    "endReason",
-                                                                                    request
-                                                                                            .endReason()),
+                                                                            .set("deleted", true)
+                                                                            .set("deletedTime", now)
+                                                                            .set("endTime", now),
                                                                     auth,
-                                                                    request.version())
+                                                                    version)
                                                             .where("id", id)
                                                             .and("projectId", projectId)
-                                                            .and("version", request.version())
+                                                            .and("version", version)
                                                             .and("deleted", false)
                                                             .isNull("endTime")
                                                             .execute())
-                                    .flatMap(this::checkChanged)
-                                    .then(relationships.findById(id));
-                        })
-                .flatMap(row -> relationshipDetail(projectId, row));
+                                    .flatMap(this::checkChanged);
+                        });
     }
 
-    @Transactional
-    public Mono<Void> deleteRelationship(String projectId, String id, long version) {
-        if (version < 0) return Mono.error(error("invalid", 400));
-        return writeLock(projectId, CrudAssetPermission.delete)
-                .then(authorizedRelationship(projectId, id, CrudAssetPermission.delete))
-                .then(scope.authenticated())
+    /** 当前空间性质与客户资料使用同一事务，任一版本冲突不得部分保存。 */
+    private Mono<Void> updateNature(
+            String projectId, PropertyCustomerEntity customer, CustomerRequests.Profile request) {
+        if (request.getRelationshipId() == null) {
+            return request.getNature() == null
+                    ? Mono.empty()
+                    : Mono.error(error("relationship_invalid", 400));
+        }
+        if (request.getRelationshipVersion() == null || request.getRelationshipVersion() < 0)
+            return Mono.error(error("relationship_invalid", 400));
+        return authorizedRelationship(
+                        projectId, request.getRelationshipId(), CrudAssetPermission.save)
                 .flatMap(
-                        auth ->
-                                PropertyDictionaryService.audit(
-                                                relationships
-                                                        .createUpdate()
-                                                        .set("deleted", true)
-                                                        .set(
-                                                                "deletedTime",
-                                                                System.currentTimeMillis()),
-                                                auth,
-                                                version)
-                                        .where("id", id)
-                                        .and("projectId", projectId)
-                                        .and("version", version)
-                                        .and("deleted", false)
-                                        .execute())
-                .flatMap(this::checkChanged);
+                        row -> {
+                            if (!customer.getId().equals(row.getCustomerId()) || !active(row))
+                                return Mono.error(error("relationship_invalid", 400));
+                            var link = new CustomerRequests.Link();
+                            link.setSpaceId(row.getSpaceId());
+                            link.setNature(request.getNature());
+                            validateLink(customer.getCustomerType(), link);
+                            return ("person".equals(customer.getCustomerType())
+                                            ? dictionaries.validateSelection(
+                                                    "customer-nature",
+                                                    request.getNature(),
+                                                    row.getNature())
+                                            : Mono.<Void>empty())
+                                    .then(scope.authenticated())
+                                    .flatMap(
+                                            auth -> {
+                                                var update =
+                                                        PropertyDictionaryService.audit(
+                                                                relationships.createUpdate(),
+                                                                auth,
+                                                                request.getRelationshipVersion());
+                                                if (request.getNature() == null)
+                                                    update.setNull("nature");
+                                                else update.set("nature", request.getNature());
+                                                return update.where("id", row.getId())
+                                                        .and("projectId", projectId)
+                                                        .and("deleted", false)
+                                                        .isNull("endTime")
+                                                        .and(
+                                                                "version",
+                                                                request.getRelationshipVersion())
+                                                        .execute();
+                                            })
+                                    .flatMap(this::checkChanged);
+                        });
     }
 
     private Mono<PropertyCustomerRelationshipEntity> authorizedRelationship(
@@ -869,62 +731,14 @@ public class PropertyCustomerService {
         return scope.spaces(projectId, row.getSpaceId(), CrudAssetPermission.read)
                 .flatMap(
                         spaces ->
-                                Mono.zip(customerMap(List.of(row)), familyMap(List.of(row)))
+                                customerMap(List.of(row))
                                         .map(
-                                                tuple ->
+                                                byCustomer ->
                                                         relationshipView(
                                                                 row,
                                                                 indexSpaces(spaces),
-                                                                tuple.getT2(),
-                                                                tuple.getT1()
-                                                                        .get(
-                                                                                row
-                                                                                        .getCustomerId()))));
-    }
-
-    public Mono<List<CustomerRequests.Family>> families(String projectId, String spaceId) {
-        if (StringUtils.isBlank(spaceId)) return Mono.error(error("family_invalid", 400));
-        return scope.leaf(projectId, spaceId, CrudAssetPermission.read)
-                .flatMap(space -> scopedRelations(projectId, List.of(space)))
-                .flatMap(
-                        rows ->
-                                familyMap(
-                                        rows.stream()
-                                                .filter(PropertyCustomerService::active)
-                                                .toList()))
-                .map(
-                        rows ->
-                                rows.values().stream()
-                                        .sorted(
-                                                Comparator.comparing(
-                                                        PropertyCustomerFamilyEntity::getId))
-                                        .map(
-                                                row ->
-                                                        new CustomerRequests.Family(
-                                                                row.getId(), row.getName()))
-                                        .toList());
-    }
-
-    /** 模板与导入匹配复用家庭查询的空间资产read边界，批量装配，避免按每套房屋查询。 */
-    public Mono<Map<String, List<CustomerRequests.Family>>> familyReferences(String projectId) {
-        return scope.spaces(projectId, null, CrudAssetPermission.read)
-                .flatMap(spaces -> scopedRelations(projectId, spaces))
-                .map(rows -> rows.stream().filter(PropertyCustomerService::active).toList())
-                .flatMap(rows -> familyMap(rows).map(index -> groupFamilies(rows, index)));
-    }
-
-    private Map<String, List<CustomerRequests.Family>> groupFamilies(
-            List<PropertyCustomerRelationshipEntity> rows,
-            Map<String, PropertyCustomerFamilyEntity> index) {
-        Map<String, List<CustomerRequests.Family>> result = new LinkedHashMap<>();
-        Set<String> seen = new HashSet<>();
-        for (var row : rows) {
-            var family = index.get(row.getFamilyId());
-            if (family == null || !seen.add(row.getSpaceId() + "\0" + family.getId())) continue;
-            result.computeIfAbsent(row.getSpaceId(), ignored -> new ArrayList<>())
-                    .add(new CustomerRequests.Family(family.getId(), family.getName()));
-        }
-        return result;
+                                                                byCustomer.get(
+                                                                        row.getCustomerId()))));
     }
 
     private Mono<Void> writeLock(String projectId) {
@@ -959,25 +773,6 @@ public class PropertyCustomerService {
                                                         Function.identity())));
     }
 
-    private Mono<Map<String, PropertyCustomerFamilyEntity>> familyMap(
-            List<PropertyCustomerRelationshipEntity> rows) {
-        var ids =
-                rows.stream()
-                        .map(PropertyCustomerRelationshipEntity::getFamilyId)
-                        .filter(Objects::nonNull)
-                        .distinct()
-                        .toList();
-        if (ids.isEmpty()) return Mono.just(Map.of());
-        return bounded(families.createQuery().in("id", ids).fetch())
-                .map(
-                        list ->
-                                list.stream()
-                                        .collect(
-                                                Collectors.toMap(
-                                                        PropertyCustomerFamilyEntity::getId,
-                                                        Function.identity())));
-    }
-
     private static Map<String, PropertySpaceEntity> indexSpaces(List<PropertySpaceEntity> spaces) {
         return spaces.stream()
                 .collect(Collectors.toMap(PropertySpaceEntity::getId, Function.identity()));
@@ -992,7 +787,6 @@ public class PropertyCustomerService {
     private static RelationshipView relationshipView(
             PropertyCustomerRelationshipEntity row,
             Map<String, PropertySpaceEntity> spaces,
-            Map<String, PropertyCustomerFamilyEntity> families,
             PropertyCustomerEntity customer) {
         var view = new RelationshipView();
         BeanUtils.copyProperties(row, view);
@@ -1002,9 +796,11 @@ public class PropertyCustomerService {
             view.setFullName(space.getFullName());
             view.setSpaceTypeName(space.getSpaceTypeName());
             view.setSpaceLocation(space.getSpaceLocation());
+            view.setSpaceSegments(space.getSpaceSegments());
         }
-        var family = row.getFamilyId() == null ? null : families.get(row.getFamilyId());
-        if (family != null) view.setFamilyName(family.getName());
+        // 历史误建删除按当时记录的删除时间解析，不伪造历史时间。
+        if (view.getEndTime() == null && Boolean.TRUE.equals(row.getDeleted()))
+            view.setEndTime(row.getDeletedTime());
         view.setCustomer(customer);
         return view;
     }
@@ -1043,30 +839,15 @@ public class PropertyCustomerService {
     }
 
     static void validateLink(String type, CustomerRequests.Link request) {
-        if (request == null
-                || StringUtils.isBlank(request.getSpaceId())
-                || request.getStartTime() == null
-                || request.getStartTime() <= 0) throw error("relationship_invalid", 400);
-        if ("company".equals(type)) {
-            if (request.getNature() != null
-                    || request.getFamilyMode() != null
-                    || request.getFamilyId() != null
-                    || request.getFamilyName() != null
-                    || request.getFamilyGroup() != null) throw error("company_person_fields", 400);
-            return;
-        }
-        if (StringUtils.isBlank(request.getNature()) || request.getNature().length() > 64)
+        if (request == null || StringUtils.isBlank(request.getSpaceId()))
             throw error("relationship_invalid", 400);
-        if ("new".equals(request.getFamilyMode())) {
-            if (StringUtils.isBlank(request.getFamilyName())
-                    || request.getFamilyName().length() > 128
-                    || request.getFamilyId() != null
-                    || tooLong(request.getFamilyGroup(), 128)) throw error("family_invalid", 400);
-        } else if ("existing".equals(request.getFamilyMode())) {
-            if (StringUtils.isBlank(request.getFamilyId())
-                    || request.getFamilyName() != null
-                    || request.getFamilyGroup() != null) throw error("family_invalid", 400);
-        } else throw error("family_invalid", 400);
+        if ("company".equals(type)) {
+            if (request.getNature() != null) throw error("company_person_fields", 400);
+        } else if (!"person".equals(type)
+                || StringUtils.isBlank(request.getNature())
+                || request.getNature().length() > 64) {
+            throw error("relationship_invalid", 400);
+        }
     }
 
     private static boolean tooLong(String value, int max) {

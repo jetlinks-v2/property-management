@@ -115,6 +115,59 @@ class ArchivePersistenceTest {
     }
 
     @Test
+    void typedSpaceInformationUsesRealAncestorsBeforeSubtreeCropping() {
+        spaces.createUpdate()
+                .set("spaceTypeId", "building-type")
+                .set("spaceTypeName", "楼栋")
+                .where("id", "single")
+                .execute()
+                .block(WAIT);
+        spaces.createUpdate()
+                .set("spaceTypeId", "project-type")
+                .set("spaceTypeName", "项目")
+                .where("id", "tower")
+                .execute()
+                .block(WAIT);
+        spaces.createUpdate()
+                .set("spaceTypeId", "custom-type")
+                .set("spaceTypeName", "自定义层级")
+                .where("id", "middle")
+                .execute()
+                .block(WAIT);
+        spaces.createUpdate()
+                .set("spaceTypeId", "room-type")
+                .set("spaceTypeName", "房间号")
+                .set("name", "末端/含斜线")
+                .where("id", "room")
+                .execute()
+                .block(WAIT);
+        var single = houseService.detail("project", "single").contextWrite(all()).block(WAIT);
+        assertEquals(
+                List.of(
+                        new PropertySpaceEntity.SpaceSegment(
+                                "single", "仅一栋", "building-type", "楼栋")),
+                single.getSpaceSegments());
+        var leaf =
+                houseService
+                        .query("project", "room", new QueryParamEntity())
+                        .contextWrite(all())
+                        .block(WAIT)
+                        .getData()
+                        .get(0);
+        assertEquals(
+                List.of("tower", "middle", "room"),
+                leaf.getSpaceSegments().stream()
+                        .map(PropertySpaceEntity.SpaceSegment::id)
+                        .toList());
+        assertEquals(
+                List.of("项目", "自定义层级", "房间号"),
+                leaf.getSpaceSegments().stream()
+                        .map(PropertySpaceEntity.SpaceSegment::typeName)
+                        .toList());
+        assertEquals("末端/含斜线", leaf.getSpaceSegments().get(2).name());
+    }
+
+    @Test
     void singleRootAndArbitraryDepthLeafCanBecomeHouseButNonLeafCannot() {
         var initial =
                 houseService

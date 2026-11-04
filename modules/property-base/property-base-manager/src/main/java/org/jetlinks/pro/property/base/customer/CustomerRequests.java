@@ -3,7 +3,7 @@ package org.jetlinks.pro.property.base.customer;
 import lombok.Getter;
 import lombok.Setter;
 
-/** 客户档案写入契约；账号和个人/企业类型在建档后不可变。 */
+/** 客户资料与空间内性质分别持久化；起止时间由后端记录。 */
 public final class CustomerRequests {
     private CustomerRequests() {}
 
@@ -22,6 +22,10 @@ public final class CustomerRequests {
         private String legalRepresentative;
         private String registeredAddress;
         private Long version;
+        // 仅用于编辑当前空间记录，不写入共用客户资料。
+        private String relationshipId;
+        private Long relationshipVersion;
+        private String nature;
     }
 
     @Getter
@@ -29,40 +33,20 @@ public final class CustomerRequests {
     public static class Link {
         private String spaceId;
         private String nature;
-        private String familyMode;
-        private String familyName;
-        private String familyId;
-        private String familyGroup;
-        private Long startTime;
     }
 
     @Getter
     @Setter
     public static class Create extends Profile {
         private String spaceId;
-        private String nature;
-        private String familyMode;
-        private String familyName;
-        private String familyId;
-        private String familyGroup;
-        private Long startTime;
 
         public Link link() {
-            Link link = new Link();
+            var link = new Link();
             link.setSpaceId(spaceId);
-            link.setNature(nature);
-            link.setFamilyMode(familyMode);
-            link.setFamilyName(familyName);
-            link.setFamilyId(familyId);
-            link.setFamilyGroup(familyGroup);
-            link.setStartTime(startTime);
+            link.setNature(getNature());
             return link;
         }
     }
 
-    public record End(Long version, Long endTime, String endReason) {}
-
     public record ImportResult(int count) {}
-
-    public record Family(String id, String name) {}
 }
