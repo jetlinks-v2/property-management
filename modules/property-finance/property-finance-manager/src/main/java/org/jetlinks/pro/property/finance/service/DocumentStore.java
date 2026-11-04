@@ -172,8 +172,16 @@ public class DocumentStore {
         row.setReopenCount(previous == null ? 0 : previous.getReopenCount() + 1);
         row.setChannel("INVOICE".equals(view.documentType()) ? "SIMULATED" : "INTERNAL");
         row.setStatus("INVOICE".equals(view.documentType()) ? "SIMULATED_ISSUED" : "ISSUED");
-        // 模拟编号永不伪装为税务发票号码；正式收据编号池在独立编号功能中接入。
-        row.setDocumentNumber(("INVOICE".equals(view.documentType()) ? "SIM-" : "SJ-") + id);
+        // 模拟编号不伪装为税务发票号码；电子收据独立编号，不消费纸质票据分配池。
+        row.setDocumentNumber(
+                "INVOICE".equals(view.documentType())
+                        ? "SIM-" + id
+                        : "SJ"
+                                + java.time.LocalDateTime.parse(now)
+                                        .format(
+                                                java.time.format.DateTimeFormatter.ofPattern(
+                                                        "yyyyMMddHHmmssSSS"))
+                                + id.substring(0, 16).toUpperCase(Locale.ROOT));
         row.setCompanyId(view.companyId());
         row.setCompanyName(view.companyName());
         row.setSellerTaxNum(view.sellerTaxNum());

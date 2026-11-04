@@ -12,6 +12,10 @@
     <name>Property Finance Manager</name>
     <dependencies>
         <dependency>
+            <groupId>com.openhtmltopdf</groupId>
+            <artifactId>openhtmltopdf-pdfbox</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.jetlinks.pro</groupId>
             <artifactId>io-component</artifactId>
             <version>${jetlinks.pro.version}</version>
