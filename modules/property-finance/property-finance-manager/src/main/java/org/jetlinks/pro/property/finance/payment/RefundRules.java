@@ -22,6 +22,10 @@ public final class RefundRules {
         validate(input, date, FundRules.TYPES);
     }
 
+    public static void validateToAdvance(RefundInput input, LocalDate date) {
+        validate(input, date, Set.of("TO_ADVANCE"));
+    }
+
     private static void validate(RefundInput input, LocalDate date, Set<String> methods) {
         if (input == null
                 || date == null
@@ -67,6 +71,11 @@ public final class RefundRules {
     public static List<Share> allocateBalance(
             RefundInput input, List<PaymentAllocationEntity> sources, LocalDate date) {
         return allocate(input, sources, date, FundRules.TYPES);
+    }
+
+    public static List<Share> allocateToAdvance(
+            RefundInput input, List<PaymentAllocationEntity> sources, LocalDate date) {
+        return allocate(input, sources, date, Set.of("TO_ADVANCE"));
     }
 
     private static List<Share> allocate(
