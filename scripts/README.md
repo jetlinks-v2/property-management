@@ -2,7 +2,7 @@
 
 以下 SQL 针对 PostgreSQL `jetlinks` 数据库的 `public` schema，可重复执行：
 
-- `sql/init-property-dictionaries.sql`：补充房屋类型、房态、客户性质、证件类型，共 4 类 16 项；已有编码及其启停、删除状态不会被覆盖。
+- [`../modules/property-base/sql/init-property-dictionaries.sql`](../modules/property-base/sql/init-property-dictionaries.sql)：按当前字典补充房屋类型、房态、客户性质、证件类型，共 4 类 17 项；已有编码及其启停、删除状态不会被覆盖。执行顺序、命令及验证见[基础模块规范的字典初始化章节](../modules/property-base/系统管理模块前后端开发与复用规范.md#14-部署时初始化默认字典)。
 - `sql/upgrade-space-type.sql`：为已有空间镜像补充类型 ID、类型名称及带类型的位置字段，不修改房屋扩展资料。
 
 空间及空间类型分别通过 SaaS 的 `spaceService:space` 和 `spaceService:space-type` 命令读取。同步保留 SaaS 的真实层级，类型只用于展示，不用于判断能否完善房屋资料；只有来源真实末端可以完善。

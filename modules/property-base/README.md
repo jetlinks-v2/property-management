@@ -2,6 +2,8 @@
 
 前后端开发、复制接入及公共能力复用见[系统管理模块前后端开发与复用规范](系统管理模块前后端开发与复用规范.md)。
 
+首次部署需在后端建表后执行[默认字典 SQL](sql/init-property-dictionaries.sql)，包含当前 4 类、17 个选项。具体执行方式见[字典初始化章节](系统管理模块前后端开发与复用规范.md#14-部署时初始化默认字典)。
+
 `property-base-manager` 承载本领域 Controller、Service、Entity、Repository、权限及国际化，统一由 `property-management-service` 装配。
 
 `property-base-core` 只提供公共 DTO、组织类型枚举和组织树查询命令，不依赖 manager，不包含数据库实体或 CRUD。财务、巡更等消费模块只依赖 core，不能注入本模块内部 Service 或读取本模块数据表。
@@ -88,7 +90,7 @@ return CommandSupportManagerProviders
 
 ## 字典与批量操作
 
-字典全系统统一，分类编码和同分类选项值保存后不可改，删除后的编码仍占用。分类/选项均支持排序、说明和独立启停；恢复分类不会启用此前单独停用的项。业务分类为 `house-type`、`house-state`、`customer-nature`、`certificate-type`，选项统一维护；初始选项可按需执行 `scripts/sql/init-property-dictionaries.sql` 补齐，不覆盖既有状态。已有值允许保留停用编码，新选值必须同时满足分类和项启用。绑定业务字段的分类、有未删除选项的分类、被当前或历史资料引用的选项不能删除，应使用停用。
+字典全系统统一，分类编码和同分类选项值保存后不可改，删除后的编码仍占用。分类/选项均支持排序、说明和独立启停；恢复分类不会启用此前单独停用的项。业务分类为 `house-type`、`house-state`、`customer-nature`、`certificate-type`，选项统一维护；初始选项可按需执行 `modules/property-base/sql/init-property-dictionaries.sql` 补齐，不覆盖既有状态。已有值允许保留停用编码，新选值必须同时满足分类和项启用。绑定业务字段的分类、有未删除选项的分类、被当前或历史资料引用的选项不能删除，应使用停用。
 
 列表使用标准 `QueryParamEntity`，支持白名单字段、嵌套条件、排序和分页；未知字段或操作明确拒绝，不静默忽略。导出使用同一权限和筛选，返回全部匹配记录，上限 10000；不能把当前页当完整导出。模板、导入、导出均由后端提供。模板为 `GET /property/{house|customer}/template.xlsx?projectId=`，客户另必传 `customerType=person/company`，复用 import 权限，按项目返回中文填写表、真实空间和字典/用户参考；房屋全部已完善仍可下载空填写表。`POST _import` 为 multipart，字段 `file`，仅 xls/xlsx、10MB、1–500 行；`POST _export` 接收同列表 QueryParam，返回 XLSX 文件流。前端不解析 Excel 或提交 JSON 行数组。
 
