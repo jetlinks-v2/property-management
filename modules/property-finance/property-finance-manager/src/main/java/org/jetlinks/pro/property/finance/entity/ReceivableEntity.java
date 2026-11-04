@@ -112,6 +112,11 @@ public class ReceivableEntity extends FinanceEntity {
     @Column(nullable = false)
     private Boolean financialClosed;
 
+    // 可空兼容已出账数据；null与false均表示未占用，新账明确写false。
+    @Column private Boolean discountLocked;
+    @Column private Boolean chargeLocked;
+    @Column private Boolean split;
+
     @Column(length = 10)
     private String paidDate;
 

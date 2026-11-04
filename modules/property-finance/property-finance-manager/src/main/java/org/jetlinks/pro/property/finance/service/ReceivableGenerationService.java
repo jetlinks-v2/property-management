@@ -157,7 +157,9 @@ public class ReceivableGenerationService {
                 .fetchOne()
                 .flatMap(
                         existing -> {
-                            if (Boolean.TRUE.equals(existing.getDeleted())) return Mono.just(false);
+                            if (Boolean.TRUE.equals(existing.getDeleted())
+                                    || Boolean.TRUE.equals(existing.getSplit()))
+                                return Mono.just(false);
                             if (kind == BillingTaskKind.GENERATE) return Mono.just(false);
                             return refresh(existing, standard, date, auth, kind).thenReturn(false);
                         })
@@ -208,6 +210,9 @@ public class ReceivableGenerationService {
         row.setBankCollectionLocked(false);
         row.setLateFeeLocked(false);
         row.setFinancialClosed(false);
+        row.setDiscountLocked(false);
+        row.setChargeLocked(false);
+        row.setSplit(false);
         var wrapper = new BeanWrapperImpl(row);
         for (var field : wrapper.getPropertyDescriptors())
             if (field.getPropertyType() == BigDecimal.class)

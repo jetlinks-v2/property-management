@@ -61,6 +61,10 @@ class HouseSettingPersistenceTest {
     @Autowired ReactiveRepository<HouseSettingEntity, String> rows;
     @Autowired ReactiveRepository<ReceivableEntity, String> bills;
     @Autowired BillingTaskService tasks;
+    @Autowired ReceivableService receivables;
+    @Autowired ReactiveRepository<ReceivableLogEntity, String> receivableLogs;
+    @Autowired FinanceScope financeScope;
+    @Autowired org.springframework.transaction.ReactiveTransactionManager transactionManager;
     @Autowired ReactiveRepository<BillingTaskEntity, String> taskRows;
     String project;
     String standardId;
@@ -669,6 +673,289 @@ class HouseSettingPersistenceTest {
                 .doesNotExist();
     }
 
+    @Test
+    void receivableFreezeUnfreezeUsesVersionAndPreservesSameTransactionAudit() {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var bill =
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        receivables
+                .change(
+                        project,
+                        bill.getId(),
+                        new ReceivableService.ChangeInput(bill.getVersion(), "核对费用"),
+                        "FREEZE")
+                .contextWrite(allowed())
+                .block(WAIT);
+        var frozen = receivables.detail(project, bill.getId()).contextWrite(allowed()).block(WAIT);
+        assertTrue(frozen.getFrozen());
+        assertEquals(Set.of("DETAIL", "LOG", "UNFREEZE"), frozen.getAllowedOperations());
+        conflict(
+                receivables.change(
+                        project,
+                        bill.getId(),
+                        new ReceivableService.ChangeInput(bill.getVersion(), "过期编辑"),
+                        "UNFREEZE"),
+                409);
+        receivables
+                .change(
+                        project,
+                        bill.getId(),
+                        new ReceivableService.ChangeInput(frozen.getVersion(), "核对完成"),
+                        "UNFREEZE")
+                .contextWrite(allowed())
+                .block(WAIT);
+        var audit =
+                receivables
+                        .logs(
+                                project,
+                                bill.getId(),
+                                new org.hswebframework.web.api.crud.entity.QueryParamEntity())
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(2, audit.getTotal());
+        assertEquals("UNFREEZE", audit.getData().get(0).getOperation());
+        assertEquals(true, audit.getData().get(0).getBefore().get("frozen"));
+        assertEquals(false, audit.getData().get(0).getAfter().get("frozen"));
+        assertEquals("龚超", frozen.getCustomerName());
+        assertNotNull(frozen.getSnapshot());
+    }
+
+    @Test
+    void receivableDeleteIsLogicalAndDoesNotRegenerateWhileAuditRemains() {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var bill =
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        receivables
+                .change(
+                        project,
+                        bill.getId(),
+                        new ReceivableService.ChangeInput(bill.getVersion(), "错误配置"),
+                        "DELETE")
+                .contextWrite(allowed())
+                .block(WAIT);
+        generation
+                .generate(project, saved.setting().getId(), DATE.plusDays(1))
+                .contextWrite(allowed())
+                .block(WAIT);
+        assertEquals(
+                1,
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .count()
+                        .block(WAIT));
+        assertTrue(bills.findById(bill.getId()).block(WAIT).getDeleted());
+        conflict(receivables.detail(project, bill.getId()), 404);
+        assertEquals(
+                1,
+                receivables
+                        .logs(
+                                project,
+                                bill.getId(),
+                                new org.hswebframework.web.api.crud.entity.QueryParamEntity())
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .getTotal());
+        assertEquals(
+                0,
+                receivables
+                        .query(
+                                project,
+                                new org.hswebframework.web.api.crud.entity.QueryParamEntity())
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .getTotal());
+    }
+
+    @Test
+    void receivableConcurrentChangesOnlyOneWinsAndCannotDeleteClosedOrPaidBills() {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var bill =
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        var input = new ReceivableService.ChangeInput(bill.getVersion(), "并发核对");
+        var results =
+                Flux.merge(
+                                receivables
+                                        .change(project, bill.getId(), input, "FREEZE")
+                                        .thenReturn(true)
+                                        .onErrorReturn(false),
+                                receivables
+                                        .change(project, bill.getId(), input, "FREEZE")
+                                        .thenReturn(true)
+                                        .onErrorReturn(false))
+                        .collectList()
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(1, results.stream().filter(Boolean::booleanValue).count());
+        assertEquals(
+                1,
+                receivableLogs
+                        .createQuery()
+                        .where("receivableId", bill.getId())
+                        .count()
+                        .block(WAIT));
+        bills.createUpdate()
+                .set("frozen", false)
+                .set("periodStatus", "CLOSED")
+                .where("id", bill.getId())
+                .execute()
+                .block(WAIT);
+        var version = bills.findById(bill.getId()).block(WAIT).getVersion();
+        conflict(
+                receivables.change(
+                        project,
+                        bill.getId(),
+                        new ReceivableService.ChangeInput(version, "不能删关期"),
+                        "DELETE"),
+                409);
+        bills.createUpdate()
+                .set("periodStatus", "OPEN")
+                .set("paidAmount", BigDecimal.ONE)
+                .where("id", bill.getId())
+                .execute()
+                .block(WAIT);
+        conflict(
+                receivables.change(
+                        project,
+                        bill.getId(),
+                        new ReceivableService.ChangeInput(version, "不能删已收"),
+                        "DELETE"),
+                409);
+    }
+
+    @Test
+    void receivableQueryAndExcelRetainProjectSpaceBoundaryAndExactAmounts() throws Exception {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        settings.create(project, input("hidden", "2024-02-10", null), DATE)
+                .contextWrite(allowed())
+                .block(WAIT);
+        var bill =
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        var query = new org.hswebframework.web.api.crud.entity.QueryParamEntity();
+        query.toQuery().where("projectId", "other").or("spaceId", "hidden").or("spaceId", "room");
+        assertEquals(
+                1,
+                receivables.query(project, query).contextWrite(allowed()).block(WAIT).getTotal());
+        bills.createUpdate()
+                .set("actualReceivableAmount", new BigDecimal("999999999999999999.99"))
+                .where("id", bill.getId())
+                .execute()
+                .block(WAIT);
+        byte[] bytes = receivables.export(project, query).contextWrite(allowed()).block(WAIT);
+        try (var book =
+                new org.apache.poi.xssf.usermodel.XSSFWorkbook(
+                        new java.io.ByteArrayInputStream(bytes))) {
+            var sheet = book.getSheetAt(0);
+            assertEquals(1, sheet.getLastRowNum());
+            assertEquals("实际应收", sheet.getRow(0).getCell(21).getStringCellValue());
+            assertEquals("999999999999999999.99", sheet.getRow(1).getCell(21).getStringCellValue());
+        }
+        var holder = mock(AssetsHolder.class);
+        when(holder.assertPermission(anyString(), anyCollection(), any()))
+                .thenReturn(Mono.error(FinanceScope.error("forbidden", 403)));
+        StepVerifier.create(
+                        receivables
+                                .detail(project, bill.getId())
+                                .contextWrite(auth().put(AssetsHolder.class, holder)))
+                .expectErrorMatches(e -> TaxItemPersistenceTest.status(e, 403))
+                .verify(WAIT);
+        conflict(receivables.detail("other", bill.getId()), 404);
+        conflict(receivables.query("forbidden", query), 403);
+        StepVerifier.create(receivables.query(project, query)).expectError().verify(WAIT);
+    }
+
+    @Test
+    void receivableAuditFailureRollsBackStatusAndHttpOnlyExposesParsedReadOnlySnapshot() {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var bill =
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        @SuppressWarnings("unchecked")
+        ReactiveRepository<ReceivableLogEntity, String> failedLogs = mock(ReactiveRepository.class);
+        when(failedLogs.insert(any(ReceivableLogEntity.class)))
+                .thenReturn(Mono.error(new IllegalStateException("audit unavailable")));
+        var failedService = new ReceivableService(financeScope, bills, failedLogs);
+        StepVerifier.create(
+                        org.springframework.transaction.reactive.TransactionalOperator.create(
+                                        transactionManager)
+                                .transactional(
+                                        failedService.change(
+                                                project,
+                                                bill.getId(),
+                                                new ReceivableService.ChangeInput(
+                                                        bill.getVersion(), "测试事务回滚"),
+                                                "FREEZE"))
+                                .contextWrite(allowed()))
+                .expectErrorMessage("audit unavailable")
+                .verify(WAIT);
+        var retained = bills.findById(bill.getId()).block(WAIT);
+        assertFalse(retained.getFrozen());
+        assertEquals(bill.getVersion(), retained.getVersion());
+        assertEquals(
+                0,
+                receivableLogs
+                        .createQuery()
+                        .where("receivableId", bill.getId())
+                        .count()
+                        .block(WAIT));
+        conflict(
+                receivables.change(
+                        project,
+                        bill.getId(),
+                        new ReceivableService.ChangeInput(bill.getVersion(), " "),
+                        "FREEZE"),
+                400);
+        var client =
+                org.springframework.test.web.reactive.server.WebTestClient.bindToController(
+                                new org.jetlinks.pro.property.finance.web.ReceivableController(
+                                        receivables))
+                        .webFilter(
+                                (exchange, chain) -> chain.filter(exchange).contextWrite(allowed()))
+                        .build();
+        client.get()
+                .uri("/property/finance/projects/" + project + "/receivables/" + bill.getId())
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody()
+                .jsonPath("$.actualReceivableAmount")
+                .isEqualTo("25.51")
+                .jsonPath("$.snapshot.standard.price")
+                .isEqualTo("1.23")
+                .jsonPath("$.snapshotJson")
+                .doesNotExist()
+                .jsonPath("$.allowedOperations")
+                .isArray();
+    }
+
     private void conflict(Mono<?> action, int status) {
         StepVerifier.create(action.contextWrite(allowed()))
                 .expectErrorMatches(error -> TaxItemPersistenceTest.status(error, status))
@@ -685,7 +972,8 @@ class HouseSettingPersistenceTest {
         BillingProrationService.class,
         NaturalBillingPeriodService.class,
         ReceivableLateFeeCalculator.class,
-        BillingTaskService.class
+        BillingTaskService.class,
+        ReceivableService.class
     })
     static class Config {
         @Bean
