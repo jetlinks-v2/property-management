@@ -104,7 +104,19 @@
       "createTime": 1793614921830,
       "granted": true,
       "i18nName": "首页统计",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "首页统计",
+          "en_US": "Overview",
+          "en": "Overview"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-ae6a50b29308426b932b94d33f8bab18",
@@ -500,7 +512,19 @@
       "createTime": 1793614921899,
       "granted": true,
       "i18nName": "报事记录",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "报事记录",
+          "en_US": "Issue records",
+          "en": "Issue records"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-1927735896d240b58b81093d20ffccb6",
@@ -614,7 +638,19 @@
       "createTime": 1793614922033,
       "granted": true,
       "i18nName": "报事渠道配置",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "报事渠道配置",
+          "en_US": "Reporting channel configuration",
+          "en": "Reporting channel configuration"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-db0a17caf46048c4ac4a693a3583d55d",
@@ -728,7 +764,19 @@
       "createTime": 1793614921964,
       "granted": true,
       "i18nName": "报事统计",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "报事统计",
+          "en_US": "Issue statistics",
+          "en": "Issue statistics"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-system-OrganizationType",
@@ -967,7 +1015,19 @@
       "createTime": 1793614921847,
       "granted": true,
       "i18nName": "报事处理",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "报事处理",
+          "en_US": "Issue handling",
+          "en": "Issue handling"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-system-User",
@@ -1234,8 +1294,8 @@
       "i18nMessages": {
         "name": {
           "zh_CN": "空间管理",
-          "en_US": "Space management",
-          "en": "Space management"
+          "en_US": "Spaces",
+          "en": "Spaces"
         }
       },
       "i18nName": "Space management"
@@ -1373,8 +1433,8 @@
       "i18nMessages": {
         "name": {
           "zh_CN": "客户管理",
-          "en_US": "Customer management",
-          "en": "Customer management"
+          "en_US": "Customers",
+          "en": "Customers"
         }
       },
       "i18nName": "Customer management"
@@ -1623,7 +1683,19 @@
       "createTime": 1793614921910,
       "granted": true,
       "i18nName": "报事审核",
-      "i18nDescribe": "报事审核清单及流程审核"
+      "i18nDescribe": "报事审核清单及流程审核",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "报事审核",
+          "en_US": "Issue reviews",
+          "en": "Issue reviews"
+        },
+        "describe": {
+          "zh_CN": "报事审核清单及流程审核",
+          "en_US": "Issue review requests and workflow reviews",
+          "en": "Issue review requests and workflow reviews"
+        }
+      }
     },
     {
       "id": "repair-9592fb600f2d48ecb0c8e71625504429",
@@ -1737,7 +1809,19 @@
       "createTime": 1793614921972,
       "granted": true,
       "i18nName": "有偿报事统计",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "有偿报事统计",
+          "en_US": "Paid service statistics",
+          "en": "Paid service statistics"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-e5c3044532f049c0b221f3348feab269",
@@ -1851,7 +1935,19 @@
       "createTime": 1793614922042,
       "granted": true,
       "i18nName": "报事分类配置",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "报事分类配置",
+          "en_US": "Issue category configuration",
+          "en": "Issue category configuration"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-12c861faf39e4aa88ffde83c527b8544",
@@ -1880,7 +1976,19 @@
       "createTime": 1793614921956,
       "granted": true,
       "i18nName": "报事统计",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "报事统计",
+          "en_US": "Issue statistics",
+          "en": "Issue statistics"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-b3df273261f340a4bef03c55817c9d81",
@@ -1994,7 +2102,19 @@
       "createTime": 1793614921919,
       "granted": true,
       "i18nName": "导出管理",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "导出管理",
+          "en_US": "Exports",
+          "en": "Exports"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-1ffad82658d2452eb21f4cee0df97687",
@@ -2108,7 +2228,19 @@
       "createTime": 1793614922053,
       "granted": true,
       "i18nName": "满意度配置",
-      "i18nDescribe": "报事报修业务配置"
+      "i18nDescribe": "报事报修业务配置",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "满意度配置",
+          "en_US": "Satisfaction configuration",
+          "en": "Satisfaction configuration"
+        },
+        "describe": {
+          "zh_CN": "报事报修业务配置",
+          "en_US": "Issue and repair configuration",
+          "en": "Issue and repair configuration"
+        }
+      }
     },
     {
       "id": "repair-e6c65912104140c688a2237037a8c0e0",
@@ -2137,7 +2269,19 @@
       "createTime": 1793614922026,
       "granted": true,
       "i18nName": "报事配置",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "报事配置",
+          "en_US": "Issue configuration",
+          "en": "Issue configuration"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-d25b261db07a4dc7ad84f67ad323a2b7",
@@ -2251,7 +2395,19 @@
       "createTime": 1793614921990,
       "granted": true,
       "i18nName": "报事节点统计",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "报事节点统计",
+          "en_US": "Issue node statistics",
+          "en": "Issue node statistics"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-2f6bc3bab21f46e69d8437ea68c6acf9",
@@ -2280,7 +2436,19 @@
       "createTime": 1793614921928,
       "granted": true,
       "i18nName": "发起报事",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "发起报事",
+          "en_US": "Report an issue",
+          "en": "Report an issue"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-75d939bcd10c499ca3bce8bb39d9eab6",
@@ -2394,7 +2562,19 @@
       "createTime": 1793614922061,
       "granted": true,
       "i18nName": "报事流程配置",
-      "i18nDescribe": "报事报修业务配置"
+      "i18nDescribe": "报事报修业务配置",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "报事流程配置",
+          "en_US": "Workflow configuration",
+          "en": "Workflow configuration"
+        },
+        "describe": {
+          "zh_CN": "报事报修业务配置",
+          "en_US": "Issue and repair configuration",
+          "en": "Issue and repair configuration"
+        }
+      }
     },
     {
       "id": "repair-8ba21f2e6aed4e52884395e3c0ff690b",
@@ -2423,7 +2603,19 @@
       "createTime": 1793614921937,
       "granted": true,
       "i18nName": "报事详情",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "报事详情",
+          "en_US": "Issue details",
+          "en": "Issue details"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-7f8fa9a4fd82483db038a6994ff6236b",
@@ -2537,7 +2729,19 @@
       "createTime": 1793614922068,
       "granted": true,
       "i18nName": "标签配置",
-      "i18nDescribe": "报事报修业务配置"
+      "i18nDescribe": "报事报修业务配置",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "标签配置",
+          "en_US": "Tag configuration",
+          "en": "Tag configuration"
+        },
+        "describe": {
+          "zh_CN": "报事报修业务配置",
+          "en_US": "Issue and repair configuration",
+          "en": "Issue and repair configuration"
+        }
+      }
     },
     {
       "id": "repair-808e678f521f4c889bcb902e208e4f3e",
@@ -2651,7 +2855,19 @@
       "createTime": 1793614922000,
       "granted": true,
       "i18nName": "超月报事统计",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "超月报事统计",
+          "en_US": "Issues open over a month",
+          "en": "Issues open over a month"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-186e3afb199b42d1a80b06108be6211d",
@@ -2680,7 +2896,19 @@
       "createTime": 1793614921947,
       "granted": true,
       "i18nName": "报事审核详情",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "报事审核详情",
+          "en_US": "Issue review details",
+          "en": "Issue review details"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-0593f6e90e2c4b30a6b2e9f2c73d4106",
@@ -2712,7 +2940,19 @@
       "createTime": 1793614922078,
       "granted": true,
       "i18nName": "操作日志",
-      "i18nDescribe": "应用管理员查看当前应用全部操作日志"
+      "i18nDescribe": "应用管理员查看当前应用全部操作日志",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "操作日志",
+          "en_US": "Operation logs",
+          "en": "Operation logs"
+        },
+        "describe": {
+          "zh_CN": "应用管理员查看当前应用全部操作日志",
+          "en_US": "Application administrators can view all operation logs in this application",
+          "en": "Application administrators can view all operation logs in this application"
+        }
+      }
     },
     {
       "id": "repair-8307741e29f84011888063abde24a9c7",
@@ -2826,7 +3066,19 @@
       "createTime": 1793614922010,
       "granted": true,
       "i18nName": "跟进情况统计",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "跟进情况统计",
+          "en_US": "Follow-up statistics",
+          "en": "Follow-up statistics"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-system-basic",
@@ -2976,7 +3228,19 @@
       "createTime": 1793614922100,
       "granted": true,
       "i18nName": "回复语设置",
-      "i18nDescribe": "报事报修业务配置"
+      "i18nDescribe": "报事报修业务配置",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "回复语设置",
+          "en_US": "Reply settings",
+          "en": "Reply settings"
+        },
+        "describe": {
+          "zh_CN": "报事报修业务配置",
+          "en_US": "Issue and repair configuration",
+          "en": "Issue and repair configuration"
+        }
+      }
     },
     {
       "id": "repair-c2bf033506f0400099bb2d96c9b70982",
@@ -3090,7 +3354,19 @@
       "createTime": 1793614922017,
       "granted": true,
       "i18nName": "评价管理",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "评价管理",
+          "en_US": "Rating management",
+          "en": "Rating management"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-25a3662e55d3445aa65548c2506839c0",
@@ -3204,7 +3480,19 @@
       "createTime": 1793614922089,
       "granted": true,
       "i18nName": "评价标签设置",
-      "i18nDescribe": "报事报修业务配置"
+      "i18nDescribe": "报事报修业务配置",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "评价标签设置",
+          "en_US": "Rating tag settings",
+          "en": "Rating tag settings"
+        },
+        "describe": {
+          "zh_CN": "报事报修业务配置",
+          "en_US": "Issue and repair configuration",
+          "en": "Issue and repair configuration"
+        }
+      }
     },
     {
       "id": "repair-e963bf0e3d7a48388c330d34af8504c5",
@@ -3318,7 +3606,19 @@
       "createTime": 1793614922111,
       "granted": true,
       "i18nName": "有偿报事抽佣配置",
-      "i18nDescribe": "报事报修业务配置"
+      "i18nDescribe": "报事报修业务配置",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "有偿报事抽佣配置",
+          "en_US": "Paid service commission configuration",
+          "en": "Paid service commission configuration"
+        },
+        "describe": {
+          "zh_CN": "报事报修业务配置",
+          "en_US": "Issue and repair configuration",
+          "en": "Issue and repair configuration"
+        }
+      }
     },
     {
       "id": "repair-7c47e3b492d34d92ab54d3c3ef5029de",
@@ -3432,7 +3732,19 @@
       "createTime": 1793614922122,
       "granted": true,
       "i18nName": "报事等级配置",
-      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "报事等级配置",
+          "en_US": "Issue priority configuration",
+          "en": "Issue priority configuration"
+        },
+        "describe": {
+          "zh_CN": "旧报事报修菜单预览；页面与接口尚未部署。",
+          "en_US": "Legacy issue and repair menu preview; pages and APIs have not been deployed.",
+          "en": "Legacy issue and repair menu preview; pages and APIs have not been deployed."
+        }
+      }
     },
     {
       "id": "repair-qr-configuration",
@@ -3688,7 +4000,19 @@
       "createTime": 1793691016242,
       "granted": true,
       "i18nName": "报事二维码配置",
-      "i18nDescribe": "报事报修业务配置"
+      "i18nDescribe": "报事报修业务配置",
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "报事二维码配置",
+          "en_US": "Issue QR code configuration",
+          "en": "Issue QR code configuration"
+        },
+        "describe": {
+          "zh_CN": "报事报修业务配置",
+          "en_US": "Issue and repair configuration",
+          "en": "Issue and repair configuration"
+        }
+      }
     }
   ],
   "assetAccesses": [
