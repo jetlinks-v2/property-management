@@ -32,3 +32,5 @@ PC 与智能巡更统一采用 Cloud 运行端集成方案：在 `saas-runtime-u
 独立员工 H5 位于 `jetlinks-v2/report-saas-ui` 仓库 `2.20` 分支的 `employee-h5/`，在该目录执行 `npm ci`、`npm run build` 和 `docker compose -f compose.yml up -d --build`，入口为 9300。它复用上述报修应用及原有角色、菜单权限和数据范围，无需复制菜单或业务数据；部署前配置 `public/config.json` 的 Cloud 项目编码与应用 ID。
 
 菜单名称、说明和按钮在 `menus.json` 与 `template-grant.json` 中同步提供 `i18nMessages` 的 `zh_CN`、`en_US` 与 `en` 资源，沿用平台菜单国际化机制。前端同时保留既有中文 `i18nName` 的翻译入口，已有环境切换语言无需变更菜单 ID、授权或订阅范围。
+
+已有环境还需增量同步菜单翻译：先备份当前菜单定义，按相同菜单 ID 合并 `i18nName`、`i18nDescribe`、`i18nMessages`；按钮按原 ID 合并翻译字段，保留其他字段及未识别按钮。用 `PATCH /menu` 保存合并后的现有定义，不直接用整份模板覆盖运行配置。顶部二级导航依赖接口返回的本地化菜单名称，仅更新前端语言包会留下旧中文标签；更新后以英文请求验证 `/menu/user-own/tree` 返回英文 `i18nName`，再从项目卡片重新打开应用。菜单 ID、路由、权限、资产策略、角色及订阅保持原样。
