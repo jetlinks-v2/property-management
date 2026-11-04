@@ -62,6 +62,7 @@ class HouseSettingPersistenceTest {
     @Autowired ReactiveRepository<ReceivableEntity, String> bills;
     @Autowired BillingTaskService tasks;
     @Autowired ReceivableService receivables;
+    @Autowired ReceivableBatchService batches;
     @Autowired ReceivableAdjustmentService adjustments;
     @Autowired ReactiveRepository<ReceivableImportEntity, String> importRecords;
     @Autowired HistoricalReceivableService historical;
@@ -1803,6 +1804,286 @@ class HouseSettingPersistenceTest {
                 1, importRecords.createQuery().where("projectId", project).count().block(WAIT));
     }
 
+    @Test
+    void batchHttpUsesServerMoneyAndRejectsForeignProjectAndAnonymousRequests() {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var row =
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        var controller =
+                new org.jetlinks.pro.property.finance.web.ReceivableBatchController(batches);
+        var client =
+                org.springframework.test.web.reactive.server.WebTestClient.bindToController(
+                                controller)
+                        .controllerAdvice(new TaxItemPersistenceTest.HttpErrors())
+                        .webFilter(
+                                (exchange, chain) -> chain.filter(exchange).contextWrite(allowed()))
+                        .build();
+        var path = "/property/finance/projects/" + project + "/receivables";
+        var input =
+                new ReceivableBatchService.Input(
+                        List.of(new ReceivableBatchService.Item(row.getId(), row.getVersion())),
+                        "误出账");
+        client.post()
+                .uri(path + "/notice/_preview")
+                .bodyValue(input)
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody()
+                .jsonPath("$.total")
+                .isEqualTo(row.getArrears().toPlainString())
+                .jsonPath("$.rows[0].amount")
+                .isEqualTo(row.getArrears().toPlainString());
+        client.post()
+                .uri(path.replace(project, "foreign-project") + "/_batch-delete")
+                .bodyValue(input)
+                .exchange()
+                .expectStatus()
+                .isNotFound();
+        assertFalse(bills.findById(row.getId()).block(WAIT).getDeleted());
+        StepVerifier.create(batches.delete(project, input))
+                .expectError(
+                        org.hswebframework.web.authorization.exception.UnAuthorizedException.class)
+                .verify(WAIT);
+        client.post()
+                .uri(path + "/_batch-delete")
+                .bodyValue(input)
+                .exchange()
+                .expectStatus()
+                .isOk();
+        assertTrue(bills.findById(row.getId()).block(WAIT).getDeleted());
+    }
+
+    @Test
+    void historicalNoticeDoesNotInventCurrentPriceOrQuantity() throws Exception {
+        mockHistoricalHouses();
+        historical
+                .importFile(project, historicalPart(historicalFile("100.00", false)))
+                .contextWrite(allowed())
+                .block(WAIT);
+        var row = bills.createQuery().where("projectId", project).fetchOne().block(WAIT);
+        var notice =
+                batches.notice(
+                                project,
+                                new ReceivableBatchService.Input(
+                                        List.of(
+                                                new ReceivableBatchService.Item(
+                                                        row.getId(), row.getVersion())),
+                                        null))
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals("100.00", notice.total());
+        assertEquals("—", notice.rows().get(0).price());
+        assertEquals("—", notice.rows().get(0).quantity());
+    }
+
+    @Test
+    void batchDeleteValidatesEveryVersionAndPolicyBeforeAnyWriteAndAudit() {
+        var first =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var second =
+                settings.create(project, input("job", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var a =
+                bills.createQuery()
+                        .where("settingId", first.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        var b =
+                bills.createQuery()
+                        .where("settingId", second.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        var items =
+                List.of(
+                        new ReceivableBatchService.Item(a.getId(), a.getVersion()),
+                        new ReceivableBatchService.Item(b.getId(), b.getVersion()));
+        bills.createUpdate().set("frozen", true).where("id", b.getId()).execute().block(WAIT);
+        conflict(batches.delete(project, new ReceivableBatchService.Input(items, "误出账")), 409);
+        assertFalse(bills.findById(a.getId()).block(WAIT).getDeleted());
+        assertFalse(bills.findById(b.getId()).block(WAIT).getDeleted());
+        assertEquals(
+                0,
+                receivableLogs
+                        .createQuery()
+                        .where("projectId", project)
+                        .and("operation", "DELETE")
+                        .count()
+                        .block(WAIT));
+        bills.createUpdate().set("frozen", false).where("id", b.getId()).execute().block(WAIT);
+        conflict(
+                batches.delete(
+                        project,
+                        new ReceivableBatchService.Input(
+                                List.of(
+                                        items.get(0),
+                                        new ReceivableBatchService.Item(b.getId(), 99L)),
+                                "误出账")),
+                409);
+        conflict(
+                batches.delete(
+                        project,
+                        new ReceivableBatchService.Input(
+                                List.of(items.get(0), items.get(0)), "误出账")),
+                400);
+        batches.delete(project, new ReceivableBatchService.Input(items, "误出账"))
+                .contextWrite(allowed())
+                .block(WAIT);
+        assertTrue(bills.findById(a.getId()).block(WAIT).getDeleted());
+        assertTrue(bills.findById(b.getId()).block(WAIT).getDeleted());
+        assertEquals(
+                2,
+                receivableLogs
+                        .createQuery()
+                        .where("projectId", project)
+                        .and("operation", "DELETE")
+                        .count()
+                        .block(WAIT));
+        generation
+                .generate(project, first.setting().getId(), DATE)
+                .contextWrite(allowed())
+                .block(WAIT);
+        assertEquals(2, bills.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    @Test
+    void noticeUsesExactCurrentDebtAndVersionAndRejectsMixedSpaces() {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var row =
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        bills.createUpdate()
+                .set("arrears", new BigDecimal("900719925474099.91"))
+                .where("id", row.getId())
+                .execute()
+                .block(WAIT);
+        var input =
+                new ReceivableBatchService.Input(
+                        List.of(new ReceivableBatchService.Item(row.getId(), row.getVersion())),
+                        null);
+        var notice = batches.notice(project, input).contextWrite(allowed()).block(WAIT);
+        assertEquals("900719925474099.91", notice.total());
+        assertTrue(notice.totalUppercase().endsWith("玖角壹分"));
+        assertEquals("100.25", notice.rows().get(0).quantity());
+        assertEquals("1.23", notice.rows().get(0).price());
+        bills.createUpdate()
+                .set("version", row.getVersion() + 1)
+                .where("id", row.getId())
+                .execute()
+                .block(WAIT);
+        conflict(batches.notice(project, input), 409);
+        var other =
+                settings.create(project, input("job", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var b =
+                bills.createQuery()
+                        .where("settingId", other.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        conflict(
+                batches.notice(
+                        project,
+                        new ReceivableBatchService.Input(
+                                List.of(
+                                        new ReceivableBatchService.Item(
+                                                row.getId(), row.getVersion() + 1),
+                                        new ReceivableBatchService.Item(b.getId(), b.getVersion())),
+                                null)),
+                400);
+    }
+
+    @Test
+    void batchDeleteAuditFailureRollsBackEarlierDeletedBill() throws Exception {
+        var first =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var second =
+                settings.create(project, input("job", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var sort = new org.hswebframework.web.api.crud.entity.QueryParamEntity();
+        sort.toQuery().orderByAsc("id");
+        var rows =
+                bills.createQuery()
+                        .setParam(sort)
+                        .where("projectId", project)
+                        .fetch()
+                        .collectList()
+                        .block(WAIT);
+        var guarded = rows.get(1).getId();
+        var constraint = "batch_audit_" + UUID.randomUUID().toString().replace("-", "");
+        var setup =
+                DB.execInContainer(
+                        "psql",
+                        "-U",
+                        "postgres",
+                        "-d",
+                        "setting_test",
+                        "-v",
+                        "ON_ERROR_STOP=1",
+                        "-c",
+                        "ALTER TABLE pm_fin_receivable_log ADD CONSTRAINT "
+                                + constraint
+                                + " CHECK (operation <> 'DELETE' OR receivable_id <> '"
+                                + guarded
+                                + "') NOT VALID");
+        assertEquals(0, setup.getExitCode(), setup.getStderr());
+        try {
+            var input =
+                    new ReceivableBatchService.Input(
+                            rows.stream()
+                                    .map(
+                                            row ->
+                                                    new ReceivableBatchService.Item(
+                                                            row.getId(), row.getVersion()))
+                                    .toList(),
+                            "误出账");
+            StepVerifier.create(batches.delete(project, input).contextWrite(allowed()))
+                    .expectError()
+                    .verify(WAIT);
+            assertEquals(
+                    0,
+                    bills.createQuery()
+                            .where("projectId", project)
+                            .and("deleted", true)
+                            .count()
+                            .block(WAIT));
+            assertEquals(
+                    0,
+                    receivableLogs
+                            .createQuery()
+                            .where("projectId", project)
+                            .and("operation", "DELETE")
+                            .count()
+                            .block(WAIT));
+        } finally {
+            DB.execInContainer(
+                    "psql",
+                    "-U",
+                    "postgres",
+                    "-d",
+                    "setting_test",
+                    "-c",
+                    "ALTER TABLE pm_fin_receivable_log DROP CONSTRAINT " + constraint);
+        }
+    }
+
     private void conflict(Mono<?> action, int status) {
         StepVerifier.create(action.contextWrite(allowed()))
                 .expectErrorMatches(error -> TaxItemPersistenceTest.status(error, status))
@@ -1825,6 +2106,7 @@ class HouseSettingPersistenceTest {
         ReceivableAdjustmentService.class,
         ReceivableSplitService.class,
         HistoricalReceivableService.class,
+        ReceivableBatchService.class,
         org.jetlinks.pro.property.finance.receivable.SplitRules.class,
         org.jetlinks.pro.property.finance.receivable.AdjustmentRules.class
     })
