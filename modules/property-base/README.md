@@ -65,7 +65,7 @@ return CommandSupportManagerProviders
 
 ## 空间与房屋档案
 
-空间结构通过固定命令服务 `spaceService:space` 显式不分页读取完整快照，最多 20000 个节点；收到第 20001 条即拒绝本轮，返回顺序不影响完整性判断；不依赖 SaaS manager，不读取空间类型决定业务层级。`pm_space` 保存来源镜像，`pm_space_binding` 保存根空间与组织的关联，`pm_house` 保存物业房屋扩展。源节点名称和层级变化不覆盖本地面积、字典值或客户资料。
+空间结构通过固定命令服务 `spaceService:space` 分页全量读取，最多 20000 个节点；不依赖 SaaS manager，不读取空间类型决定业务层级。`pm_space` 保存来源镜像，`pm_space_binding` 保存根空间与组织的关联，`pm_house` 保存物业房屋扩展。源节点名称和层级变化不覆盖本地面积、字典值或客户资料。
 
 空间类型名称通过共享运行服务的只读命令 `spaceService:space-type` 解析；部署时必须包含查询类及其自动配置注册。空间页或类型页任意失败均拒绝整轮快照。
 
@@ -84,7 +84,7 @@ return CommandSupportManagerProviders
 
 房屋和客户接口必须显式传 `projectId`，查询可传 `spaceId` 限定子树。项目 `organization` 与节点 `space` 资产均使用 `AssetsHolder`；客户先按有权空间关系缩小范围，再查询、统计和分页。选择客户账号还需该账号的 `user` 资产读取权。
 
-空间同步状态和租约存储在 `pm_space_sync_state`，首次就绪后 5 秒执行，此后默认每 1 小时执行。间隔配置为 `property.space.sync-interval`（默认 `1h`），来源上限为 20000；手动 `_sync` 等待本轮完成。异常、超限、缺失引用类型、重复 ID、环或意外空来源均保留原镜像。同步链路提供 MonoTracer 和 `org.jetlinks:type=PropertyManagement,name=SpaceSync` MBean。
+空间同步状态和租约存储在 `pm_space_sync_state`，首次就绪后 5 秒执行，此后默认每 1 小时执行。间隔配置为 `property.space.sync-interval`（默认 `1h`），来源上限为 20000；手动 `_sync` 等待本轮完成。异常、分页残缺、重复 ID、环或意外空来源均保留原镜像。同步链路提供 MonoTracer 和 `org.jetlinks:type=PropertyManagement,name=SpaceSync` MBean。
 
 ## 客户、家庭与历史
 
