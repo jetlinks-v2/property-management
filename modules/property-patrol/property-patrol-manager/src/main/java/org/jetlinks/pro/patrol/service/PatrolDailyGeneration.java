@@ -29,8 +29,10 @@ public class PatrolDailyGeneration {
     Mono<Void> generate(LocalDate date) {
         // 这是服务自有数据的后台扫描，不使用用户查询入口；串行消费，避免收集全部计划。
         return plans.createQuery().where(PatrolPlanEntity::isEnabled, true)
-                .and(PatrolPlanEntity::getEffectiveFrom, "lte", date)
-                .and(PatrolPlanEntity::getEffectiveTo, "gte", date)
+                .notNull(PatrolPlanEntity::getStandardId)
+                .notNull(PatrolPlanEntity::getRule)
+                .nest(n -> n.isNull(PatrolPlanEntity::getEffectiveFrom).or().lte(PatrolPlanEntity::getEffectiveFrom, date))
+                .nest(n -> n.isNull(PatrolPlanEntity::getEffectiveTo).or().gte(PatrolPlanEntity::getEffectiveTo, date))
                 .fetch().limitRate(128)
                 .concatMap(plan -> generator.generateScheduled(plan, date)
                         .doOnError(error -> log.error("Patrol generation failed: plan={}, date={}", plan.getId(), date, error))

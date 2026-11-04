@@ -77,6 +77,31 @@ class PatrolInspectionTest {
     }
 
     @Test
+    void inspectionContentAllowsOriginalTwoHundredCharactersAndRejectsLongerInput() {
+        try (var factory = jakarta.validation.Validation.buildDefaultValidatorFactory()) {
+            var validator = factory.getValidator();
+            var valid = new CheckItem("content", "项".repeat(200), true, List.of("normal"));
+            assertEquals(0, validator.validate(valid).size());
+            var invalid = new CheckItem("content", "项".repeat(201), true, List.of("normal"));
+            assertEquals(1, validator.validate(invalid).size());
+        }
+    }
+
+    @Test
+    void standardAndWarningNamesKeepOriginalThirtyCharacterLimit() {
+        try (var factory = jakarta.validation.Validation.buildDefaultValidatorFactory()) {
+            var validator = factory.getValidator();
+            for (var entity : List.of(new org.jetlinks.pro.patrol.entity.PatrolStandardEntity(),
+                                      new org.jetlinks.pro.patrol.entity.PatrolWarningEntity())) {
+                entity.setName("名".repeat(30));
+                assertEquals(0, validator.validateProperty(entity, "name").size());
+                entity.setName("名".repeat(31));
+                assertEquals(1, validator.validateProperty(entity, "name").size());
+            }
+        }
+    }
+
+    @Test
     void deployedJsonWithoutTypeStillDeserializesAsChoice() throws Exception {
         var mapper = new ObjectMapper().findAndRegisterModules();
         var old = mapper.readValue("{\"id\":\"lock\",\"title\":\"Lock\",\"required\":true,\"options\":[\"normal\"]}", CheckItem.class);

@@ -40,6 +40,7 @@ public class PatrolTaskGenerator {
     private final PatrolStandardService standards;
     private final PatrolTaskService tasks;
     private final PatrolLevelService levels;
+    private final PatrolCategoryService categories;
     private final ReactiveRepository<PatrolGenerationEntity, String> generations;
     private final TransactionalOperator transaction;
 
@@ -143,7 +144,7 @@ public class PatrolTaskGenerator {
 
     private static String ruleVersion(PatrolPlanEntity plan) {
         var rule = plan.getRule();
-        String snapshot = "v1|" + plan.getLevelId() + "|" + plan.getPointId() + "|" + plan.getPostId() + "|"
+        String snapshot = "v2-configured-period|" + plan.getLevelId() + "|" + plan.getPointId() + "|" + plan.getPostId() + "|"
                 + plan.getStandardId() + "|" + plan.getRosterPolicy() + "|" + rule.cooldownMinutes()
                 + "|" + new TreeMap<>(rule.weekly()) + "|" + new TreeMap<>(rule.dates());
         return UUID.nameUUIDFromBytes(snapshot.getBytes(StandardCharsets.UTF_8)).toString();
@@ -151,8 +152,9 @@ public class PatrolTaskGenerator {
 
     private Flux<PatrolTaskEntity> expand(PatrolPlanEntity plan, LocalDate day) {
         if (!plan.isEnabled()
-                || day.isBefore(plan.getEffectiveFrom())
-                || day.isAfter(plan.getEffectiveTo()))
+                || plan.getStandardId() == null || plan.getRule() == null
+                || (plan.getEffectiveFrom() != null && day.isBefore(plan.getEffectiveFrom()))
+                || (plan.getEffectiveTo() != null && day.isAfter(plan.getEffectiveTo())))
             return Flux.error(new BusinessException("error.patrol.plan.inactive"));
         // 关联对象必须仍有效；权限只控制计划入口，关联对象由保存计划时确定的同应用关系保证。
         return Mono.zip(
@@ -169,7 +171,9 @@ public class PatrolTaskGenerator {
                                 return Flux.error(
                                         new BusinessException(
                                                 "error.patrol.reference.unavailable"));
-                            return Flux.fromIterable(
+                            return categories.findById(data.getT1().getCategoryId())
+                                    .map(category -> category.getName()).defaultIfEmpty("")
+                                    .flatMapMany(categoryName -> Flux.fromIterable(
                                             RuleEngine.expand(
                                                     plan.getRule(),
                                                     day,
@@ -182,7 +186,7 @@ public class PatrolTaskGenerator {
                                                             data.getT1(),
                                                             data.getT2(),
                                                             data.getT3(),
-                                                            indexed.getT2(), indexed.getT1().intValue() + 1));
+                                                            indexed.getT2(), indexed.getT1().intValue() + 1, categoryName)));
                         });
     }
 
@@ -191,7 +195,7 @@ public class PatrolTaskGenerator {
             PatrolPointEntity point,
             PatrolPostEntity post,
             PatrolStandardEntity standard,
-            RuleEngine.Occurrence occurrence, int periodNo) {
+            RuleEngine.Occurrence occurrence, int periodNo, String categoryName) {
         var task = new PatrolTaskEntity();
         task.setId(
                 UUID.nameUUIDFromBytes(
@@ -207,6 +211,7 @@ public class PatrolTaskGenerator {
         task.setPointId(point.getId());
         task.setPointName(point.getName());
         task.setCategoryId(point.getCategoryId());
+        task.setCategoryName(categoryName);
         task.setLevelId(plan.getLevelId());
         task.setLevelName(plan.getLevelName());
         task.setPostId(post.getId());
@@ -215,7 +220,7 @@ public class PatrolTaskGenerator {
         task.setStartTime(occurrence.start().toEpochMilli());
         task.setEndTime(occurrence.end().toEpochMilli());
         task.setRequiredCount(occurrence.requiredCount());
-        task.setCooldownMinutes(plan.getRule().cooldownMinutes());
+        task.setCooldownMinutes(occurrence.cooldownMinutes());
         task.setRosterPolicy(plan.getRosterPolicy());
         task.setStandardSnapshot(List.copyOf(standard.getItems()));
         task.setCreateTime(System.currentTimeMillis());

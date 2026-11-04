@@ -17,7 +17,7 @@ import javax.persistence.Column;
 @EnableEntityEvent
 @Table(name = "pt_level")
 @Asset(type = "patrolLevel")
-public class PatrolLevelEntity extends PatrolConfigEntity {
+public class PatrolLevelEntity extends PatrolRemovableConfigEntity {
     @Column
     @JsonCodec
     @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)

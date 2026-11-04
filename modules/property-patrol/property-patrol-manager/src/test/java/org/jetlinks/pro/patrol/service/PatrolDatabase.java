@@ -46,6 +46,10 @@ final class PatrolDatabase implements AutoCloseable {
         metadata.setCurrentSchema(schema);
         metadata.addFeature(new CurrentTimeGenerator());
         metadata.addFeature(new DefaultIdGenerator());
+        metadata.addFeature(new org.jetlinks.pro.patrol.service.terms.PatrolPointPlanTermBuilder());
+        metadata.addFeature(new org.jetlinks.pro.patrol.service.terms.PatrolGroupMissedTermBuilder());
+        metadata.addFeature(new org.jetlinks.pro.patrol.service.terms.PatrolPointTagsTermBuilder(
+                new com.fasterxml.jackson.databind.ObjectMapper()));
         metadata.addFeature(new org.jetlinks.pro.assets.impl.terms.DimensionAssetsTermBuilder());
         // 使用生产环境相同的执行器，连接的事务生命周期不由测试重写。
         var executor = new org.hswebframework.web.crud.sql.DefaultR2dbcExecutor();

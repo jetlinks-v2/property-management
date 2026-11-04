@@ -13,10 +13,6 @@ jetlinks:
               description: 巡更配置、计划、排班、任务与执行记录
               sort-index: 75
             menus:
-              - id: cloud-patrol
-                owner: app
-                options: {appName: cloud-patrol}
-                granted: true
               - id: patrol-base
                 owner: app
                 options: {appName: cloud-patrol}
@@ -54,34 +50,29 @@ jetlinks:
                 granted: true
                 buttons:
                   - {id: save, granted: true}
+                  - {id: delete, granted: false}
               - id: patrol-records
                 owner: app
                 options: {appName: cloud-patrol}
                 granted: true
                 buttons:
                   - {id: mobile, granted: true}
-              - id: patrol-tag-management
-                owner: app
-                options: {appName: cloud-patrol}
-                granted: true
+                  - {id: applyMissed, granted: true}
+                  - {id: auditMissed, granted: true}
               - id: patrol-levels
                 owner: app
                 options: {appName: cloud-patrol}
                 granted: true
                 buttons:
                   - {id: save, granted: true}
+                  - {id: delete, granted: false}
               - id: patrol-warnings
                 owner: app
                 options: {appName: cloud-patrol}
                 granted: true
                 buttons:
                   - {id: save, granted: true}
-              - id: patrol-tags
-                owner: app
-                options: {appName: cloud-patrol}
-                granted: true
-                buttons:
-                  - {id: save, granted: true}
+                  - {id: delete, granted: false}
               - id: patrol-calendar
                 owner: app
                 options: {appName: cloud-patrol}

@@ -26,6 +26,7 @@ import javax.persistence.Table;
         indexes = {
             @Index(name = "pt_task_plan_time", columnList = "planId,startTime", unique = true),
             @Index(name = "pt_task_end", columnList = "endTime"),
+            @Index(name = "pt_task_missed_scan", columnList = "missedInitialized,endTime"),
             @Index(name = "pt_task_group_period", columnList = "taskGroupId,periodNo", unique = true),
             @Index(name = "pt_task_date_plan", columnList = "businessDate,planId")
         })
@@ -59,6 +60,9 @@ public class PatrolTaskEntity extends GenericEntity<String> {
     @Column(length = 64, updatable = false)
     private String categoryId;
 
+    @Column(length = 128, updatable = false)
+    private String categoryName;
+
     @Column(length = 64, updatable = false)
     private String levelId;
 
@@ -87,6 +91,9 @@ public class PatrolTaskEntity extends GenericEntity<String> {
     private int completedCount;
 
     @Column private Long lastExecutionTime;
+
+    /** 截止后漏检序号只生成一次；null 包含已部署旧任务，true 表示已封印，不随审核重建。 */
+    @Column private Boolean missedInitialized;
 
     @Column(nullable = false, updatable = false)
     private int cooldownMinutes;
