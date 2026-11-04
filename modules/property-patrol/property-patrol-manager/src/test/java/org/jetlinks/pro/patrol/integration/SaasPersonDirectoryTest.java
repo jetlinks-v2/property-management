@@ -24,7 +24,9 @@ import org.jetlinks.pro.assets.scope.AssetScopeActivation;
 import org.jetlinks.pro.assets.scope.AssetScopeContext;
 import org.jetlinks.pro.assets.scope.AssetScopeStrategy;
 import org.jetlinks.pro.tenant.holder.TenantHolder;
-import org.jetlinks.sdk.server.auth.cmd.QueryUserDetailPageCommand;
+import org.jetlinks.pro.property.base.command.QueryPropertyEmployeePageCommand;
+import org.jetlinks.pro.property.base.command.GetCurrentPropertyEmployeeCommand;
+import org.jetlinks.pro.property.base.user.PropertyEmployeeInfo;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -56,8 +58,25 @@ class SaasPersonDirectoryTest {
     }
 
     private final CommandSupport support = mock(CommandSupport.class);
+    private final CommandSupport accounts = mock(CommandSupport.class);
+
+    @org.junit.jupiter.api.BeforeEach
+    void applicationMembers() {
+        var user = new org.jetlinks.sdk.server.auth.UserInfo(); user.setId("operator");
+        doReturn(reactor.core.publisher.Flux.just(user)).when(accounts)
+                .execute(any(org.jetlinks.sdk.server.commons.cmd.QueryListCommand.class));
+    }
+
+    private void assertApplicationQuery() {
+        var captor = ArgumentCaptor.forClass(org.jetlinks.sdk.server.commons.cmd.QueryListCommand.class);
+        verify(accounts).execute(captor.capture());
+        var terms = flatten(captor.getValue().asQueryParam().getTerms()).toList();
+        assertTrue(terms.stream().anyMatch(term -> "in-dimension".equals(term.getTermType())
+                && List.of("app-a").equals(term.getValue())));
+        assertTrue(terms.stream().anyMatch(term -> "operator".equals(term.getValue())));
+    }
     private final SaasPersonDirectory directory =
-            new SaasPersonDirectory(new PatrolScope(), () -> Mono.just(support));
+            new SaasPersonDirectory(new PatrolScope(), () -> Mono.just(support), () -> Mono.just(accounts));
 
     private Context identity() { return identity(true); }
 
@@ -84,6 +103,7 @@ class SaasPersonDirectoryTest {
                 .write()
                 .apply(
                         (withTenant ? TenantHolder.makeCurrent("north") : Context.empty())
+                                .put(PatrolProjectContext.class, ProjectTestContexts.project(withTenant ? "north|app-a" : "|app-a"))
                                 .put(
                                         AssetsHolder.class,
                                         new CreatorAssetsHolder(user, mock(AssetManager.class))));
@@ -91,7 +111,7 @@ class SaasPersonDirectoryTest {
 
     @Test
     void userQueryKeepsMandatoryScopeAndLimitsWithoutMutatingClientQuery() {
-        when(support.execute(any(QueryUserDetailPageCommand.class)))
+        when(support.execute(any(QueryPropertyEmployeePageCommand.class)))
                 .thenReturn(Mono.just(PagerResult.empty()));
         var request =
                 QueryParamEntity.newQuery().where("name", "Alice").or("name", "Bob").getParam();
@@ -100,9 +120,9 @@ class SaasPersonDirectoryTest {
         StepVerifier.create(directory.query(request).contextWrite(identity()))
                 .expectNextCount(1)
                 .verifyComplete();
-        var captor = ArgumentCaptor.forClass(QueryUserDetailPageCommand.class);
+        var captor = ArgumentCaptor.forClass(QueryPropertyEmployeePageCommand.class);
         verify(support).execute(captor.capture());
-        var query = captor.getValue().asQueryParam();
+        var query = captor.getValue().getQuery();
         assertEquals(200, query.getPageSize());
         assertEquals(1000, request.getPageSize());
         assertEquals(original, request.getTerms().size());
@@ -115,26 +135,23 @@ class SaasPersonDirectoryTest {
                                 term ->
                                         "status".equals(term.getColumn())
                                                 && Integer.valueOf(1).equals(term.getValue())));
+        assertApplicationQuery();
+        assertTrue(terms.stream().noneMatch(term -> "in-dimension".equals(term.getTermType())));
+        assertTrue(terms.stream().anyMatch(term -> "in".equals(term.getTermType())
+                && List.of("operator").equals(term.getValue())));
         assertTrue(
                 terms.stream()
                         .anyMatch(
                                 term ->
                                         "id".equals(term.getColumn())
-                                                && "in-dimension".equals(term.getTermType())
-                                                && List.of("app-a").equals(term.getValue())));
-        assertTrue(
-                terms.stream()
-                        .anyMatch(
-                                term ->
-                                        "id".equals(term.getColumn())
-                                                && "operator".equals(term.getValue())));
+                                                && List.of("operator").equals(term.getValue())));
         // 客户端 OR 条件必须被嵌套，不能与强制范围条件成为同级 OR。
         assertTrue(query.getTerms().stream().noneMatch(term -> term.getType() == Term.Type.or));
     }
 
     @Test
     void platformApplicationWithoutTenantStillUsesApplicationAndAssetBoundaries() {
-        when(support.execute(any(QueryUserDetailPageCommand.class)))
+        when(support.execute(any(QueryPropertyEmployeePageCommand.class)))
                 .thenReturn(Mono.just(PagerResult.empty()));
         StepVerifier.create(new PatrolScope().current().contextWrite(identity(false)))
                 .assertNext(current -> {
@@ -144,19 +161,19 @@ class SaasPersonDirectoryTest {
                 }).verifyComplete();
         StepVerifier.create(directory.query(new QueryParamEntity()).contextWrite(identity(false)))
                 .expectNextCount(1).verifyComplete();
-        var captor = ArgumentCaptor.forClass(QueryUserDetailPageCommand.class);
+        var captor = ArgumentCaptor.forClass(QueryPropertyEmployeePageCommand.class);
         verify(support).execute(captor.capture());
-        var terms = flatten(captor.getValue().asQueryParam().getTerms()).toList();
-        assertTrue(terms.stream().anyMatch(term -> "in-dimension".equals(term.getTermType())
-                && List.of("app-a").equals(term.getValue())));
+        var terms = flatten(captor.getValue().getQuery().getTerms()).toList();
+        assertApplicationQuery();
+        assertTrue(terms.stream().noneMatch(term -> "in-dimension".equals(term.getTermType())));
         assertTrue(terms.stream().anyMatch(term -> "id".equals(term.getColumn())
-                && "operator".equals(term.getValue())));
+                && List.of("operator").equals(term.getValue())));
     }
 
     @Test
     void rpcMapElementsAreConvertedWithoutCastingBeforeTheAdapter() {
         doReturn(Mono.just(PagerResult.of(1, List.of(Map.of("id", "operator", "name", "测试巡更员")))))
-                .when(support).execute(any(QueryUserDetailPageCommand.class));
+                .when(support).execute(any(QueryPropertyEmployeePageCommand.class));
         StepVerifier.create(directory.query(new QueryParamEntity()).contextWrite(identity(false)))
                 .assertNext(page -> {
                     assertEquals(1, page.getTotal());
@@ -178,6 +195,8 @@ class SaasPersonDirectoryTest {
 
     @Test
     void ownMembershipUsesTrustedSaasDimensionWithoutUserDirectoryPermission() {
+        when(support.execute(any(GetCurrentPropertyEmployeeCommand.class))).thenReturn(Mono.just(
+                new PropertyEmployeeInfo("operator", "Operator", null, List.of("project"))));
         var user = new SimpleUser(); user.setId("operator");
         var auth = new SimpleAuthentication(); auth.setUser(user); auth.setPermissions(List.of());
         auth.setDimensions(List.of(SimpleDimension.of("app-a", "Patrol",
@@ -185,7 +204,7 @@ class SaasPersonDirectoryTest {
         StepVerifier.create(directory.assertMembers(List.of("operator"))
                 .contextWrite(identity(false).put(org.hswebframework.web.authorization.Authentication.class, auth)))
                 .verifyComplete();
-        verifyNoInteractions(support);
+        verify(support).execute(any(GetCurrentPropertyEmployeeCommand.class));
     }
 
     @Test
@@ -205,7 +224,7 @@ class SaasPersonDirectoryTest {
 
     @Test
     void unavailableMemberCannotPassExecutionOrAssignmentValidation() {
-        when(support.execute(any(QueryUserDetailPageCommand.class)))
+        when(support.execute(any(QueryPropertyEmployeePageCommand.class)))
                 .thenReturn(Mono.just(PagerResult.empty()));
         StepVerifier.create(
                         directory.assertMembers(List.of("removed-user")).contextWrite(identity()))
@@ -224,21 +243,32 @@ class SaasPersonDirectoryTest {
     void calendarContactsUseTheOriginalApplicationAndUserAssetQuery() {
         doReturn(Mono.just(PagerResult.of(1, List.of(Map.of("id", "operator", "name", "巡更员",
                 "telephone", "13800000001")))))
-                .when(support).execute(any(QueryUserDetailPageCommand.class));
+                .when(support).execute(any(QueryPropertyEmployeePageCommand.class));
         StepVerifier.create(directory.telephones(List.of("operator", "unreadable-user", "operator"))
                 .contextWrite(identity(false, true)))
                 .expectNext(Map.of("operator", "13800000001")).verifyComplete();
-        var captor = ArgumentCaptor.forClass(QueryUserDetailPageCommand.class);
+        var captor = ArgumentCaptor.forClass(QueryPropertyEmployeePageCommand.class);
         verify(support).execute(captor.capture());
-        var query = captor.getValue().asQueryParam();
+        var query = captor.getValue().getQuery();
         var terms = flatten(query.getTerms()).toList();
         assertEquals(200, query.getPageSize());
         assertTrue(terms.stream().anyMatch(term -> "id".equals(term.getColumn())
                 && List.of("operator", "unreadable-user").equals(term.getValue())));
-        assertTrue(terms.stream().anyMatch(term -> "in-dimension".equals(term.getTermType())
-                && List.of("app-a").equals(term.getValue())));
+        assertApplicationQuery();
+        assertTrue(terms.stream().noneMatch(term -> "in-dimension".equals(term.getTermType())));
         assertTrue(terms.stream().anyMatch(term -> "id".equals(term.getColumn())
-                && "operator".equals(term.getValue())));
+                && List.of("operator").equals(term.getValue())));
+    }
+
+    @Test
+    void applicationMemberWithoutActiveEmployeeIdentityCannotExecute() {
+        when(support.execute(any(GetCurrentPropertyEmployeeCommand.class))).thenReturn(Mono.empty());
+        var user = new SimpleUser(); user.setId("operator");
+        var auth = new SimpleAuthentication(); auth.setUser(user); auth.setPermissions(List.of());
+        auth.setDimensions(List.of(SimpleDimension.of("app-a", "Patrol", SimpleDimensionType.of("business_application"), Map.of())));
+        StepVerifier.create(directory.assertMembers(List.of("operator"))
+                .contextWrite(identity(false).put(org.hswebframework.web.authorization.Authentication.class, auth)))
+                .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
     }
 
     private Stream<Term> flatten(List<Term> terms) {

@@ -103,7 +103,7 @@ public class PatrolExecutionWorkflow {
                 || !Objects.equals(record.getRemark(), submission.remark())
                 || !Objects.equals(record.getCollectedTime(), submission.collectedTime())
                 || !Objects.equals(record.getNetworkStatus(), submission.networkStatus()))
-            return Mono.error(new BusinessException("error.patrol.execution.idempotency_conflict"));
+            return Mono.error(new BusinessException("error.patrol.execution.idempotency_conflict", 409));
         return Mono.just(record);
     }
 
@@ -115,7 +115,7 @@ public class PatrolExecutionWorkflow {
                         submission.answers().stream().map(PatrolExecutionEntity.Answer::attachmentId)
                                 .filter(fileId -> fileId != null && !fileId.isBlank()).toList(),
                         org.jetlinks.pro.patrol.entity.PatrolAttachmentEntity.Purpose.evidence,
-                        scopeKey, auth.getUser().getId()))
+                        scopeKey, auth.getUser().getId(), task.getProjectId(), null))
                 .then(Mono.fromCallable(() -> buildRecord(task, auth, id, submission, now)))
                 .flatMap(
                         record ->
@@ -138,8 +138,7 @@ public class PatrolExecutionWorkflow {
                                                                         .insert(record)
                                                                         .thenReturn(record)
                                                                 : Mono.error(
-                                                                        new BusinessException(
-                                                                                "error.patrol.execution.concurrent"))));
+                                                                        new BusinessException("error.patrol.execution.concurrent", 409))));
     }
 
     /** 列表只预检；提交仍在事务中重新校验，不能把页面状态当成执行凭据。 */
@@ -149,19 +148,18 @@ public class PatrolExecutionWorkflow {
                         points.findById(task.getPointId()),
                         posts.findById(task.getPostId()))
                 .switchIfEmpty(
-                        Mono.error(new BusinessException("error.patrol.reference.unavailable")))
+                        Mono.error(new BusinessException("error.patrol.reference.unavailable", 400)))
                 .flatMap(
                         data -> {
                             // 先判断岗位归属，手机列表不能因配置停用而显示其他岗位的任务。
                             if (!data.getT3().getUserIds().contains(userId)) {
-                                return Mono.error(new BusinessException("error.patrol.execution.unassigned"));
+                                return Mono.error(new BusinessException("error.patrol.execution.unassigned", 400));
                             }
                             if (!data.getT1().isEnabled()
                                     || !data.getT2().isEnabled()
                                     || !data.getT3().isEnabled()) {
                                 return Mono.error(
-                                        new BusinessException(
-                                                "error.patrol.reference.unavailable"));
+                                        new BusinessException("error.patrol.reference.unavailable", 400));
                             }
                             return checkRoster(
                                     task, data.getT3(), data.getT1().getScopeKey(), userId, now)
@@ -179,6 +177,7 @@ public class PatrolExecutionWorkflow {
         return rosters.createQuery()
                 .where(PatrolRosterEntity::getScopeKey, scopeKey)
                 .and(PatrolRosterEntity::getBusinessDate, LocalDate.parse(task.getBusinessDate()))
+                .and(PatrolRosterEntity::getProjectId, task.getProjectId())
                 .and(PatrolRosterEntity::isEnabled, true)
                 .fetch()
                 .take(1001)
@@ -193,7 +192,7 @@ public class PatrolExecutionWorkflow {
             String userId,
             Instant now) {
         if (rows.size() > 1000)
-            return Mono.error(new BusinessException("error.patrol.roster.too_many"));
+            return Mono.error(new BusinessException("error.patrol.roster.too_many", 400));
         boolean inShift =
                 rows.stream()
                         .anyMatch(
@@ -221,7 +220,7 @@ public class PatrolExecutionWorkflow {
                     inShift);
             return Mono.empty();
         } catch (IllegalArgumentException error) {
-            return Mono.error(new BusinessException(error.getMessage()));
+            return Mono.error(new BusinessException(error.getMessage(), 400));
         }
     }
 
@@ -235,6 +234,8 @@ public class PatrolExecutionWorkflow {
         var record = new PatrolExecutionEntity();
         record.setId(id);
         record.setTaskId(task.getId());
+        record.setProjectId(task.getProjectId());
+        record.setProjectName(task.getProjectName());
         record.setTaskGroupId(task.getTaskGroupId());
         record.setBelongDate(task.getBelongDate());
         record.setPeriodNo(task.getPeriodNo());

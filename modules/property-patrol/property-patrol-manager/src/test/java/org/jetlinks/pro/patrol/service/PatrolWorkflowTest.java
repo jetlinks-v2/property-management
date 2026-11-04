@@ -62,6 +62,7 @@ class PatrolWorkflowTest {
     PatrolStandardService standards;
     PatrolRosterService rosters;
     PatrolAttachmentService attachments;
+    PatrolAssetSupplier supplier;
     PatrolTaskGenerator generator;
     PatrolExecutionWorkflow workflow;
     ReactiveRepository<PatrolTaskEntity, String> taskRepository;
@@ -100,7 +101,7 @@ class PatrolWorkflowTest {
                 new org.jetlinks.pro.patrol.integration.PatrolScope(),
                 mock(org.jetlinks.pro.patrol.integration.PlatformPatrolFiles.class),
                 TransactionalOperator.create(new R2dbcTransactionManager(db.connections)));
-        var supplier =
+        supplier =
                 new PatrolAssetSupplier(categories, points, standards, posts, rosters, plans, attachments,
                         new PatrolLevelService(db.repository(org.jetlinks.pro.patrol.entity.PatrolLevelEntity.class,
                                 org.jetlinks.pro.patrol.entity.PatrolLevelEntity::new)),
@@ -119,7 +120,8 @@ class PatrolWorkflowTest {
         user.setName("Alice");
         SimpleAuthentication auth = new SimpleAuthentication();
         auth.setUser(user);
-        identity = Context.of(Authentication.class, auth);
+        identity = Context.of(Authentication.class, auth, org.jetlinks.pro.patrol.integration.PatrolProjectContext.class,
+                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("north|app"));
         var people = mock(SaasPersonDirectory.class);
         when(people.assertMembers(List.of("alice"))).thenReturn(Mono.empty());
         workflow =
@@ -148,12 +150,12 @@ class PatrolWorkflowTest {
                         generationRepository,
                         TransactionalOperator.create(new R2dbcTransactionManager(db.connections)));
         var category = new PatrolCategoryEntity();
-        category.setId("category"); category.setName("Building"); category.setScopeKey("north|app");
+        category.setId("category"); category.setName("Building"); category.setScopeKey("north|app"); category.setProjectId("project"); category.setProjectName("Project");
         category.setExtension("tenantId", "north"); categories.insert(category).block();
         var point = new PatrolPointEntity();
         point.setId("point");
         point.setName("Gate");
-        point.setScopeKey("north|app");
+        point.setScopeKey("north|app"); point.setProjectId("project"); point.setProjectName("Project");
         point.setCode("P001");
         point.setCategoryId("category");
         point.setExtension("tenantId", "north");
@@ -161,14 +163,14 @@ class PatrolWorkflowTest {
         var post = new PatrolPostEntity();
         post.setId("post");
         post.setName("Security");
-        post.setScopeKey("north|app");
+        post.setScopeKey("north|app"); post.setProjectId("project"); post.setProjectName("Project");
         post.setUserIds(List.of("alice"));
         post.setExtension("tenantId", "north");
         posts.insert(post).block();
         var standard = new PatrolStandardEntity();
         standard.setId("standard");
         standard.setName("Safety");
-        standard.setScopeKey("north|app");
+        standard.setScopeKey("north|app"); standard.setProjectId("project"); standard.setProjectName("Project");
         standard.setItems(
                 List.of(
                         new PatrolStandardEntity.CheckItem(
@@ -182,7 +184,7 @@ class PatrolWorkflowTest {
         var plan = new PatrolPlanEntity();
         plan.setId(id);
         plan.setName("Night patrol");
-        plan.setScopeKey(tenant + "|app");
+        plan.setScopeKey(tenant + "|app"); plan.setProjectId("project"); plan.setProjectName("Project");
         plan.setPointId("point");
         plan.setPostId("post");
         plan.setStandardId("standard");
@@ -244,7 +246,7 @@ class PatrolWorkflowTest {
 
     private void secondCategory() {
         var category = new PatrolCategoryEntity();
-        category.setId("category2"); category.setName("Fire safety"); category.setScopeKey("north|app");
+        category.setId("category2"); category.setName("Fire safety"); category.setScopeKey("north|app"); category.setProjectId("project"); category.setProjectName("Project");
         category.setExtension("tenantId", "north"); categories.insert(category).block();
     }
 
@@ -305,12 +307,12 @@ class PatrolWorkflowTest {
                 org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity::new);
         var service = pointCategories(relations);
         var foreignCategory = new PatrolCategoryEntity(); foreignCategory.setId("other-app-category");
-        foreignCategory.setName("Other application"); foreignCategory.setScopeKey("north|other-app");
+        foreignCategory.setName("Other application"); foreignCategory.setScopeKey("north|other-app"); foreignCategory.setProjectId("project"); foreignCategory.setProjectName("Project");
         foreignCategory.setExtension("tenantId", "north"); categories.insert(foreignCategory).block();
         StepVerifier.create(service.link(List.of("point"), foreignCategory.getId()).contextWrite(identity))
                 .expectError(org.hswebframework.web.exception.BusinessException.class).verify();
         var foreign = new PatrolPointEntity(); foreign.setId("foreign"); foreign.setName("Other tenant point");
-        foreign.setCode("FOREIGN"); foreign.setCategoryId("category"); foreign.setScopeKey("south|other-app");
+        foreign.setCode("FOREIGN"); foreign.setCategoryId("category"); foreign.setScopeKey("south|other-app"); foreign.setProjectId("project"); foreign.setProjectName("Project");
         foreign.setExtension("tenantId", "south"); points.insert(foreign).block();
         StepVerifier.create(service.cancel(List.of("point", "foreign"), "category").contextWrite(identity))
                 .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
@@ -360,7 +362,7 @@ class PatrolWorkflowTest {
         for (int n = 0; n < 100; n++) {
             var point = new PatrolPointEntity(); point.setId("category-batch-" + n);
             point.setName("Batch point " + n); point.setCode("CB" + n); point.setCategoryId("category");
-            point.setScopeKey("north|app"); point.setExtension("tenantId", "north"); selected.add(point);
+            point.setScopeKey("north|app"); point.setProjectId("project"); point.setProjectName("Project"); point.setExtension("tenantId", "north"); selected.add(point);
         }
         points.insertBatch(Mono.just(selected)).block();
         var ids = selected.stream().map(PatrolPointEntity::getId).toList();
@@ -386,7 +388,7 @@ class PatrolWorkflowTest {
         var service = pointCategories(relations);
         secondCategory();
         var other = new PatrolPointEntity(); other.setId("point2"); other.setName("Pump"); other.setCode("P002");
-        other.setScopeKey("north|app"); other.setCategoryId("category"); other.setExtension("tenantId", "north");
+        other.setScopeKey("north|app"); other.setProjectId("project"); other.setProjectName("Project"); other.setCategoryId("category"); other.setExtension("tenantId", "north");
         points.insert(other).block();
         var first = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery().is("categoryId", "category").getParam();
         assertEquals(2, points.count(first).block());
@@ -432,7 +434,7 @@ class PatrolWorkflowTest {
         assertEquals(1, secondary.assignments().size());
         org.junit.jupiter.api.Assertions.assertNotEquals("plan", secondary.assignments().get(0).getId());
         var level = new org.jetlinks.pro.patrol.entity.PatrolLevelEntity();
-        level.setId("level2"); level.setName("Fire schedule"); level.setScopeKey("north|app");
+        level.setId("level2"); level.setName("Fire schedule"); level.setScopeKey("north|app"); level.setProjectId("project"); level.setProjectName("Project");
         level.setExtension("tenantId", "north"); level.setRule(new PatrolRule(Map.of(),
                 Map.of(LocalDate.now(), List.of(new PatrolRule.Window(480, 600, 60, 1))), 0));
         new PatrolLevelService(db.repository(org.jetlinks.pro.patrol.entity.PatrolLevelEntity.class,
@@ -782,7 +784,9 @@ class PatrolWorkflowTest {
                 new PatrolExecutionWorkflow.Submission("task", "collected-online", submission.answers(), null,
                         collected, PatrolExecutionEntity.NetworkStatus.offline))) {
             StepVerifier.create(workflow.submit(changed).contextWrite(identity))
-                    .expectErrorMatches(error -> "error.patrol.execution.idempotency_conflict".equals(error.getMessage()))
+                    .expectErrorMatches(error -> error instanceof org.hswebframework.web.exception.BusinessException business
+                            && business.getStatus() == 409
+                            && "error.patrol.execution.idempotency_conflict".equals(error.getMessage()))
                     .verify();
         }
         assertEquals(1, executions.createQuery().count().block());
@@ -868,7 +872,9 @@ class PatrolWorkflowTest {
     void invalidAnswerAndRemovedMemberHaveNoSideEffects() {
         seedTask(2);
         var invalid = new PatrolExecutionWorkflow.Submission("task", "bad", List.of(), null, null, null);
-        StepVerifier.create(workflow.submit(invalid).contextWrite(identity)).expectError().verify();
+        StepVerifier.create(workflow.submit(invalid).contextWrite(identity))
+                .expectErrorSatisfies(error -> assertEquals(400,
+                        ((org.hswebframework.web.exception.BusinessException) error).getStatus())).verify();
         posts.createUpdate()
                 .set(PatrolPostEntity::getUserIds, List.of("bob"))
                 .where(PatrolPostEntity::getId, "post")
@@ -1208,12 +1214,12 @@ class PatrolWorkflowTest {
                 .where(PatrolTaskEntity::getId, task.getId()).execute().block();
         var rest = new PatrolRosterEntity();
         rest.setId("rest"); rest.setName("休息"); rest.setRest(true); rest.setPostId("post"); rest.setUserId("alice");
-        rest.setBusinessDate(day.plusDays(1)); rest.setScopeKey("north|app");
+        rest.setBusinessDate(day.plusDays(1)); rest.setScopeKey("north|app"); rest.setProjectId("project"); rest.setProjectName("Project");
         rest.setStartTime(start + 3600000); rest.setEndTime(start + 7200000); rest.setExtension("tenantId", "north");
         rosters.insert(rest).block();
         var foreign = new PatrolRosterEntity();
         foreign.setId("foreign-roster"); foreign.setName("South"); foreign.setPostId("post"); foreign.setUserId("bob");
-        foreign.setBusinessDate(day.plusDays(1)); foreign.setScopeKey("south|app");
+        foreign.setBusinessDate(day.plusDays(1)); foreign.setScopeKey("south|app"); foreign.setProjectId("project"); foreign.setProjectName("Project");
         foreign.setStartTime(start + 3600000); foreign.setEndTime(start + 7200000); foreign.setExtension("tenantId", "south");
         rosters.insert(foreign).block();
         var calendarPeople = mock(SaasPersonDirectory.class);
@@ -1288,7 +1294,7 @@ class PatrolWorkflowTest {
         var roster = new PatrolRosterEntity();
         roster.setId("other-app");
         roster.setName("Other app");
-        roster.setScopeKey("north|another-app");
+        roster.setScopeKey("north|another-app"); roster.setProjectId("project"); roster.setProjectName("Project");
         roster.setPostId("post");
         roster.setBusinessDate(LocalDate.now());
         roster.setUserId("bob");
@@ -1316,7 +1322,7 @@ class PatrolWorkflowTest {
                 .expectError()
                 .verify();
         roster.setId("same-app");
-        roster.setScopeKey("north|app");
+        roster.setScopeKey("north|app"); roster.setProjectId("project"); roster.setProjectName("Project");
         rosters.insert(roster).block();
         StepVerifier.create(
                         workflow.submit(submission("another-person-is-rostered"))
@@ -1394,7 +1400,7 @@ class PatrolWorkflowTest {
                 List.of(new PatrolExecutionEntity.Answer("pressure", "0.3")), null, null, null);
         StepVerifier.create(workflow.submit(missing).contextWrite(identity)).expectError().verify();
         var photo = new org.jetlinks.pro.patrol.entity.PatrolAttachmentEntity();
-        photo.setId("photo"); photo.setName("Photo"); photo.setScopeKey("south|app");
+        photo.setId("photo"); photo.setName("Photo"); photo.setScopeKey("south|app"); photo.setProjectId("project"); photo.setProjectName("Project");
         photo.setCreatorId("alice"); photo.setExtension("tenantId", "south");
         photo.setPurpose(org.jetlinks.pro.patrol.entity.PatrolAttachmentEntity.Purpose.evidence);
         photo.setPlatformFileId("platform-file"); photo.setInternalUrl("internal");
@@ -1403,13 +1409,13 @@ class PatrolWorkflowTest {
         var submission = new PatrolExecutionWorkflow.Submission("task", "image-result",
                 List.of(new PatrolExecutionEntity.Answer("pressure", "0.3", "photo")), null, null, null);
         StepVerifier.create(workflow.submit(submission).contextWrite(identity)).expectError().verify();
-        photo.setId("other-app-photo"); photo.setScopeKey("north|another-app"); photo.setExtension("tenantId", "north");
+        photo.setId("other-app-photo"); photo.setScopeKey("north|another-app"); photo.setProjectId("project"); photo.setProjectName("Project"); photo.setExtension("tenantId", "north");
         attachments.insert(photo).block();
         var otherApp = new PatrolExecutionWorkflow.Submission("task", "other-app-result",
                 List.of(new PatrolExecutionEntity.Answer("pressure", "0.3", "other-app-photo")), null, null, null);
         StepVerifier.create(workflow.submit(otherApp).contextWrite(identity)).expectError().verify();
         // scopeKey 不可通过业务编辑移动；测试用新 ID 分别建立合法范围的不同用途资产。
-        photo.setId("local-photo"); photo.setScopeKey("north|app"); photo.setCreatorId("bob");
+        photo.setId("local-photo"); photo.setScopeKey("north|app"); photo.setProjectId("project"); photo.setProjectName("Project"); photo.setCreatorId("bob");
         attachments.insert(photo).block();
         var local = new PatrolExecutionWorkflow.Submission("task", "local-result",
                 List.of(new PatrolExecutionEntity.Answer("pressure", "0.3", "local-photo")), null, null, null);
@@ -1460,7 +1466,7 @@ class PatrolWorkflowTest {
     @Test
     void scheduledPlatformApplicationDoesNotInventTenantContext() {
         var plan = plans.findById("plan").block();
-        plan.setScopeKey("|app");
+        plan.setScopeKey("|app"); plan.setProjectId("project"); plan.setProjectName("Project");
         plans.updateById("plan", plan).block();
         var scopedPlans = spy(plans);
         doReturn(Mono.deferContextual(context -> {
@@ -1544,7 +1550,7 @@ class PatrolWorkflowTest {
 
     void secondAssignmentPost() {
         var post = new PatrolPostEntity();
-        post.setId("post2"); post.setName("Evening"); post.setScopeKey("north|app");
+        post.setId("post2"); post.setName("Evening"); post.setScopeKey("north|app"); post.setProjectId("project"); post.setProjectName("Project");
         post.setUserIds(List.of("alice")); post.setExtension("tenantId", "north");
         posts.insert(post).block();
     }
@@ -1585,7 +1591,7 @@ class PatrolWorkflowTest {
         var day = LocalDate.now();
         var original = generator.generate("plan", day).contextWrite(identity).collectList().block();
         var level = new org.jetlinks.pro.patrol.entity.PatrolLevelEntity();
-        level.setId("level"); level.setName("New rule"); level.setScopeKey("north|app");
+        level.setId("level"); level.setName("New rule"); level.setScopeKey("north|app"); level.setProjectId("project"); level.setProjectName("Project");
         level.setExtension("tenantId", "north");
         level.setRule(new PatrolRule(Map.of(), Map.of(day, List.of(new PatrolRule.Window(480, 720, 60, 2)),
                 day.plusYears(3), List.of(new PatrolRule.Window(480, 720, 60, 2))), 0));
@@ -1626,7 +1632,7 @@ class PatrolWorkflowTest {
     @Test
     void differingPostsRejectWholeBatchAndRollbackPointAudit() {
         var another = new PatrolPointEntity(); another.setId("point2"); another.setName("Pump");
-        another.setCode("P002"); another.setCategoryId("category"); another.setScopeKey("north|app");
+        another.setCode("P002"); another.setCategoryId("category"); another.setScopeKey("north|app"); another.setProjectId("project"); another.setProjectName("Project");
         another.setExtension("tenantId", "north"); points.insert(another).block();
         var before = points.findById("point").block().getModifyTime();
         StepVerifier.create(pointAssignments().configure(List.of("point", "point2"),
@@ -1642,7 +1648,7 @@ class PatrolWorkflowTest {
     void foreignPointOrPlanRejectsAssignmentWithoutPartialWrites() {
         var service = pointAssignments();
         var point = new PatrolPointEntity(); point.setId("foreign"); point.setName("Foreign");
-        point.setCode("F001"); point.setCategoryId("category"); point.setScopeKey("south|app");
+        point.setCode("F001"); point.setCategoryId("category"); point.setScopeKey("south|app"); point.setProjectId("project"); point.setProjectName("Project");
         point.setExtension("tenantId", "south"); points.insert(point).block();
         var before = points.findById("point").block().getModifyTime();
         StepVerifier.create(service.assign(List.of("point", "foreign"), List.of("post")).contextWrite(identity)).expectError().verify();
@@ -1685,7 +1691,7 @@ class PatrolWorkflowTest {
                 .contextWrite(identity).block();
         assertEquals(List.of("categoryMismatch"), mismatch.rows().get(0).errors());
         var foreign = new PatrolCategoryEntity(); foreign.setId("foreign"); foreign.setName("Hidden");
-        foreign.setScopeKey("north|app"); foreign.setExtension("tenantId", "south"); categories.insert(foreign).block();
+        foreign.setScopeKey("north|app"); foreign.setProjectId("project"); foreign.setProjectName("Project"); foreign.setExtension("tenantId", "south"); categories.insert(foreign).block();
         assertEquals(List.of("categoryUnavailable"), service.preview(PatrolPointWorkbookTest.workbook("foreign", "Hidden", 1))
                 .contextWrite(identity).block().rows().get(0).errors());
         StepVerifier.create(service.importPoints(PatrolPointWorkbookTest.workbook("foreign", "Hidden", 1)).contextWrite(identity))
@@ -1724,14 +1730,14 @@ class PatrolWorkflowTest {
 
     private PatrolPointEntity newPointForRollback() {
         var row = new PatrolPointEntity(); row.setId("rollback-point"); row.setName("Rollback"); row.setCode("ROLLBACK");
-        row.setCategoryId("category"); row.setScopeKey("north|app"); return row;
+        row.setCategoryId("category"); row.setScopeKey("north|app"); row.setProjectId("project"); row.setProjectName("Project"); return row;
     }
 
     @Test
     void pointExportKeepsFiltersIgnoresPageAndHidesUnauthorizedAssets() throws Exception {
         db.enableTenantQueries();
         var foreign = new PatrolPointEntity(); foreign.setId("foreign"); foreign.setName("Gate"); foreign.setCode("HIDDEN");
-        foreign.setCategoryId("category"); foreign.setScopeKey("north|app"); foreign.setExtension("tenantId", "south"); points.insert(foreign).block();
+        foreign.setCategoryId("category"); foreign.setScopeKey("north|app"); foreign.setProjectId("project"); foreign.setProjectName("Project"); foreign.setExtension("tenantId", "south"); points.insert(foreign).block();
         var query = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery().is("name", "Gate").getParam();
         query.setPageIndex(8); query.setPageSize(1);
         try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new java.io.ByteArrayInputStream(
@@ -1762,7 +1768,7 @@ class PatrolWorkflowTest {
         for (int i = 0; i < 5; i++) {
             var tag = new org.jetlinks.pro.patrol.entity.PatrolTagEntity(); tag.setId("tag" + i);
             tag.setName(i == 4 ? "Other" : "Match"); tag.setDescription("Row" + i);
-            tag.setScopeKey(i == 3 ? "north|another-app" : "north|app");
+            tag.setScopeKey(i == 3 ? "north|another-app" : "north|app"); tag.setProjectId("project"); tag.setProjectName("Project");
             tag.setExtension("tenantId", i == 2 ? "south" : "north"); tags.insert(tag).block();
         }
         var query = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery().is("name", "Match").getParam();
@@ -1793,7 +1799,7 @@ class PatrolWorkflowTest {
                 org.jetlinks.pro.patrol.entity.PatrolTagEntity::new));
         var rows = java.util.stream.IntStream.rangeClosed(0, PatrolConfigTransferService.LIMIT).mapToObj(index -> {
             var tag = new org.jetlinks.pro.patrol.entity.PatrolTagEntity(); tag.setId("tag" + index); tag.setName("Tag" + index);
-            tag.setScopeKey("north|app"); tag.setExtension("tenantId", "north"); return tag;
+            tag.setScopeKey("north|app"); tag.setProjectId("project"); tag.setProjectName("Project"); tag.setExtension("tenantId", "north"); return tag;
         }).toList();
         tags.insertBatch(Flux.fromIterable(rows).buffer(200)).block();
         StepVerifier.create(configTransfer().export(tags, org.jetlinks.pro.patrol.asset.PatrolAssetType.patrolTag,
@@ -1811,7 +1817,7 @@ class PatrolWorkflowTest {
 
     org.jetlinks.pro.patrol.entity.PatrolTagEntity historyTag(String id, String name) {
         var tag = new org.jetlinks.pro.patrol.entity.PatrolTagEntity();
-        tag.setId(id); tag.setName(name); tag.setScopeKey("north|app"); tag.setExtension("tenantId", "north");
+        tag.setId(id); tag.setName(name); tag.setScopeKey("north|app"); tag.setProjectId("project"); tag.setProjectName("Project"); tag.setExtension("tenantId", "north");
         tag.setCreatorId("alice"); tag.setModifierId("alice"); tag.setCreateTime(100L); tag.setModifyTime(100L);
         return tag;
     }
@@ -1860,7 +1866,7 @@ class PatrolWorkflowTest {
                 org.jetlinks.pro.patrol.entity.PatrolTagEntity::new));
         var tag = historyTag("tag", "Tag"); tags.insert(tag).block();
         for (int i = 0; i < 55; i++) { tag.setModifyTime((long) i); history.created(type, tag).contextWrite(identity).block(); }
-        tag.setScopeKey("north|another-app"); history.created(type, tag).contextWrite(identity).block();
+        tag.setScopeKey("north|another-app"); tag.setProjectId("project"); tag.setProjectName("Project"); history.created(type, tag).contextWrite(identity).block();
         var page0 = new org.hswebframework.web.api.crud.entity.QueryParamEntity(); page0.setPageSize(500); page0.setPaging(false);
         var first = history.history(type, "tag", page0).contextWrite(identity).block();
         assertEquals(55, first.getTotal()); assertEquals(50, first.getData().size()); assertEquals(54L, first.getData().get(0).getCreateTime());
@@ -1880,11 +1886,11 @@ class PatrolWorkflowTest {
         var levels = new PatrolLevelService(db.repository(org.jetlinks.pro.patrol.entity.PatrolLevelEntity.class,
                 org.jetlinks.pro.patrol.entity.PatrolLevelEntity::new));
         var before = new org.jetlinks.pro.patrol.entity.PatrolLevelEntity(); before.setId("level"); before.setName("Level");
-        before.setScopeKey("north|app"); before.setExtension("tenantId", "north");
+        before.setScopeKey("north|app"); before.setProjectId("project"); before.setProjectName("Project"); before.setExtension("tenantId", "north");
         before.setRule(new PatrolRule(Map.of(1, List.of(new PatrolRule.Window(480, 720, 60, 1))), Map.of(), 15));
         levels.insert(before).block();
         var after = new org.jetlinks.pro.patrol.entity.PatrolLevelEntity(); after.setId("level"); after.setName("Level updated");
-        after.setScopeKey("north|app"); after.setModifierId("alice"); after.setModifyTime(100L);
+        after.setScopeKey("north|app"); after.setProjectId("project"); after.setProjectName("Project"); after.setModifierId("alice"); after.setModifyTime(100L);
         after.setRule(new PatrolRule(Map.of(), Map.of(LocalDate.of(2026, 11, 5), List.of()), 0));
         history.update(levels, org.jetlinks.pro.patrol.asset.PatrolAssetType.patrolLevel, before, after).contextWrite(identity).block();
         var rows = history.history(org.jetlinks.pro.patrol.asset.PatrolAssetType.patrolLevel, "level",
@@ -1905,7 +1911,7 @@ class PatrolWorkflowTest {
         var validator = mock(PatrolConfigurationValidator.class);
         when(validator.validate(any())).thenAnswer(invocation -> {
             org.jetlinks.pro.patrol.entity.PatrolConfigEntity entity = invocation.getArgument(0);
-            entity.setScopeKey("north|app"); return Mono.empty();
+            entity.setScopeKey("north|app"); entity.setProjectId("project"); entity.setProjectName("Project"); return Mono.empty();
         }); // 此测试只替换既有配置校验，写入口、绑定和历史 hook 均使用生产实现。
         var controller = new org.jetlinks.pro.patrol.web.PatrolLevelController(levels, validator,
                 configTransfer(), history, configDeletion());
@@ -1940,11 +1946,11 @@ class PatrolWorkflowTest {
         var validator = mock(PatrolConfigurationValidator.class);
         when(validator.validate(any())).thenAnswer(invocation -> {
             org.jetlinks.pro.patrol.entity.PatrolConfigEntity entity = invocation.getArgument(0);
-            entity.setScopeKey("north|app"); entity.setExtension("tenantId", "north"); return Mono.empty();
+            entity.setScopeKey("north|app"); entity.setProjectId("project"); entity.setProjectName("Project"); entity.setExtension("tenantId", "north"); return Mono.empty();
         });
         when(validator.validate(any(), any())).thenAnswer(invocation -> {
             org.jetlinks.pro.patrol.entity.PatrolConfigEntity entity = invocation.getArgument(0);
-            entity.setScopeKey("north|app"); entity.setExtension("tenantId", "north"); return Mono.empty();
+            entity.setScopeKey("north|app"); entity.setProjectId("project"); entity.setProjectName("Project"); entity.setExtension("tenantId", "north"); return Mono.empty();
         });
         var transaction = TransactionalOperator.create(new R2dbcTransactionManager(db.connections));
         var controller = new org.jetlinks.pro.patrol.web.PatrolLevelController(levels, validator,
@@ -1964,7 +1970,7 @@ class PatrolWorkflowTest {
         assertEquals("alice", updated.getCreatorId()); assertEquals("alice", updated.getModifierId());
         // 已部署记录没有创建人姓名，普通配置更新同样不能用当前姓名补造历史。
         var warning = new org.jetlinks.pro.patrol.entity.PatrolWarningEntity();
-        warning.setId("legacy-warning"); warning.setName("Legacy"); warning.setScopeKey("north|app");
+        warning.setId("legacy-warning"); warning.setName("Legacy"); warning.setScopeKey("north|app"); warning.setProjectId("project"); warning.setProjectName("Project");
         warning.setTriggerParentCode("route"); warning.setTriggerChildCode("route_missed_point");
         warning.setExtension("tenantId", "north"); warning.setCreatorId("alice");
         warnings.insert(warning).block();
@@ -1990,7 +1996,7 @@ class PatrolWorkflowTest {
 
     PatrolStandardEntity unusedStandard(String id, String scope, String tenant) {
         var standard = new PatrolStandardEntity(); standard.setId(id); standard.setName("Unused " + id);
-        standard.setScopeKey(scope); standard.setExtension("tenantId", tenant);
+        standard.setScopeKey(scope); standard.setProjectId("project"); standard.setProjectName("Project"); standard.setExtension("tenantId", tenant);
         standard.setItems(standards.findById("standard").block().getItems());
         standards.insert(standard).block(); return standard;
     }
@@ -2081,7 +2087,7 @@ class PatrolWorkflowTest {
         var levels = new PatrolLevelService(db.repository(org.jetlinks.pro.patrol.entity.PatrolLevelEntity.class,
                 org.jetlinks.pro.patrol.entity.PatrolLevelEntity::new));
         var level = new org.jetlinks.pro.patrol.entity.PatrolLevelEntity();
-        level.setId("level"); level.setName("Day patrol"); level.setScopeKey("north|app"); level.setExtension("tenantId", "north");
+        level.setId("level"); level.setName("Day patrol"); level.setScopeKey("north|app"); level.setProjectId("project"); level.setProjectName("Project"); level.setExtension("tenantId", "north");
         level.setRule(plans.findById("plan").block().getRule()); levels.insert(level).block();
         plans.createUpdate().set("levelId", "level").where("id", "plan").execute().block();
         StepVerifier.create(configDeletion().delete(org.jetlinks.pro.patrol.asset.PatrolAssetType.patrolLevel, "level").contextWrite(identity))
@@ -2090,7 +2096,7 @@ class PatrolWorkflowTest {
         var warnings = new PatrolWarningService(db.repository(org.jetlinks.pro.patrol.entity.PatrolWarningEntity.class,
                 org.jetlinks.pro.patrol.entity.PatrolWarningEntity::new));
         var warning = new org.jetlinks.pro.patrol.entity.PatrolWarningEntity();
-        warning.setId("warning"); warning.setName("Missed point"); warning.setScopeKey("north|app"); warning.setExtension("tenantId", "north");
+        warning.setId("warning"); warning.setName("Missed point"); warning.setScopeKey("north|app"); warning.setProjectId("project"); warning.setProjectName("Project"); warning.setExtension("tenantId", "north");
         warning.setTriggerParentCode("route"); warning.setTriggerChildCode("route_missed_point"); warnings.insert(warning).block();
         configDeletion().delete(org.jetlinks.pro.patrol.asset.PatrolAssetType.patrolWarning, "warning").contextWrite(identity).block();
         assertTrue(warnings.findById("warning").blockOptional().isEmpty());
@@ -2121,7 +2127,7 @@ class PatrolWorkflowTest {
         for (int index = 0; index < 100; index++) {
             var point = new PatrolPointEntity();
             point.setId("batch-point-" + index); point.setCode("B" + index); point.setName("Batch " + index);
-            point.setCategoryId("category"); point.setScopeKey("north|app"); point.setExtension("tenantId", "north");
+            point.setCategoryId("category"); point.setScopeKey("north|app"); point.setProjectId("project"); point.setProjectName("Project"); point.setExtension("tenantId", "north");
             ids.add(point.getId()); rows.add(point);
         }
         points.insertBatch(Mono.just(rows)).block();
@@ -2130,6 +2136,191 @@ class PatrolWorkflowTest {
         assertEquals(100, plans.createQuery().in(PatrolPlanEntity::getPointId, ids).count().block());
         assertEquals(100, points.createQuery().in(PatrolPointEntity::getId, ids).notNull(PatrolPointEntity::getModifyTime).count().block());
         System.out.println("100-point assignment elapsed ms=" + (System.nanoTime() - started) / 1_000_000);
+    }
+
+    @Test
+    void projectConstraintFiltersBeforePagingAndCannotBeBypassedByOrOrOldAssetGrant() {
+        var hidden = new PatrolPointEntity(); hidden.setId("hidden-project-point"); hidden.setName("Other project");
+        hidden.setCode("P999"); hidden.setCategoryId("category"); hidden.setScopeKey("north|app");
+        hidden.setProjectId("other-project"); hidden.setExtension("tenantId", "north"); points.insert(hidden).block();
+        // Existing ordinary grants deliberately include both projects; this test owns the added intersection.
+        var original = mock(org.jetlinks.pro.assets.AssetsHolder.class);
+        when(original.injectQuery(any(org.hswebframework.web.api.crud.entity.QueryParamEntity.class),
+                org.mockito.ArgumentMatchers.eq("patrolPoint"), org.mockito.ArgumentMatchers.eq("id")))
+                .thenAnswer(call -> Mono.just(call.getArgument(0)));
+        when(original.filter(org.mockito.ArgumentMatchers.eq("patrolPoint"), anyCollection(),
+                org.mockito.ArgumentMatchers.eq(false), org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetPermission[].class)))
+                .thenAnswer(call -> Flux.fromIterable(call.getArgument(1)));
+        var holder = new org.jetlinks.pro.patrol.asset.PatrolProjectAssetsHolder(original,
+                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("north|app"), supplier);
+        var query = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
+                .is("id", "point").or().is("id", hidden.getId()).orderByAsc("id").getParam();
+        query.setPageSize(1);
+        var scoped = holder.injectQuery(query, "patrolPoint", "id").block();
+        var page = points.queryPager(scoped).block();
+        assertEquals(1, page.getTotal());
+        assertEquals("point", page.getData().get(0).getId());
+        holder.assertPermission0(org.jetlinks.pro.patrol.asset.PatrolAssetType.patrolPoint,
+                List.of("point"), org.jetlinks.pro.assets.crud.CrudAssetPermission.save).block();
+        StepVerifier.create(holder.assertPermission0(org.jetlinks.pro.patrol.asset.PatrolAssetType.patrolPoint,
+                List.of("point", hidden.getId()), org.jetlinks.pro.assets.crud.CrudAssetPermission.save))
+                .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+        var empty = new org.jetlinks.pro.patrol.asset.PatrolProjectAssetsHolder(original,
+                new org.jetlinks.pro.patrol.integration.PatrolProjectContext(List.of(), null, "north|app"), supplier);
+        assertEquals(0, points.count(empty.injectQuery(new org.hswebframework.web.api.crud.entity.QueryParamEntity(),
+                "patrolPoint", "id").block()).block());
+    }
+
+    @Test
+    void projectScopeNeverIncludesInvisibleAncestorsOrAllowsNonProjectSelection() {
+        var group = new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo();
+        group.setId("D"); group.setName("D"); group.setParentId("invisible-A");
+        var project = new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo();
+        project.setId("E"); project.setName("E"); project.setOrganizationType(
+                org.jetlinks.pro.property.base.organization.OrganizationType.project); project.setChildren(List.of());
+        group.setChildren(List.of(project));
+        var context = new org.jetlinks.pro.patrol.integration.PatrolProjectContext(List.of(group), null, "north|app");
+        assertEquals(Set.of("E"), context.projects());
+        assertEquals(Set.of("D", "E"), context.organizations());
+        org.junit.jupiter.api.Assertions.assertThrows(org.hswebframework.web.authorization.exception.AccessDenyException.class,
+                () -> context.requireProject("D"));
+        org.junit.jupiter.api.Assertions.assertThrows(org.hswebframework.web.authorization.exception.AccessDenyException.class,
+                () -> context.requireProject("B"));
+    }
+
+    @Test
+    void plannedTasksAndExecutionsKeepProjectSnapshot() {
+        var generated = generator.generate("plan", LocalDate.now()).contextWrite(identity).collectList().block();
+        assertTrue(!generated.isEmpty());
+        assertTrue(generated.stream().allMatch(task -> "project".equals(task.getProjectId())));
+        var group = generationRepository.findById(generated.get(0).getTaskGroupId()).block();
+        assertEquals("project", group.getProjectId());
+        tasks.deleteById(Flux.fromIterable(generated).map(PatrolTaskEntity::getId)).block();
+        var task = seedTask(1); task.setProjectId("project"); task.setProjectName("Project");
+        tasks.updateById(task.getId(), task).block();
+        var execution = workflow.submit(submission("project-snapshot")).contextWrite(identity).block();
+        assertEquals("project", execution.getProjectId());
+        assertEquals("Project", execution.getProjectName());
+    }
+
+    @Test
+    void allProjectsViewRejectsCrossProjectReferencesAndPreservesSharedOwnershipOnEdit() {
+        var root = new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo();
+        root.setId("company"); root.setName("Company");
+        var project = new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo();
+        project.setId("project"); project.setName("Project"); project.setOrganizationType(
+                org.jetlinks.pro.property.base.organization.OrganizationType.project);
+        var other = new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo();
+        other.setId("other"); other.setName("Other"); other.setOrganizationType(
+                org.jetlinks.pro.property.base.organization.OrganizationType.project);
+        root.setChildren(List.of(project, other));
+        var context = new org.jetlinks.pro.patrol.integration.PatrolProjectContext(List.of(root), null, "north|app");
+        var auth = identity.put(org.jetlinks.pro.patrol.integration.PatrolProjectContext.class, context);
+        var point = points.findById("point").block();
+        categories.createUpdate().set("projectId", "other").where("id", "category").execute().block();
+        StepVerifier.create(categoryValidator().validate(point).contextWrite(auth))
+                .expectError(org.hswebframework.web.exception.BusinessException.class).verify();
+        categories.createUpdate().setNull("projectId").set("ownerOrganizationId", "company")
+                .where("id", "category").execute().block();
+        categoryValidator().validate(point).contextWrite(auth).block();
+        var shared = categories.findById("category").block();
+        var edited = categories.findById("category").block(); edited.setName("Shared updated");
+        categoryValidator().validate(edited, shared).contextWrite(auth.put(
+                org.jetlinks.pro.patrol.integration.PatrolProjectContext.class, context.forProject("project"))).block();
+        assertEquals(null, edited.getProjectId());
+        assertEquals("company", edited.getOwnerOrganizationId());
+        assertTrue(!context.canReference(null, "company", "project", null));
+        assertTrue(!context.canReference("project", null, "other", null));
+    }
+
+    @Test
+    void createUsesAutomaticApplicationBindingWithRealScopedHolder() {
+        var bindManager = mock(org.jetlinks.pro.assets.AssetBindManager.class);
+        var bindings = new java.util.ArrayList<org.jetlinks.pro.assets.AssetBindRequest>();
+        when(bindManager.bindAssets(any(org.reactivestreams.Publisher.class)))
+                .thenAnswer(call -> Flux.<org.jetlinks.pro.assets.AssetBindRequest>from(call.getArgument(0))
+                        .doOnNext(bindings::add).then());
+        var materializers = AssetsHolderHolder.registerScopeMaterializers(
+                new org.jetlinks.pro.assets.scope.AssetScopeMaterializers(List.of(),
+                        new org.jetlinks.pro.assets.impl.DimensionAssetScopeMaterializer(mock(AssetManager.class), bindManager)));
+        try {
+            var auth = new SimpleAuthentication();
+            var user = new SimpleUser(); user.setId("alice"); user.setName("Alice"); auth.setUser(user);
+            var activation = org.jetlinks.pro.assets.scope.AssetScopeActivation.activate(auth,
+                    org.hswebframework.web.authorization.simple.SimpleDimension.of("app", "Patrol",
+                            org.hswebframework.web.authorization.simple.SimpleDimensionType.of("business_application"), Map.of()),
+                    Map.of("*", org.jetlinks.pro.assets.scope.AssetScopeStrategy.SELECT_AND_BIND));
+            var context = activation.write().apply(identity.put(org.jetlinks.pro.assets.AssetsHolder.class,
+                    org.jetlinks.pro.assets.AssetsHolderProvider.compose(List.of())));
+            var tags = new PatrolTagService(db.repository(org.jetlinks.pro.patrol.entity.PatrolTagEntity.class,
+                    org.jetlinks.pro.patrol.entity.PatrolTagEntity::new));
+            var controller = new org.jetlinks.pro.patrol.web.PatrolTagController(tags, categoryValidator(), null);
+            var input = new org.jetlinks.pro.patrol.entity.PatrolTagEntity(); input.setName("Allowed project tag");
+            var result = controller.create(input).contextWrite(context).block();
+            assertEquals("project", result.getProjectId());
+            assertEquals(1, bindings.size());
+            assertEquals("business_application", bindings.get(0).getTargetType());
+            assertEquals("app", bindings.get(0).getTargetId());
+            assertEquals(List.of(result.getId()), bindings.get(0).getAssetIdList());
+            var denied = new org.jetlinks.pro.patrol.entity.PatrolTagEntity();
+            denied.setName("Foreign project tag"); denied.setProjectId("foreign");
+            StepVerifier.create(controller.create(denied).contextWrite(context))
+                    .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+            assertEquals(1, tags.createQuery().count().block());
+            assertEquals(1, bindings.size());
+        } finally { materializers.dispose(); }
+    }
+
+    @Test
+    void legacyProjectAssignmentIsExplicitAndDoesNotChangeHistoricalCounts() {
+        var old = new org.jetlinks.pro.patrol.entity.PatrolTagEntity();
+        old.setId("legacy-tag"); old.setName("Old tag"); old.setScopeKey("north|app");
+        var tags = new PatrolTagService(db.repository(org.jetlinks.pro.patrol.entity.PatrolTagEntity.class,
+                org.jetlinks.pro.patrol.entity.PatrolTagEntity::new));
+        tags.insert(old).block();
+        var permissions = mock(org.hswebframework.web.authorization.Authentication.class);
+        when(permissions.hasPermission("patrol-tag", "save")).thenReturn(true);
+        var holder = mock(org.jetlinks.pro.assets.AssetsHolder.class);
+        when(holder.assertPermission0(org.mockito.ArgumentMatchers.eq(org.jetlinks.pro.patrol.asset.PatrolAssetType.patrolTag),
+                anyCollection(), org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetPermission[].class)))
+                .thenReturn(Mono.empty());
+        var assets = mock(PatrolAssetSupplier.class);
+        doReturn(tags).when(assets).service(org.jetlinks.pro.patrol.asset.PatrolAssetType.patrolTag);
+        var controller = new org.jetlinks.pro.patrol.web.PatrolProjectMigrationController(assets,
+                categoryValidator(), tasks, new PatrolTaskGroupService(generationRepository, new org.hswebframework.web.crud.query.DefaultQueryHelper(db.operator()), tasks), executions);
+        var context = Context.of(org.hswebframework.web.authorization.Authentication.class, permissions,
+                org.jetlinks.pro.assets.AssetsHolder.class, holder,
+                org.jetlinks.pro.patrol.integration.PatrolProjectContext.class,
+                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("north|app"));
+        var request = new org.jetlinks.pro.patrol.web.PatrolProjectMigrationController.Assignment(
+                org.jetlinks.pro.patrol.asset.PatrolAssetType.patrolTag, List.of("legacy-tag"), "project");
+        assertEquals(1, controller.assign(request).contextWrite(context).block());
+        assertEquals("project", tags.findById("legacy-tag").block().getProjectId());
+        StepVerifier.create(controller.assign(request).contextWrite(context))
+                .expectErrorMatches(error -> error instanceof org.hswebframework.web.exception.BusinessException business
+                        && business.getStatus() == 400 && "error.patrol.project_immutable".equals(business.getMessage())).verify();
+        StepVerifier.create(controller.assign(new org.jetlinks.pro.patrol.web.PatrolProjectMigrationController.Assignment(
+                request.type(), request.ids(), "not-visible")).contextWrite(context)).expectError(
+                org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+        when(permissions.hasPermission("patrol-tag", "save")).thenReturn(false);
+        StepVerifier.create(controller.assign(request).contextWrite(context))
+                .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+    }
+
+    @Test
+    void evidenceCannotBeReusedAcrossProjectsEvenWhenBothAssetsAreReadable() {
+        var photo = new org.jetlinks.pro.patrol.entity.PatrolAttachmentEntity();
+        photo.setId("cross-project-photo"); photo.setName("Photo"); photo.setScopeKey("north|app");
+        photo.setProjectId("other"); photo.setCreatorId("alice"); photo.setExtension("tenantId", "north");
+        photo.setPurpose(org.jetlinks.pro.patrol.entity.PatrolAttachmentEntity.Purpose.evidence);
+        photo.setPlatformFileId("platform-file"); photo.setInternalUrl("internal");
+        photo.setMediaType("image/png"); photo.setLength(100); attachments.insert(photo).block();
+        StepVerifier.create(attachments.assertReferences(List.of(photo.getId()), photo.getPurpose(), "north|app", "alice",
+                "project", null).contextWrite(identity))
+                .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+        photo.setId("same-project-photo"); photo.setProjectId("project"); attachments.insert(photo).block();
+        attachments.assertReferences(List.of(photo.getId()), photo.getPurpose(), "north|app", "alice", "project", null)
+                .contextWrite(identity).block();
     }
 
 }

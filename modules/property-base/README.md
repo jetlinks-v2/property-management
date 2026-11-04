@@ -10,6 +10,17 @@
 
 `property-base-core` 提供公共 DTO、组织类型枚举、组织树及基础目录查询命令，不依赖 manager，不包含数据库实体或 CRUD。基础服务必须独立运行；报修、巡更等业务服务按需运行，读取基础数据时只依赖 core 并执行公开命令，不装配本 manager。各应用的系统管理页面经网关调用同一套 `/property/**`，共享同一份基础数据。
 
+## 员工公开命令
+
+服务标识 `propertyService:employee`，仅只读，不触发同步或改变员工身份。
+
+| 命令 | 输入 / 输出 | 权限与空结果 |
+| --- | --- | --- |
+| `QueryPropertyEmployeePageCommand` | `query: QueryParamEntity` → `PagerResult<PropertyEmployeeInfo>`；每页1–200 | 认证及 user 资产范围（资产条件在认证服务解析为用户 ID，再与基础有效员工相交）；先过滤未删除、启用、employee=true，再分页。应用成员关系由消费方在认证服务中解析并以 ID 相交，不能把认证库的 in-dimension 条件发送到基础库 |
+| `GetCurrentPropertyEmployeeCommand` | 无输入 → 本人 `PropertyEmployeeInfo` | 从可信认证身份读取，不要求用户维护菜单或目录授权；非员工、停用或已删除返回空；匿名和服务错误传播 |
+
+DTO 仅含 id、name、telephone、直接 organizationIds；员工 ID 与 SaaS user ID 一致，不包含密码、客户资料或内部审计字段。query 通过 AbstractCommand 属性序列化；调用方不能把空结果当有效执行身份，也不能降级为任意 SaaS 用户。员工与客户双身份按 employee 状态判断，纯客户不进入巡更岗位候选。
+
 ## 组织树公开命令
 
 | 项目 | 契约 |

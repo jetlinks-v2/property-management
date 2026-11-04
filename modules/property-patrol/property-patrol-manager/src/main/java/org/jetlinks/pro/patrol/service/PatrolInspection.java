@@ -23,17 +23,17 @@ public final class PatrolInspection {
         for (CheckItem item : items) {
             if (!ids.add(item.id()) || new HashSet<>(item.options()).size() != item.options().size()
                     || new HashSet<>(item.qualifiedOptions()).size() != item.qualifiedOptions().size())
-                throw new BusinessException("error.patrol.standard.duplicate_item");
+                throw new BusinessException("error.patrol.standard.duplicate_item", 400);
             if (item.type() == ItemType.choice) {
                 if (item.options().isEmpty() || !item.options().containsAll(item.qualifiedOptions()))
-                    throw new BusinessException("error.patrol.standard.options");
+                    throw new BusinessException("error.patrol.standard.options", 400);
             } else if (!item.options().isEmpty() || !item.qualifiedOptions().isEmpty()) {
-                throw new BusinessException("error.patrol.standard.options");
+                throw new BusinessException("error.patrol.standard.options", 400);
             }
             if (item.type() != ItemType.number && (item.lowerLimit() != null || item.upperLimit() != null)
                     || item.lowerLimit() != null && item.upperLimit() != null
                     && item.lowerLimit().compareTo(item.upperLimit()) > 0)
-                throw new BusinessException("error.patrol.standard.range");
+                throw new BusinessException("error.patrol.standard.range", 400);
         }
     }
 
@@ -90,6 +90,6 @@ public final class PatrolInspection {
     }
 
     private static BusinessException invalidAnswer() {
-        return new BusinessException("error.patrol.execution.answers");
+        return new BusinessException("error.patrol.execution.answers", 400);
     }
 }

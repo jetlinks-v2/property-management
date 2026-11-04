@@ -8,6 +8,12 @@
     </parent>
     <artifactId>property-patrol-manager</artifactId>
     <dependencies>
+        <!-- 只依赖基础数据公开契约，不装配基础实现。 -->
+        <dependency>
+            <groupId>org.jetlinks.pro</groupId>
+            <artifactId>property-base-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>

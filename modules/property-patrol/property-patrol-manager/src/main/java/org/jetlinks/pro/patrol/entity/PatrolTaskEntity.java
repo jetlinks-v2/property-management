@@ -31,6 +31,12 @@ import javax.persistence.Table;
             @Index(name = "pt_task_date_plan", columnList = "businessDate,planId")
         })
 public class PatrolTaskEntity extends GenericEntity<String> {
+    /** 生成时的业务项目快照，不随员工调岗或点位名称变化回写。 */
+    @Column(length = 64)
+    private String projectId;
+    @Column(length = 128)
+    private String projectName;
+
     /** 生成时确定的逻辑任务组；不得由查询端按点位和日期重新推算。 */
     @Column(length = 64, updatable = false)
     private String taskGroupId;

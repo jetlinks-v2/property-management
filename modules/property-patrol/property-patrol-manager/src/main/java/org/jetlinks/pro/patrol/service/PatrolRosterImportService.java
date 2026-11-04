@@ -49,7 +49,9 @@ public class PatrolRosterImportService {
     }
 
     public Mono<Integer> importMonth(YearMonth month, byte[] bytes) {
-        return Mono.fromCallable(() -> PatrolRosterWorkbook.read(bytes, month))
+        return org.jetlinks.pro.patrol.integration.PatrolProjectContext.current()
+                .map(context -> context.projectForWrite(null))
+                .then(Mono.fromCallable(() -> PatrolRosterWorkbook.read(bytes, month)))
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(rows -> validateRows(rows).then(replaceMonth(month, rows)))
                 .as(MonoTracer.create("/patrol/rosters/import"));
@@ -83,8 +85,11 @@ public class PatrolRosterImportService {
                 row.setCreatorName(java.util.Objects.requireNonNullElse(pair.getT2().getUser().getName(), "")); row.setModifierName(row.getCreatorName()); row.setCreateTime(now); row.setModifyTime(now);
                 row.setDescription(""); row.setExtensions(new HashMap<>());
             });
-            return lockMonth(key, month)
+            String projectId = rows.isEmpty() ? null : rows.get(0).getProjectId();
+            return org.jetlinks.pro.patrol.integration.PatrolProjectContext.current().map(context -> context.projectForWrite(projectId))
+                    .flatMap(selectedProject -> lockMonth(key + "|" + selectedProject, month)
                     .thenMany(rosters.createQuery().where(PatrolRosterEntity::getScopeKey, key)
+                            .and(PatrolRosterEntity::getProjectId, selectedProject)
                             .and(PatrolRosterEntity::getBusinessDate, "gte", month.atDay(1))
                             .and(PatrolRosterEntity::getBusinessDate, "lte", month.atEndOfMonth())
                             .and(PatrolRosterEntity::isEnabled, true).fetch())
@@ -94,12 +99,13 @@ public class PatrolRosterImportService {
                             .set(PatrolRosterEntity::getModifierId, user).set(PatrolRosterEntity::getModifyTime, now)
                             .set(PatrolRosterEntity::getModifierName, java.util.Objects.requireNonNullElse(pair.getT2().getUser().getName(), ""))
                             .where(PatrolRosterEntity::getScopeKey, key)
+                            .and(PatrolRosterEntity::getProjectId, selectedProject)
                             .and(PatrolRosterEntity::getBusinessDate, "gte", month.atDay(1))
                             .and(PatrolRosterEntity::getBusinessDate, "lte", month.atEndOfMonth())
                             .and(PatrolRosterEntity::isEnabled, true).execute())
                     .then(rows.isEmpty() ? Mono.empty() : rosters.insertBatch(Flux.fromIterable(rows).buffer(200)).then())
                     .thenMany(AssetsHolder.bindAssets(Flux.fromIterable(rows), PatrolAssetType.patrolRoster, PatrolRosterEntity::getId))
-                    .then(Mono.just(rows.size()));
+                    .then(Mono.just(rows.size())));
         }).as(transaction::transactional);
     }
 

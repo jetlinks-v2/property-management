@@ -15,6 +15,12 @@ import javax.persistence.Transient;
 @Setter
 @Table(name = "pt_generation", indexes = @Index(name = "pt_group_point_date", columnList = "pointId,belongDate"))
 public class PatrolGenerationEntity extends GenericEntity<String> {
+    /** 生成时的业务项目快照，不随员工调岗或点位名称变化回写。 */
+    @Column(length = 64)
+    private String projectId;
+    @Column(length = 128)
+    private String projectName;
+
     /** 查询投影，取自首个时段的生成快照；不从当前点位/等级回填历史。 */
     @Transient private String categoryId;
     @Transient private String categoryName;

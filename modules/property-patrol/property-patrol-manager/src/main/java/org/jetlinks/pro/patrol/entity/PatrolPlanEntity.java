@@ -26,7 +26,7 @@ import javax.persistence.Table;
 @Getter
 @Setter
 @EnableEntityEvent
-@Table(name = "pt_plan")
+@Table(name = "pt_plan", indexes = @javax.persistence.Index(name = "pt_plan_project", columnList = "scopeKey,projectId,ownerOrganizationId"))
 @Asset(type = "patrolPlan")
 public class PatrolPlanEntity extends PatrolConfigEntity {
     @Column(length = 64, nullable = false)

@@ -4,7 +4,7 @@
 - JetLinks 保持 `2.20.0-SNAPSHOT`，Java 17、Spring Boot 3.4.13 与当前平台 BOM 一致，版本及插件由根 POM 管理。
 - 一个仓库管理多个独立业务系统。业务放入对应 `modules/property-*/property-*-manager`，每个系统由自己的 `services/property-*-service` 装配、启动和发布。一个系统可以承载多个菜单，不按菜单拆服务；不增加聚合所有业务的统一启动入口。
 - manager 承载接口、应用服务、持久化、权限和国际化；有跨模块共享的 DTO、命令、事件、SPI 契约时再增加 core。core 不依赖 manager。
-- 基础档案是独立公共服务，统一持有物业基础表；运行物业应用时必须启动基础档案，报修、巡更和收费按需启动。业务服务只依赖本系统 manager，可依赖 property-base-core 并通过显式命令读取基础能力，禁止依赖 base-manager、注入其 Service/Repository 或跨库操作基础表。报修、巡更、收费业务之间保持独立。
+- 基础档案是独立公共服务，统一持有物业基础表；运行物业应用时必须启动基础档案，报修、巡更和收费按需启动。业务服务只依赖本系统 manager，可依赖 property-base-core 并通过显式只读命令读取基础能力，保留调用者认证和资产权限，禁止依赖 base-manager、注入其 Service/Repository 或跨库操作基础表。报修、巡更、收费业务之间保持独立。
 - 先读相邻代码和对应业务设计，最小修改；系统内部 manager 可以依赖本系统 core，基础服务作为公共运行前置，其 manager 不打入业务服务 JAR。
 - 使用框架现有响应式 CRUD、查询与事务能力，运行时链路不调用 `block()` 或阻塞 I/O。
 - 登录复用 SaaS 网关。读取 `TenantHolder` 不代表取得业务授权，项目数据通过统一 `AssetsHolder` 体系校验；详情、批量、导入导出不能绕过权限。

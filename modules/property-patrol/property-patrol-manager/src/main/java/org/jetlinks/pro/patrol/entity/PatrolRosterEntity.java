@@ -20,7 +20,7 @@ import javax.persistence.Table;
 @Getter
 @Setter
 @EnableEntityEvent
-@Table(name = "pt_roster")
+@Table(name = "pt_roster", indexes = @javax.persistence.Index(name = "pt_roster_project", columnList = "scopeKey,projectId,ownerOrganizationId"))
 @Asset(type = "patrolRoster")
 public class PatrolRosterEntity extends PatrolConfigEntity {
     @Column(length = 64, nullable = false)

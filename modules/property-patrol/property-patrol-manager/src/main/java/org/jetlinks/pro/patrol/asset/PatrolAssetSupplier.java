@@ -46,8 +46,17 @@ public class PatrolAssetSupplier implements AssetSupplier {
     }
 
     public Flux<? extends Asset> getAssets(AssetType type, Collection<?> ids) {
-        GenericReactiveCrudService<? extends PatrolConfigEntity, String> service =
-                switch (PatrolAssetType.valueOf(type.getId())) {
+        var service = service(PatrolAssetType.valueOf(type.getId()));
+        if (ids.isEmpty()) return Flux.empty();
+        return service.createQuery()
+                .in("id", ids)
+                .fetch()
+                .map(e -> new DefaultAsset(e.getId(), e.getName(), type).withEntity(e));
+    }
+    /** 资产约束 owner 读取自有配置，不能在这里再次调用 AssetsHolder 造成递归。 */
+    public GenericReactiveCrudService<? extends PatrolConfigEntity, String> service(PatrolAssetType type) {
+        return
+                switch (type) {
                     case patrolLevel -> levels;
                     case patrolTag -> tags;
                     case patrolWarning -> warnings;
@@ -59,10 +68,6 @@ public class PatrolAssetSupplier implements AssetSupplier {
                     case patrolPlan -> plans;
                     case patrolAttachment -> attachments;
                 };
-        if (ids.isEmpty()) return Flux.empty();
-        return service.createQuery()
-                .in("id", ids)
-                .fetch()
-                .map(e -> new DefaultAsset(e.getId(), e.getName(), type).withEntity(e));
     }
+
 }

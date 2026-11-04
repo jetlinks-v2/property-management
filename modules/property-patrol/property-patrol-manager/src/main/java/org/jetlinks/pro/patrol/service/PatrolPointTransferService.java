@@ -75,7 +75,8 @@ public class PatrolPointTransferService {
                     row.setCreatorName(Objects.requireNonNullElse(pair.getT2().getUser().getName(), "")); row.setModifierName(row.getCreatorName()); row.setCreateTime(now); row.setModifyTime(now);
                     row.setExtensions(new HashMap<>()); return row;
                 }).toList();
-                return points.insertBatch(Flux.fromIterable(rows).buffer(200))
+                return Flux.fromIterable(rows).concatMap(PatrolOwnership::assignSelected).then()
+                        .then(points.insertBatch(Flux.fromIterable(rows).buffer(200)))
                         .thenMany(AssetsHolder.bindAssets(Flux.fromIterable(rows), PatrolAssetType.patrolPoint, PatrolConfigEntity::getId))
                         .then(Mono.just(rows.size()));
             });

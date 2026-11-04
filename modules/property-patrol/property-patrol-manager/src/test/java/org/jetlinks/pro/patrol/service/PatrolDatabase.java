@@ -46,6 +46,18 @@ final class PatrolDatabase implements AutoCloseable {
         metadata.setCurrentSchema(schema);
         metadata.addFeature(new CurrentTimeGenerator());
         metadata.addFeature(new DefaultIdGenerator());
+        var projectTerms = new org.jetlinks.pro.patrol.configuration.PatrolProjectConfiguration();
+        metadata.addFeature(projectTerms.patrolProjectLevelTerm());
+        metadata.addFeature(projectTerms.patrolProjectTagTerm());
+        metadata.addFeature(projectTerms.patrolProjectWarningTerm());
+        metadata.addFeature(projectTerms.patrolProjectCategoryTerm());
+        metadata.addFeature(projectTerms.patrolProjectPointTerm());
+        metadata.addFeature(projectTerms.patrolProjectStandardTerm());
+        metadata.addFeature(projectTerms.patrolProjectAttachmentTerm());
+        metadata.addFeature(projectTerms.patrolProjectPostTerm());
+        metadata.addFeature(projectTerms.patrolProjectRosterTerm());
+        metadata.addFeature(projectTerms.patrolProjectPlanTerm());
+
         metadata.addFeature(new org.jetlinks.pro.patrol.service.terms.PatrolPointPlanTermBuilder());
         metadata.addFeature(new org.jetlinks.pro.patrol.service.terms.PatrolPointCategoryTermBuilder());
         metadata.addFeature(new org.jetlinks.pro.patrol.service.terms.PatrolGroupMissedTermBuilder());

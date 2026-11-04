@@ -13,6 +13,52 @@ jetlinks:
               description: 巡更配置、计划、排班、任务与执行记录
               sort-index: 75
             menus:
+              - id: patrol-system
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+              - id: patrol-OrganizationType
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+                buttons:
+                  - {id: save, granted: true}
+                  - {id: sync, granted: true}
+                  - {id: bind, granted: true}
+                  - {id: spaceSync, granted: true}
+              - id: patrol-User
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+                buttons:
+                  - {id: save, granted: true}
+                  - {id: sync, granted: true}
+              - id: patrol-Space
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+                buttons:
+                  - {id: save, granted: true}
+                  - {id: delete, granted: false}
+                  - {id: import, granted: true}
+                  - {id: export, granted: true}
+                  - {id: sync, granted: true}
+              - id: patrol-Customer
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+                buttons:
+                  - {id: save, granted: true}
+                  - {id: delete, granted: false}
+                  - {id: import, granted: true}
+                  - {id: export, granted: true}
+              - id: patrol-Dictionary
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+                buttons:
+                  - {id: save, granted: true}
+                  - {id: delete, granted: false}
               - id: patrol-base
                 owner: app
                 options: {appName: cloud-patrol}

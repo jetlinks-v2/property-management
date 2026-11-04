@@ -9,7 +9,7 @@ import javax.persistence.Table;
 @Getter
 @Setter
 @EnableEntityEvent
-@Table(name = "pt_tag")
+@Table(name = "pt_tag", indexes = @javax.persistence.Index(name = "pt_tag_project", columnList = "scopeKey,projectId,ownerOrganizationId"))
 @Asset(type = "patrolTag")
 public class PatrolTagEntity extends PatrolConfigEntity {
 }

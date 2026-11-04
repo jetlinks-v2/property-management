@@ -32,7 +32,7 @@ property-management/
 
 Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT，版本和插件由根 POM 管理。`modules/` 中的 POM 只负责构建聚合，不启动进程；每个 `service` 只依赖本系统 manager。单个系统可以包含多个菜单及对应 Controller、Service、Entity、权限和国际化。系统内部有需要时拆分 core，core 只承载领域类型、DTO、规则或契约，不承载 CRUD，也不反向依赖 manager。
 
-基础表只由 property-base-service 维护，各前端的系统管理经网关访问同一套 `/property/**`。业务后端通过公开命令读取基础数据，允许依赖 property-base-core，禁止依赖基础 manager、注入基础内部服务或跨库读写；报修、巡更、收费业务之间保持独立。各前端仍分别放在 SaaS 的 `runtime-ui/modules/`，不在本仓库合并前端。
+基础表只由 property-base-service 维护，各前端的系统管理经网关访问同一套 `/property/**`。业务后端通过公开命令读取基础数据，允许依赖 property-base-core，禁止依赖基础 manager、注入基础内部服务或跨库读写；报修、巡更、收费业务之间保持独立。巡更通过 core 公开只读命令消费组织树及员工身份，保留认证和资产上下文；基础服务可部署在远程公共环境，涉及项目范围与员工资格的请求要求其可用，错误明确返回，不回退未过滤目录。各前端仍分别放在 SaaS 的 `runtime-ui/modules/`，不在本仓库合并前端。
 
 | 系统 | 启动类 | 默认 HTTP / 集群 / RPC | 服务发现名 | 默认业务库 |
 | --- | --- | --- | --- | --- |
@@ -53,7 +53,7 @@ Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT，版本和插件由根 
 
 ## 独立构建与启动
 
-需要 JDK17、Maven 及目标 SaaS 对应 JetLinks 制品的仓库权限。根目录执行以下命令只构建所选系统和它自己的依赖，不会构建或启动兄弟系统：
+需要 JDK17、Maven 及目标 SaaS 对应 JetLinks 制品的仓库权限。根目录执行以下命令只构建所选系统及其契约依赖（巡更包含 base-core），不会构建或启动兄弟 manager：
 
 ```bash
 mvn -pl :property-patrol-service -am verify
