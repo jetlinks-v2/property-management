@@ -4,9 +4,9 @@
 
 首次部署需在后端建表后执行[默认字典 SQL](sql/init-property-dictionaries.sql)，包含当前 4 类、17 个选项。具体执行方式见[字典初始化章节](系统管理模块前后端开发与复用规范.md#14-部署时初始化默认字典)。
 
-`property-base-manager` 承载本领域 Controller、Service、Entity、Repository、权限及国际化，统一由 `property-management-service` 装配。
+`property-base-manager` 承载本领域 Controller、Service、Entity、Repository、权限及国际化，由独立的 `property-base-service` 装配。从仓库根目录执行 `mvn -pl :property-base-service -am verify`，只构建基础系统及其依赖。
 
-`property-base-core` 只提供公共 DTO、组织类型枚举和组织树查询命令，不依赖 manager，不包含数据库实体或 CRUD。财务、巡更等消费模块只依赖 core，不能注入本模块内部 Service 或读取本模块数据表。
+`property-base-core` 只提供公共 DTO、组织类型枚举和组织树查询命令，不依赖 manager，不包含数据库实体或 CRUD。下述命令保留现有公开契约；当前财务、巡更后端不依赖或调用基础系统，均直接接入 SaaS 公共能力。
 
 ## 组织树公开命令
 
@@ -59,7 +59,7 @@ return CommandSupportManagerProviders
 
 用户及关系表 `pm_user`、`pm_user_org` 和租约表 `pm_user_sync_state` 由 EasyORM 管理。配置统一使用 `application-local.yml` 中的 `property.user-sync`：`enabled` 默认 true、`interval-seconds` 默认 3600（1 小时）、`max-users` 默认 100000、`timeout-seconds` 默认 120。关闭 enabled 同时关闭 worker 及手动任务入口。首次在应用就绪 5 秒后执行；手动同步返回 taskId，客户端轮询状态，不能把受理当完成。
 
-运行观测 MBean 为 `org.jetlinks:type=PropertyManagement,name=UserSync`；最近任务及失败原因通过 `_sync/status` 查询，失败保留上次成功时间。其他模块使用公开 HTTP 接口；后续需要跨模块命令时应在 core 增加明确契约，不依赖 manager 的内部服务或数据库实体。
+运行观测 MBean 为 `org.jetlinks:type=PropertyManagement,name=UserSync`；最近任务及失败原因通过 `_sync/status` 查询，失败保留上次成功时间。基础管理前端通过公开 HTTP 接口访问；其他物业后端不依赖本系统的内部服务、数据库或接口。
 
 ## 空间与房屋档案
 

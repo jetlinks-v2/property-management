@@ -1,5 +1,8 @@
 param(
-    [string]$SaasComposeDirectory = (Join-Path $PSScriptRoot '../../cloud.jetlinks/runtime/all-in-one'),
+    [Parameter(Mandatory = $true)]
+    [string]$SaasComposeDirectory,
+    [ValidateSet('base', 'finance', 'patrol')]
+    [string]$System = 'patrol',
     [string]$ComposeProject = 'jetlinks-local',
     [string]$AdvertisedHost
 )
@@ -9,7 +12,7 @@ $composeRoot = (Resolve-Path -LiteralPath $SaasComposeDirectory).Path
 $baseFile = Join-Path $composeRoot 'docker-compose.yml'
 $localFile = Join-Path $composeRoot 'docker-compose.local.yml'
 $overrideFile = Join-Path $PSScriptRoot 'docker-compose.host-dev.yml'
-$localConfigFile = Join-Path $PSScriptRoot '../services/property-management-service/src/main/resources/application-local.yml'
+$localConfigFile = Join-Path $PSScriptRoot "../services/property-$System-service/src/main/resources/application-local.yml"
 foreach ($file in @($baseFile, $localFile, $overrideFile)) {
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
         throw "Compose 文件不存在：$file"

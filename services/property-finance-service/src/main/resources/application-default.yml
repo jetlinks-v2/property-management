@@ -1,0 +1,20 @@
+# 财务收费本地配置示例。复制到同目录 application-local.yml，填写实际值。
+# IDEA 选择 default,dev,local；服务器从环境变量或外部配置读取连接信息。
+# application-local.yml 不进入 Git 或发布 JAR。本服务不维护独立登录账号。
+# DB_HOST: 127.0.0.1
+# DB_PORT: 5432
+# DB_DATABASE: property_finance
+# DB_SCHEMA: public
+# DB_USERNAME: 填写业务数据库账号
+# DB_PASSWORD: 填写实际数据库密码
+# REDIS_HOST: 127.0.0.1
+# REDIS_PORT: 6379
+# REDIS_DATABASE: 0
+# REDIS_PASSWORD: 填写实际 Redis 密码
+# CLUSTER_EXTERNAL_HOST: 填写其他节点可回连的本机地址
+# CLUSTER_EXTERNAL_PORT: 18504
+# RPC_EXTERNAL_HOST: 填写其他节点可回连的本机地址
+# RPC_EXTERNAL_PORT: 28504
+# RPC_TOKEN: 填写 SaaS RPC 通信密钥
+# CLUSTER_SEEDS: 127.0.0.1:18800
+# JWT_PUBLIC_KEY: 填写 SaaS 认证服务的 JWT 公钥
