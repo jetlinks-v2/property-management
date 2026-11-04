@@ -16,12 +16,15 @@ import java.util.Map;
 public class ReceivableLogView extends ReceivableLogEntity {
     private Map<String, Object> before;
     private Map<String, Object> after;
+    private Map<String, Object> detail;
 
     public static ReceivableLogView of(ReceivableLogEntity row) {
         var view = new ReceivableLogView();
         BeanUtils.copyProperties(row, view);
         view.setBefore(JSON.parseObject(row.getBeforeJson()));
         view.setAfter(JSON.parseObject(row.getAfterJson()));
+        view.setDetail(
+                row.getDetailJson() == null ? Map.of() : JSON.parseObject(row.getDetailJson()));
         return view;
     }
 }

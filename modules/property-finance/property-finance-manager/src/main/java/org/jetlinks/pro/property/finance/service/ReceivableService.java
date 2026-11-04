@@ -293,11 +293,18 @@ public class ReceivableService {
                 .as(MonoTracer.create("/property/finance/receivable/change"));
     }
 
-    private static String auditSnapshot(ReceivableEntity row) {
-        var snapshot = JSON.parseObject(JSON.toJSONString(row));
-        snapshot.put("deleted", row.getDeleted());
-        snapshot.put("deletedTime", row.getDeletedTime());
-        return snapshot.toJSONString();
+    static String auditSnapshot(ReceivableEntity row) {
+        var snapshot = new LinkedHashMap<String, Object>();
+        var wrapper = new org.springframework.beans.BeanWrapperImpl(row);
+        for (var field : wrapper.getPropertyDescriptors()) {
+            // Jackson注解不约束FastJSON；审计显式排除原始快照，并把金额转为精确文本。
+            if (Set.of("class", "snapshotJson").contains(field.getName())) continue;
+            var value = wrapper.getPropertyValue(field.getName());
+            snapshot.put(
+                    field.getName(),
+                    value instanceof java.math.BigDecimal amount ? amount.toPlainString() : value);
+        }
+        return JSON.toJSONString(snapshot);
     }
 
     private Mono<ReceivableEntity> row(

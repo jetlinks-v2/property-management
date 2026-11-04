@@ -32,7 +32,7 @@ public class ReceivableLogEntity extends GenericEntity<String> {
     @Column(length = 30, nullable = false)
     private String operation;
 
-    @Column(length = 500, nullable = false)
+    @Column(length = 1000, nullable = false)
     private String reason;
 
     @Column(length = 64, nullable = false)
@@ -57,4 +57,8 @@ public class ReceivableLogEntity extends GenericEntity<String> {
     @JsonIgnore
     @Column(length = 60000, nullable = false)
     private String afterJson;
+
+    @JsonIgnore
+    @Column(length = 60000)
+    private String detailJson;
 }

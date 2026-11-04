@@ -34,8 +34,7 @@ public class ReceivableGenerationService {
     private final ReactiveRepository<HouseSettingEntity, String> settings;
     private final ReactiveRepository<ReceivableEntity, String> bills;
     private final NaturalBillingPeriodService periods;
-    private final ReceivableAmountCalculator calculator;
-    private final ReceivableLateFeeCalculator lateFees;
+    private final ReceivableCalculationService calculation;
 
     @Transactional
     public Mono<GenerationResult> generate(
@@ -169,7 +168,7 @@ public class ReceivableGenerationService {
                                     if (kind != BillingTaskKind.GENERATE
                                             && kind != BillingTaskKind.ALL) return Mono.empty();
                                     var row = newBill(setting, period, standard, auth);
-                                    calculate(row, standard, date, kind);
+                                    calculation.calculate(row, standard, date, kind);
                                     return bills.insert(row).thenReturn(true);
                                 }));
     }
@@ -235,7 +234,7 @@ public class ReceivableGenerationService {
             return Mono.error(error("receivable_payment_locked", 409));
         if (date.isBefore(LocalDate.parse(bill.getCalculatedAsOfDate())))
             return Mono.error(error("receivable_date_regression", 409));
-        calculate(bill, standard, date, kind);
+        calculation.calculate(bill, standard, date, kind);
         var update =
                 audit(bills.createUpdate(), auth, bill.getVersion())
                         .set("contractReceivableAmount", bill.getContractReceivableAmount())
@@ -253,80 +252,6 @@ public class ReceivableGenerationService {
                 .execute()
                 .flatMap(SubjectService::changed)
                 .then();
-    }
-
-    private void calculate(
-            ReceivableEntity row, StandardEntity standard, LocalDate date, BillingTaskKind kind) {
-        row.setCalculatedAsOfDate(date.toString());
-        var context =
-                new ReceivableCalculationContext(
-                        new BillingPeriod(
-                                LocalDate.parse(row.getPeriodStart()),
-                                LocalDate.parse(row.getPeriodEnd())),
-                        LocalDate.parse(row.getCalcStartDate()),
-                        LocalDate.parse(row.getCalcEndDate()),
-                        standard.getFormulaExpression(),
-                        SettingRules.values(row.getSnapshotJson()),
-                        SettingRules.names(standard),
-                        standard.getChargeRoundType(),
-                        SettingRules.rounding(standard));
-        var principal = calculator.calculate(context, date);
-        boolean closed =
-                "CLOSED".equals(row.getPeriodStatus())
-                        || kind.closePeriod() && date.isAfter(context.getCoveredEnd());
-        if (kind.accrue()) {
-            row.setContractReceivableAmount(
-                    SettingRules.money(principal.getContractReceivableAmount()));
-            row.setAccruedReceivableAmount(
-                    closed
-                            ? row.getContractReceivableAmount()
-                            : SettingRules.money(principal.getAccruedReceivableAmount()));
-            row.setAccruedAsOfDate(date.toString());
-            row.setPeriodStatus(closed ? "CLOSED" : "OPEN");
-        }
-        BigDecimal base =
-                row.getAccruedReceivableAmount()
-                        .add(row.getAdjustmentAmount())
-                        .add(row.getAssessmentAmount())
-                        .add(row.getTemporaryDispatchAmount())
-                        .subtract(row.getFeeReductionAmount());
-        SettingRules.money(base);
-        if (kind.lateFee() && !Boolean.TRUE.equals(row.getLateFeeLocked())) {
-            var late =
-                    lateFees.calculateLateFee(
-                            ReceivableSnapshot.builder()
-                                    .receivableId(row.getId())
-                                    .dueDate(LocalDate.parse(row.getDueDate()))
-                                    .lateFeeEnabled(
-                                            Integer.valueOf(1).equals(standard.getIsDelay()))
-                                    .lateFeeCalculationType(
-                                            Integer.valueOf(0).equals(standard.getDelayCalcForm())
-                                                    ? "FIXED"
-                                                    : "PERCENTAGE")
-                                    .lateFeePeriodType(
-                                            Integer.valueOf(0).equals(standard.getDelayRoundType())
-                                                    ? "DAILY"
-                                                    : "MONTHLY")
-                                    .lateFeeBaseType(standard.getDelayBaseType())
-                                    .lateFeeAmountOrRate(standard.getRateAmount())
-                                    .currentReceivable(base)
-                                    // 按当前未收本金计提，排除之前已计提滞纳金，保证同日重跑不会产生复利。
-                                    .accumulatedOverdue(
-                                            base.subtract(row.getPaidAmount()).max(BigDecimal.ZERO))
-                                    .paid(false)
-                                    .lateFeeLocked(false)
-                                    .moneyScale(row.getMoneyScale())
-                                    .build(),
-                            date);
-            row.setAccruedLateFeeAmount(SettingRules.money(late.getAccruedLateFee()));
-        }
-        row.setFinalLateFeeAmount(
-                row.getAccruedLateFeeAmount()
-                        .subtract(row.getLateFeeReductionAmount())
-                        .max(BigDecimal.ZERO));
-        row.setActualReceivableAmount(SettingRules.money(base.add(row.getFinalLateFeeAmount())));
-        row.setArrears(
-                row.getActualReceivableAmount().subtract(row.getPaidAmount()).max(BigDecimal.ZERO));
     }
 
     public record GenerationResult(int generated, int retained) {}

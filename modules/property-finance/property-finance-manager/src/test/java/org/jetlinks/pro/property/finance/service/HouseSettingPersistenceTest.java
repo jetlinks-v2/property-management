@@ -62,6 +62,8 @@ class HouseSettingPersistenceTest {
     @Autowired ReactiveRepository<ReceivableEntity, String> bills;
     @Autowired BillingTaskService tasks;
     @Autowired ReceivableService receivables;
+    @Autowired ReceivableAdjustmentService adjustments;
+    @Autowired org.jetlinks.pro.property.finance.receivable.AdjustmentRules adjustmentRules;
     @Autowired ReactiveRepository<ReceivableLogEntity, String> receivableLogs;
     @Autowired FinanceScope financeScope;
     @Autowired org.springframework.transaction.ReactiveTransactionManager transactionManager;
@@ -956,6 +958,244 @@ class HouseSettingPersistenceTest {
                 .isArray();
     }
 
+    @Test
+    void adjustmentPreviewHasNoWritesAndPublishMatchesPreviewWithImmutableSourceAndAudit() {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var bill =
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        var input = new org.jetlinks.pro.property.finance.receivable.AdjustmentInput();
+        input.setVersion(bill.getVersion());
+        input.setAdjustmentMode("DIRECT");
+        input.setDirectDirection("INCREASE");
+        input.setDirectAmount("10.00");
+        input.setAssessmentAmount("2.00");
+        input.setTemporaryDispatchCount(2);
+        input.setTemporaryDispatchUnitPrice("3.50");
+        input.setFeeReductionAmount("1.00");
+        input.setReason("补充本期费用");
+        input.setAttachmentFileIds(List.of("file-id"));
+        var preview =
+                adjustments
+                        .preview(project, bill.getId(), input, DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(bill.getVersion(), bills.findById(bill.getId()).block(WAIT).getVersion());
+        assertEquals(
+                0,
+                receivableLogs
+                        .createQuery()
+                        .where("receivableId", bill.getId())
+                        .count()
+                        .block(WAIT));
+        input.setRemark("改动输入");
+        conflict(
+                adjustments.submit(
+                        project,
+                        bill.getId(),
+                        new ReceivableAdjustmentService.SubmitInput(input, preview.token()),
+                        DATE),
+                409);
+        input.setRemark(null);
+        conflict(
+                adjustments.submit(
+                        project,
+                        bill.getId(),
+                        new ReceivableAdjustmentService.SubmitInput(input, preview.token()),
+                        DATE.plusDays(1)),
+                409);
+        var published =
+                adjustments
+                        .submit(
+                                project,
+                                bill.getId(),
+                                new ReceivableAdjustmentService.SubmitInput(input, preview.token()),
+                                DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(
+                preview.effectiveAfter().getActualReceivableAmount(),
+                published.getActualReceivableAmount());
+        assertEquals(new BigDecimal("43.51"), published.getActualReceivableAmount());
+        assertEquals(
+                bill.getSnapshotJson(), bills.findById(bill.getId()).block(WAIT).getSnapshotJson());
+        var log =
+                receivables
+                        .logs(
+                                project,
+                                bill.getId(),
+                                new org.hswebframework.web.api.crud.entity.QueryParamEntity())
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .getData()
+                        .get(0);
+        assertEquals("ADJUST", log.getOperation());
+        var logInput = (Map<?, ?>) log.getDetail().get("input");
+        assertEquals(List.of("file-id"), logInput.get("attachmentFileIds"));
+        assertEquals("25.51", log.getBefore().get("actualReceivableAmount"));
+        assertEquals("43.51", log.getAfter().get("actualReceivableAmount"));
+        conflict(
+                adjustments.submit(
+                        project,
+                        bill.getId(),
+                        new ReceivableAdjustmentService.SubmitInput(input, preview.token()),
+                        DATE),
+                409);
+        generation
+                .generate(project, saved.setting().getId(), DATE.plusDays(1))
+                .contextWrite(allowed())
+                .block(WAIT);
+        assertEquals(
+                new BigDecimal("47.76"),
+                bills.findById(bill.getId()).block(WAIT).getActualReceivableAmount());
+    }
+
+    @Test
+    void formulaAdjustmentUsesFrozenStandardAndConcurrentPublishOnlySucceedsOnce() {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var bill =
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        var input = new org.jetlinks.pro.property.finance.receivable.AdjustmentInput();
+        input.setVersion(bill.getVersion());
+        input.setAdjustmentMode("FORMULA");
+        input.setReason("调整计费面积");
+        var line = new org.jetlinks.pro.property.finance.receivable.AdjustmentInput.FormulaLine();
+        line.setSubjectId(subjectId);
+        line.setStandardId(standardId);
+        line.setAfterVariableValues(Map.of("BILLING_AREA", "200.50"));
+        input.setFormulaLine(line);
+        standards
+                .createUpdate()
+                .set("price", new BigDecimal("99"))
+                .where("id", standardId)
+                .execute()
+                .block(WAIT);
+        var preview =
+                adjustments
+                        .preview(project, bill.getId(), input, DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(new BigDecimal("85.04"), preview.delta());
+        var submit = new ReceivableAdjustmentService.SubmitInput(input, preview.token());
+        var results =
+                Flux.merge(
+                                adjustments
+                                        .submit(project, bill.getId(), submit, DATE)
+                                        .map(row -> true)
+                                        .onErrorReturn(false),
+                                adjustments
+                                        .submit(project, bill.getId(), submit, DATE)
+                                        .map(row -> true)
+                                        .onErrorReturn(false))
+                        .collectList()
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(1, results.stream().filter(Boolean::booleanValue).count());
+        assertEquals(
+                1,
+                receivableLogs
+                        .createQuery()
+                        .where("receivableId", bill.getId())
+                        .count()
+                        .block(WAIT));
+        conflict(adjustments.preview("other", bill.getId(), input, DATE), 404);
+        conflict(adjustments.preview("forbidden", bill.getId(), input, DATE), 403);
+    }
+
+    @Test
+    void adjustmentAuditFailureRollsBackAmountsAndHttpPreviewUsesPreciseSafeContract() {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var bill =
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        var input = new org.jetlinks.pro.property.finance.receivable.AdjustmentInput();
+        input.setVersion(bill.getVersion());
+        input.setAdjustmentMode("DIRECT");
+        input.setDirectDirection("INCREASE");
+        input.setDirectAmount("10.00");
+        input.setReason("核对金额");
+        var preview =
+                adjustments
+                        .preview(project, bill.getId(), input, DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        @SuppressWarnings("unchecked")
+        ReactiveRepository<ReceivableLogEntity, String> failedLogs = mock(ReactiveRepository.class);
+        when(failedLogs.insert(any(ReceivableLogEntity.class)))
+                .thenReturn(Mono.error(new IllegalStateException("audit unavailable")));
+        var failedService =
+                new ReceivableAdjustmentService(financeScope, adjustmentRules, bills, failedLogs);
+        StepVerifier.create(
+                        org.springframework.transaction.reactive.TransactionalOperator.create(
+                                        transactionManager)
+                                .transactional(
+                                        failedService.submit(
+                                                project,
+                                                bill.getId(),
+                                                new ReceivableAdjustmentService.SubmitInput(
+                                                        input, preview.token()),
+                                                DATE))
+                                .contextWrite(allowed()))
+                .expectErrorMessage("audit unavailable")
+                .verify(WAIT);
+        var retained = bills.findById(bill.getId()).block(WAIT);
+        assertEquals(bill.getVersion(), retained.getVersion());
+        assertEquals(bill.getActualReceivableAmount(), retained.getActualReceivableAmount());
+        assertEquals(bill.getSnapshotJson(), retained.getSnapshotJson());
+        assertEquals(
+                0,
+                receivableLogs
+                        .createQuery()
+                        .where("receivableId", bill.getId())
+                        .count()
+                        .block(WAIT));
+        var client =
+                org.springframework.test.web.reactive.server.WebTestClient.bindToController(
+                                new org.jetlinks.pro.property.finance.web
+                                        .ReceivableAdjustmentController(adjustments))
+                        .webFilter(
+                                (exchange, chain) -> chain.filter(exchange).contextWrite(allowed()))
+                        .build();
+        client.post()
+                .uri(
+                        "/property/finance/projects/"
+                                + project
+                                + "/receivables/"
+                                + bill.getId()
+                                + "/adjustment/_preview")
+                .bodyValue(input)
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody()
+                .jsonPath("$.delta")
+                .isEqualTo("10.00")
+                .jsonPath("$.effectiveAfter.actualReceivableAmount")
+                .isEqualTo("95.04")
+                .jsonPath("$.effectiveAfter.snapshotJson")
+                .doesNotExist()
+                .jsonPath("$.after")
+                .doesNotExist()
+                .jsonPath("$.token")
+                .isNotEmpty();
+    }
+
     private void conflict(Mono<?> action, int status) {
         StepVerifier.create(action.contextWrite(allowed()))
                 .expectErrorMatches(error -> TaxItemPersistenceTest.status(error, status))
@@ -967,13 +1207,16 @@ class HouseSettingPersistenceTest {
         StandardPersistenceTest.Config.class,
         HouseSettingService.class,
         ReceivableGenerationService.class,
+        ReceivableCalculationService.class,
         ReceivableAmountCalculator.class,
         ChargeFormulaEvaluator.class,
         BillingProrationService.class,
         NaturalBillingPeriodService.class,
         ReceivableLateFeeCalculator.class,
         BillingTaskService.class,
-        ReceivableService.class
+        ReceivableService.class,
+        ReceivableAdjustmentService.class,
+        org.jetlinks.pro.property.finance.receivable.AdjustmentRules.class
     })
     static class Config {
         @Bean
