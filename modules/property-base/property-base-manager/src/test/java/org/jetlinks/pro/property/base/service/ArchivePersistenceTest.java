@@ -14,11 +14,11 @@ import org.hswebframework.web.authorization.simple.SimpleUser;
 import org.hswebframework.web.exception.BusinessException;
 import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
+import org.jetlinks.pro.command.CommandSupportManagerProviders;
+import org.jetlinks.pro.property.base.command.PropertyProjectCommandSupport;
+import org.jetlinks.pro.property.base.command.QueryPropertyProjectCommand;
 import org.jetlinks.pro.property.base.entity.*;
 import org.jetlinks.pro.property.base.organization.OrganizationType;
-import org.jetlinks.pro.property.base.command.QueryPropertyProjectCommand;
-import org.jetlinks.pro.property.base.command.PropertyProjectCommandSupport;
-import org.jetlinks.pro.command.CommandSupportManagerProviders;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,26 +60,58 @@ class ArchivePersistenceTest {
 
     @Test
     void dictionaryCommandOnlyReturnsCurrentOptionsAndDoesNotHideMissingOrDisabledCategory() {
-        var type=dictionary.createType(new PropertyDictionaryService.TypeRequest("billing-method-test","测试收费方式",true,null))
-                .contextWrite(all()).block(WAIT);
-        dictionary.createItem(type.getCode(),new PropertyDictionaryService.ItemRequest("cash","现金",true,null,type.getCode()))
-                .contextWrite(all()).block(WAIT);
-        dictionary.createItem(type.getCode(),new PropertyDictionaryService.ItemRequest("old","停用方式",false,null,type.getCode()))
-                .contextWrite(all()).block(WAIT);
-        var support=new org.jetlinks.pro.property.base.command.PropertyDictionaryCommandSupport(dictionary);
-        var command=new org.jetlinks.pro.property.base.command.QueryPropertyDictionaryOptionsCommand();
+        var type =
+                dictionary
+                        .createType(
+                                new PropertyDictionaryService.TypeRequest(
+                                        "billing-method-test", "测试收费方式", true, null))
+                        .contextWrite(all())
+                        .block(WAIT);
+        dictionary
+                .createItem(
+                        type.getCode(),
+                        new PropertyDictionaryService.ItemRequest(
+                                "cash", "现金", true, null, type.getCode()))
+                .contextWrite(all())
+                .block(WAIT);
+        dictionary
+                .createItem(
+                        type.getCode(),
+                        new PropertyDictionaryService.ItemRequest(
+                                "old", "停用方式", false, null, type.getCode()))
+                .contextWrite(all())
+                .block(WAIT);
+        var support =
+                new org.jetlinks.pro.property.base.command.PropertyDictionaryCommandSupport(
+                        dictionary);
+        var command =
+                new org.jetlinks.pro.property.base.command.QueryPropertyDictionaryOptionsCommand();
         command.setTypeCode(type.getCode());
-        var options=support.queryOptions(command).contextWrite(all()).block(WAIT);
-        assertEquals(List.of(new org.jetlinks.pro.property.base.dictionary.PropertyDictionaryOption("cash","现金")),options);
-        dictionary.updateType(type.getId(),new PropertyDictionaryService.TypeRequest(type.getCode(),type.getName(),false,type.getVersion()))
-                .contextWrite(all()).block(WAIT);
+        var options = support.queryOptions(command).contextWrite(all()).block(WAIT);
+        assertEquals(
+                List.of(
+                        new org.jetlinks.pro.property.base.dictionary.PropertyDictionaryOption(
+                                "cash", "现金")),
+                options);
+        dictionary
+                .updateType(
+                        type.getId(),
+                        new PropertyDictionaryService.TypeRequest(
+                                type.getCode(), type.getName(), false, type.getVersion()))
+                .contextWrite(all())
+                .block(WAIT);
         StepVerifier.create(support.queryOptions(command).contextWrite(all()))
-                .expectErrorMatches(error -> status(error,409)).verify(WAIT);
+                .expectErrorMatches(error -> status(error, 409))
+                .verify(WAIT);
         command.setTypeCode("missing-category");
         StepVerifier.create(support.queryOptions(command).contextWrite(all()))
-                .expectErrorMatches(error -> status(error,404)).verify(WAIT);
-        StepVerifier.create(support.queryOptions(command)).expectError(UnAuthorizedException.class).verify(WAIT);
+                .expectErrorMatches(error -> status(error, 404))
+                .verify(WAIT);
+        StepVerifier.create(support.queryOptions(command))
+                .expectError(UnAuthorizedException.class)
+                .verify(WAIT);
     }
+
     @Autowired ReactiveRepository<PropertyOrganizationEntity, String> organizations;
     @Autowired ReactiveRepository<PropertySpaceEntity, String> spaces;
     @Autowired ReactiveRepository<PropertySpaceBindingEntity, String> bindings;
@@ -141,19 +173,118 @@ class ArchivePersistenceTest {
     }
 
     @Test
+    void publicHouseCommandsUseCompleteLeafDataAndPreserveScope() {
+        houseService
+                .save("project", "single", write("single", 0L, "100.25"))
+                .contextWrite(all())
+                .block(WAIT);
+        houseService
+                .save("project", "room", write("room", 0L, "80.50"))
+                .contextWrite(all())
+                .block(WAIT);
+        var command = new org.jetlinks.pro.property.base.command.QueryPropertyHousesCommand();
+        command.setProjectId("project");
+        command.setPageSize(1);
+        var support =
+                CommandSupportManagerProviders.getCommandSupport(command.SERVICE_ID).block(WAIT);
+        assertNotNull(support);
+        var page = support.execute(command).contextWrite(all()).block(WAIT);
+        assertEquals(2, page.total());
+        assertEquals(1, page.data().size());
+        assertEquals(1, page.pageSize());
+        command.setKeyword("仅一栋");
+        page = support.execute(command).contextWrite(all()).block(WAIT);
+        assertEquals(1, page.total());
+        assertEquals("single", page.data().get(0).spaceId());
+        assertEquals(new BigDecimal("100.25"), page.data().get(0).billingArea());
+        StepVerifier.create(support.execute(command))
+                .expectError(UnAuthorizedException.class)
+                .verify(WAIT);
+        StepVerifier.create(
+                        support.execute(command)
+                                .contextWrite(access(Set.of(), Set.of("other-project"))))
+                .expectError(AccessDenyException.class)
+                .verify(WAIT);
+        command.setPageSize(201);
+        StepVerifier.create(support.execute(command).contextWrite(all()))
+                .expectErrorMatches(error -> status(error, 400))
+                .verify(WAIT);
+    }
+
+    @Test
+    void publicHouseContextOnlyIncludesCurrentCustomersFromRequestedLeaf() {
+        houseService
+                .save("project", "single", write("single", 0L, "100.25"))
+                .contextWrite(all())
+                .block(WAIT);
+        for (int i = 0; i < 4; i++) {
+            var customer = new PropertyCustomerEntity();
+            customer.setId("command-customer-" + i);
+            customer.setProjectId("project");
+            customer.setUserId("command-user-" + i);
+            customer.setName("客户" + i);
+            customer.setCustomerType("person");
+            customer.setTelephone("123");
+            customer.setCertificateNumber("must-not-be-public");
+            customer.setDeleted(i == 3);
+            customer.setVersion(0L);
+            customers.insert(customer).block(WAIT);
+            var link = new PropertyCustomerRelationshipEntity();
+            link.setId("command-link-" + i);
+            link.setProjectId("project");
+            link.setCustomerId(customer.getId());
+            link.setSpaceId(i == 2 ? "room" : "single");
+            link.setStartTime(1000L);
+            link.setDeleted(false);
+            link.setVersion(0L);
+            if (i == 1) link.setEndTime(2000L);
+            relationships.insert(link).block(WAIT);
+        }
+        var command = new org.jetlinks.pro.property.base.command.QueryPropertyHouseContextCommand();
+        command.setProjectId("project");
+        command.setSpaceId("single");
+        var support =
+                CommandSupportManagerProviders.getCommandSupport(command.SERVICE_ID).block(WAIT);
+        var current = support.execute(command).contextWrite(all()).block(WAIT);
+        assertEquals("single", current.house().spaceId());
+        assertEquals(1, current.customers().size());
+        assertEquals("command-link-0", current.customers().get(0).relationshipId());
+        assertEquals("客户0", current.customers().get(0).name());
+        command.setSpaceId("tower");
+        StepVerifier.create(support.execute(command).contextWrite(all()))
+                .expectErrorMatches(error -> status(error, 409))
+                .verify(WAIT);
+        command.setSpaceId("other");
+        StepVerifier.create(support.execute(command).contextWrite(all()))
+                .expectErrorMatches(error -> status(error, 404))
+                .verify(WAIT);
+        command.setSpaceId("room");
+        StepVerifier.create(support.execute(command).contextWrite(all()))
+                .expectErrorMatches(error -> status(error, 409))
+                .verify(WAIT);
+    }
+
+    @Test
     void projectCommandPreservesAssetAuthorizationAndRejectsNonProjectOrganizations() {
         var command = new QueryPropertyProjectCommand();
         command.setProjectId("project");
-        var query = CommandSupportManagerProviders.getCommandSupport(QueryPropertyProjectCommand.SERVICE_ID)
-                .switchIfEmpty(Mono.error(new IllegalStateException("Project command not registered")))
-                .flatMap(support -> support.execute(command));
+        var query =
+                CommandSupportManagerProviders.getCommandSupport(
+                                QueryPropertyProjectCommand.SERVICE_ID)
+                        .switchIfEmpty(
+                                Mono.error(
+                                        new IllegalStateException(
+                                                "Project command not registered")))
+                        .flatMap(support -> support.execute(command));
         var project = query.contextWrite(all()).block(WAIT);
         assertEquals("project", project.id());
         StepVerifier.create(query.contextWrite(access(Set.of(), Set.of("other-project"))))
-                .expectError(AccessDenyException.class).verify(WAIT);
+                .expectError(AccessDenyException.class)
+                .verify(WAIT);
         command.setProjectId("untyped");
         StepVerifier.create(query.contextWrite(all()))
-                .expectErrorMatches(error -> status(error, 404)).verify(WAIT);
+                .expectErrorMatches(error -> status(error, 404))
+                .verify(WAIT);
         StepVerifier.create(query).expectError(UnAuthorizedException.class).verify(WAIT);
     }
 
@@ -163,15 +294,53 @@ class ArchivePersistenceTest {
         organization("hidden", null);
         organization("external", OrganizationType.external);
         organization("removed", OrganizationType.project);
-        organizations.createUpdate().set("parentId", "company").where("id", "project").execute().block(WAIT);
-        organizations.createUpdate().set("parentId", "hidden").where("id", "other-project").execute().block(WAIT);
-        organizations.createUpdate().set("deleted", true).where("id", "removed").execute().block(WAIT);
-        var result = spaceService.projects().contextWrite(access(Set.of(), Set.of(
-                "project", "other-project", "company", "external", "removed"))).block(WAIT);
-        assertEquals(List.of("other-project", "project"), result.stream().map(PropertySpaceService.Project::id).toList());
-        assertEquals(List.of("other-project"), result.get(0).organizationPath().stream().map(PropertySpaceService.OrganizationPath::id).toList());
-        assertEquals(List.of("company", "project"), result.get(1).organizationPath().stream().map(PropertySpaceService.OrganizationPath::id).toList());
-        StepVerifier.create(spaceService.projects()).expectError(UnAuthorizedException.class).verify(WAIT);
+        organizations
+                .createUpdate()
+                .set("parentId", "company")
+                .where("id", "project")
+                .execute()
+                .block(WAIT);
+        organizations
+                .createUpdate()
+                .set("parentId", "hidden")
+                .where("id", "other-project")
+                .execute()
+                .block(WAIT);
+        organizations
+                .createUpdate()
+                .set("deleted", true)
+                .where("id", "removed")
+                .execute()
+                .block(WAIT);
+        var result =
+                spaceService
+                        .projects()
+                        .contextWrite(
+                                access(
+                                        Set.of(),
+                                        Set.of(
+                                                "project",
+                                                "other-project",
+                                                "company",
+                                                "external",
+                                                "removed")))
+                        .block(WAIT);
+        assertEquals(
+                List.of("other-project", "project"),
+                result.stream().map(PropertySpaceService.Project::id).toList());
+        assertEquals(
+                List.of("other-project"),
+                result.get(0).organizationPath().stream()
+                        .map(PropertySpaceService.OrganizationPath::id)
+                        .toList());
+        assertEquals(
+                List.of("company", "project"),
+                result.get(1).organizationPath().stream()
+                        .map(PropertySpaceService.OrganizationPath::id)
+                        .toList());
+        StepVerifier.create(spaceService.projects())
+                .expectError(UnAuthorizedException.class)
+                .verify(WAIT);
     }
 
     @Test
@@ -926,6 +1095,11 @@ class ArchivePersistenceTest {
         return Context.of(AssetsHolder.class, holder, Authentication.class, auth);
     }
 
-    @Import({CustomerPersistenceTest.Config.class, PropertySpaceService.class, PropertyProjectCommandSupport.class})
+    @Import({
+        CustomerPersistenceTest.Config.class,
+        PropertySpaceService.class,
+        PropertyProjectCommandSupport.class,
+        org.jetlinks.pro.property.base.command.PropertyHouseCommandSupport.class
+    })
     static class Config {}
 }
