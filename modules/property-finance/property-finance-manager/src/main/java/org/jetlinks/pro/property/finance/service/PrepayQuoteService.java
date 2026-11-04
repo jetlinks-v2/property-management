@@ -196,7 +196,8 @@ public class PrepayQuoteService {
                                                 period.originalAmount(),
                                                 period.paidAmount(),
                                                 period.discountAmount()))
-                        .toList());
+                        .toList(),
+                row.getPaymentId());
     }
 
     private static Throwable duplicate(Throwable failure) {
@@ -226,5 +227,6 @@ public class PrepayQuoteService {
             String payerName,
             String payAmount,
             String originalAmount,
-            List<Line> lines) {}
+            List<Line> lines,
+            String paymentId) {}
 }

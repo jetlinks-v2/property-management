@@ -164,7 +164,7 @@ public class PaymentRules {
     }
 
     /** 沿旧TypeDutyAddDTO逐笔消耗支付额度，直接按分取最小值，不按浮点比例分配。 */
-    private static List<Allocation> allocate(CashierInput input) {
+    static List<Allocation> allocate(CashierInput input) {
         var result = new ArrayList<Allocation>();
         int tenderIndex = 0;
         var remaining = money(input.getTenders().get(0).amount());

@@ -32,6 +32,26 @@ public class PaymentLedger {
             PaymentRules.Result result,
             CashierConfiguration.Resolved configuration,
             Authentication auth) {
+        return persist(payment, originals, result, configuration, auth, false);
+    }
+
+    /** 仅预缴确认可带入已验证的逐期优惠；普通收款不接受前端减免字段。 */
+    Mono<List<PaymentAllocationEntity>> persistPrepay(
+            PaymentEntity payment,
+            List<ReceivableEntity> originals,
+            PaymentRules.Result result,
+            CashierConfiguration.Resolved configuration,
+            Authentication auth) {
+        return persist(payment, originals, result, configuration, auth, true);
+    }
+
+    private Mono<List<PaymentAllocationEntity>> persist(
+            PaymentEntity payment,
+            List<ReceivableEntity> originals,
+            PaymentRules.Result result,
+            CashierConfiguration.Resolved configuration,
+            Authentication auth,
+            boolean prepay) {
         var before = new HashMap<String, ReceivableEntity>();
         originals.forEach(row -> before.put(row.getId(), row));
         var after = new HashMap<String, ReceivableEntity>();
@@ -42,11 +62,16 @@ public class PaymentLedger {
                                 .concatMap(
                                         row -> {
                                             var original = before.get(row.getId());
-                                            return audit(
+                                            var update =
+                                                    audit(
                                                             bills.createUpdate(),
                                                             auth,
-                                                            original.getVersion())
-                                                    .set("paidAmount", row.getPaidAmount())
+                                                            original.getVersion());
+                                            if (prepay)
+                                                update.set(
+                                                        "feeReductionAmount",
+                                                        row.getFeeReductionAmount());
+                                            return update.set("paidAmount", row.getPaidAmount())
                                                     .set("paidDate", row.getPaidDate())
                                                     .set("arrears", row.getArrears())
                                                     .set(
@@ -96,7 +121,10 @@ public class PaymentLedger {
                                                                                 row.getId());
                                                                         log.setSpaceId(
                                                                                 row.getSpaceId());
-                                                                        log.setOperation("COLLECT");
+                                                                        log.setOperation(
+                                                                                prepay
+                                                                                        ? "PREPAY_COLLECT"
+                                                                                        : "COLLECT");
                                                                         log.setReason(
                                                                                 payment.getId());
                                                                         log.setOperatorId(

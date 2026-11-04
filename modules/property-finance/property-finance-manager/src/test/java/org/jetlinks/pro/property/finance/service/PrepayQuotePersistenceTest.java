@@ -102,6 +102,7 @@ class PrepayQuotePersistenceTest {
     ActivityEntity activity(boolean offset) {
         var input = new ActivityInput();
         input.setName("充二送一");
+        input.setActivityType("prepay");
         input.setSubjectId(fixture.subjectId);
         input.setStandardId(fixture.standardId);
         input.setStartDate("2024-01-01");
@@ -109,8 +110,8 @@ class PrepayQuotePersistenceTest {
         input.setTargetIds(List.of("root"));
         input.setTiers(List.of(new ActivityInput.Tier(2, 1)));
         input.setOffsetArrears(offset);
-        input.setOffsetStartDate("2024-01-01");
-        input.setOffsetEndDate("2024-01-31");
+        input.setOffsetStartDate(offset ? "2024-01-01" : null);
+        input.setOffsetEndDate(offset ? "2024-01-31" : null);
         var snapshot = new ActivitySnapshot();
         snapshot.setInput(input);
         snapshot.setTargets(List.of());

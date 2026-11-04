@@ -36,6 +36,7 @@ public class ActivityService {
     private final ReactiveRepository<ActivityEntity, String> activities;
     private final ReactiveRepository<ActivityLogEntity, String> logs;
     private final ReactiveRepository<SubjectEntity, String> subjectRows;
+    private final ReactiveRepository<PrepayConsumptionEntity, String> consumption;
 
     public Mono<Map<String, Object>> options(String project) {
         return scope.project(project, CrudAssetPermission.read)
@@ -328,6 +329,12 @@ public class ActivityService {
         next.setModifierName(auth.getUser().getUsername());
         return permissions(config(old), CrudAssetPermission.save)
                 .then(
+                        "UPDATE".equals(operation)
+                                        && !protectedConfig(config(old).getInput())
+                                                .equals(protectedConfig(snapshot.getInput()))
+                                ? assertNotConsumed(old)
+                                : Mono.empty())
+                .then(
                         audit(activities.createUpdate(), auth, old.getVersion())
                                 .set("name", next.getName())
                                 .set("subjectId", next.getSubjectId())
@@ -416,6 +423,7 @@ public class ActivityService {
                                                     return permissions(
                                                                     config(old),
                                                                     CrudAssetPermission.save)
+                                                            .then(assertNotConsumed(old))
                                                             .then(
                                                                     audit(
                                                                                     activities
@@ -445,6 +453,39 @@ public class ActivityService {
                                                                                             "DELETE",
                                                                                             auth)));
                                                 }));
+    }
+
+    /** 消费快照不能被配置编辑或删除抹掉；启停、延期/提前结束仅影响后续报名。 */
+    private Mono<Void> assertNotConsumed(ActivityEntity activity) {
+        return consumption
+                .createQuery()
+                .where("projectId", activity.getProjectId())
+                .and("activityId", activity.getId())
+                .count()
+                .flatMap(
+                        count ->
+                                count > 0
+                                        ? Mono.error(error("activity_consumed", 409))
+                                        : Mono.empty());
+    }
+
+    private static String protectedConfig(ActivityInput input) {
+        return encode(
+                Arrays.asList(
+                        input.getActivityType(),
+                        input.getSubjectId(),
+                        input.getStandardId(),
+                        input.getStartDate(),
+                        input.getEndDate(),
+                        input.getOffsetArrears(),
+                        input.getOffsetStartDate(),
+                        input.getOffsetEndDate(),
+                        input.getTargetIds().stream().sorted().toList(),
+                        input.getTiers().stream()
+                                .sorted(
+                                        Comparator.comparing(ActivityInput.Tier::paidMonths)
+                                                .thenComparing(ActivityInput.Tier::giftMonths))
+                                .toList()));
     }
 
     private Mono<ActivityEntity> row(

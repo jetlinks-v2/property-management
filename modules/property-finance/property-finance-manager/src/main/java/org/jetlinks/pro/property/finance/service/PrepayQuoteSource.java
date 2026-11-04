@@ -38,6 +38,7 @@ public class PrepayQuoteSource {
     private final ReactiveRepository<ProjectSubjectEntity, String> issued;
     private final ReactiveRepository<ActivityEntity, String> activities;
     private final ReactiveRepository<ReceivableEntity, String> bills;
+    private final ReactiveRepository<PrepayConsumptionEntity, String> consumption;
     private final BillingJobProperties billingProperties;
 
     Mono<PrepayQuoteSnapshot> prepare(String project, PrepayQuoteInput input, LocalDate date) {
@@ -170,8 +171,21 @@ public class PrepayQuoteSource {
                                                             input.paidMonths(),
                                                             input.giftMonths())))
                                 return Mono.error(error("prepay_activity_invalid", 409));
-                            return activitySource
-                                    .spaces(project)
+                            return consumption
+                                    .createQuery()
+                                    .where("projectId", project)
+                                    .and("spaceId", setting.getSpaceId())
+                                    .and("activityId", input.activityId())
+                                    .count()
+                                    .flatMap(
+                                            count ->
+                                                    count > 0
+                                                            ? Mono.error(
+                                                                    error(
+                                                                            "prepay_activity_used",
+                                                                            409))
+                                                            : Mono.empty())
+                                    .then(activitySource.spaces(project))
                                     .map(
                                             spaces -> {
                                                 var parents = new HashMap<String, String>();
