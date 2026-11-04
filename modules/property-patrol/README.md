@@ -155,3 +155,12 @@ PC 模板不默认授予执行提交权限；未来执行端需要独立装配�
 三类统计补充接口：`POST /park/patrol/statistics/{points|people}/report` 返回周期、分组与总计；`POST /park/patrol/statistics/{points|people}/export?qualification=false` 导出XLSX，`qualification=true`导出时段完成合格率。均沿用 `patrol-report:query` 与计划资产 read，原列表接口保留给已部署调用。
 
 项目与员工接入本地验证：已覆盖真实应用 Scope 新增、项目内查询、兄弟项目列表/详情拒绝、普通编辑禁止改归属，以及共享配置编辑保留组织；有效员工执行资格的正向完整联调仍需已标注员工的测试账号。本地接入使用独立基础服务的公开只读命令；远端上线需同步发布基础服务的新员工契约，不能仅更新巡更 JAR。历史无归属数据仍须显式审查分配，不自动迁移。
+
+## 组织资产权限兼容
+
+巡更独立服务的 `PatrolAssetsConfiguration` 通过原 Bean 名替换组织及上下级权限提供者。
+当前公共组件在账号具有多个应用维度但没有有效组织维度时，会生成目标为空的资产查询条件。
+`EmptySafeOrgIncludeParentAssetsAccessSupport` 只对空组织的查询分支使用恒假条件，
+保留其他租户、应用和创建人授权分支；有组织及写入操作继续使用公共组件行为。
+该配置属于巡更启动服务，不要求将基础 manager 打入巡更，也不修改公共组件仓库。
+公共组件修复后可以移除此兼容实现；回归须覆盖零个及多个非组织维度、有效组织和同名 Bean 替换。
