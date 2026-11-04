@@ -30,6 +30,7 @@ public class ProjectSubjectService {
     private final SubjectCategoryService categories;
     private final ReactiveRepository<SubjectEntity, String> subjectRepository;
     private final ReactiveRepository<ProjectSubjectEntity, String> relations;
+    private final ReactiveRepository<StandardEntity, String> standards;
 
     public Mono<PagerResult<Row>> query(
             String projectId, QueryParamEntity input, String categoryId) {
@@ -224,21 +225,44 @@ public class ProjectSubjectService {
                                                     if (selected.getVersion() != version)
                                                         return Mono.error(
                                                                 error("version_conflict", 409));
-                                                    // 后续收费标准必须在此真实查询其引用，引用写入方同样锁定此稳定项目关系。
-                                                    return audit(
-                                                                    relations.createUpdate(),
-                                                                    auth,
-                                                                    version)
-                                                            .set("deleted", true)
-                                                            .set(
-                                                                    "deletedTime",
-                                                                    System.currentTimeMillis())
-                                                            .where("id", id)
-                                                            .and("projectId", projectId)
-                                                            .and("version", version)
+                                                    // 标准保存方同样先锁科目和稳定项目关系，引用检查失败直接传播。
+                                                    return standards
+                                                            .createQuery()
+                                                            .where("projectId", projectId)
+                                                            .and(
+                                                                    "subjectId",
+                                                                    selected.getSubjectId())
                                                             .and("deleted", false)
-                                                            .execute()
-                                                            .flatMap(SubjectService::changed);
+                                                            .count()
+                                                            .flatMap(
+                                                                    count ->
+                                                                            count > 0
+                                                                                    ? Mono.error(
+                                                                                            error(
+                                                                                                    "project_subject_referenced",
+                                                                                                    409))
+                                                                                    : Mono.empty())
+                                                            .then(
+                                                                    audit(
+                                                                                    relations
+                                                                                            .createUpdate(),
+                                                                                    auth,
+                                                                                    version)
+                                                                            .set("deleted", true)
+                                                                            .set(
+                                                                                    "deletedTime",
+                                                                                    System
+                                                                                            .currentTimeMillis())
+                                                                            .where("id", id)
+                                                                            .and(
+                                                                                    "projectId",
+                                                                                    projectId)
+                                                                            .and("version", version)
+                                                                            .and("deleted", false)
+                                                                            .execute()
+                                                                            .flatMap(
+                                                                                    SubjectService
+                                                                                            ::changed));
                                                 }))
                 .as(MonoTracer.create("/property/finance/project-subject/delete"));
     }

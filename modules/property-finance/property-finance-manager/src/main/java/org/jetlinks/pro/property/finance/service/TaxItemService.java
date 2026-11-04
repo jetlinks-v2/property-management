@@ -36,6 +36,7 @@ public class TaxItemService {
     private final ReactiveRepository<FinanceProjectCompanyEntity, String> relations;
     private final ReactiveRepository<TaxItemEntity, String> items;
     private final ReactiveRepository<TaxOperationEntity, String> operations;
+    private final ReactiveRepository<StandardEntity, String> standards;
 
     public Mono<PagerResult<TaxItemEntity>> query(String projectId, QueryParamEntity input) {
         return scope.project(projectId, CrudAssetPermission.read)
@@ -285,35 +286,56 @@ public class TaxItemService {
                                                                 .set(
                                                                         "deletedTime",
                                                                         System.currentTimeMillis());
-                                                    return update.where("id", id)
-                                                            .and("version", version)
-                                                            .and("deleted", false)
-                                                            .execute()
-                                                            .flatMap(
-                                                                    count ->
-                                                                            count == 1
-                                                                                    ? items
-                                                                                            .findById(
-                                                                                                    id)
-                                                                                    : Mono
-                                                                                            .<TaxItemEntity>
-                                                                                                    error(
+                                                    // 新标准同样先持有公司和税目锁，检查后不能再穿入有效引用。
+                                                    Mono<Void> guard =
+                                                            enabled && !deleted
+                                                                    ? Mono.empty()
+                                                                    : standards
+                                                                            .createQuery()
+                                                                            .where("taxItemId", id)
+                                                                            .and("deleted", false)
+                                                                            .count()
+                                                                            .flatMap(
+                                                                                    count ->
+                                                                                            count
+                                                                                                            > 0
+                                                                                                    ? Mono
+                                                                                                            .error(
+                                                                                                                    error(
+                                                                                                                            "tax_referenced",
+                                                                                                                            409))
+                                                                                                    : Mono
+                                                                                                            .empty());
+                                                    return guard.then(
+                                                            update.where("id", id)
+                                                                    .and("version", version)
+                                                                    .and("deleted", false)
+                                                                    .execute()
+                                                                    .flatMap(
+                                                                            count ->
+                                                                                    count == 1
+                                                                                            ? items
+                                                                                                    .findById(
+                                                                                                            id)
+                                                                                            : Mono
+                                                                                                    .<TaxItemEntity>
                                                                                                             error(
-                                                                                                                    "version_conflict",
-                                                                                                                    409)))
-                                                            .flatMap(
-                                                                    saved ->
-                                                                            log(
-                                                                                            old,
-                                                                                            saved,
-                                                                                            deleted
-                                                                                                    ? "DELETE"
-                                                                                                    : enabled
-                                                                                                            ? "ENABLE"
-                                                                                                            : "DISABLE",
-                                                                                            auth)
-                                                                                    .thenReturn(
-                                                                                            saved));
+                                                                                                                    error(
+                                                                                                                            "version_conflict",
+                                                                                                                            409)))
+                                                                    .flatMap(
+                                                                            saved ->
+                                                                                    log(
+                                                                                                    old,
+                                                                                                    saved,
+                                                                                                    deleted
+                                                                                                            ? "DELETE"
+                                                                                                            : enabled
+                                                                                                                    ? "ENABLE"
+                                                                                                                    : "DISABLE",
+                                                                                                    auth)
+                                                                                            .thenReturn(
+                                                                                                    saved)));
                                                 }));
     }
 

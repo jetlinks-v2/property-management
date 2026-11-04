@@ -13,6 +13,7 @@ import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.finance.entity.FinanceCompanyEntity;
 import org.jetlinks.pro.property.finance.entity.FinanceProjectCompanyEntity;
 import org.jetlinks.pro.property.finance.entity.RecordedInfoEntity;
+import org.jetlinks.pro.property.finance.entity.StandardEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +26,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class ProjectCompanyService {
+    private final ReactiveRepository<StandardEntity, String> standards;
     private final FinanceScope scope;
     private final InvoiceCompanyService companies;
     private final ReactiveRepository<FinanceProjectCompanyEntity, String> relations;
@@ -313,13 +315,33 @@ public class ProjectCompanyService {
                                                                 error(
                                                                         "company_default_required",
                                                                         409));
-                                                    return recorded.createQuery()
+                                                    return standards
+                                                            .createQuery()
                                                             .where("projectId", projectId)
                                                             .and(
                                                                     "companyId",
                                                                     selected.getCompanyId())
                                                             .and("deleted", false)
                                                             .count()
+                                                            .flatMap(
+                                                                    count ->
+                                                                            count > 0
+                                                                                    ? Mono.error(
+                                                                                            error(
+                                                                                                    "company_referenced",
+                                                                                                    409))
+                                                                                    : Mono.empty())
+                                                            .then(
+                                                                    recorded.createQuery()
+                                                                            .where(
+                                                                                    "projectId",
+                                                                                    projectId)
+                                                                            .and(
+                                                                                    "companyId",
+                                                                                    selected
+                                                                                            .getCompanyId())
+                                                                            .and("deleted", false)
+                                                                            .count())
                                                             .flatMap(
                                                                     count ->
                                                                             count > 0

@@ -32,6 +32,7 @@ public class InvoiceCompanyService {
     private final ReactiveRepository<FinanceProjectCompanyEntity, String> relations;
     private final ReactiveRepository<RecordedInfoEntity, String> recorded;
     private final ReactiveRepository<TaxItemEntity, String> taxItems;
+    private final ReactiveRepository<StandardEntity, String> standards;
     private static final Map<String, Integer> FIELDS =
             Map.ofEntries(
                     Map.entry("companyName", 100),
@@ -207,11 +208,25 @@ public class InvoiceCompanyService {
                                                         return Mono.error(
                                                                 error("version_conflict", 409));
                                                     // 关联写入方同样必须锁住公司；有项目关联时不能级联删除共享公司。
-                                                    return relations
+                                                    return standards
                                                             .createQuery()
                                                             .where("companyId", id)
                                                             .and("deleted", false)
                                                             .count()
+                                                            .flatMap(
+                                                                    count ->
+                                                                            count > 0
+                                                                                    ? Mono.error(
+                                                                                            error(
+                                                                                                    "company_referenced",
+                                                                                                    409))
+                                                                                    : Mono.empty())
+                                                            .then(
+                                                                    relations
+                                                                            .createQuery()
+                                                                            .where("companyId", id)
+                                                                            .and("deleted", false)
+                                                                            .count())
                                                             .flatMap(
                                                                     count ->
                                                                             count > 0
