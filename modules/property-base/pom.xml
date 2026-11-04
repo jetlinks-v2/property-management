@@ -14,5 +14,6 @@
     <modules>
         <module>property-base-core</module>
         <module>property-base-manager</module>
+        <module>property-file-support</module>
     </modules>
 </project>
