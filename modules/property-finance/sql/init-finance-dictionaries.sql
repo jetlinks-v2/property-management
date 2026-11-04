@@ -1,6 +1,6 @@
 -- 计费管理默认字典（PostgreSQL，UTF-8）。
 -- 先启动物业服务完成 EasyORM 建表，再执行基础模块 init-property-dictionaries.sql 和本文件。
--- 来源为旧系统 SourceChargeEnum、PatternPaymentEnum、tcs_sys.sql 中真实费用类型。
+-- 来源为旧系统 SourceChargeEnum、PatternPaymentEnum、tcs_sys.sql 中真实费用/票据类型及来源。
 -- 欠费等级旧282无可核对选项，本文件只建分类，请按业务实际维护等级后配置欠费通知。
 -- 仅补缺、不覆盖已有编辑/启停/逻辑删除；ID遵循基础字典UUID v3规则；可重复执行。
 -- 默认public schema，其他schema请统一替换；本脚本不创建公司、科目、用户或账务数据。
@@ -12,7 +12,9 @@ WITH defaults(id,code,name,sort_index) AS (
     ('339c91f8-4473-340f-bc7c-d200228ab307', 'pattern_payment', '支付方式', 110),
     ('5e737be2-450f-3c7f-a9d2-a0d783291598', 'charge-item-in-type', '费用类型', 120),
     ('9087aad1-12e1-3006-a83d-bc2ceab2c917', 'arrears-level', '欠费等级', 130),
-    ('02bc3063-1897-36cc-bf28-1d4315816b1d', 'promotion-type', '活动类型', 140)
+    ('02bc3063-1897-36cc-bf28-1d4315816b1d', 'promotion-type', '活动类型', 140),
+    ('6af24ccf-1a7a-3b0b-9b6a-914ee98b1261', 'bill_type', '票据类型', 150),
+    ('a5876f92-e23d-3b27-84e9-27df079d0cf4', 'bill_info_source', '票据来源', 160)
 )
 INSERT INTO public.pm_dictionary_type(id,code,name,enabled,sort_index,version,deleted,create_time,modify_time,modifier_id,modifier_name)
 SELECT id,code,name,true,sort_index,0,false,
@@ -24,6 +26,8 @@ ON CONFLICT DO NOTHING;
 
 WITH defaults(id,type_code,value,text,sort_index) AS (
     VALUES
+    ('5f3245b4-6875-3a62-85b5-3c5e3c96acff', 'bill_type', '1', '电子收据', 10),
+    ('3f4c759a-ebe6-3f49-8c0d-c653ee893a09', 'bill_info_source', '1', '自购', 10),
     ('907d7d24-fb96-3f26-8a3a-350e8d299f8a', 'promotion-type', 'prepay', '充值赠送', 10),
     ('54c150ad-827a-3c06-8d29-157cb0fbf666', 'source_charge', '1', 'PC', 10),
     ('dd608d84-3a6c-3718-9453-f1df835311f6', 'source_charge', '2', '微信公众号', 20),
