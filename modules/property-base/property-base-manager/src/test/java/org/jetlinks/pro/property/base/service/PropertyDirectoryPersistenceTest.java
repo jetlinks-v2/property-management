@@ -2,6 +2,7 @@ package org.jetlinks.pro.property.base.service;
 
 import org.hswebframework.ezorm.rdb.mapping.ReactiveRepository;
 import org.hswebframework.web.authorization.Authentication;
+import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.authorization.exception.AccessDenyException;
 import org.hswebframework.web.authorization.simple.SimpleAuthentication;
 import org.hswebframework.web.authorization.simple.SimpleUser;
@@ -43,6 +44,8 @@ class PropertyDirectoryPersistenceTest {
 
     @Autowired ReactiveRepository<PropertyOrganizationEntity, String> organizations;
     @Autowired AssetManager assets;
+    @Autowired ReactiveRepository<PropertyUserEntity, String> users;
+    @Autowired PropertyUserService userService;
     @Autowired DatabaseClient database;
     @Autowired PropertyDirectoryCommandSupport directory;
     private final Map<String, Asset> cloudAssets = new HashMap<>();
@@ -51,10 +54,12 @@ class PropertyDirectoryPersistenceTest {
     void prepare() {
         organizations.deleteById(organizations.createQuery().fetch().map(PropertyOrganizationEntity::getId))
             .block(OrganizationPersistenceTest.TIMEOUT);
+        users.deleteById(users.createQuery().fetch().map(PropertyUserEntity::getId))
+            .block(OrganizationPersistenceTest.TIMEOUT);
         cloudAssets.clear();
         reset(assets);
         when(assets.getAssets(any(AssetType.class), anyCollection())).thenAnswer(call -> {
-            assertEquals("organization", call.<AssetType>getArgument(0).getId());
+            assertTrue(Set.of("organization", "user").contains(call.<AssetType>getArgument(0).getId()));
             Collection<?> ids = call.getArgument(1);
             return Flux.fromIterable(ids).map(Object::toString).filter(cloudAssets::containsKey).map(cloudAssets::get);
         });
@@ -92,6 +97,47 @@ class PropertyDirectoryPersistenceTest {
             .expectError(AccessDenyException.class).verify();
     }
 
+    @Test
+    void userMirrorFiltersRealAssetsBeforePagingCountsAndCommandWithoutCloudUserTable() {
+        addUser("a-forbidden", "someone-else", "tenant-a");
+        addUser("b-allowed", "reader", "tenant-a");
+        addUser("c-allowed", "reader", "tenant-a");
+        addUser("d-foreign", "reader", "tenant-b");
+        var absent = database.sql("select count(*) as n from information_schema.tables "
+            + "where table_schema='public' and table_name='s_user'")
+            .map((row, meta) -> row.get("n", Long.class)).one().block();
+        assertEquals(0L, absent);
+        var query = new QueryParamEntity(); query.setPageSize(1); query.setPageIndex(1);
+        query.orderBy("id");
+        var page = userService.query(query).contextWrite(access()).block(OrganizationPersistenceTest.TIMEOUT);
+        assertEquals(3, page.getTotal());
+        assertEquals("c-allowed", page.getData().get(0).getId());
+        assertEquals(3, userService.counts(new QueryParamEntity()).contextWrite(access())
+            .block(OrganizationPersistenceTest.TIMEOUT).all());
+        var command = new QueryPropertyUsersCommand();
+        StepVerifier.create(CommandSupportManagerProviders.getCommandSupport(QueryPropertyUsersCommand.SERVICE_ID)
+            .flatMapMany(support -> support.execute(command)).map(user -> user.getId()).collectList()
+            .contextWrite(access()).contextWrite(TenantHolder.makeCurrent("tenant-a")))
+            .assertNext(ids -> assertEquals(Set.of("b-allowed", "c-allowed"), Set.copyOf(ids)))
+            .verifyComplete();
+        var denied = QueryParamEntity.newQuery().where("id", "a-forbidden").getParam();
+        assertEquals(0, userService.query(denied).contextWrite(access())
+            .block(OrganizationPersistenceTest.TIMEOUT).getTotal());
+        when(assets.getAssets(any(AssetType.class), anyCollection()))
+            .thenReturn(Flux.error(new IllegalStateException("asset service unavailable")));
+        StepVerifier.create(userService.query(new QueryParamEntity()).contextWrite(access()))
+            .expectErrorMessage("asset service unavailable").verify();
+    }
+
+    private void addUser(String id, String creator, String tenant) {
+        var row = new PropertyUserEntity(); row.setId(id); row.setName(id); row.setUsername(id);
+        row.setStatus((byte) 1); row.setAccountType("user"); row.setOwner(false); row.setEmployee(true);
+        row.setVersion(0L); row.setDeleted(false);
+        users.save(row).block(OrganizationPersistenceTest.TIMEOUT);
+        cloudAssets.put(id, new DefaultAsset(id, id, AssetType.of("user"))
+            .withOption("creatorId", creator).withOption("tenantId", tenant));
+    }
+
     private Flux<PropertyOrganizationInfo> command() {
         return CommandSupportManagerProviders.getCommandSupport(QueryPropertyProjectsCommand.SERVICE_ID)
             .flatMapMany(support -> support.execute(new QueryPropertyProjectsCommand()));
@@ -100,6 +146,14 @@ class PropertyDirectoryPersistenceTest {
     private Context access() {
         var user = new SimpleUser(); user.setId("reader");
         var auth = new SimpleAuthentication(); auth.setUser(user);
+        // 应用账号可能有七个非组织维度；原 SQL 注入会构造空组织目标，批量资产校验不依赖该分支。
+        auth.setDimensions(java.util.stream.IntStream.range(0, 7)
+            .mapToObj(i -> (org.hswebframework.web.authorization.Dimension)
+                org.hswebframework.web.authorization.simple.SimpleDimension.of("app-" + i, "app",
+                    new org.hswebframework.web.authorization.DimensionType() {
+                        public String getId() { return "business_application"; }
+                        public String getName() { return "application"; }
+                    }, Map.of())).toList());
         return Context.of(Authentication.class, auth, AssetsHolder.class, new CreatorAssetsHolder(user, assets));
     }
 
@@ -115,7 +169,7 @@ class PropertyDirectoryPersistenceTest {
             .withOption("creatorId", creator).withOption("tenantId", tenant);
     }
 
-    @Import({OrganizationPersistenceTest.Config.class, PropertyDirectoryCommandSupport.class})
+    @Import({OrganizationPersistenceTest.Config.class, PropertyDirectoryCommandSupport.class, PropertyUserScope.class, PropertyUserService.class})
     static class Config {
         @Bean AssetManager assets() { return mock(AssetManager.class); }
         @Bean ArchiveScope archive(ReactiveRepository<PropertyOrganizationEntity, String> organizations,

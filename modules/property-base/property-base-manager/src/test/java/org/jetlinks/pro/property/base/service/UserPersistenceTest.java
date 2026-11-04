@@ -395,25 +395,12 @@ class UserPersistenceTest {
 
     Context access(Set<String> allowed) {
         var holder = mock(AssetsHolder.class);
-        when(holder.injectQuery(any(QueryParamEntity.class), eq("user"), eq("id")))
-                .thenAnswer(
-                        call -> {
-                            QueryParamEntity query = call.getArgument(0);
-                            query.toNestQuery(
-                                    q ->
-                                            q.in(
-                                                    "id",
-                                                    allowed.isEmpty()
-                                                            ? List.of("_not-a-user_")
-                                                            : allowed));
-                            return Mono.just(query);
-                        });
-        when(holder.assertPermission(eq("user"), anyCollection(), any()))
-                .thenAnswer(
-                        call ->
-                                allowed.containsAll(call.getArgument(1))
-                                        ? Mono.empty()
-                                        : Mono.error(new AccessDenyException.NoStackTrace()));
+        when(holder.filter(any(Flux.class), any(org.jetlinks.pro.assets.AssetType.class), any(), any(org.jetlinks.pro.assets.AssetPermission[].class)))
+            .thenAnswer(call -> call.<Flux<PropertyUserEntity>>getArgument(0)
+                .filter(row -> allowed.contains(row.getId())));
+        doAnswer(call -> allowed.containsAll(call.getArgument(1))
+                ? Mono.empty() : Mono.error(new AccessDenyException.NoStackTrace()))
+            .when(holder).assertPermission(eq("user"), anyCollection(), any());
         var user = new SimpleUser();
         user.setId("tester");
         user.setUsername("测试人员");
@@ -425,6 +412,7 @@ class UserPersistenceTest {
     @Import({
         OrganizationPersistenceTest.Config.class,
         PropertyUserService.class,
+        PropertyUserScope.class,
         UserSyncWriter.class,
         UserSyncService.class,
         UserOrganizationTerm.class

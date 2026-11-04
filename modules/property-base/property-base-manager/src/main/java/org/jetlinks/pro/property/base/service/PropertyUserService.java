@@ -29,6 +29,7 @@ public class PropertyUserService {
     static final AssetType USER = AssetType.of("user");
     private final ReactiveRepository<PropertyUserEntity, String> users;
     private final ReactiveRepository<PropertyUserOrganizationEntity, String> organizations;
+    private final PropertyUserScope scope;
 
     private Mono<QueryParamEntity> scoped(QueryParamEntity input) {
         var query = input.clone();
@@ -36,9 +37,7 @@ public class PropertyUserService {
         query.setPaging(true);
         query.setPageSize(Math.max(1, Math.min(200, query.getPageSize())));
         query.setPageIndex(Math.max(0, query.getPageIndex()));
-        query.toNestQuery(q -> q.and("deleted", false));
-        // 沿用 SaaS 原 user 资产；必须在 count/分页之前注入，不能返回后内存过滤。
-        return authenticated().then(AssetsHolder.injectQueryParam(query, USER, "id"));
+        return scope.query(query);
     }
 
     public Mono<PagerResult<PropertyUserEntity>> query(QueryParamEntity input) {
