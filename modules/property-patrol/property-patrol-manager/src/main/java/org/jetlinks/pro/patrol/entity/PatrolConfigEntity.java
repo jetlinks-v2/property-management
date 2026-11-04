@@ -12,7 +12,7 @@ import org.hswebframework.web.api.crud.entity.RecordModifierEntity;
 
 import javax.persistence.Column;
 
-/** 配置资产的审计字段。项目与应用归属由平台实体事件及资产绑定维护，不接受前端归属字段。 */
+/** 配置资产的审计与归属字段。业务项目经已授权组织树校验；应用 Scope 和审计由服务端维护。 */
 @Getter
 @Setter
 public abstract class PatrolConfigEntity extends ExtendableEntity<String>
@@ -24,6 +24,16 @@ public abstract class PatrolConfigEntity extends ExtendableEntity<String>
 
     @Column(length = 160, nullable = false, updatable = false)
     private String scopeKey;
+
+    /** 业务项目使用物业组织原 ID；共享模板为 null，由 ownerOrganizationId 明确维护组织。 */
+    @Column(length = 64)
+    private String projectId;
+
+    @Column(length = 128)
+    private String projectName;
+
+    @Column(length = 64)
+    private String ownerOrganizationId;
 
     @Column(nullable = false)
     private boolean enabled = true;

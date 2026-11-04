@@ -12,6 +12,7 @@ import org.jetlinks.sdk.server.commons.cmd.QueryPagerCommand;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Flux;
 import reactor.util.context.Context;
 
 import java.time.Duration;
@@ -94,6 +95,30 @@ public class SaasUserSource {
                         })
                 .timeout(Duration.ofSeconds(10))
                 .contextWrite(ignored -> Context.empty());
+    }
+
+    /**
+     * 员工目录按候选 ID 读取调用者可见的 SaaS 用户。与后台镜像同步不同，此方法保留认证及应用 Scope；
+     * user 资产条件只交给认证服务解析，不在物业库执行跨库 SQL。空结果为无权限，服务异常直接传播。
+     */
+    public Flux<String> authorizedIds(List<String> ids) {
+        if (ids.isEmpty()) return Flux.empty();
+        var query = QueryParamEntity.newQuery().in("id", ids).getParam();
+        query.setPaging(false);
+        query.setIncludes(Set.of("id"));
+        return org.jetlinks.pro.assets.AssetsHolder.injectQueryParam(query, "user", "id")
+                .flatMapMany(this::accountIds)
+                .filter(ids::contains).distinct();
+    }
+
+    protected Flux<String> accountIds(QueryParamEntity query) {
+        var command = QueryListCommand.of(UserInfo.class);
+        command.withQueryParam(query);
+        return CommandSupportManagerProviders.getCommandSupport("authService:user")
+                .switchIfEmpty(Mono.error(new BusinessException.NoStackTrace(
+                        "error.property_user_source_unavailable", 503)))
+                .flatMapMany(support -> support.execute(command))
+                .map(UserInfo::getId).timeout(Duration.ofSeconds(10));
     }
 
     protected Mono<PagerResult<UserDetail>> page(QueryParamEntity query) {

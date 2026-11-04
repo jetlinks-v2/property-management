@@ -85,7 +85,8 @@ public class PatrolCalendarService {
                     shiftKey(row), key -> new ArrayList<>()).add(row));
             var shiftRows = shifts.values().stream().map(group -> {
                 var first = group.get(0);
-                var shiftTasks = tasks.stream().filter(task -> task.getStartTime() < first.getEndTime()
+                var shiftTasks = tasks.stream().filter(task -> java.util.Objects.equals(task.getProjectId(), first.getProjectId()))
+                        .filter(task -> task.getStartTime() < first.getEndTime()
                         && first.getStartTime() < task.getEndTime()).toList();
                 return new Shift(shiftName(first), first.getStartTime(), first.getEndTime(), staffCount(group),
                         shiftTasks.size(), expected(shiftTasks), completed(shiftTasks), missed(shiftTasks), aggregateStatus(shiftTasks));
@@ -106,7 +107,7 @@ public class PatrolCalendarService {
     }
     static String shiftKey(PatrolRosterEntity row) {
         // 不同岗位的同名同时间班次与原系统一样合并展示，统计人数取唯一人员。
-        return shiftName(row) + "|" + row.getStartTime() + "|" + row.getEndTime();
+        return row.getProjectId() + "|" + shiftName(row) + "|" + row.getStartTime() + "|" + row.getEndTime();
     }
     private static long staffCount(List<PatrolRosterEntity> rows) {
         return rows.stream().filter(row -> !row.isRest()).map(PatrolRosterEntity::getUserId).distinct().count();

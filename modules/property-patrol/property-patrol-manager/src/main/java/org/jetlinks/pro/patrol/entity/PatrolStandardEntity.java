@@ -28,7 +28,7 @@ import javax.persistence.Table;
 @Getter
 @Setter
 @EnableEntityEvent
-@Table(name = "pt_standard")
+@Table(name = "pt_standard", indexes = @javax.persistence.Index(name = "pt_standard_project", columnList = "scopeKey,projectId,ownerOrganizationId"))
 @Asset(type = "patrolStandard")
 public class PatrolStandardEntity extends PatrolRemovableConfigEntity {
     /** 旧巡更标准名称最多 30 字；保留历史列宽，不截断已有名称。 */

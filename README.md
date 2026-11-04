@@ -1,6 +1,6 @@
 # 物业管理后端
 
-基于 JetLinks SaaS 2.20 的物业组后端单仓库。基础档案、财务收费、智能巡更、报事报修各自拥有业务模块、启动服务和发布制品，可以只构建、启动或更新其中一个系统。各系统直接复用 SaaS 网关、认证、租户、资产权限和公共中间件，系统之间互不依赖、互不调用。
+基于 JetLinks SaaS 2.20 的物业组后端单仓库。基础档案、财务收费、智能巡更、报事报修各自拥有业务模块、启动服务和发布制品。基础档案作为独立公共服务必须启动，报修、巡更和收费按需启动；业务读取统一基础数据时只通过 property-base-core 的公开命令。各系统复用 SaaS 网关、认证、租户、资产权限和公共中间件。
 
 ## 工程结构
 
@@ -32,7 +32,7 @@ property-management/
 
 Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT，版本和插件由根 POM 管理。`modules/` 中的 POM 只负责构建聚合，不启动进程；每个 `service` 只依赖本系统 manager。单个系统可以包含多个菜单及对应 Controller、Service、Entity、权限和国际化。系统内部有需要时拆分 core，core 只承载领域类型、DTO、规则或契约，不承载 CRUD，也不反向依赖 manager。
 
-禁止业务系统之间的 Maven 依赖、内部服务注入、跨库读写，以及通过 HTTP、命令、代理或事件互相调用；SaaS 公共能力由各系统直接接入。基础档案不是其他系统的必启前置服务。各前端仍分别放在 SaaS 的 `runtime-ui/modules/`，不在本仓库合并前端。
+基础表只由 property-base-service 维护，各前端的系统管理经网关访问同一套 `/property/**`。业务后端通过公开命令读取基础数据，允许依赖 property-base-core，禁止依赖基础 manager、注入基础内部服务或跨库读写；报修、巡更、收费业务之间保持独立。巡更通过 core 公开只读命令消费组织树及员工身份，保留认证和资产上下文；基础服务可部署在远程公共环境，涉及项目范围与员工资格的请求要求其可用，错误明确返回，不回退未过滤目录。各前端仍分别放在 SaaS 的 `runtime-ui/modules/`，不在本仓库合并前端。
 
 | 系统 | 启动类 | 默认 HTTP / 集群 / RPC | 服务发现名 | 默认业务库 |
 | --- | --- | --- | --- | --- |
@@ -53,7 +53,7 @@ Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT，版本和插件由根 
 
 ## 独立构建与启动
 
-需要 JDK17、Maven 及目标 SaaS 对应 JetLinks 制品的仓库权限。根目录执行以下命令只构建所选系统和它自己的依赖，不会构建或启动兄弟系统：
+需要 JDK17、Maven 及目标 SaaS 对应 JetLinks 制品的仓库权限。根目录执行以下命令只构建所选系统及其契约依赖（巡更包含 base-core），不会构建或启动兄弟 manager：
 
 ```bash
 mvn -pl :property-patrol-service -am verify
@@ -64,17 +64,21 @@ mvn -pl :property-repair-service -am verify
 
 也可执行 `mvn verify` 构建全仓库；这仍只生成四个独立 JAR，不产生统一业务进程。产物分别位于 `services/property-<system>-service/target/application.jar`，发布时须保留系统目录或镜像名区别，不能把多个同名 JAR 混放。
 
-先准备业务库、环境变量及可达的 SaaS 公共服务，再选择其中一个启动：
+先准备业务库、环境变量及可达的 SaaS 公共服务，启动基础档案，再按需启动业务服务：
 
 ```bash
 # 连接变量见各 service 的 application-default.yml；巡更另有 deploy/patrol/patrol.env.example。
 # 服务器通过环境变量提供真实连接值，脚本不自行加载凭据文件。
+bash deploy/start-service.sh base
+# 基础服务就绪后，在另一个终端按需启动：
 bash deploy/start-service.sh patrol
 # 本机可显式加载被 Git 忽略的 application-local.yml：
 bash deploy/start-service.sh base services/property-base-service/src/main/resources/application-local.yml
 ```
 
-脚本提供 Java17/21 下 Redis/FST 集群序列化需要的 `--add-opens` 参数。PowerShell/IDEA 运行也需要这些参数，自带 `.run/` 配置已提供。启动一个系统不要求启动兄弟系统，但数据库、Redis、网关等公共依赖仍需可用。
+脚本提供 Java17/21 下 Redis/FST 集群序列化需要的 `--add-opens` 参数。PowerShell/IDEA 运行也需要这些参数，自带 `.run/` 配置已提供。基础服务始终作为独立进程运行，报修和巡更可分别启停；数据库、Redis、网关等公共依赖需可用。
+
+测试服务器安装 `deploy/start-property-suite.sh` 后，`start` 只启动公共服务与基础档案，`start repair` 启动基础档案和报修，`start patrol` 启动基础档案和巡更，`start repair patrol` 同时启用两者，`start all` 启动全部应用。选择启动不会停止已经运行的其他应用。脚本在 `/opt/jetlinks-saas-test`（可用 `PROPERTY_SUITE_DIR` 指定）使用既有 Compose 和连接配置，仍为多个独立进程。
 
 ## IDEA 与本地连接配置
 
@@ -97,7 +101,7 @@ Windows 连接本机 Docker SaaS 时可使用：
 
 各系统通过网关发现和公开路由接入，登录、用户、角色、组织和项目管理沿用 SaaS。`TenantHolder` 只代表项目上下文，业务数据权限仍由 `AssetsHolder` 控制。巡更业务与应用初始化步骤见 [巡更说明](modules/property-patrol/README.md)。基础系统的 `/property/context` 沿用响应式认证，不接收客户端传入的用户或项目 ID，也不向其他物业系统提供上下文中转服务。
 
-仅调整源码仓库和构建结构，不需要重新部署整个 SaaS。切换新产物时只更新对应系统后端，巡更继续使用原部署目录、业务库、服务名和应用模板；同一环境替换时先停止旧实例，避免保留相同节点 ID 的重复实例。运行端前端文件未变化时无需重发；只有页面变动才重建运行端宿主。基础、财务服务以后按需分别部署、初始化各自菜单和模板。
+仅调整源码仓库和构建结构，不需要重新部署整个 SaaS。切换新产物时只更新对应系统后端，巡更继续使用原部署目录、业务库、服务名和应用模板；同一环境替换时先停止旧实例，避免保留相同节点 ID 的重复实例。运行端前端文件未变化时无需重发；只有页面变动才重建运行端宿主。基础服务始终部署，财务等应用按需部署并初始化菜单和模板。
 
 SaaS 聚合工作区通过 `modules/property-management` 引用本仓库，前端仍各自维护。源码聚合不等于部署或应用开通；单系统打包成功也不等于网关、项目应用、资产权限及 PostgreSQL 业务验收通过。
 
@@ -105,4 +109,4 @@ SaaS 聚合工作区通过 `modules/property-management` 引用本仓库，前�
 
 ## 物业组共享开发
 
-共享分支为 `2.20`，与 Cloud 聚合仓库的 `property/2.20-dev` 配套。巡更提交范围使用 `物业-巡更`，其他系统使用自身的 `物业-系统名`，公共聚合提交使用 `物业`。各系统继续独立装配、互不依赖；推送本仓库后再更新 `cloud.jetlinks/modules/property-management` 指针。同事从 SaaS 聚合仓库递归检出固定版本，开始修改本仓库前再切换并快进共享分支，不在 detached HEAD 上直接开发。
+共享分支为 `2.20`，与 Cloud 聚合仓库的 `property/2.20-dev` 配套。巡更提交范围使用 `物业-巡更`，其他系统使用自身的 `物业-系统名`，公共聚合提交使用 `物业`。各系统继续独立装配，基础能力通过公开命令复用；推送本仓库后再更新 `cloud.jetlinks/modules/property-management` 指针。同事从 SaaS 聚合仓库递归检出固定版本，开始修改本仓库前再切换并快进共享分支，不在 detached HEAD 上直接开发。

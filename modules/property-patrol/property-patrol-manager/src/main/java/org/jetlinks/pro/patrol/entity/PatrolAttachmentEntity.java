@@ -15,7 +15,7 @@ import javax.persistence.Table;
 @Getter
 @Setter
 @EnableEntityEvent
-@Table(name = "pt_attachment")
+@Table(name = "pt_attachment", indexes = @javax.persistence.Index(name = "pt_attachment_project", columnList = "scopeKey,projectId,ownerOrganizationId"))
 @Asset(type = "patrolAttachment")
 public class PatrolAttachmentEntity extends PatrolConfigEntity {
     public enum Purpose { example, evidence }

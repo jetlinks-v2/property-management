@@ -393,27 +393,42 @@ class UserPersistenceTest {
                         });
     }
 
+    @Test
+    void employeeCommandsKeepPagingAssetScopeAndSelfIdentityWithoutDirectoryPermission() {
+        snapshot(user("staff"), user("customer"), user("hidden"));
+        sync.synchronize().block(WAIT);
+        users.createUpdate().set("employee", true).in("id", List.of("staff", "hidden")).execute().block(WAIT);
+        when(source.authorizedIds(anyList())).thenAnswer(call ->
+                Flux.fromIterable(call.<List<String>>getArgument(0)).filter(id -> Set.of("staff", "customer").contains(id)));
+        var provider = new org.jetlinks.pro.property.base.command.PropertyEmployeeCommandSupport(users, orgs, source);
+        var command = new org.jetlinks.pro.property.base.command.QueryPropertyEmployeePageCommand();
+        command.setQuery(QueryParamEntity.newQuery().is("id", "staff").or().is("id", "hidden").orderByAsc("id").getParam());
+        var roundTrip = new org.jetlinks.pro.property.base.command.QueryPropertyEmployeePageCommand();
+        roundTrip.with(command.asMap());
+        assertEquals(2, roundTrip.getQuery().getTerms().size());
+        var page = provider.query(roundTrip).contextWrite(access(Set.of("staff", "customer"))).block(WAIT);
+        assertEquals(1, page.getTotal());
+        assertEquals("staff", page.getData().get(0).id());
+        var self = access(Set.of());
+        ((SimpleUser) self.get(Authentication.class).getUser()).setId("staff");
+        assertEquals("staff", provider.current(new org.jetlinks.pro.property.base.command.GetCurrentPropertyEmployeeCommand())
+                .contextWrite(self).block(WAIT).id());
+        users.createUpdate().set("status", 0).where("id", "staff").execute().block(WAIT);
+        StepVerifier.create(provider.current(new org.jetlinks.pro.property.base.command.GetCurrentPropertyEmployeeCommand())
+                .contextWrite(self)).verifyComplete();
+        ((SimpleUser) self.get(Authentication.class).getUser()).setId("customer");
+        StepVerifier.create(provider.current(new org.jetlinks.pro.property.base.command.GetCurrentPropertyEmployeeCommand())
+                .contextWrite(self)).verifyComplete();
+    }
+
     Context access(Set<String> allowed) {
         var holder = mock(AssetsHolder.class);
-        when(holder.injectQuery(any(QueryParamEntity.class), eq("user"), eq("id")))
-                .thenAnswer(
-                        call -> {
-                            QueryParamEntity query = call.getArgument(0);
-                            query.toNestQuery(
-                                    q ->
-                                            q.in(
-                                                    "id",
-                                                    allowed.isEmpty()
-                                                            ? List.of("_not-a-user_")
-                                                            : allowed));
-                            return Mono.just(query);
-                        });
-        when(holder.assertPermission(eq("user"), anyCollection(), any()))
-                .thenAnswer(
-                        call ->
-                                allowed.containsAll(call.getArgument(1))
-                                        ? Mono.empty()
-                                        : Mono.error(new AccessDenyException.NoStackTrace()));
+        when(holder.filter(any(Flux.class), any(org.jetlinks.pro.assets.AssetType.class), any(), any(org.jetlinks.pro.assets.AssetPermission[].class)))
+            .thenAnswer(call -> call.<Flux<PropertyUserEntity>>getArgument(0)
+                .filter(row -> allowed.contains(row.getId())));
+        doAnswer(call -> allowed.containsAll(call.getArgument(1))
+                ? Mono.empty() : Mono.error(new AccessDenyException.NoStackTrace()))
+            .when(holder).assertPermission(eq("user"), anyCollection(), any());
         var user = new SimpleUser();
         user.setId("tester");
         user.setUsername("测试人员");
@@ -425,6 +440,7 @@ class UserPersistenceTest {
     @Import({
         OrganizationPersistenceTest.Config.class,
         PropertyUserService.class,
+        PropertyUserScope.class,
         UserSyncWriter.class,
         UserSyncService.class,
         UserOrganizationTerm.class

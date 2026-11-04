@@ -13,7 +13,7 @@ import javax.persistence.Column;
 @Getter
 @Setter
 @EnableEntityEvent
-@Table(name = "pt_warning")
+@Table(name = "pt_warning", indexes = @javax.persistence.Index(name = "pt_warning_project", columnList = "scopeKey,projectId,ownerOrganizationId"))
 @Asset(type = "patrolWarning")
 public class PatrolWarningEntity extends PatrolRemovableConfigEntity {
     /** 与原预警名称的 30 字输入限制一致，不改变历史列宽。 */

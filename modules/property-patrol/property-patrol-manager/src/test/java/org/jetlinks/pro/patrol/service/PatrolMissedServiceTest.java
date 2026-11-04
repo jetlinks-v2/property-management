@@ -70,7 +70,10 @@ class PatrolMissedServiceTest {
         missed.apply(rows.stream().map(PatrolMissedItemEntity::getId).toList(), "  设备维护  ", true).contextWrite(f.identity).block();
         var pending = group(task); assertEquals("设备维护", pending.get(0).getReason());
         StepVerifier.create(missed.apply(List.of(rows.get(0).getId()), "again", true).contextWrite(f.identity))
-                .expectErrorSatisfies(error -> assertEquals("error.patrol.missed.state", ((BusinessException) error).getI18nCode())).verify();
+                .expectErrorSatisfies(error -> {
+                    assertEquals("error.patrol.missed.state", ((BusinessException) error).getI18nCode());
+                    assertEquals(409, ((BusinessException) error).getStatus());
+                }).verify();
         assertEquals(3, missed.audit(decisions(pending), true, "确认").contextWrite(f.identity).block());
         assertEquals(4, f.tasks.findById(task.getId()).block().getCompletedCount());
         assertEquals(1, f.executions.createQuery().count().block());

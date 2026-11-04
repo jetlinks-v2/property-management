@@ -21,6 +21,7 @@ import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.UUID;
@@ -61,27 +62,44 @@ public class PatrolAttachmentService extends GenericReactiveCrudService<PatrolAt
                                     attachment.setMediaType(image.mediaType());
                                     attachment.setLength(image.bytes().length);
                                     // 平台文件写入完成后，巡更登记与资产绑定同事务；失败不产生可引用附件。
-                                    return insert(attachment)
+                                    return PatrolOwnership.assignSelected(attachment).then(insert(attachment))
                                             .thenMany(AssetsHolder.bindAssets(Flux.just(attachment),
                                                     PatrolAssetType.patrolAttachment, PatrolAttachmentEntity::getId))
-                                            .single().map(PatrolAttachmentService::receipt)
+                                            .single()
+                                            .map(PatrolAttachmentService::receipt)
                                             .as(transaction::transactional);
                                 })))
                 .as(MonoTracer.create("/patrol/attachments/upload"));
     }
 
     public Mono<Void> assertReferences(Collection<String> ids, Purpose purpose, String scopeKey, String creatorId) {
+        return assertReferences(ids, purpose, scopeKey, creatorId, null);
+    }
+
+    public Mono<Void> assertReferences(Collection<String> ids, Purpose purpose, String scopeKey, String creatorId,
+                                       org.jetlinks.pro.patrol.entity.PatrolConfigEntity owner) {
+        return assertReferences(ids, purpose, scopeKey, creatorId,
+                owner == null ? null : owner.getProjectId(), owner == null ? null : owner.getOwnerOrganizationId());
+    }
+
+    public Mono<Void> assertReferences(Collection<String> ids, Purpose purpose, String scopeKey, String creatorId,
+                                       String projectId, String ownerOrganizationId) {
         return Flux.fromIterable(ids).distinct().concatMap(id -> authorized(id).flatMap(attachment -> {
             if (!scopeKey.equals(attachment.getScopeKey()) || attachment.getPurpose() != purpose
                     || creatorId != null && !creatorId.equals(attachment.getCreatorId()))
                 return Mono.error(new AccessDenyException.NoStackTrace());
-            return Mono.just(attachment);
+            if (projectId == null && ownerOrganizationId == null) return Mono.just(attachment);
+            return org.jetlinks.pro.patrol.integration.PatrolProjectContext.current().flatMap(context ->
+                    context.canReference(projectId, ownerOrganizationId,
+                            attachment.getProjectId(), attachment.getOwnerOrganizationId())
+                    ? Mono.just(attachment) : Mono.error(new AccessDenyException.NoStackTrace()));
         })).then();
     }
 
     public Mono<Preview> preview(String id) {
         // 受控、限长的预览响应保持在当前认证请求内，不把内部下载 URL 交给浏览器。
-        return authorized(id).flatMap(attachment -> files.read(attachment.getInternalUrl())
+        // 平台访问地址可能是 /file/... 相对路径；下载命令支持文件 ID，避免被误当作本机文件路径。
+        return authorized(id).flatMap(attachment -> files.read(attachment.getPlatformFileId())
                 .map(bytes -> new Preview("data:" + attachment.getMediaType() + ";base64,"
                         + Base64.getEncoder().encodeToString(bytes))));
     }

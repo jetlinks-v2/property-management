@@ -20,6 +20,7 @@ public class RepairConfigurationController implements CorrelatesAssetsHolderQuer
  private final org.jetlinks.pro.property.service.TenantAssetScope tenantScope;
  private final RepairConfigurationService service;
  private final RepairConfigurationManager manager;
+ private final RepairDirectory directory;
  @Override public AssetType getAssetType(){return AssetType.of("repairConfiguration");}
  @Override public Function<RepairConfigurationEntity,?> getAssetIdMapper(){return RepairConfigurationEntity::getId;}
  @Override public String getAssetProperty(){return "id";}
@@ -28,7 +29,12 @@ public class RepairConfigurationController implements CorrelatesAssetsHolderQuer
   // 配置资产权限与关联业务项目组织权限取交集；前端项目筛选不能替代这个边界。
   return contexts.current().flatMap(ctx->CorrelatesAssetsHolderQueryController.super
    .injectQueryParam(query.clone().toNestQuery().and("applicationId",ctx.applicationId()).getParam())
-   .flatMap(scoped->org.jetlinks.pro.assets.AssetsHolder.injectQueryParam(scoped,AssetType.of("organization"),"businessProjectId"))
+   // 组织权限由独立基础服务通过命令解析；报修库只按授权项目 ID 取交集，不解析 Cloud 组织表。
+   .flatMap(scoped->directory.projects().map(org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo::getId)
+    .collectList().map(ids->scoped.toNestQuery(q->{
+     if(ids.isEmpty())q.isNull("businessProjectId").notNull("businessProjectId");
+     else q.in("businessProjectId",ids);
+    }).getParam()))
    .flatMap(scoped -> tenantScope.injectQuery(scoped,getAssetType(),getAssetProperty())));
  }
  @Override @GetMapping("/{id}") @QueryAction

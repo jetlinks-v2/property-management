@@ -55,7 +55,8 @@ class PatrolAttachmentServiceTest {
         user.setId("alice");
         var auth = new SimpleAuthentication();
         auth.setUser(user);
-        identity = Context.of(Authentication.class, auth);
+        identity = Context.of(Authentication.class, auth, org.jetlinks.pro.patrol.integration.PatrolProjectContext.class,
+                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("north|app"));
     }
 
     @AfterEach
@@ -104,6 +105,7 @@ class PatrolAttachmentServiceTest {
                     PatrolAttachmentEntity.Purpose.evidence).contextWrite(identity).block();
             var stored = attachments.findById(receipt.id()).block();
             assertEquals("north|app", stored.getScopeKey());
+            assertEquals("project", stored.getProjectId());
             assertEquals("alice", stored.getCreatorId());
             assertEquals(PatrolAttachmentEntity.Purpose.evidence, stored.getPurpose());
             assertEquals("platform-file", stored.getPlatformFileId());
@@ -115,6 +117,27 @@ class PatrolAttachmentServiceTest {
         } finally {
             provider.dispose();
         }
+    }
+
+    @Test
+    void previewUsesPersistedPlatformIdInsteadOfRelativeAccessUrl() {
+        var entity = new PatrolAttachmentEntity();
+        entity.setId("relative-preview");
+        entity.setPlatformFileId("trusted-platform-id");
+        entity.setInternalUrl("/file/trusted-platform-id.png?accessKey=secret");
+        entity.setMediaType("image/png");
+        entity.setScopeKey("north|app");
+        entity.setCreatorId("alice");
+        entity.setCreateTime(1L);
+        entity.setPurpose(PatrolAttachmentEntity.Purpose.evidence);
+        entity.setName("proof.png");
+        entity.setLength(3L);
+        attachments.insert(entity).block();
+        when(files.read("trusted-platform-id")).thenReturn(Mono.just(new byte[] {1, 2, 3}));
+        var result = attachments.preview(entity.getId()).contextWrite(identity).block();
+        assertEquals("data:image/png;base64,AQID", result.dataUrl());
+        verify(files).read("trusted-platform-id");
+        org.mockito.Mockito.verifyNoMoreInteractions(files);
     }
 
     @Test

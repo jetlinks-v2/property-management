@@ -248,5 +248,9 @@ public class PatrolMissedService {
         return events.insert(event);
     }
     private static String stableId(String key) { return UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)).toString(); }
-    private static BusinessException failure(String code) { return new BusinessException("error.patrol.missed." + code); }
+    // 输入与状态冲突属于业务拒绝，客户端不应把它们当服务故障重试。
+    private static BusinessException failure(String code) {
+        return new BusinessException("error.patrol.missed." + code,
+                "state".equals(code) || "concurrent".equals(code) ? 409 : 400);
+    }
 }

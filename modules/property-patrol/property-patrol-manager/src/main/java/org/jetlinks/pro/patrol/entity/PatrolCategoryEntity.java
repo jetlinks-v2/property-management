@@ -13,7 +13,7 @@ import javax.persistence.Table;
 @Getter
 @Setter
 @EnableEntityEvent
-@Table(name = "pt_category")
+@Table(name = "pt_category", indexes = @javax.persistence.Index(name = "pt_category_project", columnList = "scopeKey,projectId,ownerOrganizationId"))
 @Asset(type = "patrolCategory")
 public class PatrolCategoryEntity extends PatrolConfigEntity {
     @Column(length = 64)

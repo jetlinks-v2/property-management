@@ -31,6 +31,12 @@ import javax.persistence.Transient;
             @Index(name = "pt_exec_group_time", columnList = "taskGroupId,receiveTime")
         })
 public class PatrolExecutionEntity extends GenericEntity<String> {
+    /** 生成时的业务项目快照，不随员工调岗或点位名称变化回写。 */
+    @Column(length = 64)
+    private String projectId;
+    @Column(length = 128)
+    private String projectName;
+
     /** 关联不可变时段快照的只读投影，PC 与 H5 统一追溯所属时段。 */
     @Transient private Long periodStartTime;
     @Transient private Long periodEndTime;

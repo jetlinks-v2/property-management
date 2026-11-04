@@ -15,7 +15,7 @@ import javax.persistence.Column;
 @Getter
 @Setter
 @EnableEntityEvent
-@Table(name = "pt_level")
+@Table(name = "pt_level", indexes = @javax.persistence.Index(name = "pt_level_project", columnList = "scopeKey,projectId,ownerOrganizationId"))
 @Asset(type = "patrolLevel")
 public class PatrolLevelEntity extends PatrolRemovableConfigEntity {
     @Column

@@ -108,6 +108,8 @@ public class PatrolTaskGenerator {
                     var group = new PatrolGenerationEntity();
                     group.setId(id);
                     group.setPlanId(planId);
+                    group.setProjectId(plan.getProjectId());
+                    group.setProjectName(plan.getProjectName());
                     group.setBusinessDate(day.toString());
                     group.setBelongDate(day.toString());
                     group.setName(plan.getName());
@@ -209,6 +211,8 @@ public class PatrolTaskGenerator {
         task.setPeriodNo(periodNo);
         task.setRuleVersion(ruleVersion(plan));
         task.setPlanId(plan.getId());
+        task.setProjectId(plan.getProjectId());
+        task.setProjectName(plan.getProjectName());
         task.setName(plan.getName());
         task.setPointId(point.getId());
         task.setPointName(point.getName());

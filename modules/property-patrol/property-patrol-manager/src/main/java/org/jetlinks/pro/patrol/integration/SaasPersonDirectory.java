@@ -14,7 +14,8 @@ import org.jetlinks.pro.command.CommandServices;
 import org.jetlinks.sdk.server.SdkServices;
 import org.jetlinks.sdk.server.auth.AuthCommandSupportTypes;
 import org.jetlinks.sdk.server.auth.UserDetail;
-import org.jetlinks.sdk.server.auth.cmd.QueryUserDetailPageCommand;
+import org.jetlinks.pro.property.base.command.QueryPropertyEmployeePageCommand;
+import org.jetlinks.pro.property.base.command.GetCurrentPropertyEmployeeCommand;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ResolvableType;
 import org.springframework.stereotype.Component;
@@ -29,24 +30,27 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 
-/** 人员目录沿用 SaaS SDK 和 user 资产权限；本人资格取自 SaaS 成员维度，不接入园区员工或业主表。 */
+/** 人员目录复用物业有效员工；SaaS 应用成员及 user 资产范围继续保留，本人检查无需用户维护权限。 */
 @Component
 public class SaasPersonDirectory {
     private final PatrolScope scope;
     private final Supplier<Mono<CommandSupport>> commandSupport;
+    private final Supplier<Mono<CommandSupport>> accountSupport;
 
     @Autowired
     public SaasPersonDirectory(PatrolScope scope) {
         this(
                 scope,
                 () ->
-                        CommandServices.getReactive(
-                                SdkServices.authService, AuthCommandSupportTypes.user));
+                        org.jetlinks.pro.command.CommandSupportManagerProviders.getCommandSupport(QueryPropertyEmployeePageCommand.SERVICE_ID),
+                () -> org.jetlinks.pro.command.CommandSupportManagerProviders.getCommandSupport("authService:user"));
     }
 
-    SaasPersonDirectory(PatrolScope scope, Supplier<Mono<CommandSupport>> commandSupport) {
+    SaasPersonDirectory(PatrolScope scope, Supplier<Mono<CommandSupport>> commandSupport,
+                        Supplier<Mono<CommandSupport>> accountSupport) {
         this.scope = scope;
         this.commandSupport = commandSupport;
+        this.accountSupport = accountSupport;
     }
 
     public record Person(String id, String name) {}
@@ -77,22 +81,26 @@ public class SaasPersonDirectory {
         parameter.setPageSize(Math.min(200, Math.max(1, parameter.getPageSize())));
         parameter.setPaging(true);
         parameter.setPageIndex(Math.max(0, parameter.getPageIndex()));
-        return scope.current()
+        return scope.current().zipWith(PatrolProjectContext.current())
                 .flatMap(
-                        current -> {
-                            parameter
-                                    .toNestQuery()
-                                    .and("status", 1)
-                                    .and(
-                                            "id",
-                                            "in-dimension$" + BusinessApplicationDimension.TYPE,
-                                            List.of(current.applicationId()));
-                            return AssetsHolder.injectQueryParam(parameter, "user", "id");
+                        contexts -> {
+                            var current = contexts.getT1();
+                            var projects = contexts.getT2();
+                            parameter.toNestQuery().and("status", 1);
+                            if (projects.employeeOrganizations().isEmpty()) parameter.toNestQuery(q -> q.isNull("id").notNull("id"));
+                            else parameter.toNestQuery(q -> q.and("id", "property-user-org",
+                                    Map.of("orgId$in", projects.employeeOrganizations())));
+                            // 应用成员关系只在认证服务中解析；不能把 in-dimension SQL 发送到物业基础数据库。
+                            return applicationMemberIds(current.applicationId()).map(ids -> {
+                                if (ids.isEmpty()) parameter.toNestQuery(q -> q.isNull("id").notNull("id"));
+                                else parameter.toNestQuery(q -> q.in("id", ids));
+                                return parameter;
+                            });
                         })
                 .flatMap(
                         parameterWithScope -> {
-                            var command = new QueryUserDetailPageCommand();
-                            command.withQueryParam(parameterWithScope);
+                            var command = new QueryPropertyEmployeePageCommand();
+                            command.setQuery(parameterWithScope);
                             return commandSupport
                                     .get()
                                     .switchIfEmpty(
@@ -110,6 +118,22 @@ public class SaasPersonDirectory {
                                         parameter));
     }
 
+    private Mono<List<String>> applicationMemberIds(String applicationId) {
+        var query = QueryParamEntity.newQuery().is("status", 1)
+                .and("id", "in-dimension$" + BusinessApplicationDimension.TYPE, List.of(applicationId)).getParam();
+        query.setPaging(false);
+        query.setIncludes(Set.of("id"));
+        return AssetsHolder.injectQueryParam(query, "user", "id").flatMap(scoped -> {
+            var command = org.jetlinks.sdk.server.commons.cmd.QueryListCommand.of(org.jetlinks.sdk.server.auth.UserInfo.class);
+            command.withQueryParam(scoped);
+            return accountSupport.get().switchIfEmpty(Mono.error(new BusinessException("error.patrol.person_service_unavailable")))
+                    .flatMapMany(support -> support.execute(command))
+                    .map(org.jetlinks.sdk.server.auth.UserInfo::getId).distinct().take(10001).collectList()
+                    .flatMap(ids -> ids.size() > 10000
+                            ? Mono.error(new BusinessException("error.patrol.person_directory_limit")) : Mono.just(ids));
+        });
+    }
+
     private UserDetail toDetail(Object value) {
         return (UserDetail) CommandUtils.convertData(ResolvableType.forClass(UserDetail.class), value);
     }
@@ -125,10 +149,17 @@ public class SaasPersonDirectory {
                         return scope.current().flatMap(current -> auth
                                 .getDimensions(BusinessApplicationDimension.TYPE).stream()
                                 .anyMatch(dimension -> current.applicationId().equals(dimension.getId()))
-                                ? Mono.<Void>empty() : Mono.error(new AccessDenyException.NoStackTrace()));
+                                ? assertCurrentEmployee() : Mono.error(new AccessDenyException.NoStackTrace()));
                     }
                     return assertDirectoryMembers(ids);
                 });
+    }
+
+    /** 本人身份来自基础服务，停用/移除员工身份后旧岗位和旧幂等键均不能继续执行。 */
+    private Mono<Void> assertCurrentEmployee() {
+        return commandSupport.get().switchIfEmpty(Mono.error(new BusinessException("error.patrol.base_unavailable")))
+                .flatMap(support -> support.execute(new GetCurrentPropertyEmployeeCommand()))
+                .switchIfEmpty(Mono.error(new AccessDenyException.NoStackTrace())).then();
     }
 
     private Mono<Void> assertDirectoryMembers(Collection<String> ids) {

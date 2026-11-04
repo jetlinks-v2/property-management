@@ -13,6 +13,39 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class SaasUserSourceTest {
     @Test
+    void directoryPermissionQueryKeepsCallerScopeAndFailsClosed() {
+        var marker = new Object();
+        var holder = org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetsHolder.class);
+        org.mockito.Mockito.when(holder.injectQuery(org.mockito.ArgumentMatchers.any(QueryParamEntity.class),
+                org.mockito.ArgumentMatchers.eq("user"), org.mockito.ArgumentMatchers.eq("id"),
+                org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetPermission[].class)))
+                .thenAnswer(call -> Mono.just(call.<QueryParamEntity>getArgument(0)));
+        var source = new SaasUserSource() {
+            @Override protected reactor.core.publisher.Flux<String> accountIds(QueryParamEntity query) {
+                assertFalse(query.isPaging());
+                assertEquals(java.util.Set.of("id"), query.getIncludes());
+                assertEquals("id", query.getTerms().get(0).getColumn());
+                return reactor.core.publisher.Flux.deferContextual(ctx -> {
+                    assertSame(marker, ctx.get("scope-marker"));
+                    return reactor.core.publisher.Flux.just("allowed", "foreign", "allowed");
+                });
+            }
+        };
+        StepVerifier.create(source.authorizedIds(List.of("allowed", "hidden"))
+                .contextWrite(ctx -> ctx.put("scope-marker", marker)
+                        .put(org.jetlinks.pro.assets.AssetsHolder.class, holder)))
+                .expectNext("allowed").verifyComplete();
+        var failed = new SaasUserSource() {
+            @Override protected reactor.core.publisher.Flux<String> accountIds(QueryParamEntity query) {
+                return reactor.core.publisher.Flux.error(new IllegalStateException("auth unavailable"));
+            }
+        };
+        StepVerifier.create(failed.authorizedIds(List.of("allowed")))
+                .expectError(IllegalStateException.class).verify();
+        StepVerifier.create(source.authorizedIds(List.of())).verifyComplete();
+    }
+
+    @Test
     void rpcMapResponseRestoresNestedUsersAndOrganizations() {
         Object raw =
                 java.util.Map.of(
