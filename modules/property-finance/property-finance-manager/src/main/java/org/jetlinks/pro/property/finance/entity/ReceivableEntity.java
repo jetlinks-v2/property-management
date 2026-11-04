@@ -84,6 +84,9 @@ public class ReceivableEntity extends FinanceEntity {
     @Column(length = 10, nullable = false)
     private String accruedAsOfDate;
 
+    @Column(length = 10, nullable = false)
+    private String calculatedAsOfDate;
+
     @Column(length = 20, nullable = false)
     private String periodStatus;
 

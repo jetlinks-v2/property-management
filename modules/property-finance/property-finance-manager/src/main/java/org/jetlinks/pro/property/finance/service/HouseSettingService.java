@@ -275,7 +275,13 @@ public class HouseSettingService {
                             next.setId(UUID.randomUUID().toString());
                             next.setConfigVersion(version + 1);
                             init(next, auth);
-                            return settings.insert(next).thenReturn(next);
+                            return org.jetlinks.pro.tenant.holder.TenantHolder.currentId()
+                                    .defaultIfEmpty("")
+                                    .flatMap(
+                                            tenant -> {
+                                                next.setTenantId(tenant);
+                                                return settings.insert(next).thenReturn(next);
+                                            });
                         });
     }
 

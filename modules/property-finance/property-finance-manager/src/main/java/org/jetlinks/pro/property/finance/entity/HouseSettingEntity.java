@@ -22,6 +22,11 @@ import javax.persistence.*;
             @Index(name = "idx_pm_fin_set_standard", columnList = "standardId,deleted")
         })
 public class HouseSettingEntity extends FinanceEntity {
+    /** 后台恢复原租户上下文；空串明确表示平台域，不从最近请求借用用户上下文。 */
+    @JsonIgnore
+    @Column(length = 64)
+    private String tenantId;
+
     @Column(length = 64, nullable = false)
     private String projectId;
 

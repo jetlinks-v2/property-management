@@ -13,6 +13,7 @@ import org.jetlinks.pro.assets.*;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.finance.calculation.*;
 import org.jetlinks.pro.property.finance.entity.*;
+import org.jetlinks.pro.property.finance.setting.BillingTaskKind;
 import org.jetlinks.pro.property.finance.setting.SettingRules;
 import org.springframework.beans.BeanWrapperImpl;
 import org.springframework.stereotype.Service;
@@ -73,6 +74,46 @@ public class ReceivableGenerationService {
     /** 调用者必须处于保存设置的事务，并已持有设置/项目科目锁；失败交由事务整批回滚。 */
     Mono<GenerationResult> generate(
             HouseSettingEntity setting, LocalDate date, Authentication auth) {
+        return generate(setting, date, auth, BillingTaskKind.ALL);
+    }
+
+    /** 仅后台任务内部调用：运行已授权保存的冻结设置，不接收HTTP来源或冒充某个操作员。 */
+    @Transactional
+    public Mono<GenerationResult> scheduled(
+            String project, String settingId, LocalDate date, BillingTaskKind kind) {
+        return locked(project, settingId)
+                .flatMap(
+                        setting ->
+                                org.jetlinks.pro.tenant.holder.TenantHolder.currentId()
+                                        .defaultIfEmpty("")
+                                        .filter(
+                                                tenant ->
+                                                        Objects.equals(
+                                                                tenant, setting.getTenantId()))
+                                        .switchIfEmpty(
+                                                Mono.error(error("task_tenant_invalid", 409)))
+                                        .then(
+                                                Mono.defer(
+                                                        () ->
+                                                                generate(
+                                                                        setting,
+                                                                        date,
+                                                                        systemActor(),
+                                                                        kind))))
+                .as(MonoTracer.create("/property/finance/receivable/scheduled"));
+    }
+
+    private static Authentication systemActor() {
+        var auth = new org.hswebframework.web.authorization.simple.SimpleAuthentication();
+        var user = new org.hswebframework.web.authorization.simple.SimpleUser();
+        user.setId("property-finance-job");
+        user.setUsername("property-finance-job");
+        auth.setUser(user);
+        return auth;
+    }
+
+    private Mono<GenerationResult> generate(
+            HouseSettingEntity setting, LocalDate date, Authentication auth, BillingTaskKind kind) {
         return Mono.defer(
                 () -> {
                     if (date == null) return Mono.error(error("setting_invalid_dates", 400));
@@ -86,7 +127,10 @@ public class ReceivableGenerationService {
                     var standard = SettingRules.standard(setting.getSnapshotJson());
                     return Flux.fromIterable(
                                     periods.split(standard.getSettlementMethod(), start, through))
-                            .concatMap(period -> generateOne(setting, period, standard, date, auth))
+                            .concatMap(
+                                    period ->
+                                            generateOne(
+                                                    setting, period, standard, date, auth, kind))
                             .reduce(
                                     new GenerationResult(0, 0),
                                     (result, created) ->
@@ -101,7 +145,8 @@ public class ReceivableGenerationService {
             BillingPeriod period,
             StandardEntity standard,
             LocalDate date,
-            Authentication auth) {
+            Authentication auth,
+            BillingTaskKind kind) {
         var query = new QueryParamEntity();
         query.setForUpdate(true);
         return bills.createQuery()
@@ -113,13 +158,16 @@ public class ReceivableGenerationService {
                 .flatMap(
                         existing -> {
                             if (Boolean.TRUE.equals(existing.getDeleted())) return Mono.just(false);
-                            return refresh(existing, standard, date, auth).thenReturn(false);
+                            if (kind == BillingTaskKind.GENERATE) return Mono.just(false);
+                            return refresh(existing, standard, date, auth, kind).thenReturn(false);
                         })
                 .switchIfEmpty(
                         Mono.defer(
                                 () -> {
+                                    if (kind != BillingTaskKind.GENERATE
+                                            && kind != BillingTaskKind.ALL) return Mono.empty();
                                     var row = newBill(setting, period, standard, auth);
-                                    calculate(row, standard, date);
+                                    calculate(row, standard, date, kind);
                                     return bills.insert(row).thenReturn(true);
                                 }));
     }
@@ -168,7 +216,11 @@ public class ReceivableGenerationService {
     }
 
     private Mono<Void> refresh(
-            ReceivableEntity bill, StandardEntity standard, LocalDate date, Authentication auth) {
+            ReceivableEntity bill,
+            StandardEntity standard,
+            LocalDate date,
+            Authentication auth,
+            BillingTaskKind kind) {
         // 已收、月结或支付占用的账单不被自动刷新改写；收款前刷新走统一资金入口。
         if (Boolean.TRUE.equals(bill.getFinancialClosed())
                 || bill.getPaidAmount().signum() > 0 && bill.getArrears().signum() == 0)
@@ -176,14 +228,15 @@ public class ReceivableGenerationService {
         if (Boolean.TRUE.equals(bill.getPaymentLocked())
                 || bill.getPaymentOccupiedAmount().signum() > 0)
             return Mono.error(error("receivable_payment_locked", 409));
-        if (date.isBefore(LocalDate.parse(bill.getAccruedAsOfDate())))
+        if (date.isBefore(LocalDate.parse(bill.getCalculatedAsOfDate())))
             return Mono.error(error("receivable_date_regression", 409));
-        calculate(bill, standard, date);
+        calculate(bill, standard, date, kind);
         var update =
                 audit(bills.createUpdate(), auth, bill.getVersion())
                         .set("contractReceivableAmount", bill.getContractReceivableAmount())
                         .set("accruedReceivableAmount", bill.getAccruedReceivableAmount())
                         .set("accruedAsOfDate", bill.getAccruedAsOfDate())
+                        .set("calculatedAsOfDate", bill.getCalculatedAsOfDate())
                         .set("periodStatus", bill.getPeriodStatus())
                         .set("accruedLateFeeAmount", bill.getAccruedLateFeeAmount())
                         .set("finalLateFeeAmount", bill.getFinalLateFeeAmount())
@@ -197,7 +250,9 @@ public class ReceivableGenerationService {
                 .then();
     }
 
-    private void calculate(ReceivableEntity row, StandardEntity standard, LocalDate date) {
+    private void calculate(
+            ReceivableEntity row, StandardEntity standard, LocalDate date, BillingTaskKind kind) {
+        row.setCalculatedAsOfDate(date.toString());
         var context =
                 new ReceivableCalculationContext(
                         new BillingPeriod(
@@ -212,15 +267,18 @@ public class ReceivableGenerationService {
                         SettingRules.rounding(standard));
         var principal = calculator.calculate(context, date);
         boolean closed =
-                "CLOSED".equals(row.getPeriodStatus()) || date.isAfter(context.getCoveredEnd());
-        row.setContractReceivableAmount(
-                SettingRules.money(principal.getContractReceivableAmount()));
-        row.setAccruedReceivableAmount(
-                closed
-                        ? row.getContractReceivableAmount()
-                        : SettingRules.money(principal.getAccruedReceivableAmount()));
-        row.setAccruedAsOfDate(date.toString());
-        row.setPeriodStatus(closed ? "CLOSED" : "OPEN");
+                "CLOSED".equals(row.getPeriodStatus())
+                        || kind.closePeriod() && date.isAfter(context.getCoveredEnd());
+        if (kind.accrue()) {
+            row.setContractReceivableAmount(
+                    SettingRules.money(principal.getContractReceivableAmount()));
+            row.setAccruedReceivableAmount(
+                    closed
+                            ? row.getContractReceivableAmount()
+                            : SettingRules.money(principal.getAccruedReceivableAmount()));
+            row.setAccruedAsOfDate(date.toString());
+            row.setPeriodStatus(closed ? "CLOSED" : "OPEN");
+        }
         BigDecimal base =
                 row.getAccruedReceivableAmount()
                         .add(row.getAdjustmentAmount())
@@ -228,7 +286,7 @@ public class ReceivableGenerationService {
                         .add(row.getTemporaryDispatchAmount())
                         .subtract(row.getFeeReductionAmount());
         SettingRules.money(base);
-        if (!Boolean.TRUE.equals(row.getLateFeeLocked())) {
+        if (kind.lateFee() && !Boolean.TRUE.equals(row.getLateFeeLocked())) {
             var late =
                     lateFees.calculateLateFee(
                             ReceivableSnapshot.builder()

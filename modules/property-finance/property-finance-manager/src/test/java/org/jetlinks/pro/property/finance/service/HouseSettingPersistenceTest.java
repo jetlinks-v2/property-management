@@ -60,6 +60,8 @@ class HouseSettingPersistenceTest {
     @Autowired ReactiveRepository<SubjectEntity, String> subjectRows;
     @Autowired ReactiveRepository<HouseSettingEntity, String> rows;
     @Autowired ReactiveRepository<ReceivableEntity, String> bills;
+    @Autowired BillingTaskService tasks;
+    @Autowired ReactiveRepository<BillingTaskEntity, String> taskRows;
     String project;
     String standardId;
     String subjectId;
@@ -166,6 +168,23 @@ class HouseSettingPersistenceTest {
     Context allowed() {
         var holder = mock(AssetsHolder.class);
         when(holder.assertPermission(anyString(), anyCollection(), any())).thenReturn(Mono.empty());
+        when(holder.injectQuery(
+                        any(org.hswebframework.web.api.crud.entity.QueryParamEntity.class),
+                        anyString(),
+                        anyString(),
+                        any(org.jetlinks.pro.assets.AssetPermission[].class)))
+                .thenAnswer(
+                        call -> {
+                            org.hswebframework.web.api.crud.entity.QueryParamEntity query =
+                                    call.getArgument(0);
+                            query.toNestQuery(
+                                    nested ->
+                                            nested.and(
+                                                    "spaceId",
+                                                    "in",
+                                                    List.of("room", "job", "failed-job")));
+                            return Mono.just(query);
+                        });
         return auth().put(AssetsHolder.class, holder);
     }
 
@@ -474,6 +493,182 @@ class HouseSettingPersistenceTest {
                 .doesNotExist();
     }
 
+    @Test
+    void dailyStagesHaveSeparateEffectsAndPersistOneTaskForConcurrentExecutions() {
+        standards
+                .createUpdate()
+                .set("isDelay", 1)
+                .set("delayCalcForm", 0)
+                .set("delayRoundType", 0)
+                .set("rateAmount", new BigDecimal("2"))
+                .set("delayBaseType", "CURRENT_RECEIVABLE")
+                .where("id", standardId)
+                .execute()
+                .block(WAIT);
+        var saved =
+                settings.create(
+                                project,
+                                input("job", "2024-01-01", null),
+                                LocalDate.of(2023, 12, 31))
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .setting();
+        var setting = rows.findById(saved.getId()).block(WAIT);
+        var results =
+                Flux.merge(
+                                tasks.execute(setting, BillingTaskKind.GENERATE, DATE),
+                                tasks.execute(setting, BillingTaskKind.GENERATE, DATE))
+                        .collectList()
+                        .block(WAIT);
+        assertEquals(
+                1, results.stream().filter(result -> "SUCCEEDED".equals(result.status())).count());
+        assertEquals(
+                2, bills.createQuery().where("settingId", setting.getId()).count().block(WAIT));
+        var january =
+                bills.createQuery()
+                        .where("settingId", setting.getId())
+                        .and("periodStart", "2024-01-01")
+                        .fetchOne()
+                        .block(WAIT);
+        assertEquals("OPEN", january.getPeriodStatus());
+        assertEquals(0, january.getAccruedLateFeeAmount().signum());
+        generation.scheduled(project, setting.getId(), DATE, BillingTaskKind.ACCRUE).block(WAIT);
+        assertEquals("OPEN", bills.findById(january.getId()).block(WAIT).getPeriodStatus());
+        generation.scheduled(project, setting.getId(), DATE, BillingTaskKind.LATE_FEE).block(WAIT);
+        assertEquals(
+                new BigDecimal("30.00"),
+                bills.findById(january.getId()).block(WAIT).getAccruedLateFeeAmount());
+        generation.scheduled(project, setting.getId(), DATE, BillingTaskKind.CLOSE).block(WAIT);
+        assertEquals("CLOSED", bills.findById(january.getId()).block(WAIT).getPeriodStatus());
+        var job =
+                tasks.query(project, new org.hswebframework.web.api.crud.entity.QueryParamEntity())
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(1, job.getTotal());
+        assertEquals("SUCCEEDED", job.getData().get(0).getStatus());
+        assertEquals(1, job.getData().get(0).getAttempts());
+    }
+
+    @Test
+    void failedTaskRollsBackBillsAndCanBeRetriedWithOriginalIdentityAndTenant() {
+        var saved =
+                settings.create(
+                                project,
+                                input("failed-job", "2024-01-01", null),
+                                LocalDate.of(2023, 12, 31))
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .setting();
+        var setting = rows.findById(saved.getId()).block(WAIT);
+        var original = setting.getSnapshotJson();
+        var broken = com.alibaba.fastjson.JSON.parseObject(original);
+        broken.getJSONObject("standard").put("formulaExpression", "${STANDARD_PRICE}/0");
+        rows.createUpdate()
+                .set("snapshotJson", broken.toJSONString())
+                .where("id", setting.getId())
+                .execute()
+                .block(WAIT);
+        assertEquals(
+                "FAILED",
+                tasks.execute(setting, BillingTaskKind.GENERATE, DATE).block(WAIT).status());
+        assertEquals(
+                0, bills.createQuery().where("settingId", setting.getId()).count().block(WAIT));
+        var task =
+                tasks.query(project, new org.hswebframework.web.api.crud.entity.QueryParamEntity())
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .getData()
+                        .get(0);
+        assertEquals("FAILED", task.getStatus());
+        assertNotNull(task.getErrorCode());
+        rows.createUpdate()
+                .set("snapshotJson", original)
+                .where("id", setting.getId())
+                .execute()
+                .block(WAIT);
+        conflict(tasks.retry("forbidden", task.getId()), 403);
+        tasks.retry(project, task.getId()).contextWrite(allowed()).block(WAIT);
+        tasks.resume().block(WAIT);
+        var retried =
+                tasks.query(project, new org.hswebframework.web.api.crud.entity.QueryParamEntity())
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .getData()
+                        .get(0);
+        assertEquals(task.getId(), retried.getId());
+        assertEquals("SUCCEEDED", retried.getStatus());
+        assertEquals(2, retried.getAttempts());
+        conflict(
+                generation
+                        .scheduled(project, setting.getId(), DATE, BillingTaskKind.ALL)
+                        .contextWrite(
+                                org.jetlinks.pro.tenant.holder.TenantHolder.makeCurrent("other")),
+                409);
+    }
+
+    @Test
+    void expiredWorkerIsRecoveredAndTaskQueryCannotEscapeSpaceScope() {
+        var visible =
+                settings.create(
+                                project,
+                                input("job", "2024-01-01", null),
+                                LocalDate.of(2023, 12, 31))
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .setting();
+        var hidden =
+                settings.create(
+                                project,
+                                input("hidden", "2024-01-01", null),
+                                LocalDate.of(2023, 12, 31))
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .setting();
+        tasks.execute(rows.findById(visible.getId()).block(WAIT), BillingTaskKind.GENERATE, DATE)
+                .block(WAIT);
+        tasks.execute(rows.findById(hidden.getId()).block(WAIT), BillingTaskKind.GENERATE, DATE)
+                .block(WAIT);
+        var page =
+                tasks.query(project, new org.hswebframework.web.api.crud.entity.QueryParamEntity())
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(1, page.getTotal());
+        assertEquals("job", page.getData().get(0).getSpaceId());
+        var task = page.getData().get(0);
+        taskRows.createUpdate()
+                .set("status", "RUNNING")
+                .set("leaseOwner", "crashed-worker")
+                .set("leaseUntil", 0L)
+                .where("id", task.getId())
+                .execute()
+                .block(WAIT);
+        tasks.resume().block(WAIT);
+        var restored = taskRows.findById(task.getId()).block(WAIT);
+        assertEquals("SUCCEEDED", restored.getStatus());
+        assertEquals(2, restored.getAttempts());
+        assertEquals(
+                2, bills.createQuery().where("settingId", visible.getId()).count().block(WAIT));
+        var controller = new org.jetlinks.pro.property.finance.web.BillingTaskController(tasks);
+        org.springframework.test.web.reactive.server.WebTestClient.bindToController(controller)
+                .webFilter((exchange, chain) -> chain.filter(exchange).contextWrite(allowed()))
+                .build()
+                .post()
+                .uri("/property/finance/projects/" + project + "/billing-tasks/_query")
+                .bodyValue(new org.hswebframework.web.api.crud.entity.QueryParamEntity())
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody()
+                .jsonPath("$.total")
+                .isEqualTo(1)
+                .jsonPath("$.data[0].tenantId")
+                .doesNotExist()
+                .jsonPath("$.data[0].leaseOwner")
+                .doesNotExist()
+                .jsonPath("$.data[0].leaseUntil")
+                .doesNotExist();
+    }
+
     private void conflict(Mono<?> action, int status) {
         StepVerifier.create(action.contextWrite(allowed()))
                 .expectErrorMatches(error -> TaxItemPersistenceTest.status(error, status))
@@ -489,7 +684,8 @@ class HouseSettingPersistenceTest {
         ChargeFormulaEvaluator.class,
         BillingProrationService.class,
         NaturalBillingPeriodService.class,
-        ReceivableLateFeeCalculator.class
+        ReceivableLateFeeCalculator.class,
+        BillingTaskService.class
     })
     static class Config {
         @Bean
