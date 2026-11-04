@@ -107,7 +107,7 @@ class ArchiveExcelTest {
     }
 
     @Test
-    void rejectsDuplicateOrUnknownHeadersAndOverLimit() throws Exception {
+    void rejectsDuplicateHeadersButAcceptsMoreThanOneThousandRows() throws Exception {
         try (var book = new XSSFWorkbook()) {
             var sheet = dataSheet(book);
             sheet.getRow(0).getCell(1).setCellValue(ArchiveExcel.header("spaceId"));
@@ -115,13 +115,11 @@ class ArchiveExcelTest {
         }
         try (var book = new XSSFWorkbook()) {
             var sheet = dataSheet(book);
-            sheet.createRow(501).createCell(0).setCellValue("501");
-            assertEquals(
-                    "error.property_excel_limit",
-                    assertThrows(
-                                    BusinessException.class,
-                                    () -> ArchiveExcel.read(serialize(book), false))
-                            .getI18nCode());
+            for (int row = 1; row <= 1001; row++)
+                sheet.createRow(row).createCell(0).setCellValue(Integer.toString(row));
+            var result = ArchiveExcel.read(serialize(book), false);
+            assertEquals(1001, result.size());
+            assertEquals("1001", result.get(1000).get("spaceId"));
         }
         assertThrows(BusinessException.class, () -> ArchiveExcel.read(new byte[] {1, 2, 3}, false));
     }

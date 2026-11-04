@@ -276,10 +276,7 @@ public class PropertyCustomerService {
     @Transactional
     public Mono<CustomerRequests.ImportResult> importCustomers(
             String projectId, List<CustomerRequests.Create> requests) {
-        if (requests == null
-                || requests.isEmpty()
-                || requests.size() > 500
-                || requests.stream().anyMatch(Objects::isNull))
+        if (requests == null || requests.isEmpty() || requests.stream().anyMatch(Objects::isNull))
             return Mono.error(error("import_invalid", 400));
         return Mono.defer(
                 () -> {

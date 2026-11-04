@@ -38,8 +38,17 @@ class ArchiveExcelServiceTest {
         when(houses.export(eq("project"), isNull(), any())).thenReturn(Mono.just(List.of(house)));
         when(dictionary.types()).thenReturn(Mono.just(List.of()));
         var document = service.template("project", "house").block();
-        assertEquals("5G园区-房屋导入模板.xlsx", document.filename());
+        assertEquals("5G园区-空间资料-下载模板.xlsx", document.filename());
         assertTrue(document.data().rows().isEmpty());
+        assertEquals(List.of("5G园区/1栋/101"), document.options().get("spacePath"));
+        assertEquals(
+                1,
+                document.references().stream()
+                        .filter(sheet -> sheet.name().equals("填写示例"))
+                        .findFirst()
+                        .orElseThrow()
+                        .rows()
+                        .size());
         var reference =
                 document.references().stream()
                         .filter(sheet -> sheet.name().equals("空间参考"))
@@ -47,6 +56,39 @@ class ArchiveExcelServiceTest {
                         .orElseThrow();
         assertEquals("5G园区/1栋/101", reference.rows().get(0).get("spacePath"));
         assertEquals("已完善", reference.rows().get(0).get("completed"));
+    }
+
+    @Test
+    void customerTemplatesLeaveEntrySheetBlankAndKeepOneSeparateExample() {
+        var project = new PropertyOrganizationEntity();
+        project.setName("5G园区");
+        when(scope.project("project", CrudAssetPermission.save)).thenReturn(Mono.just(project));
+        var first = new PropertyHouseService.HouseView();
+        first.setCompleted(true);
+        first.setFullName("5G园区/101");
+        var second = new PropertyHouseService.HouseView();
+        second.setCompleted(true);
+        second.setFullName("5G园区/102");
+        when(houses.export(eq("project"), isNull(), any()))
+                .thenReturn(Mono.just(List.of(first, second)));
+        when(dictionary.types()).thenReturn(Mono.just(List.of()));
+        when(users.customerReferences()).thenReturn(Mono.just(List.of()));
+        for (String type : List.of("person", "company")) {
+            var document = service.template("project", type).block();
+            assertTrue(document.data().rows().isEmpty());
+            assertEquals(List.of("5G园区/101", "5G园区/102"), document.options().get("spacePath"));
+            var example =
+                    document.references().stream()
+                            .filter(sheet -> sheet.name().equals("填写示例"))
+                            .findFirst()
+                            .orElseThrow();
+            assertEquals(document.data().columns(), example.columns());
+            assertEquals(1, example.rows().size());
+            assertNotNull(
+                    example.rows()
+                            .get(0)
+                            .get("person".equals(type) ? "personName" : "companyName"));
+        }
     }
 
     @Test
@@ -164,7 +206,9 @@ class ArchiveExcelServiceTest {
                         null,
                         null,
                         "102");
-        StepVerifier.create(service.importRows("project", List.of(one, two)))
+        var rows = new ArrayList<>(Collections.nCopies(1001, one));
+        rows.set(1, two);
+        StepVerifier.create(service.importRows("project", rows))
                 .expectErrorSatisfies(
                         error -> {
                             assertInstanceOf(BusinessException.class, error);
@@ -224,7 +268,9 @@ class ArchiveExcelServiceTest {
                                             anyString(),
                                             any(CrudAssetPermission.class)))
                     .thenReturn(Mono.empty());
-            StepVerifier.create(domain.importCustomers("project", List.of(first, second)))
+            var rows = new ArrayList<>(Collections.nCopies(1001, first));
+            rows.set(1, second);
+            StepVerifier.create(domain.importCustomers("project", rows))
                     .expectErrorSatisfies(
                             error -> {
                                 assertInstanceOf(BusinessException.class, error);

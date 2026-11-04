@@ -82,6 +82,40 @@ class ArchiveExcelControllerTest {
                         new ByteArrayInputStream(bytes))) {
             assertEquals("导入数据", workbook.getSheetName(0));
             assertEquals(0, workbook.getSheetAt(0).getLastRowNum());
+            var dropdown =
+                    workbook.getSheetAt(0).getDataValidations().stream()
+                            .filter(
+                                    v ->
+                                            v.getRegions()
+                                                            .getCellRangeAddresses()[0]
+                                                            .getFirstColumn()
+                                                    == 0)
+                            .findFirst()
+                            .orElseThrow();
+            var range = workbook.getName(dropdown.getValidationConstraint().getFormula1());
+            var area =
+                    new org.apache.poi.ss.util.AreaReference(
+                            range.getRefersToFormula(),
+                            org.apache.poi.ss.SpreadsheetVersion.EXCEL2007);
+            assertEquals(
+                    "园区/1栋/101",
+                    workbook.getSheet(area.getFirstCell().getSheetName())
+                            .getRow(area.getFirstCell().getRow())
+                            .getCell(area.getFirstCell().getCol())
+                            .getStringCellValue());
+            assertEquals(1, workbook.getSheet("填写示例").getLastRowNum());
+            for (var sheet : List.of(workbook.getSheetAt(0), workbook.getSheet("填写示例"))) {
+                for (int column = 0; column < 8; column++) {
+                    var font =
+                            workbook.getFontAt(
+                                    sheet.getRow(0).getCell(column).getCellStyle().getFontIndex());
+                    assertEquals(
+                            column < 4
+                                    ? org.apache.poi.ss.usermodel.IndexedColors.RED.getIndex()
+                                    : org.apache.poi.ss.usermodel.IndexedColors.BLACK.getIndex(),
+                            font.getColor());
+                }
+            }
             assertEquals(
                     "园区/1栋/101",
                     workbook.getSheet("空间参考").getRow(1).getCell(0).getStringCellValue());

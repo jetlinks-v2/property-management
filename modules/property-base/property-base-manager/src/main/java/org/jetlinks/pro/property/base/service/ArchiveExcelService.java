@@ -93,7 +93,7 @@ public class ArchiveExcelService {
         if (spaces.isEmpty()) throw failure("no_spaces");
         var available =
                 spaces.stream()
-                        .filter(h -> customer == Boolean.TRUE.equals(h.getCompleted()))
+                        .filter(h -> !customer || Boolean.TRUE.equals(h.getCompleted()))
                         .toList();
         if (customer && available.isEmpty()) throw failure("no_houses");
         var instructions = new ArrayList<Map<String, Object>>();
@@ -103,14 +103,13 @@ public class ArchiveExcelService {
                         "field",
                         "模板类型",
                         "description",
-                        "house".equals(type) ? "房屋资料" : "person".equals(type) ? "个人客户" : "企业客户"));
+                        "house".equals(type) ? "空间资料" : "person".equals(type) ? "个人客户" : "企业客户"));
         instructions.add(
                 Map.of(
                         "field",
                         "导入规则",
                         "description",
-                        "仅填写第一张“导入数据”表，最多500行、10MB；整份校验通过后才保存。删除不导入的预填行；不保留中间空行，不修改表头。电话、证件按文本填写；时间可填YYYY-MM-DD"
-                            + " HH:mm:ss。"));
+                        "红色表头为必填项。仅填写第一张“导入数据”表；“填写示例”表仅供参考，不参与导入。建议每次不超过1000条，文件不超过10MB；整份校验通过后才保存，错误会提示行号。不保留中间空行，不修改表头。电话、证件按文本填写。"));
         instructions.add(
                 Map.of(
                         "field",
@@ -120,11 +119,11 @@ public class ArchiveExcelService {
         instructions.add(
                 Map.of(
                         "field",
-                        customer ? "客户资料" : "房屋资料",
+                        customer ? "客户资料" : "空间资料",
                         "description",
                         customer
                                 ? "已有客户只新增当前空间记录，不覆盖资料。同账号多行主档资料须一致。每条记录的开始时间由系统在保存时自动记录，无需填写。"
-                                : "仅补充未完善房屋，修改已有资料请使用界面编辑。填写页为空仍可下载，空间参考保留本项目全部房屋。"));
+                                : "仅补充未完善的空间资料，修改已有资料请使用界面编辑。完整空间路径下拉及空间参考保留本项目全部末端空间。"));
         for (var key : columns)
             instructions.add(Map.of("field", header(key), "description", guide(key)));
         var references = new ArrayList<SheetData>();
@@ -175,12 +174,48 @@ public class ArchiveExcelService {
                     new SheetData(
                             "用户参考", List.of("name", "username", "telephone", "email"), userRows));
         }
-        String label = "house".equals(type) ? "房屋" : "person".equals(type) ? "个人客户" : "企业客户";
+        // 示例单独成表，填写页不预填路径，避免示例或无意保留的空资料行进入导入。
+        references.add(new SheetData("填写示例", columns, List.of(example(type, available, options))));
+        String label = "house".equals(type) ? "空间资料" : "person".equals(type) ? "个人客户" : "企业客户";
         return new Document(
-                project + "-" + label + "导入模板.xlsx",
-                new SheetData("导入数据", columns, available.stream().map(this::spaceRow).toList()),
+                project + "-" + label + "-下载模板.xlsx",
+                new SheetData("导入数据", columns, List.of()),
                 references,
                 options);
+    }
+
+    private Map<String, Object> example(
+            String type,
+            List<PropertyHouseService.HouseView> spaces,
+            Map<String, List<String>> options) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("spacePath", spaces.get(0).getFullName());
+        if ("house".equals(type)) {
+            row.put("houseType", options.get("houseType").stream().findFirst().orElse("住宅"));
+            row.put("houseState", options.get("houseState").stream().findFirst().orElse("自住"));
+            row.put("billingArea", "100");
+            row.put("buildingArea", "110");
+            row.put("insideArea", "90");
+            row.put("deliveryDate", "2026-01-01");
+            row.put("remark", "仅作填写示例");
+        } else {
+            row.put(
+                    "person".equals(type) ? "personName" : "companyName",
+                    "person".equals(type) ? "张三（示例，请替换）" : "示例公司（请替换）");
+            row.put("telephone", "13800138000");
+            row.put("email", "sample@example.com");
+            row.put("address", "示例联系地址");
+            if ("person".equals(type)) {
+                row.put("nature", options.get("nature").stream().findFirst().orElse("业主"));
+                row.put(
+                        "certificateType",
+                        options.get("certificateType").stream().findFirst().orElse("身份证"));
+            } else {
+                row.put("legalRepresentative", "张三");
+                row.put("registeredAddress", "示例注册地址");
+            }
+        }
+        return row;
     }
 
     public Mono<PropertyHouseService.ImportResult> importHouses(String projectId, FilePart file) {

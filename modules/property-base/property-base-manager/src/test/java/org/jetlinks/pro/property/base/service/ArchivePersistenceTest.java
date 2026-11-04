@@ -586,6 +586,71 @@ class ArchivePersistenceTest {
     }
 
     @Test
+    void clearedHouseHidesBusinessFieldsInDetailListAndExportAndCanBeCompletedAgain() {
+        var input =
+                new PropertyHouseService.HouseWrite(
+                        0L,
+                        "residential",
+                        "delivered",
+                        new BigDecimal("100"),
+                        new BigDecimal("110"),
+                        new BigDecimal("90"),
+                        1000L,
+                        "原备注",
+                        "single");
+        houseService.save("project", "single", input).contextWrite(all()).block(WAIT);
+        houseService.delete("project", "single", 1).contextWrite(all()).block(WAIT);
+
+        var detail = houseService.detail("project", "single").contextWrite(all()).block(WAIT);
+        var listed =
+                houseService
+                        .query("project", "single", new QueryParamEntity())
+                        .contextWrite(all())
+                        .block(WAIT)
+                        .getData()
+                        .get(0);
+        var exported =
+                houseService
+                        .export("project", "single", new QueryParamEntity())
+                        .contextWrite(all())
+                        .block(WAIT)
+                        .get(0);
+        for (var view : List.of(detail, listed, exported)) {
+            assertFalse(view.getCompleted());
+            assertEquals("single", view.getSpaceId());
+            assertEquals("仅一栋", view.getName());
+            assertNotNull(view.getFullName());
+            assertEquals(2L, view.getVersion());
+            assertNull(view.getHouseType());
+            assertNull(view.getHouseState());
+            assertNull(view.getBillingArea());
+            assertNull(view.getBuildingArea());
+            assertNull(view.getInsideArea());
+            assertNull(view.getDeliveryDate());
+            assertNull(view.getRemark());
+        }
+        // 逻辑删除保留原始资料；重新完善仍使用删除后的版本，拒绝旧页面覆盖。
+        var deleted = houses.findById("single").block(WAIT);
+        assertTrue(deleted.getDeleted());
+        assertEquals("原备注", deleted.getRemark());
+        StepVerifier.create(
+                        houseService
+                                .save("project", "single", write("single", 1L, "80"))
+                                .contextWrite(all()))
+                .expectErrorMatches(error -> status(error, 409))
+                .verify(WAIT);
+        var saved =
+                houseService
+                        .save("project", "single", write("single", detail.getVersion(), "80"))
+                        .contextWrite(all())
+                        .block(WAIT);
+        assertTrue(saved.getCompleted());
+        assertEquals(3L, saved.getVersion());
+        assertEquals(0, new BigDecimal("80").compareTo(saved.getBillingArea()));
+        assertNull(saved.getRemark());
+    }
+
+    @Test
     void activeCustomerPreventsDeleteThenSoftDeletePreservesSourceAndBindingCannotMoveUsedRoot() {
         houseService
                 .save("project", "single", write("single", 0L, "10"))

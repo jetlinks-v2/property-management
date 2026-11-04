@@ -52,7 +52,7 @@ class ArchiveImportSchemaTest {
                                 "spacePath",
                                 List.of("园区/1栋/101", "园区/1栋/102"),
                                 "nature",
-                                java.util.stream.IntStream.range(0, 100)
+                                java.util.stream.IntStream.range(0, 1001)
                                         .mapToObj(i -> "客户性质" + i)
                                         .toList()));
         try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes(document)))) {
@@ -62,10 +62,80 @@ class ArchiveImportSchemaTest {
             assertTrue(workbook.isSheetVeryHidden(workbook.getSheetIndex("_导入选项")));
             assertTrue(
                     workbook.getAllNames().stream()
-                            .anyMatch(n -> n.getRefersToFormula().contains("$100")));
+                            .anyMatch(n -> n.getRefersToFormula().contains("$1001")));
+            var spaceDropdown =
+                    workbook.getSheetAt(0).getDataValidations().stream()
+                            .filter(
+                                    v ->
+                                            v.getRegions()
+                                                            .getCellRangeAddresses()[0]
+                                                            .getFirstColumn()
+                                                    == 0)
+                            .findFirst()
+                            .orElseThrow();
+            var source =
+                    new org.apache.poi.ss.util.AreaReference(
+                                    workbook.getName(
+                                                    spaceDropdown
+                                                            .getValidationConstraint()
+                                                            .getFormula1())
+                                            .getRefersToFormula(),
+                                    org.apache.poi.ss.SpreadsheetVersion.EXCEL2007)
+                            .getFirstCell();
+            assertEquals(
+                    "园区/1栋/101",
+                    workbook.getSheet(source.getSheetName())
+                            .getRow(source.getRow())
+                            .getCell(source.getCol())
+                            .getStringCellValue());
+            assertTrue(
+                    workbook.getSheetAt(0).getDataValidations().stream()
+                            .allMatch(
+                                    v ->
+                                            v.getRegions().getCellRangeAddresses()[0].getLastRow()
+                                                    == 1048575));
             assertTrue(
                     workbook.getSheetAt(0).getDataValidations().stream()
                             .allMatch(v -> v.getShowErrorBox()));
+        }
+    }
+
+    @Test
+    void requiredHeadersAreRedForEachTemplateAndExamplesAreNeverImported() throws Exception {
+        var required =
+                Map.of(
+                        "house", Set.of("完整空间路径", "房屋类型", "房态", "计费面积（㎡）"),
+                        "person", Set.of("完整空间路径", "姓名", "联系电话", "客户性质"),
+                        "company", Set.of("完整空间路径", "企业名称", "联系电话"));
+        for (var type : required.keySet()) {
+            var columns = ArchiveImportSchema.columns(type);
+            var document =
+                    new ArchiveExcel.Document(
+                            "模板.xlsx",
+                            new ArchiveExcel.SheetData("导入数据", columns, List.of()),
+                            List.of(
+                                    new ArchiveExcel.SheetData(
+                                            "填写示例",
+                                            columns,
+                                            List.of(Map.of("spacePath", "园区/101")))));
+            var bytes = bytes(document);
+            try (var book = new XSSFWorkbook(new ByteArrayInputStream(bytes))) {
+                for (var sheet : List.of(book.getSheetAt(0), book.getSheet("填写示例"))) {
+                    for (var cell : sheet.getRow(0)) {
+                        var font = book.getFontAt(cell.getCellStyle().getFontIndex());
+                        assertEquals(
+                                required.get(type).contains(cell.getStringCellValue())
+                                        ? org.apache.poi.ss.usermodel.IndexedColors.RED.getIndex()
+                                        : org.apache.poi.ss.usermodel.IndexedColors.BLACK
+                                                .getIndex(),
+                                font.getColor());
+                    }
+                }
+            }
+            assertEquals(
+                    "error.property_excel_limit",
+                    assertThrows(BusinessException.class, () -> ArchiveExcel.read(bytes, columns))
+                            .getI18nCode());
         }
     }
 

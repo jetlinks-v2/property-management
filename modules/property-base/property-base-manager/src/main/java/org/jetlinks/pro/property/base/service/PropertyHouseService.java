@@ -234,8 +234,7 @@ public class PropertyHouseService {
 
     @Transactional
     public Mono<ImportResult> importRows(String projectId, List<HouseWrite> rows) {
-        if (rows == null || rows.isEmpty() || rows.size() > 500)
-            return Mono.error(error("import_limit", 400));
+        if (rows == null || rows.isEmpty()) return Mono.error(error("import_limit", 400));
         return Mono.defer(
                 () -> {
                     var ids = new HashSet<String>();
@@ -398,7 +397,9 @@ public class PropertyHouseService {
             String projectId, PropertySpaceEntity node, PropertyHouseEntity entity) {
         var view = new HouseView();
         boolean sameProject = entity != null && projectId.equals(entity.getProjectId());
-        if (sameProject) BeanUtils.copyProperties(entity, view);
+        boolean completed = sameProject && !Boolean.TRUE.equals(entity.getDeleted());
+        // 已清除的资料仅保留数据库历史，当前视图不回显；版本仍用于重新完善时的并发校验。
+        if (completed) BeanUtils.copyProperties(entity, view);
         view.setId(node.getId());
         view.setSpaceId(node.getId());
         view.setProjectId(projectId);
@@ -409,7 +410,7 @@ public class PropertyHouseService {
         view.setSpaceLocation(node.getSpaceLocation());
         view.setSpaceSegments(node.getSpaceSegments());
         view.setVersion(entity == null ? 0L : entity.getVersion());
-        view.setCompleted(sameProject && !Boolean.TRUE.equals(entity.getDeleted()));
+        view.setCompleted(completed);
         return view;
     }
 

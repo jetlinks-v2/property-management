@@ -20,7 +20,6 @@ import java.util.*;
 
 /** ExcelUtils 负责输出；读取使用其 POI 底层保留物理行号，仅解析首张数据表，禁止公式和静默跳行。 */
 public final class ArchiveExcel {
-    public static final int MAX_ROWS = 500;
     public static final int MAX_BYTES = 10 * 1024 * 1024;
     public static final List<String> SPACE =
             List.of("spaceId", "spaceName", "fullName", "spaceTypeName", "spaceLocation");
@@ -56,7 +55,7 @@ public final class ArchiveExcel {
     private static final Set<String> DATES = Set.of("deliveryDate", "startTime", "endTime");
 
     static {
-        HEADERS.put("completed", "房屋资料状态");
+        HEADERS.put("completed", "空间资料状态");
         HEADERS.put("spacePath", "完整空间路径");
         HEADERS.put("personName", "姓名");
         HEADERS.put("companyName", "企业名称");
@@ -176,13 +175,14 @@ public final class ArchiveExcel {
     }
 
     private static void configureWorkbook(Workbook book, Document document) {
-        configure(book.createSheet(document.data().name()), document.data().columns());
+        var dataSheet = book.createSheet(document.data().name());
+        configure(dataSheet, document.data().columns());
+        if (document.data().columns().contains("spacePath"))
+            headerRow(dataSheet, document.data().columns(), true);
         for (var reference : document.references()) {
             var sheet = book.createSheet(reference.name());
             configure(sheet, reference.columns());
-            var title = sheet.createRow(0);
-            for (int c = 0; c < reference.columns().size(); c++)
-                title.createCell(c).setCellValue(header(reference.columns().get(c)));
+            headerRow(sheet, reference.columns(), "填写示例".equals(reference.name()));
             for (int r = 0; r < reference.rows().size(); r++) {
                 var row = sheet.createRow(r + 1);
                 for (int c = 0; c < reference.columns().size(); c++) {
@@ -193,6 +193,29 @@ public final class ArchiveExcel {
             }
         }
         ArchiveDropdowns.configure(book, document);
+    }
+
+    private static void headerRow(Sheet sheet, List<String> columns, boolean markRequired) {
+        var book = sheet.getWorkbook();
+        var normal = book.createCellStyle();
+        var normalFont = book.createFont();
+        normalFont.setBold(true);
+        normalFont.setColor(IndexedColors.BLACK.getIndex());
+        normal.setFont(normalFont);
+        var required = book.createCellStyle();
+        required.cloneStyleFrom(normal);
+        var requiredFont = book.createFont();
+        requiredFont.setBold(true);
+        requiredFont.setColor(IndexedColors.RED.getIndex());
+        required.setFont(requiredFont);
+        var row = sheet.createRow(0);
+        for (int c = 0; c < columns.size(); c++) {
+            var key = columns.get(c);
+            var cell = row.createCell(c);
+            cell.setCellValue(header(key));
+            cell.setCellStyle(
+                    markRequired && ArchiveImportSchema.required(key) ? required : normal);
+        }
     }
 
     private static void configure(Sheet sheet, List<String> columns) {
@@ -247,7 +270,7 @@ public final class ArchiveExcel {
             if (!seen.containsAll(required)) throw failure("headers");
             int last = sheet.getLastRowNum();
             while (last > 0 && blank(sheet.getRow(last), keys.size())) last--;
-            if (last == 0 || last > MAX_ROWS) throw failure("limit");
+            if (last == 0) throw failure("limit");
             var result = new ArrayList<Map<String, Object>>();
             for (int r = 1; r <= last; r++) {
                 var row = sheet.getRow(r);
