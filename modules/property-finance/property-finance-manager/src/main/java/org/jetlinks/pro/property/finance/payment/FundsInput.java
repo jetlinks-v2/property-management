@@ -13,6 +13,7 @@ public class FundsInput {
     private String action,
             type,
             accountId,
+            sourceEntryId,
             spaceId,
             relationshipId,
             standardId,

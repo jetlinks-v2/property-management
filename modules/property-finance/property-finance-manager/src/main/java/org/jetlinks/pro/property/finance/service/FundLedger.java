@@ -53,6 +53,8 @@ public class FundLedger {
         entry.setStandardName(a.getStandardName());
         entry.setPeerAccountId(peer == null ? null : peer.getId());
         entry.setPaymentId(paymentId);
+        entry.setSourceEntryId(input.getSourceEntryId());
+        if ("RETURN_OFFSET".equals(input.getAction())) entry.setRefundId(transaction);
         entry.setOccurredAt(input.getOccurredAt());
         entry.setPayerName(input.getPayerName());
         entry.setMethod(method);

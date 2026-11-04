@@ -35,7 +35,7 @@ public class RefundSourceService {
             return Mono.error(error("refund_invalid", 400));
         var input = new RefundInput();
         input.setItems(ids.stream().map(id -> new RefundInput.Item(id, 0L)).toList());
-        return sourceLines(project, input, false)
+        return sourceLines(project, input, false, Route.CASH)
                 .flatMapMany(Flux::fromIterable)
                 .concatMap(
                         line ->
@@ -58,13 +58,21 @@ public class RefundSourceService {
     }
 
     Mono<Sources> load(String project, RefundInput input, boolean lock) {
-        return sourceLines(project, input, false)
+        return load(project, input, lock, Route.CASH);
+    }
+
+    Mono<Sources> loadBalance(String project, RefundInput input, boolean lock) {
+        return load(project, input, lock, Route.BALANCE);
+    }
+
+    private Mono<Sources> load(String project, RefundInput input, boolean lock, Route route) {
+        return sourceLines(project, input, false, route)
                 .flatMap(
                         initial ->
                                 billRows(project, initial, lock)
                                         .flatMap(
                                                 rows ->
-                                                        sourceLines(project, input, lock)
+                                                        sourceLines(project, input, lock, route)
                                                                 .flatMap(
                                                                         locked ->
                                                                                 validatePayments(
@@ -78,7 +86,7 @@ public class RefundSourceService {
     }
 
     private Mono<List<PaymentAllocationEntity>> sourceLines(
-            String project, RefundInput input, boolean lock) {
+            String project, RefundInput input, boolean lock, Route route) {
         return Flux.fromIterable(
                         input.getItems().stream().map(RefundInput.Item::id).sorted().toList())
                 .concatMap(
@@ -104,10 +112,12 @@ public class RefundSourceService {
                                                     throw error("refund_source_blocked", 409);
                                                 if (positive(line.getInvoiceOccupiedAmount()))
                                                     throw error("refund_source_blocked", 409);
-                                                if (!org.jetlinks.pro.property.finance.payment
-                                                        .PaymentRules.MANUAL_METHODS
-                                                        .contains(line.getMethod()))
-                                                    throw error("fund_offset_refund_required", 409);
+                                                if (!route.methods.contains(line.getMethod()))
+                                                    throw error(
+                                                            route == Route.CASH
+                                                                    ? "fund_offset_refund_required"
+                                                                    : "refund_source_blocked",
+                                                            409);
                                             })
                                     .flatMap(
                                             line ->
@@ -207,6 +217,16 @@ public class RefundSourceService {
 
     private boolean positive(BigDecimal value) {
         return value != null && value.signum() > 0;
+    }
+
+    private enum Route {
+        CASH(PaymentRules.MANUAL_METHODS),
+        BALANCE(FundRules.TYPES);
+        final Set<String> methods;
+
+        Route(Set<String> methods) {
+            this.methods = methods;
+        }
     }
 
     record Sources(List<PaymentAllocationEntity> lines, List<ReceivableEntity> bills) {}

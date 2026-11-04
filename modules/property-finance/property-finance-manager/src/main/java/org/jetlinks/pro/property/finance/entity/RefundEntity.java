@@ -24,6 +24,13 @@ public class RefundEntity extends FinanceEntity {
     @Column(length = 64, nullable = false)
     private String projectId;
 
+    /** CASH为实际出款，BALANCE为原冲抵退回；报表不得把BALANCE计入现金支出。 */
+    @Column(length = 16, nullable = false)
+    private String destination = "CASH";
+
+    @Column(length = 64)
+    private String accountId;
+
     @Column(length = 64, nullable = false)
     private String companyId;
 

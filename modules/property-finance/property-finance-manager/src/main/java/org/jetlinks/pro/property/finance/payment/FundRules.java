@@ -19,8 +19,8 @@ public final class FundRules {
                 || date == null
                 || !Set.of("TOPUP", "REFUND", "TRANSFER", "DEDUCT", "OFFSET")
                         .contains(Objects.toString(i.getAction(), ""))
-                || !TYPES.contains(Objects.toString(i.getType(), "")))
-            throw error("fund_invalid", 400);
+                || !TYPES.contains(Objects.toString(i.getType(), ""))
+                || !blank(i.getSourceEntryId())) throw error("fund_invalid", 400);
         money(i.getAmount());
         if (blank(i.getCompanyId())
                 || blank(i.getPayerName())
@@ -31,6 +31,7 @@ public final class FundRules {
                 List.of(
                         n(i.getCompanyId()),
                         n(i.getAccountId()),
+                        n(i.getSourceEntryId()),
                         n(i.getSpaceId()),
                         n(i.getRelationshipId()),
                         n(i.getStandardId()),
@@ -100,6 +101,7 @@ public final class FundRules {
                 i.getAction(),
                 i.getType(),
                 n(i.getAccountId()),
+                n(i.getSourceEntryId()),
                 i.getVersion(),
                 n(i.getSpaceId()),
                 n(i.getRelationshipId()),

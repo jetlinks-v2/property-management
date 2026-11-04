@@ -63,6 +63,12 @@ public class FundEntryEntity extends FinanceEntity {
     @Column(length = 64, nullable = true)
     private String paymentId;
 
+    @Column(length = 64)
+    private String sourceEntryId;
+
+    @Column(length = 64)
+    private String refundId;
+
     @Column(length = 30, nullable = false)
     private String occurredAt;
 

@@ -15,6 +15,14 @@ public final class RefundRules {
     private RefundRules() {}
 
     public static void validate(RefundInput input, LocalDate date) {
+        validate(input, date, PaymentRules.MANUAL_METHODS);
+    }
+
+    public static void validateBalance(RefundInput input, LocalDate date) {
+        validate(input, date, FundRules.TYPES);
+    }
+
+    private static void validate(RefundInput input, LocalDate date, Set<String> methods) {
         if (input == null
                 || date == null
                 || input.getItems() == null
@@ -26,7 +34,7 @@ public final class RefundRules {
                 || input.getReceiverName().length() > 128
                 || blank(input.getReason())
                 || input.getReason().length() > 1000
-                || !PaymentRules.MANUAL_METHODS.contains(Objects.toString(input.getMethod(), ""))
+                || !methods.contains(Objects.toString(input.getMethod(), ""))
                 || "1".equals(input.getMethod()) != blank(input.getRecordedId())
                 || tooLong(input.getRecordedId(), 64)
                 || tooLong(input.getAttachmentFileId(), 64)
@@ -53,7 +61,20 @@ public final class RefundRules {
 
     public static List<Share> allocate(
             RefundInput input, List<PaymentAllocationEntity> sources, LocalDate date) {
-        validate(input, date);
+        return allocate(input, sources, date, PaymentRules.MANUAL_METHODS);
+    }
+
+    public static List<Share> allocateBalance(
+            RefundInput input, List<PaymentAllocationEntity> sources, LocalDate date) {
+        return allocate(input, sources, date, FundRules.TYPES);
+    }
+
+    private static List<Share> allocate(
+            RefundInput input,
+            List<PaymentAllocationEntity> sources,
+            LocalDate date,
+            Set<String> methods) {
+        validate(input, date, methods);
         var indexed = new HashMap<String, PaymentAllocationEntity>();
         sources.forEach(source -> indexed.put(source.getId(), source));
         var remaining = new ArrayList<BigInteger>();
