@@ -8,7 +8,7 @@
 
 `property-base-manager` 承载本领域 Controller、Service、Entity、Repository、权限及国际化，由独立的 `property-base-service` 装配。从仓库根目录执行 `mvn -pl :property-base-service -am verify`，只构建基础系统及其依赖。
 
-`property-base-core` 提供公共 DTO、组织类型枚举、组织树及基础目录查询命令，不依赖 manager，不包含数据库实体或 CRUD。下述命令保留现有公开契约；当前财务、巡更后端不依赖或调用基础系统，均直接接入 SaaS 公共能力。
+`property-base-core` 提供公共 DTO、组织类型枚举、组织树及基础目录查询命令，不依赖 manager，不包含数据库实体或 CRUD。基础服务必须独立运行；报修、巡更等业务服务按需运行，读取基础数据时只依赖 core 并执行公开命令，不装配本 manager。各应用的系统管理页面经网关调用同一套 `/property/**`，共享同一份基础数据。
 
 ## 组织树公开命令
 
@@ -61,7 +61,7 @@ return CommandSupportManagerProviders
 
 用户及关系表 `pm_user`、`pm_user_org` 和租约表 `pm_user_sync_state` 由 EasyORM 管理。配置统一使用 `application-local.yml` 中的 `property.user-sync`：`enabled` 默认 true、`interval-seconds` 默认 3600（1 小时）、`max-users` 默认 100000、`timeout-seconds` 默认 120。关闭 enabled 同时关闭 worker 及手动任务入口。首次在应用就绪 5 秒后执行；手动同步返回 taskId，客户端轮询状态，不能把受理当完成。
 
-运行观测 MBean 为 `org.jetlinks:type=PropertyManagement,name=UserSync`；最近任务及失败原因通过 `_sync/status` 查询，失败保留上次成功时间。基础管理前端通过公开 HTTP 接口访问；其他物业后端不依赖本系统的内部服务、数据库或接口。
+运行观测 MBean 为 `org.jetlinks:type=PropertyManagement,name=UserSync`；最近任务及失败原因通过 `_sync/status` 查询，失败保留上次成功时间。基础管理前端通过公开 HTTP 接口访问；其他物业后端不依赖本系统的内部服务和数据库，通过 core 中公开命令读取所需基础能力。
 
 ## 空间与房屋档案
 
@@ -70,6 +70,8 @@ return CommandSupportManagerProviders
 空间类型名称通过共享运行服务的只读命令 `spaceService:space-type` 解析；部署时必须包含查询类及其自动配置注册。空间页或类型页任意失败均拒绝整轮快照。
 
 报修通过 `propertyService:directory` 消费本模块公开的 `QueryPropertyProjectsCommand`、`QueryPropertyUsersCommand` 和 `QueryPropertySpacesCommand`，只返回当前租户及资产权限交集内的项目、用户身份和绑定空间。消费方仅依赖 `property-base-core`；参数通过命令容器传递，项目范围和员工筛选跨 RPC 保持一致。空目录正常返回，缺少身份、权限或服务异常明确拒绝，不触发同步或查询旧报修目录。
+
+项目目录在基础服务查询 `pm_organization`，使用 AssetsHolder 批量资产过滤并与可信租户取交集；不能把依赖 Cloud 的 `s_organization` 的资产条件拼进基础镜像库或报修库。消费方将命令返回的授权项目 ID 与业务查询在分页前取交集；空目录对应空业务结果，命令失败向上传播。
 
 真实末端由完整来源树判断：只有一个“1栋”时也可完善为房屋，权限过滤后隐藏子节点不会把父节点变成末端。顶级空间可关联项目或外协单位，一个组织最多关联一个根空间，根空间与组织一对一绑定；项目选择返回已标注为项目且有权访问的组织。已有房屋资料的根不能直接改归属，避免客户历史随绑定静默迁移。
 

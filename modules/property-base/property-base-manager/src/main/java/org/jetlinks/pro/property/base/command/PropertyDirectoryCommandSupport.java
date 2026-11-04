@@ -44,18 +44,33 @@ public class PropertyDirectoryCommandSupport {
 
     @CommandHandler(name = "查询物业项目")
     public Flux<PropertyOrganizationInfo> projects(QueryPropertyProjectsCommand command) {
+        return readableProjects(null).map(row -> {
+            var info = new PropertyOrganizationInfo();
+            info.setId(row.getId()); info.setName(row.getName()); info.setParentId(row.getParentId());
+            info.setCode(row.getCode()); info.setSortIndex(row.getSortIndex());
+            info.setOrganizationType(row.getOrganizationType()); info.setChildren(List.of());
+            return info;
+        });
+    }
+
+    /**
+     * pm 组织镜像不含 Cloud 的 s_organization，不能在镜像 SQL 中展开 organization 资产条件。
+     * 通过资产服务批量过滤后再与可信租户取交集；命令只返回授权目录，不在消费方复制基础表。
+     */
+    private Flux<PropertyOrganizationEntity> readableProjects(String projectId) {
         var query = QueryParamEntity.newQuery().where("deleted", false).and("organizationType", "project")
+            .when(projectId != null, q -> q.and("id", projectId))
             .orderByAsc("name").orderByAsc("id").noPaging().getParam();
-        return scoped(query, "organization").flatMapMany(q -> organizations.createQuery().setParam(q).fetch())
-            .take(20_001).collectList().flatMapMany(rows -> {
-                if (rows.size() > 20_000) return Flux.error(ArchiveScope.error("too_many", 400));
-                return Flux.fromIterable(rows).map(row -> {
-                    var info = new PropertyOrganizationInfo();
-                    info.setId(row.getId()); info.setName(row.getName()); info.setParentId(row.getParentId());
-                    info.setCode(row.getCode()); info.setSortIndex(row.getSortIndex());
-                    info.setOrganizationType(row.getOrganizationType()); info.setChildren(List.of());
-                    return info;
-                });
+        return archive.authenticated()
+            .then(TenantHolder.currentId().switchIfEmpty(Mono.error(new AccessDenyException())))
+            .flatMapMany(tenant -> {
+                Flux<PropertyOrganizationEntity> candidates = organizations.createQuery().setParam(query).fetch()
+                    .take(20_001).collectList().flatMapMany(rows -> rows.size() > 20_000
+                        ? Flux.error(ArchiveScope.error("too_many", 400)) : Flux.fromIterable(rows));
+                return new TenantAssetsHolder(List.of(tenant), assetManager).filter(
+                    AssetsHolder.filterAssets(candidates, ArchiveScope.ORGANIZATION,
+                        PropertyOrganizationEntity::getId, CrudAssetPermission.read),
+                    ArchiveScope.ORGANIZATION, PropertyOrganizationEntity::getId, false, CrudAssetPermission.read);
             });
     }
 
@@ -82,8 +97,7 @@ public class PropertyDirectoryCommandSupport {
     @CommandHandler(name = "查询项目空间")
     public Flux<PropertySpaceInfo> spaces(QueryPropertySpacesCommand command) {
         // 组织归属由基础模块唯一计算；调用方不能用旧的逐节点标签扩展绑定范围。
-        return scoped(QueryParamEntity.newQuery().where("id", command.getProjectId()).getParam(), "organization")
-            .flatMapMany(q -> organizations.createQuery().setParam(q).fetch()).next()
+        return readableProjects(command.getProjectId()).next()
             .switchIfEmpty(Mono.error(new AccessDenyException()))
             .then(archive.spaces(command.getProjectId(), null, CrudAssetPermission.read))
             .flatMapMany(Flux::fromIterable).map(row -> {
