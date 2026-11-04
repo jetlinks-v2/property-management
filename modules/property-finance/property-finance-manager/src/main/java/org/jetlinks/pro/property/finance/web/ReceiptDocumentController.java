@@ -19,6 +19,8 @@ import java.time.*;
 @Resource(id = "property-finance-receipts", name = "收据管理")
 public class ReceiptDocumentController {
     private final DocumentPreparationService preparation;
+    private final DocumentIssueService issue;
+    private final DocumentReverseService reverse;
     private final BillingJobProperties properties;
 
     @PostMapping("/_preview")
@@ -29,5 +31,37 @@ public class ReceiptDocumentController {
             return Mono.error(FinanceScope.error("document_input_invalid", 400));
         return preparation.preview(
                 projectId, input, LocalDateTime.now(ZoneId.of(properties.getZone())));
+    }
+
+    @PostMapping("/_confirm")
+    @ResourceAction(id = "create", name = "开具")
+    public Mono<DocumentStore.Detail> confirm(
+            @PathVariable String projectId, @RequestBody DocumentIssueService.Submission input) {
+        if (input == null
+                || input.input() == null
+                || !"RECEIPT".equals(input.input().documentType()))
+            return Mono.error(FinanceScope.error("document_input_invalid", 400));
+        return issue.confirm(projectId, input, LocalDateTime.now(ZoneId.of(properties.getZone())));
+    }
+
+    @GetMapping("/{id}")
+    @QueryAction
+    public Mono<DocumentStore.Detail> detail(
+            @PathVariable String projectId, @PathVariable String id) {
+        return issue.detail(projectId, "RECEIPT", id);
+    }
+
+    @PostMapping("/{id}/_void")
+    @ResourceAction(id = "void", name = "作废")
+    public Mono<DocumentStore.Detail> voidReceipt(
+            @PathVariable String projectId,
+            @PathVariable String id,
+            @RequestBody DocumentReverseService.Input input) {
+        return reverse.reverse(
+                projectId,
+                "RECEIPT",
+                id,
+                input,
+                LocalDateTime.now(ZoneId.of(properties.getZone())));
     }
 }
