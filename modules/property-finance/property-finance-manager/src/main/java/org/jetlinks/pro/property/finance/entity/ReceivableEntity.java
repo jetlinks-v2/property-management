@@ -57,8 +57,24 @@ public class ReceivableEntity extends FinanceEntity {
     @Column(length = 30, nullable = false)
     private String standardName;
 
-    @Column(length = 64, nullable = false)
+    // 历史应收不依赖当前收费设置，不能伪造设置ID。
+    @Column(length = 64)
     private String settingId;
+
+    @Column(length = 32)
+    private String sourceType;
+
+    @Column(length = 64)
+    private String importId;
+
+    @Column(length = 7)
+    private String accountPeriod;
+
+    @Column(length = 100)
+    private String contractCode;
+
+    @Column(length = 1000)
+    private String remark;
 
     @Column(nullable = false)
     private Integer configVersion;
