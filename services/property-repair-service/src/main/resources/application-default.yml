@@ -1,0 +1,16 @@
+# 复制为 application-local.yml 后填写实际连接值，禁止提交真实凭据。
+# DB_HOST: 127.0.0.1
+# DB_PORT: 5432
+# DB_DATABASE: property_repair
+# DB_SCHEMA: public
+# DB_USERNAME: your-user
+# DB_PASSWORD: your-password
+# REDIS_HOST: 127.0.0.1
+# REDIS_PORT: 6379
+# REDIS_PASSWORD: same-as-saas
+# REDIS_DATABASE: 0
+# RPC_TOKEN: same-as-saas
+# JWT_PUBLIC_KEY: same-as-saas-public-key
+# CLUSTER_SEEDS: 127.0.0.1:18800
+# CLUSTER_EXTERNAL_HOST: your-reachable-host
+# RPC_EXTERNAL_HOST: your-reachable-host

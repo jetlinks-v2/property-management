@@ -1,6 +1,6 @@
 # 物业管理后端
 
-基于 JetLinks SaaS 2.20 的物业组后端单仓库。基础档案、财务收费、智能巡更各自拥有业务模块、启动服务和发布制品，可以只构建、启动或更新其中一个系统。各系统直接复用 SaaS 网关、认证、租户、资产权限和公共中间件，系统之间互不依赖、互不调用。
+基于 JetLinks SaaS 2.20 的物业组后端单仓库。基础档案、财务收费、智能巡更、报事报修各自拥有业务模块、启动服务和发布制品，可以只构建、启动或更新其中一个系统。各系统直接复用 SaaS 网关、认证、租户、资产权限和公共中间件，系统之间互不依赖、互不调用。
 
 ## 工程结构
 
@@ -12,18 +12,22 @@ property-management/
 │   │   └── property-base-manager/
 │   ├── property-finance/
 │   │   └── property-finance-manager/
-│   └── property-patrol/
-│       ├── property-patrol-core/
-│       └── property-patrol-manager/
+│   ├── property-patrol/
+│   │   ├── property-patrol-core/
+│   │   └── property-patrol-manager/
+│   └── property-repair/
+│       ├── property-repair-core/
+│       └── property-repair-manager/
 ├── services/
 │   ├── property-base-service/
 │   ├── property-finance-service/
-│   └── property-patrol-service/
+│   ├── property-patrol-service/
+│   └── property-repair-service/
 ├── deploy/
 │   ├── patrol/                 巡更连接示例及认证服务应用模板
 │   ├── start-service.sh        单系统 JAR 启动脚本
 │   └── enable-host-dev.ps1     Windows Docker SaaS / IDEA 联调
-└── .run/                       三个独立 IDEA 启动配置
+└── .run/                       四个独立 IDEA 启动配置
 ```
 
 Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT，版本和插件由根 POM 管理。`modules/` 中的 POM 只负责构建聚合，不启动进程；每个 `service` 只依赖本系统 manager。单个系统可以包含多个菜单及对应 Controller、Service、Entity、权限和国际化。系统内部有需要时拆分 core，core 只承载领域类型、DTO、规则或契约，不承载 CRUD，也不反向依赖 manager。
@@ -35,6 +39,7 @@ Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT，版本和插件由根 
 | 基础档案 | `org.jetlinks.pro.property.base.PropertyBaseApplication` | 8503 / 18503 / 28503 | `property-base-service` | `property_base` |
 | 财务收费 | `org.jetlinks.pro.property.finance.PropertyFinanceApplication` | 8504 / 18504 / 28504 | `property-finance-service` | `property_finance` |
 | 智能巡更 | `org.jetlinks.pro.patrol.PatrolApplication` | 8502 / 18502 / 28502 | `cloud-patrol-service` | `cloud_patrol` |
+| 报事报修 | `org.jetlinks.pro.smartpark.repair.SmartParkRepairApplication` | 8506 / 18506 / 28506 | `smart-park-repair-service` | `property_repair` |
 
 各系统有独立的事件和配置命名空间。巡更保留已部署的 `cloud-patrol-service` 服务名、`cloud-patrol` 命名空间、`/park/patrol/**` 接口、资产/权限 ID 和 `CloudPatrol` 应用模板；目录与 Maven 制品名改为 `property-patrol-*` 不改变这些外部契约。
 
@@ -44,6 +49,8 @@ Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT，版本和插件由根 
 - [财务收费](modules/property-finance/README.md)：已有模块和独立启动骨架，收费业务尚待开发。
 - [智能巡更](modules/property-patrol/README.md)：包含现有分类、点位、标准、岗位、排班、计划、任务、执行及统计实现与测试；后续巡更后端统一在本仓库开发。
 
+- [报事报修](modules/property-repair/README.md)：工单、流程、审核、通知、报表导出、二维码及既有报修目录投影；通过独立报修服务装配，前端由 `report-saas-ui/2.20` 提供。
+
 ## 独立构建与启动
 
 需要 JDK17、Maven 及目标 SaaS 对应 JetLinks 制品的仓库权限。根目录执行以下命令只构建所选系统和它自己的依赖，不会构建或启动兄弟系统：
@@ -52,9 +59,10 @@ Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT，版本和插件由根 
 mvn -pl :property-patrol-service -am verify
 mvn -pl :property-base-service -am verify
 mvn -pl :property-finance-service -am verify
+mvn -pl :property-repair-service -am verify
 ```
 
-也可执行 `mvn verify` 构建全仓库；这仍只生成三个独立 JAR，不产生统一业务进程。产物分别位于 `services/property-<system>-service/target/application.jar`，发布时须保留系统目录或镜像名区别，不能把三个同名 JAR 混放。
+也可执行 `mvn verify` 构建全仓库；这仍只生成四个独立 JAR，不产生统一业务进程。产物分别位于 `services/property-<system>-service/target/application.jar`，发布时须保留系统目录或镜像名区别，不能把多个同名 JAR 混放。
 
 先准备业务库、环境变量及可达的 SaaS 公共服务，再选择其中一个启动：
 
@@ -66,13 +74,13 @@ bash deploy/start-service.sh patrol
 bash deploy/start-service.sh base services/property-base-service/src/main/resources/application-local.yml
 ```
 
-脚本提供 Java17/21 下 Redis/FST 集群序列化需要的 `--add-opens` 参数。PowerShell/IDEA 运行也需要这些参数，自带 `.run/` 配置已提供。启动一个系统不要求启动另外两个，但数据库、Redis、网关等公共依赖仍需可用。
+脚本提供 Java17/21 下 Redis/FST 集群序列化需要的 `--add-opens` 参数。PowerShell/IDEA 运行也需要这些参数，自带 `.run/` 配置已提供。启动一个系统不要求启动兄弟系统，但数据库、Redis、网关等公共依赖仍需可用。
 
 ## IDEA 与本地连接配置
 
 1. 打开根 `pom.xml`，IDEA SDK 和 Maven Runner JRE 使用 JDK17，配置团队 JetLinks Maven settings。
 2. 在目标 `services/property-<system>-service/src/main/resources/` 中，复制 `application-default.yml` 为 `application-local.yml`，去掉示例键前的注释并填写实际连接值。不要复制本机凭据到另一个系统后仍使用同一业务库。
-3. 选择对应的“基础档案”“财务收费”或“智能巡更”运行配置，激活 `default,dev,local`。只有目标 service 的类路径会参与运行；不要人为把兄弟 manager 加入运行依赖。
+3. 选择对应的“基础档案”“财务收费”“智能巡更”或“报事报修”运行配置，激活 `default,dev,local`。只有目标 service 的类路径会参与运行；不要人为把兄弟 manager 加入运行依赖。
 4. 对齐 SaaS 的 Redis、RPC token、JWT 公钥和集群种子。各系统的 HTTP、集群和 RPC 广播地址必须能被平台节点回连；多个本机服务同时启动时不能覆盖成同一个端口或 `SERVER_ID`。
 
 `application.yml` 默认仅加载 `default`，生产连接值由环境变量或外部配置提供；`application-dev.yml` 只控制开发日志。`application-local.yml` 在开发编译时进入类路径供 IDEA 使用，但被 Git 忽略，且由 JAR 插件排除，不进入发布制品。本仓库不维护 SaaS 管理员初始密码或 JWT 私钥。
@@ -92,6 +100,8 @@ Windows 连接本机 Docker SaaS 时可使用：
 仅调整源码仓库和构建结构，不需要重新部署整个 SaaS。切换新产物时只更新对应系统后端，巡更继续使用原部署目录、业务库、服务名和应用模板；同一环境替换时先停止旧实例，避免保留相同节点 ID 的重复实例。运行端前端文件未变化时无需重发；只有页面变动才重建运行端宿主。基础、财务服务以后按需分别部署、初始化各自菜单和模板。
 
 SaaS 聚合工作区通过 `modules/property-management` 引用本仓库，前端仍各自维护。源码聚合不等于部署或应用开通；单系统打包成功也不等于网关、项目应用、资产权限及 PostgreSQL 业务验收通过。
+
+报修服务接管原部署时，显式指定原业务库、停止旧报修实例并核对网关路由；默认使用 8506，避免与巡更默认端口冲突。模板与菜单位于 `deploy/repair`，完整切换步骤见报修模块说明。
 
 ## 物业组共享开发
 

@@ -1,0 +1,3255 @@
+{
+  "menus": [
+    {
+      "id": "repair-3638364d5aec4302a6c7635d15f6163f",
+      "parentId": "-1",
+      "path": "cGnB",
+      "sortIndex": 0,
+      "level": 1,
+      "owner": "app",
+      "name": "首页统计",
+      "code": "repair-3638364d5aec4302a6c7635d15f6163f",
+      "icon": "",
+      "url": "/homeStatistic",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairOrder"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairOrder:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairOrder:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairOrder:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairOrder:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairOrder:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairOrder:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairOrder:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "homeStatistic",
+        "legacyResourceId": "3638364d5aec4302a6c7635d15f6163f",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Overview"
+        }
+      },
+      "createTime": 1793614921830,
+      "granted": true,
+      "i18nName": "首页统计",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-db0a17caf46048c4ac4a693a3583d55d",
+      "parentId": "repair-12c861faf39e4aa88ffde83c527b8544",
+      "path": "mfl0-rIPJ",
+      "sortIndex": 0,
+      "level": 2,
+      "owner": "app",
+      "name": "报事统计",
+      "code": "repair-db0a17caf46048c4ac4a693a3583d55d",
+      "icon": "",
+      "url": "/theMatterStatistic/index",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [
+        {
+          "id": "export",
+          "name": "导出",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "导出"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairOrder"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairOrder:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairOrder:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairOrder:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairOrder:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairOrder:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairOrder:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairOrder:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "index",
+        "legacyResourceId": "db0a17caf46048c4ac4a693a3583d55d",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Reports"
+        }
+      },
+      "createTime": 1793614921964,
+      "granted": true,
+      "i18nName": "报事统计",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-1927735896d240b58b81093d20ffccb6",
+      "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+      "path": "rRgX-y4MZ",
+      "sortIndex": 0,
+      "level": 2,
+      "owner": "app",
+      "name": "报事渠道配置",
+      "code": "repair-1927735896d240b58b81093d20ffccb6",
+      "icon": "",
+      "url": "/theMatterConfiguration/theMatter",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [
+        {
+          "id": "save",
+          "name": "保存",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "保存"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairConfiguration"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairConfiguration:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairConfiguration:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairConfiguration:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairConfiguration:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairConfiguration:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairConfiguration:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairConfiguration:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "theMatter",
+        "legacyResourceId": "1927735896d240b58b81093d20ffccb6",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Configuration"
+        }
+      },
+      "createTime": 1793614922033,
+      "granted": true,
+      "i18nName": "报事渠道配置",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-ae6a50b29308426b932b94d33f8bab18",
+      "parentId": "repair-15b1f999319949428ea1e81bbac73350",
+      "path": "fCHw-rx9e",
+      "sortIndex": 0,
+      "level": 2,
+      "owner": "app",
+      "name": "报事记录",
+      "code": "repair-ae6a50b29308426b932b94d33f8bab18",
+      "icon": "",
+      "url": "/businessProcessing/reportedThatRecords",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [
+        {
+          "id": "create",
+          "name": "发起报事",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "发起报事"
+        },
+        {
+          "id": "dispatch",
+          "name": "分派",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "分派"
+        },
+        {
+          "id": "accept",
+          "name": "接单",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "接单"
+        },
+        {
+          "id": "follow",
+          "name": "跟进",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "跟进"
+        },
+        {
+          "id": "finish",
+          "name": "完结",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "完结"
+        },
+        {
+          "id": "callback",
+          "name": "回访",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "回访"
+        },
+        {
+          "id": "upload",
+          "name": "上传附件",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "上传附件"
+        },
+        {
+          "id": "transfer",
+          "name": "转派",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "转派"
+        },
+        {
+          "id": "grab",
+          "name": "抢单",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "抢单"
+        },
+        {
+          "id": "delay",
+          "name": "申请延期",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "申请延期"
+        },
+        {
+          "id": "close",
+          "name": "申请非正常关单",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "申请非正常关单"
+        },
+        {
+          "id": "changeLevel",
+          "name": "等级变更",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "等级变更"
+        },
+        {
+          "id": "changeCategory",
+          "name": "修改分类",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "修改分类"
+        },
+        {
+          "id": "abandonApply",
+          "name": "申请废弃",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "申请废弃"
+        },
+        {
+          "id": "review",
+          "name": "审核",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "审核"
+        },
+        {
+          "id": "evaluate",
+          "name": "员工评价",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "员工评价"
+        },
+        {
+          "id": "urge",
+          "name": "催办",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "催办"
+        },
+        {
+          "id": "toPaid",
+          "name": "转为有偿报事",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "转为有偿报事"
+        },
+        {
+          "id": "quote",
+          "name": "提交费用待签字",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "提交费用待签字"
+        },
+        {
+          "id": "sign",
+          "name": "登记业主签字",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "登记业主签字"
+        },
+        {
+          "id": "ownerEvaluate",
+          "name": "登记业主评价",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "登记业主评价"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairOrder",
+        "file",
+        "device"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairOrder:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairOrder:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairOrder:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairOrder:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairOrder:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairOrder:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairOrder:creator"
+        },
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "file",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "file:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "file",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "file:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "file",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "file:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "file",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "file:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "file",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "file:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "file",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "file:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "file",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "file:creator"
+        },
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "device",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "device:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "device",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "device:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "device",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "device:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "device",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "device:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "device",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "device:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "device",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "device:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "device",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "device:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "reportedThatRecords",
+        "legacyResourceId": "ae6a50b29308426b932b94d33f8bab18",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Orders"
+        }
+      },
+      "createTime": 1793614921899,
+      "granted": true,
+      "i18nName": "报事记录",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-15b1f999319949428ea1e81bbac73350",
+      "parentId": "-1",
+      "path": "fCHw",
+      "sortIndex": 1,
+      "level": 1,
+      "owner": "app",
+      "name": "报事处理",
+      "code": "repair-15b1f999319949428ea1e81bbac73350",
+      "icon": "",
+      "url": "/businessProcessing",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [],
+      "accessSupport": {
+        "text": "Unsupported",
+        "value": "unsupported"
+      },
+      "assetAccesses": [],
+      "options": {
+        "show": true,
+        "legacyRouter": "businessProcessing",
+        "legacyResourceId": "15b1f999319949428ea1e81bbac73350",
+        "previewOnly": true
+      },
+      "createTime": 1793614921847,
+      "granted": true,
+      "i18nName": "报事处理",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-75a9b512659a4a5aa0ed2157ae4d0cd9",
+      "parentId": "repair-15b1f999319949428ea1e81bbac73350",
+      "path": "fCHw-TgwI",
+      "sortIndex": 10,
+      "level": 2,
+      "owner": "app",
+      "name": "报事审核",
+      "code": "repair-75a9b512659a4a5aa0ed2157ae4d0cd9",
+      "icon": "",
+      "url": "/businessProcessing/newsstandAudit",
+      "describe": "报事审核清单及流程审核",
+      "buttons": [
+        {
+          "id": "review",
+          "name": "审核",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "审核"
+        },
+        {
+          "id": "export",
+          "name": "导出",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "导出"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairOrder"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairOrder:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairOrder:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairOrder:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairOrder:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairOrder:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairOrder:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairOrder:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "newsstandAudit",
+        "legacyResourceId": "75a9b512659a4a5aa0ed2157ae4d0cd9",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Orders"
+        }
+      },
+      "createTime": 1793614921910,
+      "granted": true,
+      "i18nName": "报事审核",
+      "i18nDescribe": "报事审核清单及流程审核"
+    },
+    {
+      "id": "repair-9592fb600f2d48ecb0c8e71625504429",
+      "parentId": "repair-12c861faf39e4aa88ffde83c527b8544",
+      "path": "mfl0-ZB49",
+      "sortIndex": 10,
+      "level": 2,
+      "owner": "app",
+      "name": "有偿报事统计",
+      "code": "repair-9592fb600f2d48ecb0c8e71625504429",
+      "icon": "",
+      "url": "/theMatterStatistic/paidReportingStatistics",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [
+        {
+          "id": "export",
+          "name": "导出",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "导出"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairOrder"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairOrder:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairOrder:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairOrder:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairOrder:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairOrder:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairOrder:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairOrder:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "paidReportingStatistics",
+        "legacyResourceId": "9592fb600f2d48ecb0c8e71625504429",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Reports"
+        }
+      },
+      "createTime": 1793614921972,
+      "granted": true,
+      "i18nName": "有偿报事统计",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-e5c3044532f049c0b221f3348feab269",
+      "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+      "path": "rRgX-sQak",
+      "sortIndex": 10,
+      "level": 2,
+      "owner": "app",
+      "name": "报事分类配置",
+      "code": "repair-e5c3044532f049c0b221f3348feab269",
+      "icon": "",
+      "url": "/theMatterConfiguration/theMatterClassification",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [
+        {
+          "id": "save",
+          "name": "保存",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "保存"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairConfiguration"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairConfiguration:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairConfiguration:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairConfiguration:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairConfiguration:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairConfiguration:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairConfiguration:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairConfiguration:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "theMatterClassification",
+        "legacyResourceId": "e5c3044532f049c0b221f3348feab269",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Configuration"
+        }
+      },
+      "createTime": 1793614922042,
+      "granted": true,
+      "i18nName": "报事分类配置",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-12c861faf39e4aa88ffde83c527b8544",
+      "parentId": "-1",
+      "path": "mfl0",
+      "sortIndex": 10,
+      "level": 1,
+      "owner": "app",
+      "name": "报事统计",
+      "code": "repair-12c861faf39e4aa88ffde83c527b8544",
+      "icon": "",
+      "url": "/theMatterStatistic",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [],
+      "accessSupport": {
+        "text": "Unsupported",
+        "value": "unsupported"
+      },
+      "assetAccesses": [],
+      "options": {
+        "show": true,
+        "legacyRouter": "theMatterStatistic",
+        "legacyResourceId": "12c861faf39e4aa88ffde83c527b8544",
+        "previewOnly": false
+      },
+      "createTime": 1793614921956,
+      "granted": true,
+      "i18nName": "报事统计",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-b3df273261f340a4bef03c55817c9d81",
+      "parentId": "repair-15b1f999319949428ea1e81bbac73350",
+      "path": "fCHw-NbEw",
+      "sortIndex": 20,
+      "level": 2,
+      "owner": "app",
+      "name": "导出管理",
+      "code": "repair-b3df273261f340a4bef03c55817c9d81",
+      "icon": "",
+      "url": "/businessProcessing/exportMatter",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [
+        {
+          "id": "export",
+          "name": "导出",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "导出"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairOrder"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairOrder:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairOrder:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairOrder:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairOrder:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairOrder:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairOrder:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairOrder:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "exportMatter",
+        "legacyResourceId": "b3df273261f340a4bef03c55817c9d81",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Exports"
+        }
+      },
+      "createTime": 1793614921919,
+      "granted": true,
+      "i18nName": "导出管理",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-1ffad82658d2452eb21f4cee0df97687",
+      "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+      "path": "rRgX-T56K",
+      "sortIndex": 20,
+      "level": 2,
+      "owner": "app",
+      "name": "满意度配置",
+      "code": "repair-1ffad82658d2452eb21f4cee0df97687",
+      "icon": "",
+      "url": "/theMatterConfiguration/satisfaction",
+      "describe": "报事报修业务配置",
+      "buttons": [
+        {
+          "id": "save",
+          "name": "保存",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "保存"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairConfiguration"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairConfiguration:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairConfiguration:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairConfiguration:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairConfiguration:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairConfiguration:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairConfiguration:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairConfiguration:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "satisfaction",
+        "legacyResourceId": "1ffad82658d2452eb21f4cee0df97687",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Configuration"
+        }
+      },
+      "createTime": 1793614922053,
+      "granted": true,
+      "i18nName": "满意度配置",
+      "i18nDescribe": "报事报修业务配置"
+    },
+    {
+      "id": "repair-e6c65912104140c688a2237037a8c0e0",
+      "parentId": "-1",
+      "path": "rRgX",
+      "sortIndex": 20,
+      "level": 1,
+      "owner": "app",
+      "name": "报事配置",
+      "code": "repair-e6c65912104140c688a2237037a8c0e0",
+      "icon": "",
+      "url": "/theMatterConfiguration",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [],
+      "accessSupport": {
+        "text": "Unsupported",
+        "value": "unsupported"
+      },
+      "assetAccesses": [],
+      "options": {
+        "show": true,
+        "legacyRouter": "theMatterConfiguration",
+        "legacyResourceId": "e6c65912104140c688a2237037a8c0e0",
+        "previewOnly": true
+      },
+      "createTime": 1793614922026,
+      "granted": true,
+      "i18nName": "报事配置",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-2f6bc3bab21f46e69d8437ea68c6acf9",
+      "parentId": "repair-15b1f999319949428ea1e81bbac73350",
+      "path": "fCHw-H3Li",
+      "sortIndex": 30,
+      "level": 2,
+      "owner": "app",
+      "name": "发起报事",
+      "code": "repair-2f6bc3bab21f46e69d8437ea68c6acf9",
+      "icon": "",
+      "url": "/businessProcessing/addMatter",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [],
+      "accessSupport": {
+        "text": "Unsupported",
+        "value": "unsupported"
+      },
+      "assetAccesses": [],
+      "options": {
+        "show": false,
+        "legacyRouter": "addMatter",
+        "legacyResourceId": "2f6bc3bab21f46e69d8437ea68c6acf9",
+        "previewOnly": true
+      },
+      "createTime": 1793614921928,
+      "granted": true,
+      "i18nName": "发起报事",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-75d939bcd10c499ca3bce8bb39d9eab6",
+      "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+      "path": "rRgX-Lhii",
+      "sortIndex": 30,
+      "level": 2,
+      "owner": "app",
+      "name": "报事流程配置",
+      "code": "repair-75d939bcd10c499ca3bce8bb39d9eab6",
+      "icon": "",
+      "url": "/theMatterConfiguration/theBusinessProcess",
+      "describe": "报事报修业务配置",
+      "buttons": [
+        {
+          "id": "save",
+          "name": "保存",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "保存"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairConfiguration"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairConfiguration:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairConfiguration:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairConfiguration:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairConfiguration:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairConfiguration:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairConfiguration:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairConfiguration:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "theBusinessProcess",
+        "legacyResourceId": "75d939bcd10c499ca3bce8bb39d9eab6",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Configuration"
+        }
+      },
+      "createTime": 1793614922061,
+      "granted": true,
+      "i18nName": "报事流程配置",
+      "i18nDescribe": "报事报修业务配置"
+    },
+    {
+      "id": "repair-d25b261db07a4dc7ad84f67ad323a2b7",
+      "parentId": "repair-12c861faf39e4aa88ffde83c527b8544",
+      "path": "mfl0-V51D",
+      "sortIndex": 30,
+      "level": 2,
+      "owner": "app",
+      "name": "报事节点统计",
+      "code": "repair-d25b261db07a4dc7ad84f67ad323a2b7",
+      "icon": "",
+      "url": "/theMatterStatistic/reportingNodeStatistics",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [
+        {
+          "id": "export",
+          "name": "导出",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "导出"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairOrder"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairOrder:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairOrder:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairOrder:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairOrder:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairOrder:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairOrder:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairOrder:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "reportingNodeStatistics",
+        "legacyResourceId": "d25b261db07a4dc7ad84f67ad323a2b7",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Reports"
+        }
+      },
+      "createTime": 1793614921990,
+      "granted": true,
+      "i18nName": "报事节点统计",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-8ba21f2e6aed4e52884395e3c0ff690b",
+      "parentId": "repair-15b1f999319949428ea1e81bbac73350",
+      "path": "fCHw-SnJs",
+      "sortIndex": 40,
+      "level": 2,
+      "owner": "app",
+      "name": "报事详情",
+      "code": "repair-8ba21f2e6aed4e52884395e3c0ff690b",
+      "icon": "",
+      "url": "/businessProcessing/matterDetail",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [],
+      "accessSupport": {
+        "text": "Unsupported",
+        "value": "unsupported"
+      },
+      "assetAccesses": [],
+      "options": {
+        "show": false,
+        "legacyRouter": "matterDetail",
+        "legacyResourceId": "8ba21f2e6aed4e52884395e3c0ff690b",
+        "previewOnly": true
+      },
+      "createTime": 1793614921937,
+      "granted": true,
+      "i18nName": "报事详情",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-808e678f521f4c889bcb902e208e4f3e",
+      "parentId": "repair-12c861faf39e4aa88ffde83c527b8544",
+      "path": "mfl0-gcfn",
+      "sortIndex": 40,
+      "level": 2,
+      "owner": "app",
+      "name": "超月报事统计",
+      "code": "repair-808e678f521f4c889bcb902e208e4f3e",
+      "icon": "",
+      "url": "/theMatterStatistic/overMonthStatistics",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [
+        {
+          "id": "export",
+          "name": "导出",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "导出"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairOrder"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairOrder:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairOrder:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairOrder:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairOrder:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairOrder:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairOrder:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairOrder:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "overMonthStatistics",
+        "legacyResourceId": "808e678f521f4c889bcb902e208e4f3e",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Reports"
+        }
+      },
+      "createTime": 1793614922000,
+      "granted": true,
+      "i18nName": "超月报事统计",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-7f8fa9a4fd82483db038a6994ff6236b",
+      "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+      "path": "rRgX-GNTy",
+      "sortIndex": 40,
+      "level": 2,
+      "owner": "app",
+      "name": "标签配置",
+      "code": "repair-7f8fa9a4fd82483db038a6994ff6236b",
+      "icon": "",
+      "url": "/theMatterConfiguration/labelSet",
+      "describe": "报事报修业务配置",
+      "buttons": [
+        {
+          "id": "save",
+          "name": "保存",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "保存"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairConfiguration"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairConfiguration:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairConfiguration:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairConfiguration:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairConfiguration:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairConfiguration:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairConfiguration:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairConfiguration:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "labelSet",
+        "legacyResourceId": "7f8fa9a4fd82483db038a6994ff6236b",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Configuration"
+        }
+      },
+      "createTime": 1793614922068,
+      "granted": true,
+      "i18nName": "标签配置",
+      "i18nDescribe": "报事报修业务配置"
+    },
+    {
+      "id": "repair-0593f6e90e2c4b30a6b2e9f2c73d4106",
+      "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+      "path": "rRgX-nAyF",
+      "sortIndex": 50,
+      "level": 2,
+      "owner": "app",
+      "name": "操作日志",
+      "code": "repair-0593f6e90e2c4b30a6b2e9f2c73d4106",
+      "icon": "",
+      "url": "/theMatterConfiguration/operationLog",
+      "describe": "应用管理员查看当前应用全部操作日志",
+      "buttons": [],
+      "accessSupport": {
+        "text": "Unsupported",
+        "value": "unsupported"
+      },
+      "assetAccesses": [],
+      "options": {
+        "show": true,
+        "legacyRouter": "operationLog",
+        "legacyResourceId": "0593f6e90e2c4b30a6b2e9f2c73d4106",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/OperationLogs"
+        }
+      },
+      "createTime": 1793614922078,
+      "granted": true,
+      "i18nName": "操作日志",
+      "i18nDescribe": "应用管理员查看当前应用全部操作日志"
+    },
+    {
+      "id": "repair-186e3afb199b42d1a80b06108be6211d",
+      "parentId": "repair-15b1f999319949428ea1e81bbac73350",
+      "path": "fCHw-3dnl",
+      "sortIndex": 50,
+      "level": 2,
+      "owner": "app",
+      "name": "报事审核详情",
+      "code": "repair-186e3afb199b42d1a80b06108be6211d",
+      "icon": "",
+      "url": "/businessProcessing/auditDetail",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [],
+      "accessSupport": {
+        "text": "Unsupported",
+        "value": "unsupported"
+      },
+      "assetAccesses": [],
+      "options": {
+        "show": false,
+        "legacyRouter": "auditDetail",
+        "legacyResourceId": "186e3afb199b42d1a80b06108be6211d",
+        "previewOnly": true
+      },
+      "createTime": 1793614921947,
+      "granted": true,
+      "i18nName": "报事审核详情",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-8307741e29f84011888063abde24a9c7",
+      "parentId": "repair-12c861faf39e4aa88ffde83c527b8544",
+      "path": "mfl0-I9gS",
+      "sortIndex": 50,
+      "level": 2,
+      "owner": "app",
+      "name": "跟进情况统计",
+      "code": "repair-8307741e29f84011888063abde24a9c7",
+      "icon": "",
+      "url": "/theMatterStatistic/followUpStatistics",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [
+        {
+          "id": "export",
+          "name": "导出",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "导出"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairOrder"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairOrder:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairOrder:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairOrder:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairOrder:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairOrder:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairOrder:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairOrder:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "followUpStatistics",
+        "legacyResourceId": "8307741e29f84011888063abde24a9c7",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Reports"
+        }
+      },
+      "createTime": 1793614922010,
+      "granted": true,
+      "i18nName": "跟进情况统计",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-c2bf033506f0400099bb2d96c9b70982",
+      "parentId": "repair-12c861faf39e4aa88ffde83c527b8544",
+      "path": "mfl0-jVIl",
+      "sortIndex": 60,
+      "level": 2,
+      "owner": "app",
+      "name": "评价管理",
+      "code": "repair-c2bf033506f0400099bb2d96c9b70982",
+      "icon": "",
+      "url": "/theMatterStatistic/evaluationManagement",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [
+        {
+          "id": "export",
+          "name": "导出",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "导出"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairOrder"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairOrder:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairOrder:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairOrder:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairOrder:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairOrder:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairOrder:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairOrder",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairOrder:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "evaluationManagement",
+        "legacyResourceId": "c2bf033506f0400099bb2d96c9b70982",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Reports"
+        }
+      },
+      "createTime": 1793614922017,
+      "granted": true,
+      "i18nName": "评价管理",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-25a3662e55d3445aa65548c2506839c0",
+      "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+      "path": "rRgX-VIeL",
+      "sortIndex": 60,
+      "level": 2,
+      "owner": "app",
+      "name": "评价标签设置",
+      "code": "repair-25a3662e55d3445aa65548c2506839c0",
+      "icon": "",
+      "url": "/theMatterConfiguration/evaluationOfTheLabel",
+      "describe": "报事报修业务配置",
+      "buttons": [
+        {
+          "id": "save",
+          "name": "保存",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "保存"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairConfiguration"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairConfiguration:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairConfiguration:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairConfiguration:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairConfiguration:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairConfiguration:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairConfiguration:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairConfiguration:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "evaluationOfTheLabel",
+        "legacyResourceId": "25a3662e55d3445aa65548c2506839c0",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Configuration"
+        }
+      },
+      "createTime": 1793614922089,
+      "granted": true,
+      "i18nName": "评价标签设置",
+      "i18nDescribe": "报事报修业务配置"
+    },
+    {
+      "id": "repair-397fa00d0f8b4f9ebcbcfdc8f9b43fa7",
+      "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+      "path": "rRgX-Z9hC",
+      "sortIndex": 60,
+      "level": 2,
+      "owner": "app",
+      "name": "回复语设置",
+      "code": "repair-397fa00d0f8b4f9ebcbcfdc8f9b43fa7",
+      "icon": "",
+      "url": "/theMatterConfiguration/replyLanguageSetting",
+      "describe": "报事报修业务配置",
+      "buttons": [
+        {
+          "id": "save",
+          "name": "保存",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "保存"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairConfiguration"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairConfiguration:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairConfiguration:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairConfiguration:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairConfiguration:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairConfiguration:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairConfiguration:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairConfiguration:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "replyLanguageSetting",
+        "legacyResourceId": "397fa00d0f8b4f9ebcbcfdc8f9b43fa7",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Configuration"
+        }
+      },
+      "createTime": 1793614922100,
+      "granted": true,
+      "i18nName": "回复语设置",
+      "i18nDescribe": "报事报修业务配置"
+    },
+    {
+      "id": "repair-e963bf0e3d7a48388c330d34af8504c5",
+      "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+      "path": "rRgX-CH6m",
+      "sortIndex": 70,
+      "level": 2,
+      "owner": "app",
+      "name": "有偿报事抽佣配置",
+      "code": "repair-e963bf0e3d7a48388c330d34af8504c5",
+      "icon": "",
+      "url": "/theMatterConfiguration/reportCommissionSetting",
+      "describe": "报事报修业务配置",
+      "buttons": [
+        {
+          "id": "save",
+          "name": "保存",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "保存"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairConfiguration"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairConfiguration:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairConfiguration:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairConfiguration:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairConfiguration:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairConfiguration:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairConfiguration:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairConfiguration:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "reportCommissionSetting",
+        "legacyResourceId": "e963bf0e3d7a48388c330d34af8504c5",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Configuration"
+        }
+      },
+      "createTime": 1793614922111,
+      "granted": true,
+      "i18nName": "有偿报事抽佣配置",
+      "i18nDescribe": "报事报修业务配置"
+    },
+    {
+      "id": "repair-7c47e3b492d34d92ab54d3c3ef5029de",
+      "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+      "path": "rRgX-L8jM",
+      "sortIndex": 80,
+      "level": 2,
+      "owner": "app",
+      "name": "报事等级配置",
+      "code": "repair-7c47e3b492d34d92ab54d3c3ef5029de",
+      "icon": "",
+      "url": "/theMatterConfiguration/reportLevel",
+      "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+      "buttons": [
+        {
+          "id": "save",
+          "name": "保存",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "保存"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairConfiguration"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairConfiguration:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairConfiguration:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairConfiguration:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairConfiguration:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairConfiguration:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairConfiguration:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairConfiguration:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "reportLevel",
+        "legacyResourceId": "7c47e3b492d34d92ab54d3c3ef5029de",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Configuration"
+        }
+      },
+      "createTime": 1793614922122,
+      "granted": true,
+      "i18nName": "报事等级配置",
+      "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。"
+    },
+    {
+      "id": "repair-qr-configuration",
+      "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+      "path": "rRgX-Hx67",
+      "sortIndex": 95,
+      "level": 2,
+      "owner": "app",
+      "name": "报事二维码配置",
+      "code": "repair-qr-configuration",
+      "icon": "",
+      "url": "/theMatterConfiguration/reportRepairQrConfig",
+      "describe": "报事报修业务配置",
+      "buttons": [
+        {
+          "id": "save",
+          "name": "维护",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "维护"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "repairConfiguration",
+        "organization",
+        "space"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "repairConfiguration:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "repairConfiguration:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "repairConfiguration:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "repairConfiguration:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "repairConfiguration:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "repairConfiguration:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "repairConfiguration",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "repairConfiguration:creator"
+        },
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "organization",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "organization:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "organization",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "organization:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "organization",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "organization:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "organization",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "organization:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "organization",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "organization:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "organization",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "organization:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "organization",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "organization:creator"
+        },
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "space",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "space:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "space",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "space:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "space",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "space:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "space",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "space:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "space",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "space:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "space",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "space:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "space",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "space:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "legacyRouter": "reportRepairQrConfig",
+        "legacyResourceId": "e963bf0e3d7a48388c330d34af8504c5",
+        "previewOnly": false,
+        "meta": {
+          "componentCode": "repair/Configuration"
+        }
+      },
+      "createTime": 1793691016242,
+      "granted": true,
+      "i18nName": "报事二维码配置",
+      "i18nDescribe": "报事报修业务配置"
+    },
+    {
+      "id": "repair-shared-data",
+      "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+      "path": "rRgX-boac",
+      "sortIndex": 99,
+      "level": 2,
+      "owner": "app",
+      "name": "共享基础数据",
+      "code": "repair-shared-data",
+      "url": "/repair/shared-data",
+      "buttons": [
+        {
+          "id": "sync",
+          "name": "同步",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "同步"
+        },
+        {
+          "id": "save",
+          "name": "维护扩展",
+          "enabled": true,
+          "granted": true,
+          "i18nName": "维护扩展"
+        }
+      ],
+      "accessSupport": {
+        "text": "Support",
+        "value": "support"
+      },
+      "assetTypes": [
+        "organization",
+        "user",
+        "space"
+      ],
+      "assetAccesses": [
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "organization",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "organization:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "organization",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "organization:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "organization",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "organization:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "organization",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "organization:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "organization",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "organization:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "organization",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "organization:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "organization",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "organization:creator"
+        },
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "user",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "user:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "user",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "user:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "user",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "user:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "user",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "user:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "user",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "user:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "user",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "user:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "user",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "user:creator"
+        },
+        {
+          "supportId": "ignore",
+          "name": "All Data",
+          "enabled": false,
+          "granted": false,
+          "assetType": "space",
+          "priority": 2147483647,
+          "i18nName": "All data",
+          "accessKey": "space:ignore"
+        },
+        {
+          "supportId": "tenant",
+          "name": "Current tenant",
+          "enabled": false,
+          "granted": false,
+          "assetType": "space",
+          "priority": 99999,
+          "i18nName": "Current tenant",
+          "accessKey": "space:tenant"
+        },
+        {
+          "supportId": "org-include-parent",
+          "name": "Current Organization, Parent and Subordinate Organizations (Parents Read-only)",
+          "enabled": false,
+          "granted": false,
+          "assetType": "space",
+          "priority": 300,
+          "i18nName": "Organization and superior subordinate organizations (superiors only read)",
+          "accessKey": "space:org-include-parent"
+        },
+        {
+          "supportId": "org-include-children",
+          "name": "Current Organization and Subordinate Organizations",
+          "enabled": false,
+          "granted": false,
+          "assetType": "space",
+          "priority": 200,
+          "i18nName": "Current organization and subordinate organizations",
+          "accessKey": "space:org-include-children"
+        },
+        {
+          "supportId": "business_application",
+          "name": "Current Application",
+          "enabled": false,
+          "granted": false,
+          "assetType": "space",
+          "priority": 100,
+          "i18nName": "Current Application",
+          "accessKey": "space:business_application"
+        },
+        {
+          "supportId": "org",
+          "name": "Current Organization",
+          "enabled": false,
+          "granted": false,
+          "assetType": "space",
+          "priority": 100,
+          "i18nName": "Organizational affiliation",
+          "accessKey": "space:org"
+        },
+        {
+          "supportId": "creator",
+          "name": "Created by Oneself",
+          "enabled": false,
+          "granted": false,
+          "assetType": "space",
+          "priority": -2147483648,
+          "i18nName": "Created by oneself",
+          "accessKey": "space:creator"
+        }
+      ],
+      "options": {
+        "show": true,
+        "meta": {
+          "componentCode": "repair/SharedData"
+        }
+      },
+      "createTime": 1793631414849,
+      "granted": true,
+      "i18nName": "共享基础数据"
+    }
+  ],
+  "assetAccesses": [
+    {
+      "assetType": "file",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "organization",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "device",
+      "accesses": [
+        {
+          "supportId": "org-include-children"
+        },
+        {
+          "supportId": "tenant"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "user",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "repairOrder",
+      "accesses": [
+        {
+          "supportId": "org-include-children"
+        },
+        {
+          "supportId": "tenant"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "space",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "repairConfiguration",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    }
+  ]
+}

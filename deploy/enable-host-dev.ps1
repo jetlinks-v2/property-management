@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$SaasComposeDirectory,
-    [ValidateSet('base', 'finance', 'patrol')]
+    [ValidateSet('base', 'finance', 'patrol', 'repair')]
     [string]$System = 'patrol',
     [string]$ComposeProject = 'jetlinks-local',
     [string]$AdvertisedHost

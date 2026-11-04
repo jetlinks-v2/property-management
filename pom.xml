@@ -25,6 +25,8 @@
         <module>modules/property-base</module>
         <module>modules/property-finance</module>
         <module>modules/property-patrol</module>
+        <module>modules/property-repair</module>
+        <module>services/property-repair-service</module>
         <module>services/property-base-service</module>
         <module>services/property-finance-service</module>
         <module>services/property-patrol-service</module>
