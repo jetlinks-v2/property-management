@@ -29,3 +29,5 @@
 迁入的领域测试覆盖流程、配置、动作表单、权限、二维码和导出等规则；报修服务测试覆盖组件扫描、路由与资产配置及独立装配。构建与测试不能替代目标环境的网关服务发现、登录、模板订阅授权和真实业务联调。
 
 保留原迁移边界：业主独立入口、外部系统联动、完整旧接口分支及数据库 20 万条导出负载仍需后续验收。
+
+报修服务的界面异常与通知资源位于 `property-repair-manager/src/main/resources/i18n/smart-park-repair/`，中文与英文分别维护在 `messages_zh.properties`、`messages_en.properties`，沿用平台请求语言解析。公开二维码表单也发送 `Accept-Language`，不发送登录令牌、租户或应用认证头。菜单与按钮的中英文元数据位于 `deploy/repair`。

@@ -28,3 +28,5 @@
 个人工单提示音随 `report-repair-ui` 代码与 `assets/dingdingding.wav` 一同构建；通过布局扩展注册，无需新增菜单或角色授权。只有当前应用具备报事记录菜单时才显示，默认关闭。个人设置使用 Cloud 的 `GET/PATCH /user/settings/report-repair/new-order-sound`，不需要修改人员表或重启报修后端。开发端首次更新模块入口后完整刷新页面。
 
 独立员工 H5 位于 `jetlinks-v2/report-saas-ui` 仓库 `2.20` 分支的 `employee-h5/`，在该目录执行 `npm ci`、`npm run build` 和 `docker compose -f compose.yml up -d --build`，入口为 9300。它复用上述报修应用及原有角色、菜单权限和数据范围，无需复制菜单或业务数据；部署前配置 `public/config.json` 的 Cloud 项目编码与应用 ID。
+
+菜单名称、说明和按钮在 `menus.json` 与 `template-grant.json` 中同步提供 `i18nMessages` 的 `zh_CN`、`en_US` 与 `en` 资源，沿用平台菜单国际化机制。前端同时保留既有中文 `i18nName` 的翻译入口，已有环境切换语言无需变更菜单 ID、授权或订阅范围。
