@@ -1,6 +1,6 @@
 # 品质核查应用部署
 
-品质核查由 `property-quality-service`、`quality-inspection-ui` PC 站点和员工 H5 分别发布。默认服务 HTTP/Cluster/RPC 为 8507/18507/28507，业务库为 `property_quality`。Java 字节码目标为 17，与 Cloud 使用相同 JetLinks 2.20 依赖。
+品质核查由 `property-quality-service`、包含 `quality-inspection-ui` 的 Cloud 运行时前端和员工 H5 分别构建与发布。PC 与智能巡更一样嵌入既有 Cloud 前端。默认服务 HTTP/Cluster/RPC 为 8507/18507/28507，业务库为 `property_quality`。Java 字节码目标为 17，与 Cloud 使用相同 JetLinks 2.20 依赖。
 
 ```sh
 mvn -pl :property-quality-service -am verify
@@ -15,11 +15,13 @@ mvn -pl :property-repair-service,:property-file-support -am verify
 
 使用 Spring Boot PropertiesLauncher 的现有文件服务可通过 `LOADER_PATH=/application/property-extensions/` 加载这两个独立 JAR；也可将 `property-file-support` 作为其启动模块依赖。不得同时放入两份不同版本的 base-core，或将 base-manager 放入公共文件服务。更换镜像须保留原运行参数和文件卷。
 
+网关须以明确优先级将 `/file/**` 路由到公共文件所有者，并沿用 `Authentication` 过滤器。不能让后启动的业务服务通过重复注册的文件接口接收上传，否则附件会进入该业务库，随后被公共文件校验拒绝。该规则同样适用于本地多业务服务联调。
+
 ## Cloud 配置顺序
 
 1. 增量保存 `menus.json`，创建 `template.json`，将 `template-grant.json` 授予品质模板。
 2. 在目标区域服务套餐中追加品质菜单及资产策略，保留原应用授权；刷新目标项目订阅快照。
-3. 在该项目开通品质应用，配置 PC 独立站点域名，绑定真实应用成员及角色。核查、整改、复验和只读角色分别授予所需动作，资产范围限定在业务项目组织。
+3. 在该项目开通品质应用，将品质模块构建进既有 Cloud 运行时前端，应用 `customDomain` 保持为空，沿用巡更的应用路由。保留 Cloud 的其他业务模块、会话及右上角中英文切换；组织、用户、空间、客户和字典使用同一基础档案服务。绑定真实应用成员及角色。核查、整改、复验和只读角色分别授予所需动作，资产范围限定在业务项目组织。
 4. H5 `/config.json` 填写该应用的 `applicationId`、项目域 `tenantDomain`、`apiBase` 和允许的宿主来源。PC、H5 的同源 `/api` 均代理 Cloud 网关。
 5. 在品质应用设置中填写同租户报修 `repairApplicationId`。实际发起人还须为目标报修应用成员，并具备创建工单及相应项目数据权限。
 
