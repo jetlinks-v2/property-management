@@ -8,15 +8,19 @@ import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.authorization.annotation.Authorize;
 import org.jetlinks.core.annotation.command.CommandHandler;
 import org.jetlinks.pro.annotation.command.CommandService;
+import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.base.archive.PropertyHouseContext;
 import org.jetlinks.pro.property.base.archive.PropertyHouseCustomer;
 import org.jetlinks.pro.property.base.archive.PropertyHouseInfo;
 import org.jetlinks.pro.property.base.archive.PropertyHousePage;
 import org.jetlinks.pro.property.base.customer.CustomerView;
 import org.jetlinks.pro.property.base.customer.RelationshipView;
+import org.jetlinks.pro.property.base.service.ArchiveScope;
 import org.jetlinks.pro.property.base.service.PropertyCustomerService;
 import org.jetlinks.pro.property.base.service.PropertyHouseService;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.NoTransactionException;
+import org.springframework.transaction.reactive.TransactionSynchronizationManager;
 
 import reactor.core.publisher.Mono;
 
@@ -36,6 +40,7 @@ import java.util.List;
 public class PropertyHouseCommandSupport {
     private final PropertyHouseService houses;
     private final PropertyCustomerService customers;
+    private final ArchiveScope scope;
 
     @CommandHandler(name = "查询可用房屋", description = "返回当前授权项目及空间范围中已完善资料的末端房屋分页")
     public Mono<PropertyHousePage> queryHouses(QueryPropertyHousesCommand command) {
@@ -70,7 +75,16 @@ public class PropertyHouseCommandSupport {
 
     @CommandHandler(name = "查询房屋业务资料", description = "返回已完善末端房屋和本房屋当前客户，不包含已结束或逻辑删除关系")
     public Mono<PropertyHouseContext> queryHouseContext(QueryPropertyHouseContextCommand command) {
-        return houses.detail(command.getProjectId(), command.getSpaceId())
+        Mono<Void> lock =
+                command.isForUpdate()
+                        ? scope.project(command.getProjectId(), CrudAssetPermission.read)
+                                .then(TransactionSynchronizationManager.forCurrentTransaction())
+                                .onErrorMap(
+                                        NoTransactionException.class,
+                                        failure -> error("transaction_required", 409))
+                                .then(scope.lock(command.getProjectId()))
+                        : Mono.empty();
+        return lock.then(houses.detail(command.getProjectId(), command.getSpaceId()))
                 .flatMap(
                         row -> {
                             if (!Boolean.TRUE.equals(row.getCompleted()))

@@ -24,4 +24,7 @@ public class QueryPropertyHouseContextCommand
     public static final String SERVICE_ID = QueryPropertyHousesCommand.SERVICE_ID;
     private String projectId;
     private String spaceId;
+
+    /** 同服务事务内建立财务引用时锁住项目，直到调用方事务结束；调用方必须已有响应式事务。 此锁协议仅适用于统一启动服务，不提供跨进程事务保证。 */
+    private boolean forUpdate;
 }

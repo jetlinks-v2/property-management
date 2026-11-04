@@ -42,6 +42,7 @@ public class StandardService {
     private final ReactiveRepository<ProjectSubjectEntity, String> projectSubjects;
     private final ReactiveRepository<SubjectEntity, String> subjectRepository;
     private final ReactiveRepository<StandardVariableReferenceEntity, String> references;
+    private final ReactiveRepository<HouseSettingEntity, String> houseSettings;
 
     public Mono<PagerResult<StandardView>> query(
             String projectId,
@@ -368,26 +369,49 @@ public class StandardService {
                                                     if (!Objects.equals(old.getVersion(), version))
                                                         return Mono.error(
                                                                 error("version_conflict", 409));
-                                                    return audit(
-                                                                    standards.createUpdate(),
-                                                                    auth,
-                                                                    version)
-                                                            .set("deleted", true)
-                                                            .set(
-                                                                    "deletedTime",
-                                                                    System.currentTimeMillis())
-                                                            .where("id", id)
-                                                            .and("projectId", projectId)
-                                                            .and("version", version)
+                                                    return houseSettings
+                                                            .createQuery()
+                                                            .where("standardId", id)
                                                             .and("deleted", false)
-                                                            .execute()
-                                                            .flatMap(SubjectService::changed)
+                                                            .fetchOne()
+                                                            .hasElement()
+                                                            .flatMap(
+                                                                    used ->
+                                                                            used
+                                                                                    ? Mono.error(
+                                                                                            error(
+                                                                                                    "standard_referenced",
+                                                                                                    409))
+                                                                                    : Mono.empty())
                                                             .then(
-                                                                    references
-                                                                            .createDelete()
-                                                                            .where("standardId", id)
-                                                                            .execute())
-                                                            .then();
+                                                                    audit(
+                                                                                    standards
+                                                                                            .createUpdate(),
+                                                                                    auth,
+                                                                                    version)
+                                                                            .set("deleted", true)
+                                                                            .set(
+                                                                                    "deletedTime",
+                                                                                    System
+                                                                                            .currentTimeMillis())
+                                                                            .where("id", id)
+                                                                            .and(
+                                                                                    "projectId",
+                                                                                    projectId)
+                                                                            .and("version", version)
+                                                                            .and("deleted", false)
+                                                                            .execute()
+                                                                            .flatMap(
+                                                                                    SubjectService
+                                                                                            ::changed)
+                                                                            .then(
+                                                                                    references
+                                                                                            .createDelete()
+                                                                                            .where(
+                                                                                                    "standardId",
+                                                                                                    id)
+                                                                                            .execute())
+                                                                            .then());
                                                 }))
                 .as(MonoTracer.create("/property/finance/standard/delete"));
     }
