@@ -9,7 +9,7 @@ frontend() { docker compose --env-file .env --env-file .env.frontend -f docker-c
 business() { docker compose --env-file .env -f docker-compose.business-web.yml "$@"; }
 reload_proxies() {
   local container
-  for container in saas-test-frontend saas-test-repair-web saas-test-charging-web saas-test-repair-h5 saas-test-patrol-h5; do
+  for container in saas-test-frontend saas-test-charging-web saas-test-repair-h5 saas-test-patrol-h5; do
     if [ "$(docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null || true)" != true ]; then
       continue
     fi
@@ -38,7 +38,8 @@ case "$action" in
     property up -d --no-build --wait --wait-timeout 600 base
     case " $applications " in *' repair '*)
       property up -d --no-build --wait --wait-timeout 600 repair
-      business up -d --no-build --wait --wait-timeout 120 repair-web repair-h5 ;;
+      # Repair PC ships with the Cloud runtime frontend; only its H5 is standalone.
+      business up -d --no-build --wait --wait-timeout 120 repair-h5 ;;
     esac
     case " $applications " in *' patrol '*)
       patrol up -d --no-build --wait --wait-timeout 600 patrol

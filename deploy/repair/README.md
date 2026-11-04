@@ -18,6 +18,8 @@
 
 后端独立启动、环境配置与切换要求见 `../../modules/property-repair/README.md`。
 
+PC 与智能巡更统一采用 Cloud 运行端集成方案：在 `saas-runtime-ui/property/2.20-dev` 保留 `modules/report-repair-ui` 和巡更模块，执行宿主 `pnpm build`，发布完整 `dist/`。报修应用实例的 `configuration.customDomain` 留空，从 Cloud 项目应用卡片进入；保留 `navigationMode: tree`、原菜单、角色与资产授权。前端仓库仍独立维护，更新后需同步宿主子模块版本并重新发布 Cloud 运行端。迁移已有独立 PC 时先备份应用配置，清空其访问域名并验收登录、工单和系统管理，再停用旧 PC 站点及其自动重启；不要停止报修后端、基础服务或员工 H5。`start-property-suite.sh start repair` 只启动报修后端和 H5，PC 由公共前端承载。
+
 设备关联已随菜单与模板导出：发起按钮增加 `device-instance/query`，设备资产支持所在组织及下级或租户策略。应用角色需要保存对应设备读取范围；不需要设备编辑权限。Cloud 中还须将设备分配给业务项目组织或其下级组织，并在末级分类开启“关联物联网设备”。服务端始终追加当前业务项目组织范围，角色拥有全部设备读取权限也不能跨业务项目选择设备。
 
 
