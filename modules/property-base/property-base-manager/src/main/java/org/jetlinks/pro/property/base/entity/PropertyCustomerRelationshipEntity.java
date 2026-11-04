@@ -2,7 +2,9 @@ package org.jetlinks.pro.property.base.entity;
 
 import lombok.Getter;
 import lombok.Setter;
+
 import org.hswebframework.web.crud.annotation.EnableEntityEvent;
+
 import javax.persistence.Column;
 import javax.persistence.Index;
 import javax.persistence.Table;
@@ -29,9 +31,6 @@ public class PropertyCustomerRelationshipEntity extends ArchiveEntity {
 
     @Column(length = 64)
     private String nature;
-
-    @Column(length = 64)
-    private String familyId;
 
     @Column(nullable = false)
     private Long startTime;

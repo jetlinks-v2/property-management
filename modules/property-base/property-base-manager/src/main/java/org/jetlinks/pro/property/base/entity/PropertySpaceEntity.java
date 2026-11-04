@@ -8,6 +8,8 @@ import lombok.Setter;
 import org.hswebframework.web.api.crud.entity.GenericEntity;
 import org.hswebframework.web.crud.annotation.EnableEntityEvent;
 
+import java.util.List;
+
 import javax.persistence.Column;
 import javax.persistence.Table;
 
@@ -50,4 +52,9 @@ public class PropertySpaceEntity extends GenericEntity<String> {
     private Boolean deleted;
 
     @Column private Long sourceUpdateTime;
+
+    /** 从真实父链派生的展示信息，不持久化，也不按权限裁剪后的树推断层级。 */
+    private List<SpaceSegment> spaceSegments = List.of();
+
+    public record SpaceSegment(String id, String name, String typeId, String typeName) {}
 }

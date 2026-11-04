@@ -39,7 +39,12 @@ public final class SettingRules {
                 || !id(input.getSpaceId())
                 || !id(input.getProjectSubjectId())
                 || !id(input.getStandardId())
-                || !id(input.getCustomerRelationshipId())
+                || input.getCustomerRelationshipIds() == null
+                || input.getCustomerRelationshipIds().isEmpty()
+                || input.getCustomerRelationshipIds().size() > 100
+                || input.getCustomerRelationshipIds().stream().anyMatch(value -> !id(value))
+                || new HashSet<>(input.getCustomerRelationshipIds()).size()
+                        != input.getCustomerRelationshipIds().size()
                 || input.getRemark() != null && input.getRemark().length() > 300)
             throw error("setting_invalid", 400);
         var start = date(input.getEffectiveStartDate(), true);
@@ -60,11 +65,21 @@ public final class SettingRules {
         if (!project.equals(context.house().projectId())
                 || !input.getSpaceId().equals(context.house().spaceId()))
             throw error("setting_house_unavailable", 409);
-        var customer =
-                context.customers().stream()
-                        .filter(c -> input.getCustomerRelationshipId().equals(c.relationshipId()))
-                        .findFirst()
-                        .orElseThrow(() -> error("setting_customer_unavailable", 409));
+        var customers =
+                input.getCustomerRelationshipIds().stream()
+                        .map(
+                                id ->
+                                        context.customers().stream()
+                                                .filter(c -> id.equals(c.relationshipId()))
+                                                .findFirst()
+                                                .orElseThrow(
+                                                        () ->
+                                                                error(
+                                                                        "setting_customer_unavailable",
+                                                                        409)))
+                        .toList();
+        // 一份设置只出一笔应收；首客户字段保留既有账单检索锚点，缴款资格以完整对象快照为准。
+        var customer = customers.get(0);
         var start = date(input.getEffectiveStartDate(), true);
         var end = date(input.getEffectiveEndDate(), false);
         var from = date(standard.getExecuteDate(), false);
@@ -94,6 +109,7 @@ public final class SettingRules {
         frozen.put("standard", standard);
         frozen.put("house", houseSnapshot(context.house()));
         frozen.put("customer", customerSnapshot(customer));
+        frozen.put("customers", customers.stream().map(SettingRules::customerSnapshot).toList());
         frozen.put("values", values);
         row.setSnapshotJson(JSON.toJSONString(frozen));
         return row;
@@ -117,7 +133,7 @@ public final class SettingRules {
         return result;
     }
 
-    private static Map<String, Object> customerSnapshot(PropertyHouseCustomer customer) {
+    public static Map<String, Object> customerSnapshot(PropertyHouseCustomer customer) {
         var result = new LinkedHashMap<String, Object>();
         result.put("relationshipId", customer.relationshipId());
         result.put("customerId", customer.customerId());
@@ -126,12 +142,34 @@ public final class SettingRules {
         result.put("name", customer.name());
         result.put("telephone", customer.telephone());
         result.put("nature", customer.nature());
-        result.put("familyId", customer.familyId());
-        result.put("familyName", customer.familyName());
         result.put("startTime", customer.startTime());
         result.put("relationshipVersion", customer.relationshipVersion());
         result.put("customerVersion", customer.customerVersion());
         return result;
+    }
+
+    /** 新设置明确保存多对象；已经持久化的单客户账单按原客户解析，不推断家庭或同房屋全员。 */
+    public static List<Map<String, Object>> customers(String snapshot) {
+        if (snapshot == null || snapshot.isBlank()) return List.of();
+        var json = JSON.parseObject(snapshot);
+        var rows = json.getJSONArray("customers");
+        if (rows != null)
+            return rows.stream()
+                    .map(value -> (Map<String, Object>) JSON.parseObject(JSON.toJSONString(value)))
+                    .toList();
+        var customer = json.getJSONObject("customer");
+        return customer == null || customer.getString("customerId") == null
+                ? List.of()
+                : List.of(customer);
+    }
+
+    public static boolean selectedCustomer(ReceivableEntity bill, String customerId) {
+        var customers = customers(bill.getSnapshotJson());
+        return customers.isEmpty()
+                ? Objects.equals(customerId, bill.getCustomerId())
+                : customers.stream()
+                        .anyMatch(
+                                customer -> Objects.equals(customerId, customer.get("customerId")));
     }
 
     private static Map<String, BigDecimal> variables(

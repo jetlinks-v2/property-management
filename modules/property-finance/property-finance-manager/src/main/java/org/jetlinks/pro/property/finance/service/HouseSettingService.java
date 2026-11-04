@@ -25,7 +25,7 @@ import reactor.core.publisher.*;
 import java.time.LocalDate;
 import java.util.*;
 
-/** 单客户收费设置；无审批，保存快照与即时出账在同一个响应式事务内完成。 */
+/** 多收费对象共享同一应收，不分摊；保存快照与即时出账在同一个响应式事务内完成。 */
 @Service
 @RequiredArgsConstructor
 public class HouseSettingService {

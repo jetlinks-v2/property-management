@@ -23,8 +23,6 @@ import org.springframework.web.bind.annotation.*;
 
 import reactor.core.publisher.Mono;
 
-import java.util.List;
-
 /** 受控客户档案 API；服务按项目及空间资产校验，不暴露通用物理删除。 */
 @RestController
 @RequestMapping("/property/customer")
@@ -38,12 +36,20 @@ public class PropertyCustomerController {
 
     @PostMapping("/_query")
     @ResourceAction(id = "query", name = "查询")
-    @Operation(summary = "按有权房屋关系分页查询客户主档，仅回显当前有效关系")
+    @Operation(summary = "按有权空间记录分页查询当前客户")
     public Mono<PagerResult<CustomerView>> query(
             @RequestParam String projectId,
             @RequestParam(required = false) String spaceId,
             @RequestBody QueryParamEntity query) {
         return customers.query(projectId, spaceId, query);
+    }
+
+    @PostMapping("/_profiles")
+    @ResourceAction(id = "query", name = "查询")
+    @Operation(summary = "选择已有客户，包含仅有历史空间记录的可读资料")
+    public Mono<PagerResult<CustomerView>> profiles(
+            @RequestParam String projectId, @RequestBody QueryParamEntity query) {
+        return customers.profiles(projectId, query);
     }
 
     @GetMapping("/{id}")
@@ -71,17 +77,9 @@ public class PropertyCustomerController {
         return customers.update(projectId, id, request);
     }
 
-    @DeleteMapping("/{id}")
-    @ResourceAction(id = "delete", name = "删除")
-    @Operation(summary = "逻辑删除无当前有效关系的客户，保留历史")
-    public Mono<Void> delete(
-            @RequestParam String projectId, @PathVariable String id, @RequestParam long version) {
-        return customers.delete(projectId, id, version);
-    }
-
     @PostMapping("/{id}/relationships")
     @ResourceAction(id = "save", name = "保存")
-    @Operation(summary = "复用客户主档新增房屋关联")
+    @Operation(summary = "在当前空间新增已有客户")
     public Mono<RelationshipView> link(
             @RequestParam String projectId,
             @PathVariable String id,
@@ -89,30 +87,12 @@ public class PropertyCustomerController {
         return customers.link(projectId, id, request);
     }
 
-    @PutMapping("/relationships/{id}/end")
-    @ResourceAction(id = "save", name = "保存")
-    @Operation(summary = "结束一次关联并保留历史")
-    public Mono<RelationshipView> end(
-            @RequestParam String projectId,
-            @PathVariable String id,
-            @RequestBody CustomerRequests.End request) {
-        return customers.end(projectId, id, request);
-    }
-
     @DeleteMapping("/relationships/{id}")
     @ResourceAction(id = "delete", name = "删除")
-    @Operation(summary = "逻辑删除误建关联，不虚构结束时间")
+    @Operation(summary = "从当前空间逻辑删除客户并自动记录结束时间，历史保留")
     public Mono<Void> deleteRelationship(
             @RequestParam String projectId, @PathVariable String id, @RequestParam long version) {
         return customers.deleteRelationship(projectId, id, version);
-    }
-
-    @GetMapping("/_families")
-    @ResourceAction(id = "query", name = "查询")
-    @Operation(summary = "查询同房屋仍有当前有效成员的家庭")
-    public Mono<List<CustomerRequests.Family>> families(
-            @RequestParam String projectId, @RequestParam String spaceId) {
-        return customers.families(projectId, spaceId);
     }
 
     @PostMapping("/_history")

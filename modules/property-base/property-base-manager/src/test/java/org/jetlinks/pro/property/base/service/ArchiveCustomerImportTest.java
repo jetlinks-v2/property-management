@@ -12,8 +12,10 @@ import org.jetlinks.pro.property.base.excel.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.codec.multipart.FilePart;
+
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
+
 import java.util.*;
 
 class ArchiveCustomerImportTest {
@@ -49,18 +51,12 @@ class ArchiveCustomerImportTest {
         item.setEnabled(true);
         when(dictionaries.types()).thenReturn(Mono.just(List.of(type)));
         when(dictionaries.items("customer-nature")).thenReturn(Mono.just(List.of(item)));
-        when(customers.familyReferences("project"))
-                .thenReturn(
-                        Mono.just(
-                                Map.of(
-                                        "101",
-                                        List.of(new CustomerRequests.Family("family", "已有家庭")))));
         when(customers.importCustomers(eq("project"), anyList()))
                 .thenReturn(Mono.just(new CustomerRequests.ImportResult(1)));
     }
 
     @Test
-    void personalFileConvertsNamesDictionaryAndDateBeforeSingleDomainCall() {
+    void personalFileConvertsNamesAndDictionaryBeforeSingleDomainCall() {
         service.importCustomers("project", "person", file("person", List.of(person("张三")))).block();
         verify(customers)
                 .importCustomers(
@@ -71,16 +67,14 @@ class ArchiveCustomerImportTest {
                                     assertEquals("user", row.getUserId());
                                     assertEquals("101", row.getSpaceId());
                                     assertEquals("owner", row.getNature());
-                                    assertEquals("新家庭", row.getFamilyGroup());
                                     assertEquals("001", row.getTelephone());
                                     assertEquals("补充地址", row.getAddress());
-                                    assertNotNull(row.getStartTime());
                                     return true;
                                 }));
     }
 
     @Test
-    void corporateFileHasNoFamilyFieldsAndDoesNotLoadFamilyReferences() {
+    void corporateFileHasNoPersonalNature() {
         service.importCustomers(
                         "project",
                         "company",
@@ -108,10 +102,8 @@ class ArchiveCustomerImportTest {
                                     assertEquals("company", row.getUserId());
                                     assertEquals("000001", row.getCreditCode());
                                     assertNull(row.getNature());
-                                    assertNull(row.getFamilyMode());
                                     return true;
                                 }));
-        verify(customers, never()).familyReferences(anyString());
     }
 
     @Test
@@ -159,22 +151,18 @@ class ArchiveCustomerImportTest {
         var personal = service.template("project", "person").block();
         assertEquals(ArchiveImportSchema.columns("person"), personal.data().columns());
         assertEquals(List.of("园区/101"), personal.options().get("spacePath"));
-        assertEquals(List.of("已有家庭"), personal.families().get("园区/101"));
         assertTrue(
                 personal.references().stream()
                         .flatMap(s -> s.columns().stream())
                         .noneMatch(s -> s.endsWith("Id")));
         var company = service.template("project", "company").block();
         assertEquals(ArchiveImportSchema.columns("company"), company.data().columns());
-        assertTrue(company.families().isEmpty());
     }
 
     static Map<String, Object> person(String name) {
         var row = new HashMap<>(ArchiveImportMatcherTest.person(name, "001"));
         row.put("nature", "业主");
-        row.put("familyName", "新家庭");
         row.put("address", "补充地址");
-        row.put("startTime", "2026-11-04 09:00:00");
         return row;
     }
 

@@ -52,6 +52,10 @@ class CashierPersistenceTest {
     void setup() {
         project = UUID.randomUUID().toString();
         reset(configuration, archive);
+        var source = new HouseSettingPersistenceTest();
+        source.project = project;
+        when(archive.context(anyString(), anyString(), anyBoolean()))
+                .thenAnswer(call -> Mono.just(source.context(call.getArgument(1))));
         var company = new FinanceCompanyEntity();
         company.setId("company");
         company.setCompanyName("测试物业公司");
@@ -119,7 +123,7 @@ class CashierPersistenceTest {
         row.setActualReceivableAmount(new BigDecimal("100.00"));
         row.setArrears(new BigDecimal("100.00"));
         row.setSnapshotJson(
-                "{\"standard\":{\"formulaExpression\":\"100\",\"chargeRoundType\":2,\"mantissa\":0,\"isDelay\":0,\"variablesSnapshotJson\":\"[]\"},\"values\":{},\"customer\":{\"familyId\":\"family\"}}");
+                "{\"standard\":{\"formulaExpression\":\"100\",\"chargeRoundType\":2,\"mantissa\":0,\"isDelay\":0,\"variablesSnapshotJson\":\"[]\"},\"values\":{},\"customer\":{\"customerId\":\"customer\"}}");
         bills.insert(row).block(WAIT);
         return row;
     }
@@ -127,7 +131,8 @@ class CashierPersistenceTest {
     CashierInput input(ReceivableEntity row, String amount) {
         var input = new CashierInput();
         input.setCompanyId("company");
-        input.setPayerName("龚超家人");
+        input.setPayerName("龚超");
+        input.setPayerRelationshipId("link");
         input.setPaidAt("2024-02-15T10:00:00");
         input.setRemark("柜台收款");
         input.setItems(
@@ -167,7 +172,7 @@ class CashierPersistenceTest {
         assertEquals(0, payments.createQuery().where("projectId", project).count().block(WAIT));
         var detail = cashier.collect(project, request, DATE).contextWrite(allowed()).block(WAIT);
         assertEquals("10.01", detail.payment().getAmount().toPlainString());
-        assertEquals("龚超家人", detail.payment().getPayerName());
+        assertEquals("龚超", detail.payment().getPayerName());
         assertEquals("龚超", detail.lines().get(0).getCustomerName());
         assertEquals("89.99", bills.findById(row.getId()).block(WAIT).getArrears().toPlainString());
         assertEquals(
@@ -290,11 +295,21 @@ class CashierPersistenceTest {
     }
 
     @Test
-    void familyPayerUsesCurrentRelationshipAndCannotChooseUnrelatedCustomer() {
+    void selectedPayerUsesCurrentRelationshipAndCannotChooseUnselectedCustomer() {
         var row = bill("family");
         var fixture = new HouseSettingPersistenceTest();
         fixture.project = project;
         var base = fixture.context("room");
+        row.setSnapshotJson(
+                row.getSnapshotJson()
+                        .replace(
+                                "\"customerId\":\"customer\"",
+                                "\"customerId\":\"family-customer\""));
+        bills.createUpdate()
+                .set("snapshotJson", row.getSnapshotJson())
+                .where("id", row.getId())
+                .execute()
+                .block(WAIT);
         var member =
                 new org.jetlinks.pro.property.base.archive.PropertyHouseCustomer(
                         "family-link",
@@ -304,8 +319,6 @@ class CashierPersistenceTest {
                         "龚超家人",
                         "13800000000",
                         "family",
-                        "family",
-                        "龚超家庭",
                         0L,
                         1L,
                         1L);
@@ -318,8 +331,6 @@ class CashierPersistenceTest {
                         "其他客户",
                         "13800000001",
                         "tenant",
-                        "other-family",
-                        "其他家庭",
                         0L,
                         1L,
                         1L);
@@ -577,6 +588,83 @@ class CashierPersistenceTest {
         assertEquals(1, outcomes.stream().filter(reactor.core.publisher.Signal::isOnError).count());
         assertEquals(1, payments.createQuery().where("projectId", project).count().block(WAIT));
         assertEquals("40.00", bills.findById(row.getId()).block(WAIT).getArrears().toPlainString());
+    }
+
+    @Test
+    void eitherSelectedCustomerCanPaySameDebtAndUnselectedRoomCustomerCannot() {
+        var row = bill("shared");
+        var parsed = com.alibaba.fastjson.JSON.parseObject(row.getSnapshotJson());
+        parsed.put(
+                "customers",
+                List.of(
+                        Map.of("customerId", "customer", "relationshipId", "link", "name", "龚超"),
+                        Map.of(
+                                "customerId",
+                                "second",
+                                "relationshipId",
+                                "second-link",
+                                "name",
+                                "张女士")));
+        bills.createUpdate()
+                .set("snapshotJson", parsed.toJSONString())
+                .where("id", row.getId())
+                .execute()
+                .block(WAIT);
+        var fixture = new HouseSettingPersistenceTest();
+        fixture.project = project;
+        var base = fixture.context("room");
+        var second =
+                new org.jetlinks.pro.property.base.archive.PropertyHouseCustomer(
+                        "second-link",
+                        "second",
+                        "second-user",
+                        "person",
+                        "张女士",
+                        "123",
+                        "tenant",
+                        1L,
+                        1L,
+                        1L);
+        var unselected =
+                new org.jetlinks.pro.property.base.archive.PropertyHouseCustomer(
+                        "third-link",
+                        "third",
+                        "third-user",
+                        "person",
+                        "未选客户",
+                        "123",
+                        "owner",
+                        1L,
+                        1L,
+                        1L);
+        when(archive.context(eq(project), eq("room"), anyBoolean()))
+                .thenReturn(
+                        Mono.just(
+                                new org.jetlinks.pro.property.base.archive.PropertyHouseContext(
+                                        base.house(),
+                                        List.of(base.customers().get(0), second, unselected))));
+        var candidates =
+                cashier.payerOptions(project, List.of(row.getId()))
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(
+                List.of("link", "second-link"),
+                candidates.stream().map(CashierService.PayerOption::relationshipId).toList());
+        var a = input(row, "40.00");
+        a.setPayerRelationshipId("third-link");
+        rejects(cashier.preview(project, a, DATE), 409);
+        a.setPayerRelationshipId("link");
+        cashier.collect(project, submission(a), DATE).contextWrite(allowed()).block(WAIT);
+        var b = input(bills.findById(row.getId()).block(WAIT), "60.00");
+        b.setPayerRelationshipId("second-link");
+        var payment =
+                cashier.collect(project, submission(b), DATE).contextWrite(allowed()).block(WAIT);
+        assertEquals("张女士", payment.payment().getPayerName());
+        assertEquals("second-user", payment.payment().getPayerUserId());
+        assertEquals(1, bills.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(
+                "100.00", bills.findById(row.getId()).block(WAIT).getPaidAmount().toPlainString());
+        assertEquals("0.00", bills.findById(row.getId()).block(WAIT).getArrears().toPlainString());
     }
 
     @Configuration

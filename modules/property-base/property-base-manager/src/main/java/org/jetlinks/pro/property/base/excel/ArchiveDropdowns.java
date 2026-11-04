@@ -6,12 +6,12 @@ import org.apache.poi.ss.util.CellReference;
 
 import java.util.*;
 
-/** 命名区域避免Excel显式列表255字符限制；家庭列表按完整空间路径联动。 */
+/** 命名区域避免Excel显式列表255字符限制。 */
 final class ArchiveDropdowns {
     private ArchiveDropdowns() {}
 
     static void configure(Workbook book, ArchiveExcel.Document document) {
-        if (document.options().isEmpty() && document.families().isEmpty()) return;
+        if (document.options().isEmpty()) return;
         Sheet source = book.createSheet("_导入选项");
         int column = 0;
         for (var entry : document.options().entrySet()) {
@@ -19,41 +19,6 @@ final class ArchiveDropdowns {
             range(book, source, column++, name, entry.getValue());
             int target = document.data().columns().indexOf(entry.getKey());
             if (target >= 0) validation(book.getSheetAt(0), target, name, true);
-        }
-        int familyTarget = document.data().columns().indexOf("familyName");
-        if (familyTarget >= 0) {
-            range(book, source, column++, "_empty_family", List.of());
-            int mapColumn = column;
-            column += 2;
-            int index = 0;
-            for (var entry : document.families().entrySet()) {
-                String name = "_family_" + index;
-                cell(source, index, mapColumn).setCellValue(entry.getKey());
-                cell(source, index, mapColumn + 1).setCellValue(name);
-                range(book, source, column++, name, entry.getValue());
-                index++;
-            }
-            String map =
-                    "'_导入选项'!$"
-                            + letter(mapColumn)
-                            + "$1:$"
-                            + letter(mapColumn + 1)
-                            + "$"
-                            + Math.max(1, index);
-            // 验证公式通过命名区域跨表取值，兼容Excel对数据验证跨表引用的限制。
-            Name lookup = book.createName();
-            lookup.setNameName("_family_map");
-            lookup.setRefersToFormula(map);
-            String path = "$" + letter(document.data().columns().indexOf("spacePath")) + "2";
-            String mode = "$" + letter(document.data().columns().indexOf("familyMode")) + "2";
-            String formula =
-                    "IF("
-                            + mode
-                            + "=\"加入已有家庭\",INDIRECT(IFERROR(VLOOKUP("
-                            + path
-                            + ",_family_map,2,FALSE),\"_empty_family\")),_empty_family)";
-            // 新建时自由输入；加入已有家庭的名称与状态由后端再次验证。
-            validation(book.getSheetAt(0), familyTarget, formula, false);
         }
         book.setSheetVisibility(book.getSheetIndex(source), SheetVisibility.VERY_HIDDEN);
     }

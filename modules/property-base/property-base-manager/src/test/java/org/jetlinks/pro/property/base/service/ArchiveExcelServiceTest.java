@@ -175,7 +175,7 @@ class ArchiveExcelServiceTest {
     }
 
     @Test
-    void customerDomainValidatesLastRowBeforeAnyProfileFamilyOrRelationshipInsert() {
+    void customerDomainValidatesLastRowBeforeAnyProfileOrRecordInsert() {
         org.hswebframework.ezorm.rdb.mapping.ReactiveRepository<PropertyCustomerEntity, String>
                 customerRepo = mock(org.hswebframework.ezorm.rdb.mapping.ReactiveRepository.class);
         org.hswebframework.ezorm.rdb.mapping.ReactiveRepository<
@@ -184,20 +184,11 @@ class ArchiveExcelServiceTest {
                         mock(
                                 org.hswebframework.ezorm.rdb.mapping.ReactiveRepository.class,
                                 RETURNS_DEEP_STUBS);
-        org.hswebframework.ezorm.rdb.mapping.ReactiveRepository<
-                        PropertyCustomerFamilyEntity, String>
-                familyRepo = mock(org.hswebframework.ezorm.rdb.mapping.ReactiveRepository.class);
         org.hswebframework.ezorm.rdb.mapping.ReactiveRepository<PropertyUserEntity, String>
                 userRepo = mock(org.hswebframework.ezorm.rdb.mapping.ReactiveRepository.class);
         var domain =
                 new PropertyCustomerService(
-                        customerRepo,
-                        relationRepo,
-                        familyRepo,
-                        userRepo,
-                        scope,
-                        dictionary,
-                        houses);
+                        customerRepo, relationRepo, userRepo, scope, dictionary, houses);
         when(scope.spaces("project", null, CrudAssetPermission.save))
                 .thenReturn(Mono.just(List.of()));
         when(scope.lock("project")).thenReturn(Mono.empty());
@@ -242,7 +233,6 @@ class ArchiveExcelServiceTest {
                     .verify();
         }
         verify(customerRepo, never()).insert(any(PropertyCustomerEntity.class));
-        verify(familyRepo, never()).insert(any(PropertyCustomerFamilyEntity.class));
         verify(relationRepo, never()).insert(any(PropertyCustomerRelationshipEntity.class));
     }
 
@@ -255,9 +245,6 @@ class ArchiveExcelServiceTest {
         row.setTelephone("001");
         row.setSpaceId(space);
         row.setNature("owner");
-        row.setFamilyMode("new");
-        row.setFamilyName("家庭");
-        row.setStartTime(1000L);
         return row;
     }
 

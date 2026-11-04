@@ -442,7 +442,8 @@ public class HistoricalReceivableService {
                                 "house",
                                 context.house(),
                                 "customer",
-                                customer,
+                                org.jetlinks.pro.property.finance.setting.SettingRules
+                                        .customerSnapshot(customer),
                                 "standard",
                                 frozen,
                                 "sourceStandard",

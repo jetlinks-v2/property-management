@@ -157,8 +157,6 @@ class HouseSettingPersistenceTest {
                                 "龚超",
                                 "123",
                                 "owner",
-                                "family",
-                                "龚超家庭",
                                 1L,
                                 3L,
                                 4L)));
@@ -169,11 +167,52 @@ class HouseSettingPersistenceTest {
         input.setSpaceId(space);
         input.setProjectSubjectId(relationId);
         input.setStandardId(standardId);
-        input.setCustomerRelationshipId("link");
+        input.setCustomerRelationshipIds(List.of("link"));
         input.setEffectiveStartDate(start);
         input.setEffectiveEndDate(end);
         input.setVariableValues(Map.of());
         return input;
+    }
+
+    @Test
+    void multipleChargeCustomersShareOneBillAndEverySelectionMustBeCurrent() {
+        var context = context("room");
+        var second =
+                new PropertyHouseCustomer(
+                        "second-link",
+                        "second-customer",
+                        "second-user",
+                        "person",
+                        "张女士",
+                        "13800000000",
+                        "tenant",
+                        1L,
+                        1L,
+                        1L);
+        when(archive.context(eq(project), eq("room"), anyBoolean()))
+                .thenReturn(
+                        Mono.just(
+                                new PropertyHouseContext(
+                                        context.house(),
+                                        List.of(context.customers().get(0), second))));
+        var input = input("room", "2024-02-01", "2024-02-29");
+        input.setCustomerRelationshipIds(List.of("link", "second-link"));
+        var result = settings.create(project, input, DATE).contextWrite(allowed()).block(WAIT);
+        assertEquals(1, result.generated());
+        assertEquals(List.of("link", "second-link"), result.setting().getCustomerRelationshipIds());
+        assertEquals(List.of("龚超", "张女士"), result.setting().getCustomerNames());
+        assertEquals(1, bills.createQuery().where("projectId", project).count().block(WAIT));
+        var bill = bills.createQuery().where("projectId", project).fetchOne().block(WAIT);
+        assertTrue(SettingRules.selectedCustomer(bill, "customer"));
+        assertTrue(SettingRules.selectedCustomer(bill, "second-customer"));
+        assertFalse(SettingRules.selectedCustomer(bill, "unselected"));
+        assertFalse(bill.getSnapshotJson().contains("familyId"));
+        var other = input("other", "2024-02-01", "2024-02-29");
+        other.setCustomerRelationshipIds(List.of("link", "missing"));
+        StepVerifier.create(settings.create(project, other, DATE).contextWrite(allowed()))
+                .expectError()
+                .verify(WAIT);
+        assertEquals(1, bills.createQuery().where("projectId", project).count().block(WAIT));
     }
 
     Context allowed() {
@@ -270,9 +309,9 @@ class HouseSettingPersistenceTest {
         request.setVariableValues(Map.of("STANDARD_PRICE", "0.01"));
         conflict(settings.create(project, request, DATE), 400);
         request.setVariableValues(Map.of());
-        request.setCustomerRelationshipId("other-house-link");
+        request.setCustomerRelationshipIds(List.of("other-house-link"));
         conflict(settings.create(project, request, DATE), 409);
-        request.setCustomerRelationshipId("link");
+        request.setCustomerRelationshipIds(List.of("link"));
         standards
                 .createUpdate()
                 .set("cancelDate", "2024-02-29")
@@ -388,7 +427,7 @@ class HouseSettingPersistenceTest {
     @Test
     void batchFailureLeavesNoConfigurationOrReceivableAndSuccessCreatesEveryHouse() {
         var bad = input("bad", "2024-02-01", null);
-        bad.setCustomerRelationshipId("missing");
+        bad.setCustomerRelationshipIds(List.of("missing"));
         conflict(
                 settings.createBatch(
                         project, List.of(input("good", "2024-02-01", null), bad), DATE),

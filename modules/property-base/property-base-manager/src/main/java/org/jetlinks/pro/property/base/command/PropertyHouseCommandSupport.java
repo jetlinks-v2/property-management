@@ -128,8 +128,6 @@ public class PropertyHouseCommandSupport {
                 customer.getName(),
                 customer.getTelephone(),
                 link.getNature(),
-                link.getFamilyId(),
-                link.getFamilyName(),
                 link.getStartTime(),
                 link.getVersion(),
                 customer.getVersion());

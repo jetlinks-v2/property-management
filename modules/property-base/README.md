@@ -71,22 +71,24 @@ return CommandSupportManagerProviders
 | --- | --- | --- |
 | `/property/space` | GET `_projects`、`_roots`、`_tree?projectId=`；PUT `{rootId}/organization`；POST `_sync`；GET `_sync/status` | `property-space` / `query,save,sync` |
 | `/property/house` | POST `_query`、`_import`、`_export`；GET `template.xlsx`；GET/PUT/DELETE `{spaceId}` | `property-house` / `query,save,delete,import,export` |
-| `/property/customer` | POST `_query`、`_history`、`_import`、`_export`；POST 新建；GET/PUT/DELETE `{id}`；POST `{id}/relationships`；PUT `relationships/{id}/end`；DELETE `relationships/{id}`；GET `_families`、`template.xlsx` | `property-customer` / `query,save,delete,import,export` |
+| `/property/customer` | POST `_query`、`_profiles`、`_history`、`_import`、`_export`；POST 新建；GET/PUT `{id}`；POST `{id}/relationships`；DELETE `relationships/{id}`；GET `template.xlsx` | `property-customer` / `query,save,delete,import,export` |
 | `/property/dictionary` | GET/POST `_types`；PUT/DELETE `_types/{id}`；GET/POST `{code}/_items`；PUT/DELETE `items/{id}` | `property-dictionary` / `query,save,delete` |
 
 房屋和客户接口必须显式传 `projectId`，查询可传 `spaceId` 限定子树。项目 `organization` 与节点 `space` 资产均使用 `AssetsHolder`；客户先按有权空间关系缩小范围，再查询、统计和分页。选择客户账号还需该账号的 `user` 资产读取权。
 
 空间同步状态和租约存储在 `pm_space_sync_state`，首次就绪后 5 秒执行，此后默认每 1 小时执行。间隔配置为 `property.space.sync-interval`（默认 `1h`），来源上限为 20000；手动 `_sync` 等待本轮完成。异常、分页残缺、重复 ID、环或意外空来源均保留原镜像。同步链路提供 MonoTracer 和 `org.jetlinks:type=PropertyManagement,name=SpaceSync` MBean。
 
-## 客户、家庭与历史
+## 客户、空间与历史
 
-个人及企业均使用已同步、启用且标注客户身份的 `userId` 建档；每项目同账号一份主档，通过关系表关联多套房屋。名称、电话和邮箱在前端选账号时回显，之后保存到本地主档，不回写 SaaS，也不被用户同步覆盖。个人必须选择客户性质和新建/加入家庭，企业不接收个人性质、家庭或个人证件字段。
+新增保留“新建客户 / 关联已有客户”：新建从已同步、启用且标注客户身份的用户中选择；已有客户从当前项目有权的当前或历史空间记录对应资料中选择。每项目同账号一份客户资料，可以在多个空间使用。个人客户性质按每条空间记录保存，企业不填性质；不再使用家庭。
 
-每次房屋关系独立保存开始、结束时间和原因。家庭只要仍有一个有效成员就可加入；最后有效成员结束或误建关联被删除后不再作为当前家庭选项。历史接口按每次已结束关系返回完整客户资料；逻辑删除主档保留历史，误建关联的删除不虚构结束时间。结束最后关系后主档仍能按有权的历史关联管理和复用。
+首次建档时，来源姓名、电话和邮箱有值则回显禁用，缺失允许补充；后端同样以来源非空值初始化。保存后客户资料独立维护，后续同步、再新增和导入均不覆盖。编辑可以修改已保存资料，并带客户版本及当前空间记录 ID、版本、性质一次事务保存。账号和个人/企业类型不可变。
 
-已逻辑删除的客户再次单条建档时，先校验来源用户和原客户的空间资产保存权限，再按本次资料恢复同一主档并新增房屋关联；稳定主档标识、原创建时间和全部旧关系保留，旧关系不恢复。账号和个人/企业类型仍不可更改；整笔操作遵循项目锁、版本 CAS 和事务，新关联无效时恢复也回滚。未删除的同账号主档仍拒绝重复新建，应关联已有客户；批量导入仍遵循既有复用规则。
+当前列表每条空间客户记录一行，`id` 是客户资料 ID，`recordId` 是当前空间记录 ID，`relationships` 仅包含该条当前记录。`_profiles` 按客户资料去重，最后一条空间记录删除后仍可选择。删除只逻辑删除选中的空间记录，后台自动记录结束时间和删除时间；客户资料、其他空间和历史不删除。再次新增产生新记录和自动开始时间，不恢复原记录。
 
-所有删除均为逻辑删除，不继承或开放通用物理删除接口。写入使用 `version` CAS 并记录修改人、时间；项目数据库行锁保护同项目的房屋、客户、关系写入。仍有有效客户的房屋，以及仍有有效房屋关系的客户，均拒绝直接删除。
+历史包含已结束及已逻辑删除的空间记录，返回完整客户资料、性质、空间信息和起止时间，只读。旧删除记录缺少结束时间时使用原 `deletedTime`；原时间也不存在则保持缺失，不伪造。旧家庭表和字段保留存量数据，不在运行时使用，不执行 DROP 或物理清理。旧接口 `_families`、手动结束和客户资料删除不再开放；前后端应配套升级，旧 Excel 模板需重新下载。
+
+空间与客户详情返回 `spaceSegments: [{id,name,typeId,typeName}]`，从完整来源父链派生，裁剪子树前生成，不根据路径字符串猜测固定层级。页面用类型作上方标签、节点名称作下方值；表格及编辑顶部使用 `fullName`。所有入口仍受项目、空间资产及版本 CAS 保护，详情只读，编辑从列表进入。
 
 ## 字典与批量操作
 
@@ -94,4 +96,4 @@ return CommandSupportManagerProviders
 
 列表使用标准 `QueryParamEntity`，支持白名单字段、嵌套条件、排序和分页；未知字段或操作明确拒绝，不静默忽略。导出使用同一权限和筛选，返回全部匹配记录，上限 10000；不能把当前页当完整导出。模板、导入、导出均由后端提供。模板为 `GET /property/{house|customer}/template.xlsx?projectId=`，客户另必传 `customerType=person/company`，复用 import 权限，按项目返回中文填写表、真实空间和字典/用户参考；房屋全部已完善仍可下载空填写表。`POST _import` 为 multipart，字段 `file`，仅 xls/xlsx、10MB、1–500 行；`POST _export` 接收同列表 QueryParam，返回 XLSX 文件流。前端不解析 Excel 或提交 JSON 行数组。
 
-输出复用 JetLinks `ExcelUtils` 及其 `WorkbookOption`；读取使用配套 POI 保留真实物理行号，只处理第一张数据表，拒绝公式、重复表头、空行和非文本标识。不使用默认导入器的分批写入或失败后逐行重试。文件全部解析、字典转换、字段/权限/现有数据/批内重复及家庭一致性预检通过后，才订阅一个响应式事务中的全部写入；预检失败零写入，并发持久化失败整批回滚。错误响应含真实 Excel 行号和业务原因；前端仅消息提示，文件接口的 JSON 错误不能保存为 Excel。房屋导入只补尚未完善的末端；客户按姓名和联系电话唯一匹配来源账号，再按稳定 `userId` 复用可管理的主档，不覆盖既有资料；个人填写家庭方式和家庭名称，同文件同房屋同名新家庭归组。
+输出复用 JetLinks `ExcelUtils` 及其 `WorkbookOption`；读取使用配套 POI 保留真实物理行号，只处理第一张数据表，拒绝公式、重复表头、空行和非文本标识。不使用默认导入器的分批写入或失败后逐行重试。文件全部解析、字典转换、字段/权限/现有数据/批内重复及共用资料一致性预检通过后，才订阅一个响应式事务中的全部写入；预检失败零写入，并发持久化失败整批回滚。错误响应含真实 Excel 行号和业务原因；前端仅消息提示，文件接口的 JSON 错误不能保存为 Excel。房屋导入只补尚未完善的末端；客户按姓名和联系电话唯一匹配来源账号，再按稳定 `userId` 复用可管理的主档，不覆盖既有资料。个人、企业各8列，不填写家庭或开始时间；个人填写客户性质，企业无性质列。

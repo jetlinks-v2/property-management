@@ -13,8 +13,6 @@ public record PropertyHouseCustomer(
         String name,
         String telephone,
         String nature,
-        String familyId,
-        String familyName,
         Long startTime,
         Long relationshipVersion,
         Long customerVersion) {}

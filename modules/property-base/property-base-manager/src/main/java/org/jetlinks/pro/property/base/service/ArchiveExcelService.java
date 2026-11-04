@@ -8,7 +8,6 @@ import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.bean.FastBeanCopier;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.base.customer.*;
-import org.jetlinks.pro.property.base.customer.CustomerRequests.Family;
 import org.jetlinks.pro.property.base.entity.*;
 import org.jetlinks.pro.property.base.excel.ArchiveExcel;
 import org.jetlinks.pro.property.base.excel.ArchiveExcel.Document;
@@ -71,10 +70,7 @@ public class ArchiveExcelService {
                                                 dictionaryItems(true),
                                                 customer
                                                         ? users.customerReferences()
-                                                        : Mono.just(List.<PropertyUserEntity>of()),
-                                                "person".equals(type)
-                                                        ? customers.familyReferences(projectId)
-                                                        : Mono.just(Map.<String, List<Family>>of()))
+                                                        : Mono.just(List.<PropertyUserEntity>of()))
                                         .map(
                                                 tuple ->
                                                         templateDocument(
@@ -83,8 +79,7 @@ public class ArchiveExcelService {
                                                                 columns,
                                                                 tuple.getT1(),
                                                                 tuple.getT2(),
-                                                                tuple.getT3(),
-                                                                tuple.getT4())));
+                                                                tuple.getT3())));
     }
 
     private Document templateDocument(
@@ -93,8 +88,7 @@ public class ArchiveExcelService {
             List<String> columns,
             List<PropertyHouseService.HouseView> spaces,
             List<PropertyDictionaryItemEntity> items,
-            List<PropertyUserEntity> users,
-            Map<String, List<CustomerRequests.Family>> families) {
+            List<PropertyUserEntity> users) {
         boolean customer = !"house".equals(type);
         if (spaces.isEmpty()) throw failure("no_spaces");
         var available =
@@ -126,10 +120,10 @@ public class ArchiveExcelService {
         instructions.add(
                 Map.of(
                         "field",
-                        customer ? "客户关联" : "房屋资料",
+                        customer ? "客户资料" : "房屋资料",
                         "description",
                         customer
-                                ? "已有主档只新增房屋关联，不覆盖资料。同账号多行主档资料须一致。同文件同房屋同名新建家庭共用一个新家庭；已有家庭限当前房屋且仍有有效成员。"
+                                ? "已有客户只新增当前空间记录，不覆盖资料。同账号多行主档资料须一致。每条记录的开始时间由系统在保存时自动记录，无需填写。"
                                 : "仅补充未完善房屋，修改已有资料请使用界面编辑。填写页为空仍可下载，空间参考保留本项目全部房屋。"));
         for (var key : columns)
             instructions.add(Map.of("field", header(key), "description", guide(key)));
@@ -181,28 +175,12 @@ public class ArchiveExcelService {
                     new SheetData(
                             "用户参考", List.of("name", "username", "telephone", "email"), userRows));
         }
-        Map<String, List<String>> familyOptions = new LinkedHashMap<>();
-        if ("person".equals(type)) {
-            options.put("familyMode", List.of("新建家庭", "加入已有家庭"));
-            var familyRows = new ArrayList<Map<String, Object>>();
-            for (var house : available) {
-                var values = families.getOrDefault(house.getSpaceId(), List.of());
-                familyOptions.put(
-                        house.getFullName(),
-                        values.stream().map(CustomerRequests.Family::name).distinct().toList());
-                for (var family : values)
-                    familyRows.add(
-                            Map.of("spacePath", house.getFullName(), "familyName", family.name()));
-            }
-            references.add(new SheetData("家庭参考", List.of("spacePath", "familyName"), familyRows));
-        }
         String label = "house".equals(type) ? "房屋" : "person".equals(type) ? "个人客户" : "企业客户";
         return new Document(
                 project + "-" + label + "导入模板.xlsx",
                 new SheetData("导入数据", columns, available.stream().map(this::spaceRow).toList()),
                 references,
-                options,
-                familyOptions);
+                options);
     }
 
     public Mono<PropertyHouseService.ImportResult> importHouses(String projectId, FilePart file) {
@@ -221,8 +199,7 @@ public class ArchiveExcelService {
                                                                         rows,
                                                                         "house",
                                                                         tuple.getT2(),
-                                                                        List.of(),
-                                                                        Map.of()),
+                                                                        List.of()),
                                                                 tuple.getT1())))
                 .flatMap(rows -> houses.importRows(projectId, rows));
     }
@@ -258,10 +235,7 @@ public class ArchiveExcelService {
                                                 dictionaryItems(true),
                                                 houses.export(
                                                         projectId, null, new QueryParamEntity()),
-                                                users.customerReferences(),
-                                                "person".equals(type)
-                                                        ? customers.familyReferences(projectId)
-                                                        : Mono.just(Map.<String, List<Family>>of()))
+                                                users.customerReferences())
                                         .map(
                                                 tuple ->
                                                         customerRows(
@@ -269,8 +243,7 @@ public class ArchiveExcelService {
                                                                         rows,
                                                                         type,
                                                                         tuple.getT2(),
-                                                                        tuple.getT3(),
-                                                                        tuple.getT4()),
+                                                                        tuple.getT3()),
                                                                 tuple.getT1())))
                 .flatMap(rows -> customers.importCustomers(projectId, rows));
     }
@@ -281,10 +254,7 @@ public class ArchiveExcelService {
         for (int i = 0; i < rows.size(); i++) {
             var row = rows.get(i);
             int line = i + 2;
-            // 日期单独严格解析，避免通用复制器将日期文本宽松转换为Long。
-            var source = new HashMap<>(row);
-            source.remove("startTime");
-            var request = FastBeanCopier.copy(source, new CustomerRequests.Create());
+            var request = FastBeanCopier.copy(row, new CustomerRequests.Create());
             request.setUserId(text(row, "userId", line, true));
             request.setSpaceId(text(row, "spaceId", line, true));
             request.setName(text(row, "name", line, true));
@@ -295,10 +265,6 @@ public class ArchiveExcelService {
                             Map.of(
                                     "个人", "person", "企业", "company", "个人客户", "person", "企业客户",
                                     "company")));
-            request.setFamilyMode(
-                    alias(
-                            text(row, "familyMode", line, false),
-                            Map.of("新建家庭", "new", "加入已有家庭", "existing")));
             request.setCertificateType(dictionary(row, "certificateType", line, false, items));
             request.setNature(
                     dictionary(
@@ -307,9 +273,6 @@ public class ArchiveExcelService {
                             line,
                             "person".equals(request.getCustomerType()),
                             items));
-            request.setStartTime(date(row, "startTime", line, true));
-            if ("person".equals(request.getCustomerType()) && "new".equals(request.getFamilyMode()))
-                request.setFamilyGroup(text(row, "familyGroup", line, true));
             result.add(request);
         }
         return result;
@@ -427,11 +390,6 @@ public class ArchiveExcelService {
                                                                         : link.getCustomer()
                                                                                 .getId());
                                                         row.put("relationshipId", link.getId());
-                                                        row.put(
-                                                                "familyMode",
-                                                                link.getFamilyId() == null
-                                                                        ? ""
-                                                                        : "加入已有家庭");
                                                         row.put("spaceName", link.getSpaceName());
                                                         display(row, tuple.getT2());
                                                         return (Map<String, Object>) row;

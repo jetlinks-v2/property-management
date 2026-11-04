@@ -43,7 +43,7 @@ public class CashierService {
                 .then(configuration.options(project));
     }
 
-    /** 家庭代缴候选仅来自当前同房屋有效关系；多房屋合并收款使用独立缴款人信息。 */
+    /** 候选为每笔账单所选收费对象的交集，同时必须仍是对应房屋的有效客户。 */
     public Mono<List<PayerOption>> payerOptions(String project, List<String> ids) {
         return scope.project(project, CrudAssetPermission.save)
                 .then(
@@ -70,46 +70,50 @@ public class CashierService {
                                                     .toList());
                                     return rows(project, input, false)
                                             .flatMap(
-                                                    rows -> {
-                                                        var space = rows.get(0).getSpaceId();
-                                                        if (rows.stream()
-                                                                .anyMatch(
-                                                                        row ->
-                                                                                !space.equals(
-                                                                                        row
-                                                                                                .getSpaceId())))
-                                                            return Mono.just(
-                                                                    List.<PayerOption>of());
-                                                        return archive.context(
-                                                                        project, space, false)
-                                                                .map(
-                                                                        context ->
-                                                                                context
-                                                                                        .customers()
-                                                                                        .stream()
-                                                                                        .filter(
-                                                                                                customer ->
-                                                                                                        rows
-                                                                                                                .stream()
-                                                                                                                .allMatch(
-                                                                                                                        row ->
-                                                                                                                                familyMatches(
-                                                                                                                                        row,
-                                                                                                                                        customer
-                                                                                                                                                .customerId(),
-                                                                                                                                        customer
-                                                                                                                                                .familyId())))
-                                                                                        .map(
-                                                                                                customer ->
-                                                                                                        new PayerOption(
-                                                                                                                customer
-                                                                                                                        .relationshipId(),
-                                                                                                                customer
-                                                                                                                        .name(),
-                                                                                                                customer
-                                                                                                                        .familyName()))
-                                                                                        .toList());
-                                                    });
+                                                    rows ->
+                                                            archive.context(
+                                                                            project,
+                                                                            rows.get(0)
+                                                                                    .getSpaceId(),
+                                                                            false)
+                                                                    .flatMapMany(
+                                                                            context ->
+                                                                                    Flux
+                                                                                            .fromIterable(
+                                                                                                    context
+                                                                                                            .customers())
+                                                                                            .filter(
+                                                                                                    customer ->
+                                                                                                            rows
+                                                                                                                    .stream()
+                                                                                                                    .allMatch(
+                                                                                                                            row ->
+                                                                                                                                    org
+                                                                                                                                            .jetlinks
+                                                                                                                                            .pro
+                                                                                                                                            .property
+                                                                                                                                            .finance
+                                                                                                                                            .setting
+                                                                                                                                            .SettingRules
+                                                                                                                                            .selectedCustomer(
+                                                                                                                                                    row,
+                                                                                                                                                    customer
+                                                                                                                                                            .customerId())))
+                                                                                            .concatMap(
+                                                                                                    customer ->
+                                                                                                            validateCurrent(
+                                                                                                                            project,
+                                                                                                                            rows,
+                                                                                                                            customer
+                                                                                                                                    .customerId(),
+                                                                                                                            false)
+                                                                                                                    .thenReturn(
+                                                                                                                            new PayerOption(
+                                                                                                                                    customer
+                                                                                                                                            .relationshipId(),
+                                                                                                                                    customer
+                                                                                                                                            .name()))))
+                                                                    .collectList());
                                 }));
     }
 
@@ -176,7 +180,7 @@ public class CashierService {
                                                     .switchIfEmpty(
                                                             Mono.defer(
                                                                     () ->
-                                                                            // 家庭关系命令先锁基础项目，再锁公司和账单，避免与档案/拆分的锁顺序相反。
+                                                                            // 客户关系命令先锁基础项目，再锁公司和账单，避免与档案/拆分的锁顺序相反。
                                                                             payer(
                                                                                             project,
                                                                                             input,
@@ -234,8 +238,6 @@ public class CashierService {
         var preview = preview(result, config, payer);
         if (!Objects.equals(preview.token(), request.token()))
             return Mono.error(error("cashier_preview_expired", 409));
-        if (input.getPayerRelationshipId() != null && !input.getPayerRelationshipId().isBlank())
-            assertFamily(rows, payer);
         var payment = new PaymentEntity();
         payment.setId(id);
         init(payment, auth);
@@ -328,16 +330,14 @@ public class CashierService {
 
     private Mono<Payer> payer(String project, CashierInput input, boolean lock) {
         if (input.getPayerRelationshipId() == null || input.getPayerRelationshipId().isBlank())
-            return Mono.just(
-                    new Payer(null, null, input.getPayerName().trim(), null, null, null, null));
+            return Mono.error(error("cashier_payer_invalid", 400));
         return rows(project, input, false)
                 .flatMap(
                         rows -> {
-                            var space = rows.get(0).getSpaceId();
-                            if (rows.stream().anyMatch(row -> !space.equals(row.getSpaceId())))
-                                return Mono.error(error("cashier_payer_invalid", 400));
-                            return archive.context(project, space, lock)
-                                    .map(
+                            // 统一按空间ID锁基础上下文，再锁公司和应收；多房屋合收也必须选中同一个客户。
+                            var first = rows.get(0);
+                            return archive.context(project, first.getSpaceId(), lock)
+                                    .flatMap(
                                             context -> {
                                                 var customer =
                                                         context.customers().stream()
@@ -353,39 +353,76 @@ public class CashierService {
                                                                                 error(
                                                                                         "cashier_payer_invalid",
                                                                                         409));
-                                                var payer =
-                                                        new Payer(
-                                                                customer.relationshipId(),
-                                                                customer.userId(),
-                                                                customer.name(),
-                                                                customer.familyId(),
+                                                if (rows.stream()
+                                                        .anyMatch(
+                                                                row ->
+                                                                        !org.jetlinks.pro.property
+                                                                                .finance.setting
+                                                                                .SettingRules
+                                                                                .selectedCustomer(
+                                                                                        row,
+                                                                                        customer
+                                                                                                .customerId())))
+                                                    return Mono.error(
+                                                            error("cashier_payer_invalid", 409));
+                                                return validateCurrent(
+                                                                project,
+                                                                rows,
                                                                 customer.customerId(),
-                                                                customer.relationshipVersion(),
-                                                                customer.customerVersion());
-                                                assertFamily(rows, payer);
-                                                return payer;
+                                                                lock)
+                                                        .map(
+                                                                versions ->
+                                                                        new Payer(
+                                                                                customer
+                                                                                        .relationshipId(),
+                                                                                customer.userId(),
+                                                                                customer.name(),
+                                                                                customer
+                                                                                        .customerId(),
+                                                                                customer
+                                                                                        .relationshipVersion(),
+                                                                                customer
+                                                                                        .customerVersion(),
+                                                                                versions));
                                             });
                         });
     }
 
-    private static void assertFamily(List<ReceivableEntity> rows, Payer payer) {
-        for (var row : rows) {
-            if (!familyMatches(row, payer.customerId(), payer.familyId()))
-                throw error("cashier_payer_invalid", 409);
-        }
-    }
-
-    private static boolean familyMatches(ReceivableEntity row, String customerId, String familyId) {
-        var customer =
-                com.alibaba
-                        .fastjson
-                        .JSON
-                        .parseObject(row.getSnapshotJson())
-                        .getJSONObject("customer");
-        return customerId.equals(row.getCustomerId())
-                || familyId != null
-                        && customer != null
-                        && familyId.equals(customer.getString("familyId"));
+    private Mono<String> validateCurrent(
+            String project, List<ReceivableEntity> rows, String customerId, boolean lock) {
+        return Flux.fromIterable(
+                        rows.stream()
+                                .map(ReceivableEntity::getSpaceId)
+                                .distinct()
+                                .sorted()
+                                .toList())
+                .concatMap(
+                        space ->
+                                archive.context(project, space, lock)
+                                        .map(
+                                                context -> {
+                                                    var customer =
+                                                            context.customers().stream()
+                                                                    .filter(
+                                                                            item ->
+                                                                                    customerId
+                                                                                            .equals(
+                                                                                                    item
+                                                                                                            .customerId()))
+                                                                    .findFirst()
+                                                                    .orElseThrow(
+                                                                            () ->
+                                                                                    error(
+                                                                                            "cashier_payer_invalid",
+                                                                                            409));
+                                                    return customer.relationshipId()
+                                                            + ":"
+                                                            + customer.relationshipVersion()
+                                                            + ":"
+                                                            + customer.customerVersion();
+                                                }))
+                .collectList()
+                .map(Object::toString);
     }
 
     private Preview preview(
@@ -424,10 +461,10 @@ public class CashierService {
             String relationshipId,
             String userId,
             String name,
-            String familyId,
             String customerId,
             Long relationshipVersion,
-            Long customerVersion) {}
+            Long customerVersion,
+            String currentVersions) {}
 
     public record Submission(String requestId, String token, CashierInput input) {}
 
@@ -450,5 +487,5 @@ public class CashierService {
 
     public record Detail(PaymentEntity payment, List<PaymentAllocationEntity> lines) {}
 
-    public record PayerOption(String relationshipId, String name, String familyName) {}
+    public record PayerOption(String relationshipId, String name) {}
 }

@@ -202,7 +202,7 @@ class ArchiveExcelControllerTest {
             assertEquals("001234", byHeader.get("联系电话"));
             assertEquals("搬离", byHeader.get("结束原因"));
             assertEquals("relation", byHeader.get("关联标识"));
-            assertTrue(byHeader.get("关联结束时间").contains("1970-01-01"));
+            assertTrue(byHeader.get("结束时间").contains("1970-01-01"));
         }
     }
 

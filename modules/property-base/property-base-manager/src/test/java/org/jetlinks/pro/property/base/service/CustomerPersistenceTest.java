@@ -48,7 +48,6 @@ class CustomerPersistenceTest {
     @Autowired PropertyDictionaryService dictionary;
     @Autowired ReactiveRepository<PropertyCustomerEntity, String> customers;
     @Autowired ReactiveRepository<PropertyCustomerRelationshipEntity, String> relationships;
-    @Autowired ReactiveRepository<PropertyCustomerFamilyEntity, String> families;
     @Autowired ReactiveRepository<PropertyOrganizationEntity, String> organizations;
     @Autowired ReactiveRepository<PropertySpaceEntity, String> spaces;
     @Autowired ReactiveRepository<PropertySpaceBindingEntity, String> bindings;
@@ -68,8 +67,6 @@ class CustomerPersistenceTest {
                                 .createQuery()
                                 .fetch()
                                 .map(PropertyCustomerRelationshipEntity::getId))
-                .block(WAIT);
-        families.deleteById(families.createQuery().fetch().map(PropertyCustomerFamilyEntity::getId))
                 .block(WAIT);
         organizations
                 .deleteById(
@@ -153,427 +150,313 @@ class CustomerPersistenceTest {
                                 .fetch()
                                 .map(PropertyCustomerRelationshipEntity::getId))
                 .block(WAIT);
-        families.deleteById(families.createQuery().fetch().map(PropertyCustomerFamilyEntity::getId))
-                .block(WAIT);
         customers
                 .deleteById(customers.createQuery().fetch().map(PropertyCustomerEntity::getId))
                 .block(WAIT);
     }
 
     @Test
-    void familyMembershipEndsSeparatelyAndHistoryRetainsDeletedCustomer() {
-        var alice =
-                service.create("project", person("alice", "one", "甲家庭"))
-                        .contextWrite(all())
-                        .block(WAIT);
-        String family = alice.getRelationships().get(0).getFamilyId();
-        var bobRequest = person("bob", "one", "ignored");
-        bobRequest.setFamilyMode("existing");
-        bobRequest.setFamilyName(null);
-        bobRequest.setFamilyId(family);
-        var bob = service.create("project", bobRequest).contextWrite(all()).block(WAIT);
-        assertEquals(1, service.families("project", "one").contextWrite(all()).block(WAIT).size());
-        assertEquals(family, service.familyReferences("project").contextWrite(all()).block(WAIT).get("one").get(0).id());
-        assertTrue(service.familyReferences("project").contextWrite(access(Set.of("two"), Set.of("alice", "bob"))).block(WAIT).isEmpty());
-        var ended =
-                service.end(
-                                "project",
-                                alice.getRelationships().get(0).getId(),
-                                new CustomerRequests.End(0L, 2000L, "搬离"))
-                        .contextWrite(all())
-                        .block(WAIT);
-        assertEquals(2000L, ended.getEndTime());
-        assertEquals("tester", relationships.findById(ended.getId()).block(WAIT).getModifierId());
-        assertNotNull(relationships.findById(ended.getId()).block(WAIT).getModifyTime());
-        assertEquals(1, service.families("project", "one").contextWrite(all()).block(WAIT).size());
-        var current =
+    void createDeleteReaddRecordsHistoryAndKeepsTheCustomerProfile() {
+        long before = System.currentTimeMillis();
+        var created =
+                service.create("project", person("alice", "one")).contextWrite(all()).block(WAIT);
+        var first = created.getRelationships().get(0);
+        assertTrue(first.getStartTime() >= before);
+        assertNull(first.getEndTime());
+        service.deleteRelationship("project", first.getId(), first.getVersion())
+                .contextWrite(all())
+                .block(WAIT);
+        assertEquals(
+                0,
                 service.query("project", "one", new QueryParamEntity())
                         .contextWrite(all())
-                        .block(WAIT);
-        assertEquals(2, current.getTotal());
-        assertTrue(
-                current.getData().stream()
-                        .filter(customer -> customer.getId().equals(alice.getId()))
-                        .findFirst()
-                        .orElseThrow()
-                        .getRelationships()
-                        .isEmpty());
-        service.delete("project", alice.getId(), 0).contextWrite(all()).block(WAIT);
+                        .block(WAIT)
+                        .getTotal());
         var history =
                 service.history("project", "one", new QueryParamEntity())
                         .contextWrite(all())
                         .block(WAIT);
         assertEquals(1, history.getTotal());
-        assertEquals("alice本地", history.getData().get(0).getCustomer().getName());
-        assertTrue(history.getData().get(0).getCustomer().getDeleted());
-        assertEquals("tester", customers.findById(alice.getId()).block(WAIT).getModifierId());
-        assertNotNull(customers.findById(alice.getId()).block(WAIT).getDeletedTime());
-        service.end(
-                        "project",
-                        bob.getRelationships().get(0).getId(),
-                        new CustomerRequests.End(0L, 3000L, "搬离"))
-                .contextWrite(all())
-                .block(WAIT);
-        assertTrue(service.families("project", "one").contextWrite(all()).block(WAIT).isEmpty());
-        assertTrue(service.familyReferences("project").contextWrite(all()).block(WAIT).isEmpty());
-        assertEquals(
-                2,
-                service.exportHistory("project", null, new QueryParamEntity())
-                        .contextWrite(all())
-                        .block(WAIT)
-                        .size());
-    }
-
-    @Test
-    void recreatingDeletedProfileRestoresOnlyTheProfileAndAddsANewRelationship() {
-        var first =
-                service.create("project", person("alice", "one", "旧家庭"))
-                        .contextWrite(all())
-                        .block(WAIT);
-        var oldLink = first.getRelationships().get(0);
-        service.end("project", oldLink.getId(), new CustomerRequests.End(0L, 2000L, "搬离"))
-                .contextWrite(all())
-                .block(WAIT);
-        service.delete("project", first.getId(), 0).contextWrite(all()).block(WAIT);
-        var request = person("alice", "two", "新家庭");
-        request.setName("重新建档姓名");
-        request.setStartTime(3000L);
-        var restored = service.create("project", request).contextWrite(all()).block(WAIT);
-        assertEquals(first.getId(), restored.getId());
-        assertEquals("重新建档姓名", restored.getName());
-        assertFalse(restored.getDeleted());
-        assertNull(customers.findById(first.getId()).block(WAIT).getDeletedTime());
-        assertEquals(2L, restored.getVersion());
-        assertEquals(1, customers.createQuery().count().block(WAIT));
-        assertEquals(1, restored.getRelationships().size());
-        assertEquals("two", restored.getRelationships().get(0).getSpaceId());
-        assertNotEquals(oldLink.getId(), restored.getRelationships().get(0).getId());
-        assertEquals(2000L, relationships.findById(oldLink.getId()).block(WAIT).getEndTime());
+        assertEquals(first.getId(), history.getData().get(0).getId());
+        assertTrue(history.getData().get(0).getEndTime() >= first.getStartTime());
+        var stored = relationships.findById(first.getId()).block(WAIT);
+        assertTrue(stored.getDeleted());
+        assertEquals(stored.getDeletedTime(), stored.getEndTime());
+        assertEquals("tester", stored.getModifierId());
+        assertFalse(customers.findById(created.getId()).block(WAIT).getDeleted());
         assertEquals(
                 1,
-                service.history("project", null, new QueryParamEntity())
+                service.profiles("project", new QueryParamEntity())
                         .contextWrite(all())
                         .block(WAIT)
                         .getTotal());
-        StepVerifier.create(service.create("project", request).contextWrite(all()))
-                .expectErrorMatches(CustomerPersistenceTest::conflict)
-                .verify(WAIT);
-    }
-
-    @Test
-    void restoringDeletedProfileRequiresOriginalScopeAndRollsBackIfNewLinkIsInvalid() {
-        var first =
-                service.create("project", person("alice", "one", "旧家庭"))
-                        .contextWrite(all())
-                        .block(WAIT);
-        service.deleteRelationship("project", first.getRelationships().get(0).getId(), 0)
-                .contextWrite(all())
-                .block(WAIT);
-        service.delete("project", first.getId(), 0).contextWrite(all()).block(WAIT);
-        StepVerifier.create(
-                        service.create("project", person("alice", "two", "不允许认领"))
-                                .contextWrite(access(Set.of("two"), Set.of("alice"))))
-                .expectErrorMatches(
-                        error ->
-                                error instanceof BusinessException business
-                                        && business.getStatus() == 404)
-                .verify(WAIT);
-        StepVerifier.create(
-                        service.create("project", person("alice", "root", "非法房屋"))
-                                .contextWrite(all()))
-                .expectError()
-                .verify(WAIT);
-        assertTrue(customers.findById(first.getId()).block(WAIT).getDeleted());
-        assertEquals(1L, customers.findById(first.getId()).block(WAIT).getVersion());
-        assertEquals(1, relationships.createQuery().count().block(WAIT));
-        var restored =
-                service.create("project", person("alice", "one", "新家庭"))
-                        .contextWrite(all())
-                        .block(WAIT);
-        assertFalse(restored.getDeleted());
-        assertTrue(
-                relationships
-                        .findById(first.getRelationships().get(0).getId())
-                        .block(WAIT)
-                        .getDeleted());
-    }
-
-    @Test
-    void reuseAcrossRoomsDeduplicatesMainAndDoesNotExposeUnpermittedRelationships() {
-        var first =
-                service.create("project", person("alice", "one", "家庭1"))
-                        .contextWrite(all())
-                        .block(WAIT);
-        var request = person("alice", "two", "家庭2");
-        request.setName("不应覆盖");
+        var again =
+                service.create("project", person("alice", "one")).contextWrite(all()).block(WAIT);
+        assertEquals(created.getId(), again.getId());
+        assertNotEquals(first.getId(), again.getRelationships().get(0).getId());
         assertEquals(
                 1,
-                service.importCustomers("project", List.of(request))
+                service.history("project", "one", new QueryParamEntity())
                         .contextWrite(all())
                         .block(WAIT)
-                        .count());
-        assertEquals(1, customers.createQuery().count().block(WAIT));
+                        .getTotal());
+    }
+
+    @Test
+    void currentPaginationAndNatureArePerSpaceAndDeleteDoesNotTouchOtherSpaces() {
+        tenantNature();
+        var created =
+                service.create("project", person("alice", "one")).contextWrite(all()).block(WAIT);
+        var link = person("alice", "two").link();
+        link.setNature("tenant");
+        service.link("project", created.getId(), link).contextWrite(all()).block(WAIT);
         var page =
                 service.query("project", null, new QueryParamEntity())
                         .contextWrite(all())
                         .block(WAIT);
-        assertEquals(1, page.getTotal());
-        assertEquals(2, page.getData().get(0).getRelationships().size());
-        assertEquals("alice本地", page.getData().get(0).getName());
-        var scoped =
-                service.detail("project", first.getId())
-                        .contextWrite(access(Set.of("one"), Set.of("alice")))
-                        .block(WAIT);
-        assertEquals(1, scoped.getRelationships().size());
-        assertEquals("one", scoped.getRelationships().get(0).getSpaceId());
-        StepVerifier.create(
-                        service.query("project", "two", new QueryParamEntity())
-                                .contextWrite(access(Set.of("one"), Set.of("alice"))))
-                .expectError(AccessDenyException.class)
-                .verify(WAIT);
-        assertEquals(
-                0,
-                service.query("project", null, new QueryParamEntity())
-                        .contextWrite(access(Set.of(), Set.of("alice")))
-                        .block(WAIT)
-                        .getTotal());
-        StepVerifier.create(service.delete("project", first.getId(), 0).contextWrite(all()))
-                .expectErrorMatches(CustomerPersistenceTest::conflict)
-                .verify(WAIT);
-    }
-
-    @Test
-    void importingAVisibleAccountCannotClaimAnInaccessibleExistingProfile() {
-        service.create("project", person("alice", "one", "仅一房")).contextWrite(all()).block(WAIT);
-        StepVerifier.create(
-                        service.importCustomers("project", List.of(person("alice", "two", "不可认领")))
-                                .contextWrite(access(Set.of("two"), Set.of("alice"))))
-                .expectErrorMatches(
-                        error ->
-                                error instanceof BusinessException business
-                                        && business.getStatus() == 404)
-                .verify(WAIT);
-        assertEquals(1, relationships.createQuery().count().block(WAIT));
-        assertEquals(
-                0,
-                service.query("project", null, new QueryParamEntity())
-                        .contextWrite(access(Set.of("two"), Set.of("alice")))
-                        .block(WAIT)
-                        .getTotal());
-    }
-
-    @Test
-    void invalidImportRollsBackMainFamilyAndEarlierRowsAndExplicitGroupsShareOnlyWithinFile() {
-        var first = person("alice", "one", "同家庭");
-        first.setFamilyGroup("file-group");
-        var second = person("bob", "one", "同家庭");
-        second.setFamilyGroup("file-group");
-        var invalid = person("company", "root", "非末端");
-        StepVerifier.create(
-                        service.importCustomers("project", List.of(first, invalid))
-                                .contextWrite(all()))
-                .expectError()
-                .verify(WAIT);
-        assertEquals(0, customers.createQuery().count().block(WAIT));
-        assertEquals(0, families.createQuery().count().block(WAIT));
-        assertEquals(0, relationships.createQuery().count().block(WAIT));
-        service.importCustomers("project", List.of(first, second)).contextWrite(all()).block(WAIT);
-        assertEquals(1, families.createQuery().count().block(WAIT));
-        assertEquals(
-                1,
-                relationships
-                        .createQuery()
-                        .fetch()
-                        .map(PropertyCustomerRelationshipEntity::getFamilyId)
-                        .distinct()
-                        .count()
-                        .block(WAIT));
-    }
-
-    @Test
-    void companyBoundaryVersionAndMistakenLinkDeletionArePersisted() {
-        var company = person("company", "one", "bad");
-        company.setCustomerType("company");
-        StepVerifier.create(service.create("project", company).contextWrite(all()))
-                .expectError(BusinessException.class)
-                .verify(WAIT);
-        company.setNature(null);
-        company.setFamilyMode(null);
-        company.setFamilyName(null);
-        company.setCreditCode("credit");
-        var saved = service.create("project", company).contextWrite(all()).block(WAIT);
-        var changed = new CustomerRequests.Profile();
-        changed.setName("本地企业");
-        changed.setTelephone("123");
-        changed.setCreditCode("new-credit");
-        changed.setVersion(0L);
-        service.update("project", saved.getId(), changed).contextWrite(all()).block(WAIT);
-        StepVerifier.create(service.update("project", saved.getId(), changed).contextWrite(all()))
-                .expectErrorMatches(CustomerPersistenceTest::conflict)
-                .verify(WAIT);
-        assertEquals("new-credit", customers.findById(saved.getId()).block(WAIT).getCreditCode());
-        assertEquals("tester", customers.findById(saved.getId()).block(WAIT).getModifierId());
-        String relationshipId = saved.getRelationships().get(0).getId();
-        service.deleteRelationship("project", relationshipId, 0).contextWrite(all()).block(WAIT);
-        var link = relationships.findById(relationshipId).block(WAIT);
-        assertTrue(link.getDeleted());
-        assertNull(link.getEndTime());
-        assertNotNull(link.getDeletedTime());
-        assertEquals("tester", link.getModifierId());
-        assertEquals(
-                0,
-                service.history("project", null, new QueryParamEntity())
-                        .contextWrite(all())
-                        .block(WAIT)
-                        .getTotal());
-        var visible =
-                service.query("project", null, new QueryParamEntity())
-                        .contextWrite(all())
-                        .block(WAIT);
-        assertEquals(1, visible.getTotal());
-        assertTrue(visible.getData().get(0).getRelationships().isEmpty());
-        service.delete("project", saved.getId(), 1).contextWrite(all()).block(WAIT);
-        assertTrue(customers.findById(saved.getId()).block(WAIT).getDeleted());
-    }
-
-    @Test
-    void userAssetAndActiveOwnerAreCheckedAndConcurrentCreateHasOneWinner() {
-        StepVerifier.create(
-                        service.create("project", person("alice", "one", "家庭"))
-                                .contextWrite(access(Set.of("one"), Set.of("bob"))))
-                .expectError(AccessDenyException.class)
-                .verify(WAIT);
-        users.createUpdate().set("owner", false).where("id", "alice").execute().block(WAIT);
-        StepVerifier.create(
-                        service.create("project", person("alice", "one", "家庭")).contextWrite(all()))
-                .expectError(BusinessException.class)
-                .verify(WAIT);
-        users.createUpdate().set("owner", true).where("id", "alice").execute().block(WAIT);
-        var signals =
-                Flux.merge(
-                                service.create("project", person("alice", "one", "家庭"))
-                                        .materialize(),
-                                service.create("project", person("alice", "two", "另一家庭"))
-                                        .materialize())
-                        .contextWrite(all())
-                        .collectList()
-                        .block(WAIT);
-        assertEquals(1, signals.stream().filter(signal -> signal.isOnNext()).count());
-        assertEquals(1, signals.stream().filter(signal -> conflict(signal.getThrowable())).count());
-        assertEquals(1, customers.createQuery().count().block(WAIT));
-        assertEquals(1, relationships.createQuery().count().block(WAIT));
-    }
-
-    @Test
-    void natureFilteringUsesOnlyCurrentRelationshipsInsideTheAuthorizedSelectedScope() {
-        dictionary
-                .createItem(
-                        "customer-nature",
-                        new PropertyDictionaryService.ItemRequest("tenant", "租户", true, null, null))
-                .contextWrite(all())
-                .block(WAIT);
-        var alice =
-                service.create("project", person("alice", "one", "家庭1"))
-                        .contextWrite(all())
-                        .block(WAIT);
-        var tenantRequest = person("alice", "two", "家庭2");
-        tenantRequest.setNature("tenant");
-        service.importCustomers("project", List.of(tenantRequest)).contextWrite(all()).block(WAIT);
-
+        assertEquals(2, page.getTotal());
+        assertEquals(2, page.getData().stream().map(row -> row.getRecordId()).distinct().count());
         var tenant = new QueryParamEntity();
         tenant.and("nature", "eq", "tenant");
         assertEquals(
                 1,
                 service.query("project", null, tenant).contextWrite(all()).block(WAIT).getTotal());
         assertEquals(
-                1,
-                service.query("project", "two", tenant).contextWrite(all()).block(WAIT).getTotal());
-        assertEquals(
                 0,
                 service.query("project", "one", tenant).contextWrite(all()).block(WAIT).getTotal());
-        assertEquals(
-                0,
-                service.query("project", null, tenant)
-                        .contextWrite(access(Set.of("one"), Set.of("alice")))
-                        .block(WAIT)
-                        .getTotal());
-
-        var anyNature = new QueryParamEntity();
-        anyNature.and("nature", "in", List.of("tenant", "unavailable"));
-        assertEquals(
-                1,
-                service.export("project", null, anyNature).contextWrite(all()).block(WAIT).size());
-        assertTrue(
-                service.export("project", "one", anyNature)
-                        .contextWrite(all())
-                        .block(WAIT)
-                        .isEmpty());
-        var noTenant = new QueryParamEntity();
-        noTenant.and("nature", "not", "tenant");
-        assertEquals(
-                0,
-                service.query("project", null, noTenant)
-                        .contextWrite(all())
-                        .block(WAIT)
-                        .getTotal());
-        assertEquals(
-                1,
-                service.query("project", "one", noTenant)
-                        .contextWrite(all())
-                        .block(WAIT)
-                        .getTotal());
-
-        var tenantRelationship =
-                service
-                        .detail("project", alice.getId())
-                        .contextWrite(all())
-                        .block(WAIT)
-                        .getRelationships()
-                        .stream()
-                        .filter(row -> "two".equals(row.getSpaceId()))
-                        .findFirst()
-                        .orElseThrow();
-        service.end(
-                        "project",
-                        tenantRelationship.getId(),
-                        new CustomerRequests.End(0L, 2000L, "搬离"))
+        service.deleteRelationship("project", created.getRelationships().get(0).getId(), 0)
                 .contextWrite(all())
                 .block(WAIT);
         assertEquals(
-                0,
-                service.query("project", null, tenant).contextWrite(all()).block(WAIT).getTotal());
-        assertEquals(
-                0,
-                service.query("project", "two", tenant).contextWrite(all()).block(WAIT).getTotal());
-        assertEquals(
                 1,
-                service.query("project", null, noTenant)
+                service.query("project", null, new QueryParamEntity())
                         .contextWrite(all())
                         .block(WAIT)
                         .getTotal());
         assertEquals(
-                List.of("owner"),
-                service.detail("project", alice.getId())
+                "tenant",
+                service.query("project", "two", new QueryParamEntity())
                         .contextWrite(all())
                         .block(WAIT)
+                        .getData()
+                        .get(0)
+                        .getRelationships()
+                        .get(0)
                         .getNature());
+        assertEquals(
+                1,
+                service.history("project", "one", new QueryParamEntity())
+                        .contextWrite(all())
+                        .block(WAIT)
+                        .getTotal());
+    }
+
+    @Test
+    void editingSpaceNatureUsesBothVersionsAndRollsBackProfileOnConflict() {
+        tenantNature();
+        var created =
+                service.create("project", person("alice", "one")).contextWrite(all()).block(WAIT);
+        service.link("project", created.getId(), person("alice", "two").link())
+                .contextWrite(all())
+                .block(WAIT);
+        var request = person("alice", "one");
+        request.setName("本地修改");
+        request.setVersion(0L);
+        request.setRelationshipId(created.getRelationships().get(0).getId());
+        request.setRelationshipVersion(0L);
+        request.setNature("tenant");
+        service.update("project", created.getId(), request).contextWrite(all()).block(WAIT);
+        assertEquals(
+                "tenant",
+                service.query("project", "one", new QueryParamEntity())
+                        .contextWrite(all())
+                        .block(WAIT)
+                        .getData()
+                        .get(0)
+                        .getRelationships()
+                        .get(0)
+                        .getNature());
+        assertEquals(
+                "owner",
+                service.query("project", "two", new QueryParamEntity())
+                        .contextWrite(all())
+                        .block(WAIT)
+                        .getData()
+                        .get(0)
+                        .getRelationships()
+                        .get(0)
+                        .getNature());
+        request.setVersion(1L);
+        request.setName("不能部分保存");
+        StepVerifier.create(service.update("project", created.getId(), request).contextWrite(all()))
+                .expectErrorMatches(CustomerPersistenceTest::conflict)
+                .verify();
+        assertEquals("本地修改", customers.findById(created.getId()).block(WAIT).getName());
+    }
+
+    @Test
+    void sourceValuesPrefillOnlyOnFirstCreationAndSavedLocalValuesSurviveSourceChanges() {
+        users.createUpdate()
+                .set("telephone", "19123288779")
+                .set("email", "first@example.com")
+                .where("id", "alice")
+                .execute()
+                .block(WAIT);
+        var created =
+                service.create("project", person("alice", "one")).contextWrite(all()).block(WAIT);
+        assertEquals("来源姓名", created.getName());
+        assertEquals("19123288779", created.getTelephone());
+        var edit = person("alice", "one");
+        edit.setVersion(0L);
+        edit.setName("本地客户姓名");
+        edit.setTelephone("13800000000");
+        edit.setEmail("local@example.com");
+        edit.setNature(null);
+        service.update("project", created.getId(), edit).contextWrite(all()).block(WAIT);
+        users.createUpdate()
+                .set("telephone", "13900000000")
+                .set("name", "来源新姓名")
+                .set("email", "source@example.com")
+                .where("id", "alice")
+                .execute()
+                .block(WAIT);
+        var reused =
+                service.create("project", person("alice", "two")).contextWrite(all()).block(WAIT);
+        assertEquals("本地客户姓名", reused.getName());
+        assertEquals("13800000000", reused.getTelephone());
+        assertEquals("local@example.com", reused.getEmail());
+    }
+
+    @Test
+    void lastImportErrorDoesNotWriteAnyCustomerAndProfilesMustAgreeAcrossSpaces() {
+        var second = person("bob", "two");
+        second.setNature("missing");
+        StepVerifier.create(
+                        service.importCustomers("project", List.of(person("alice", "one"), second))
+                                .contextWrite(all()))
+                .expectErrorSatisfies(
+                        error -> assertEquals(3, ((BusinessException) error).getArgs()[0]))
+                .verify();
+        assertEquals(0, customers.createQuery().count().block(WAIT));
+        assertEquals(0, relationships.createQuery().count().block(WAIT));
+        tenantNature();
+        var same = person("alice", "two");
+        same.setNature("tenant");
+        assertEquals(
+                2,
+                service.importCustomers("project", List.of(person("alice", "one"), same))
+                        .contextWrite(all())
+                        .block(WAIT)
+                        .count());
+        assertEquals(1, customers.createQuery().count().block(WAIT));
+    }
+
+    @Test
+    void inaccessibleSpaceCannotBeEditedDeletedReusedOrReadInHistory() {
+        var created =
+                service.create("project", person("alice", "one")).contextWrite(all()).block(WAIT);
+        var record = created.getRelationships().get(0);
+        var restricted = access(Set.of("two"), Set.of("alice"));
+        StepVerifier.create(
+                        service.deleteRelationship("project", record.getId(), 0)
+                                .contextWrite(restricted))
+                .expectError()
+                .verify();
+        StepVerifier.create(
+                        service.create("project", person("alice", "two")).contextWrite(restricted))
+                .expectError()
+                .verify();
+        assertEquals(
+                0,
+                service.profiles("project", new QueryParamEntity())
+                        .contextWrite(restricted)
+                        .block(WAIT)
+                        .getTotal());
+        service.deleteRelationship("project", record.getId(), 0).contextWrite(all()).block(WAIT);
+        assertEquals(
+                0,
+                service.history("project", null, new QueryParamEntity())
+                        .contextWrite(restricted)
+                        .block(WAIT)
+                        .getTotal());
+    }
+
+    @Test
+    void duplicateConcurrentCreateHasOneWinnerAndStaleDeleteIsRejected() {
+        var results =
+                Flux.merge(
+                                service.create("project", person("alice", "one"))
+                                        .contextWrite(all())
+                                        .map(v -> "ok")
+                                        .onErrorReturn("conflict"),
+                                service.create("project", person("alice", "one"))
+                                        .contextWrite(all())
+                                        .map(v -> "ok")
+                                        .onErrorReturn("conflict"))
+                        .collectList()
+                        .block(WAIT);
+        assertEquals(1, results.stream().filter("ok"::equals).count());
+        var current =
+                service.query("project", "one", new QueryParamEntity())
+                        .contextWrite(all())
+                        .block(WAIT)
+                        .getData()
+                        .get(0);
+        var record = current.getRelationships().get(0);
+        StepVerifier.create(
+                        service.deleteRelationship("project", record.getId(), 9)
+                                .contextWrite(all()))
+                .expectErrorMatches(CustomerPersistenceTest::conflict)
+                .verify();
+        assertFalse(relationships.findById(record.getId()).block(WAIT).getDeleted());
+        users.createUpdate().set("owner", false).where("id", "bob").execute().block(WAIT);
+        StepVerifier.create(service.create("project", person("bob", "two")).contextWrite(all()))
+                .expectError()
+                .verify();
+    }
+
+    @Test
+    void companyRejectsPersonalNatureAndCertificates() {
+        var company = person("company", "one");
+        company.setCustomerType("company");
+        StepVerifier.create(service.create("project", company).contextWrite(all()))
+                .expectError()
+                .verify();
+        company.setNature(null);
+        company.setCertificateNumber("forbidden");
+        StepVerifier.create(service.create("project", company).contextWrite(all()))
+                .expectError()
+                .verify();
+        company.setCertificateNumber(null);
+        assertEquals(
+                "company",
+                service.create("project", company)
+                        .contextWrite(all())
+                        .block(WAIT)
+                        .getCustomerType());
+    }
+
+    private void tenantNature() {
+        dictionary
+                .createItem(
+                        "customer-nature",
+                        new PropertyDictionaryService.ItemRequest("tenant", "租户", true, null, null))
+                .contextWrite(all())
+                .block(WAIT);
     }
 
     private static boolean conflict(Throwable error) {
         return error instanceof BusinessException business && business.getStatus() == 409;
     }
 
-    private static CustomerRequests.Create person(String user, String space, String family) {
+    private static CustomerRequests.Create person(String user, String space) {
         var request = new CustomerRequests.Create();
         request.setUserId(user);
         request.setCustomerType("person");
-        request.setName(user + "本地");
+        request.setName("补充姓名");
         request.setTelephone("123");
         request.setSpaceId(space);
         request.setNature("owner");
-        request.setFamilyMode("new");
-        request.setFamilyName(family);
-        request.setStartTime(1000L);
         return request;
     }
 

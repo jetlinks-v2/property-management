@@ -168,7 +168,11 @@ public class ReceivableSplitService {
                 child.setCustomerRelationshipId(customer.relationshipId());
                 child.setCustomerName(customer.name());
                 var snapshot = JSON.parseObject(child.getSnapshotJson());
-                snapshot.put("customer", customer);
+                var customerSnapshot =
+                        org.jetlinks.pro.property.finance.setting.SettingRules.customerSnapshot(
+                                customer);
+                snapshot.put("customer", customerSnapshot);
+                snapshot.put("customers", List.of(customerSnapshot));
                 child.setSnapshotJson(snapshot.toJSONString());
             }
         }
