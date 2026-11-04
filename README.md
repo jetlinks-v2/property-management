@@ -105,4 +105,4 @@ SaaS 聚合工作区通过 `modules/property-management` 引用本仓库，前�
 
 ## 物业组共享开发
 
-共享分支为 `property/2.20-dev`。巡更提交范围使用 `物业-巡更`，其他系统使用自身的 `物业-系统名`，公共聚合提交使用 `物业`。各系统继续独立装配、互不依赖；推送本仓库后再更新 `cloud.jetlinks/modules/property-management` 指针。同事从 SaaS 聚合仓库递归检出固定版本，开始修改本仓库前再切换并快进共享分支，不在 detached HEAD 上直接开发。
+共享分支为 `2.20`，与 Cloud 聚合仓库的 `property/2.20-dev` 配套。巡更提交范围使用 `物业-巡更`，其他系统使用自身的 `物业-系统名`，公共聚合提交使用 `物业`。各系统继续独立装配、互不依赖；推送本仓库后再更新 `cloud.jetlinks/modules/property-management` 指针。同事从 SaaS 聚合仓库递归检出固定版本，开始修改本仓库前再切换并快进共享分支，不在 detached HEAD 上直接开发。
