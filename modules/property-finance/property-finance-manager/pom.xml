@@ -13,6 +13,11 @@
     <dependencies>
         <dependency>
             <groupId>org.jetlinks.pro</groupId>
+            <artifactId>test-component</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jetlinks.pro</groupId>
             <artifactId>common-component</artifactId>
         </dependency>
         <dependency>
