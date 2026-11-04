@@ -2,8 +2,10 @@ package org.jetlinks.pro.property.finance.web;
 
 import lombok.RequiredArgsConstructor;
 
+import org.hswebframework.web.api.crud.entity.*;
 import org.hswebframework.web.authorization.annotation.*;
 import org.jetlinks.pro.property.finance.document.DocumentIssueInput;
+import org.jetlinks.pro.property.finance.entity.*;
 import org.jetlinks.pro.property.finance.service.*;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,7 +23,33 @@ public class InvoiceDocumentController {
     private final DocumentPreparationService preparation;
     private final DocumentIssueService issue;
     private final DocumentReverseService reverse;
+    private final DocumentRecordService records;
+    private final DocumentCandidateService candidates;
     private final BillingJobProperties properties;
+
+    @PostMapping("/_query")
+    @QueryAction
+    public Mono<PagerResult<DocumentEntity>> query(
+            @PathVariable String projectId, @RequestBody QueryParamEntity input) {
+        return records.query(projectId, "INVOICE", input);
+    }
+
+    @PostMapping("/{id}/logs/_query")
+    @QueryAction
+    public Mono<PagerResult<DocumentOperationEntity>> logs(
+            @PathVariable String projectId,
+            @PathVariable String id,
+            @RequestBody QueryParamEntity input) {
+        return records.logs(projectId, "INVOICE", id, input);
+    }
+
+    @PostMapping("/sources/_query")
+    @ResourceAction(id = "create", name = "模拟开票")
+    public Mono<PagerResult<DocumentCandidateService.View>> sources(
+            @PathVariable String projectId, @RequestBody DocumentCandidateService.Input input) {
+        return candidates.query(
+                projectId, "INVOICE", input, LocalDateTime.now(ZoneId.of(properties.getZone())));
+    }
 
     @PostMapping("/_preview")
     @ResourceAction(id = "create", name = "模拟开票")

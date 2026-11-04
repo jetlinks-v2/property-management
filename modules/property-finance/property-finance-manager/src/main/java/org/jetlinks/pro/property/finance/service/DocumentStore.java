@@ -169,6 +169,7 @@ public class DocumentStore {
         row.setIssuedAt(now);
         row.setRemark(prepared.input().remark());
         row.setRequestFingerprint(fingerprint);
+        row.setBuyerName(view.buyer().name());
         row.setBuyerJson(encode(view.buyer()));
         row.setRuleJson(encode(view.rule()));
         row.setAmount(new BigDecimal(view.amount()));

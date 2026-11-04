@@ -174,3 +174,11 @@ property:
 单次最多500行、10MB，仅接受 `.xlsx`、`.xls`，不接受公式单元格。完整路径、有效房屋客户、项目已下发科目及其标准必须唯一匹配；同文件及重复上传的相同业务账单拒绝重复建账。所有行完整预检后在同一响应式事务中写入账单及审计，任何写入失败整批回滚。批次结果独立保留，校验错误包含Excel物理行号、字段和原因；失败后修正原文件重新上传。大文件应分批，不会静默截断或部分成功。
 
 已有应收表环境须在备份停服后执行 `modules/property-finance/sql/migrate-historical-receivable.sql`，使历史账单可不填写 `setting_id` 并添加来源、批次、合同和账期字段。脚本针对PostgreSQL，可重复执行；如还未升级拆分账单业务键，先执行上一节的拆分升级脚本。全新数据库由EasyORM创建实体表。
+
+## 票据历史与可开具来源查询
+
+`POST /property/finance/projects/{projectId}/invoices/_query` 与 `/receipts/_query` 使用各自 `query` 权限，按整张票据分页。`POST /{id}/logs/_query` 分页查询操作日志；红票可查到生成它的红冲记录，蓝票保留开具和红冲记录。详情和日志均先校验当前项目及整票全部冻结空间的读取权限。列表在数据库分页和计数前排除含未授权空间的整票，调用方的 OR 条件不能扩大项目、租户或票据类型范围；购方抬头 `buyerName` 与来源客户名称分别冻结，可独立检索。红冲、作废及来源后续删除均不删除已出具历史。
+
+`POST /invoices/sources/_query` 与 `/receipts/sources/_query` 使用对应 `create` 权限，输入 `sourceType`（`RECEIVABLE` 或 `TEMP_PAYMENT`）、可选 `companyId`、`customerId`、`spaceIds`、`keywords` 和分页参数。分页默认12、上限200，不接受来源别名或任意查询条件；仅返回当前项目全部相关空间均有保存权限的来源。临时款按支付主单分页，混合支付方式只出现一次。公司筛选使用 PostgreSQL JSONB 表达式匹配历史收费标准快照，不以当前标准替换历史销方。
+
+候选返回冻结房屋、客户、科目、公司、税率以及字符串金额 `allowedAmount`、`paidAmount`、`availableAmount`。额度耗尽或发票已超时效的行保留显示，但 `selectable=false`，`unavailableCode` 明确区分额度不足与超期；收据不套用发票时效。损坏快照等异常明确拒绝本次查询，不能静默跳过。查询不占用额度、不写票据，提交时仍需预览和正式确认重新校验。历史、日志、候选均强制分页且不允许查询加锁。

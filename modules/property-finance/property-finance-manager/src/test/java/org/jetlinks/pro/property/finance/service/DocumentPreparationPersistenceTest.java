@@ -287,10 +287,10 @@ class DocumentPreparationPersistenceTest extends DocumentSourcePersistenceTest {
         var bill = documentBill();
         var invoiceController =
                 new org.jetlinks.pro.property.finance.web.InvoiceDocumentController(
-                        preparation, null, null, new BillingJobProperties());
+                        preparation, null, null, null, null, new BillingJobProperties());
         var receiptController =
                 new org.jetlinks.pro.property.finance.web.ReceiptDocumentController(
-                        preparation, null, null, new BillingJobProperties());
+                        preparation, null, null, null, null, new BillingJobProperties());
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(
                                 invoiceController, receiptController)

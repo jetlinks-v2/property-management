@@ -67,6 +67,10 @@ public class DocumentEntity extends FinanceEntity {
     @Column(length = 255, nullable = false)
     private String customerName;
 
+    /** 开具时的购方抬头，与来源客户名称分别冻结，支持历史列表检索。 */
+    @Column(length = 255, nullable = false)
+    private String buyerName;
+
     @Column(length = 4)
     private String invoiceType;
 

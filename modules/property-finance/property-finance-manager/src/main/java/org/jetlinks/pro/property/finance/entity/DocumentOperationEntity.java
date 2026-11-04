@@ -18,7 +18,10 @@ import javax.persistence.*;
         indexes = {
             @Index(
                     name = "idx_pm_fin_doc_operation",
-                    columnList = "projectId,documentId,createTime")
+                    columnList = "projectId,documentId,createTime"),
+            @Index(
+                    name = "idx_pm_fin_doc_op_result",
+                    columnList = "projectId,resultDocumentId,createTime")
         })
 public class DocumentOperationEntity extends FinanceEntity {
     @JsonIgnore

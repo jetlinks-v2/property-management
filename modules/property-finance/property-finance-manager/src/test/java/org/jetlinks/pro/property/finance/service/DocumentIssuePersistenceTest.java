@@ -255,7 +255,7 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
         var input = reversal(blue, "红冲回滚验证");
         sql(
                 "alter table pm_fin_doc_operation add constraint reject_document_reverse check"
-                    + " (project_id <> '"
+                        + " (project_id <> '"
                         + project
                         + "' or action <> 'REVERSE')");
         try {
@@ -482,9 +482,9 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(
                                 new org.jetlinks.pro.property.finance.web.InvoiceDocumentController(
-                                        preparation, issue, reverse, props),
+                                        preparation, issue, reverse, null, null, props),
                                 new org.jetlinks.pro.property.finance.web.ReceiptDocumentController(
-                                        preparation, issue, reverse, props))
+                                        preparation, issue, reverse, null, null, props))
                         .controllerAdvice(new TaxItemPersistenceTest.HttpErrors())
                         .webFilter(
                                 (exchange, chain) ->
@@ -695,7 +695,7 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
                                         item("RECEIVABLE", b.getId(), "10"))));
         sql(
                 "alter table pm_fin_doc_line add constraint reject_document_line check (project_id"
-                    + " <> '"
+                        + " <> '"
                         + project
                         + "' or line_index <> 1)");
         try {
@@ -723,7 +723,7 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
         var reverse = reversal(blue, "红票最后写入失败");
         sql(
                 "alter table pm_fin_document add constraint reject_red_document check (project_id"
-                    + " <> '"
+                        + " <> '"
                         + project
                         + "' or status <> 'SIMULATED_RED')");
         try {
