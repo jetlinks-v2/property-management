@@ -54,6 +54,7 @@ class HouseSettingPersistenceTest {
 
     @Autowired HouseSettingService settings;
     @Autowired ReceivableGenerationService generation;
+    @Autowired ReceivableCalculationService calculation;
     @Autowired HouseArchiveSource archive;
     @Autowired ReactiveRepository<StandardEntity, String> standards;
     @Autowired ReactiveRepository<ProjectSubjectEntity, String> subjects;
@@ -236,6 +237,42 @@ class HouseSettingPersistenceTest {
                             return Mono.just(query);
                         });
         return auth().put(AssetsHolder.class, holder);
+    }
+
+    @Test
+    void prepayQuoteMatchesPersistedBillAndIgnoresLaterLiveStandardChanges() {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", "2024-02-29"), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var bill =
+                bills.createQuery()
+                        .where("settingId", saved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
+        var setting = rows.findById(saved.setting().getId()).block(WAIT);
+        standards
+                .createUpdate()
+                .set("formulaExpression", "9999")
+                .where("id", standardId)
+                .execute()
+                .block(WAIT);
+        var pricing = new PrepayPeriodPricing(new NaturalBillingPeriodService(), calculation);
+        var quote =
+                pricing.price(
+                        setting,
+                        new org.jetlinks.pro.property.finance.activity.PrepayQuoteRules.Window(
+                                LocalDate.of(2024, 2, 10), LocalDate.of(2024, 2, 29)));
+        assertEquals(new BigDecimal("85.04"), quote.amount());
+        assertEquals(bill.getContractReceivableAmount(), quote.amount());
+        assertEquals(bill.getBillKey(), quote.draft().getBillKey());
+        assertEquals(bill.getSnapshotJson(), quote.draft().getSnapshotJson());
+        assertNull(quote.draft().getId());
+        assertNull(quote.draft().getCreateTime());
+        assertEquals(1, bills.createQuery().where("projectId", project).count().block(WAIT));
+        var unchanged = bills.findById(bill.getId()).block(WAIT);
+        assertEquals(bill.getAccruedReceivableAmount(), unchanged.getAccruedReceivableAmount());
+        assertEquals(bill.getVersion(), unchanged.getVersion());
     }
 
     @Test

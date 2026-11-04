@@ -15,13 +15,11 @@ import org.jetlinks.pro.property.finance.calculation.*;
 import org.jetlinks.pro.property.finance.entity.*;
 import org.jetlinks.pro.property.finance.setting.BillingTaskKind;
 import org.jetlinks.pro.property.finance.setting.SettingRules;
-import org.springframework.beans.BeanWrapperImpl;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import reactor.core.publisher.*;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.*;
 
@@ -180,45 +178,9 @@ public class ReceivableGenerationService {
             BillingPeriod period,
             StandardEntity standard,
             Authentication auth) {
-        var row = new ReceivableEntity();
+        var row = ReceivableDrafts.create(setting, period, standard);
         row.setId(UUID.randomUUID().toString());
-        row.setBillKey(setting.getId() + ":" + period.getStart() + ":" + period.getEnd());
         init(row, auth);
-        row.setProjectId(setting.getProjectId());
-        row.setSpaceId(setting.getSpaceId());
-        row.setFullName(setting.getFullName());
-        row.setSubjectId(setting.getSubjectId());
-        row.setSubjectName(setting.getSubjectName());
-        row.setStandardId(setting.getStandardId());
-        row.setStandardName(setting.getStandardName());
-        row.setSettingId(setting.getId());
-        row.setConfigVersion(setting.getConfigVersion());
-        row.setCustomerId(setting.getCustomerId());
-        row.setCustomerRelationshipId(setting.getCustomerRelationshipId());
-        row.setCustomerName(setting.getCustomerName());
-        row.setPeriodStart(period.getStart().toString());
-        row.setPeriodEnd(period.getEnd().toString());
-        row.setCalcStartDate(
-                period.coveredStart(LocalDate.parse(setting.getEffectiveStartDate())).toString());
-        row.setCalcEndDate(
-                period.coveredEnd(SettingRules.date(setting.getEffectiveEndDate(), false))
-                        .toString());
-        row.setDueDate(row.getCalcEndDate());
-        row.setPeriodStatus("OPEN");
-        row.setSnapshotJson(setting.getSnapshotJson());
-        row.setMoneyScale(standard.getChargeRoundType());
-        row.setFrozen(false);
-        row.setPaymentLocked(false);
-        row.setBankCollectionLocked(false);
-        row.setLateFeeLocked(false);
-        row.setFinancialClosed(false);
-        row.setDiscountLocked(false);
-        row.setChargeLocked(false);
-        row.setSplit(false);
-        var wrapper = new BeanWrapperImpl(row);
-        for (var field : wrapper.getPropertyDescriptors())
-            if (field.getPropertyType() == BigDecimal.class)
-                wrapper.setPropertyValue(field.getName(), BigDecimal.ZERO);
         return row;
     }
 
