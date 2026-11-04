@@ -482,7 +482,7 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(
                                 new org.jetlinks.pro.property.finance.web.InvoiceDocumentController(
-                                        preparation, issue, reverse, null, null, props),
+                                        preparation, issue, reverse, null, null, null, props),
                                 new org.jetlinks.pro.property.finance.web.ReceiptDocumentController(
                                         preparation, issue, reverse, null, null, props))
                         .controllerAdvice(new TaxItemPersistenceTest.HttpErrors())

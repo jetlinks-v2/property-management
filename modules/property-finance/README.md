@@ -182,3 +182,13 @@ property:
 `POST /invoices/sources/_query` 与 `/receipts/sources/_query` 使用对应 `create` 权限，输入 `sourceType`（`RECEIVABLE` 或 `TEMP_PAYMENT`）、可选 `companyId`、`customerId`、`spaceIds`、`keywords` 和分页参数。分页默认12、上限200，不接受来源别名或任意查询条件；仅返回当前项目全部相关空间均有保存权限的来源。临时款按支付主单分页，混合支付方式只出现一次。公司筛选使用 PostgreSQL JSONB 表达式匹配历史收费标准快照，不以当前标准替换历史销方。
 
 候选返回冻结房屋、客户、科目、公司、税率以及字符串金额 `allowedAmount`、`paidAmount`、`availableAmount`。额度耗尽或发票已超时效的行保留显示，但 `selectable=false`，`unavailableCode` 明确区分额度不足与超期；收据不套用发票时效。损坏快照等异常明确拒绝本次查询，不能静默跳过。查询不占用额度、不写票据，提交时仍需预览和正式确认重新校验。历史、日志、候选均强制分页且不允许查询加锁。
+
+### 模拟红冲重开
+
+`POST /property/finance/projects/{projectId}/invoices/{id}/reopen/_preview` 和 `/_confirm` 使用独立 `property-finance-invoices:reopen` 动作。预览提交原票 `version`、购方 `buyer`、`invoiceType`、`remark` 和必填 `reason`；确认提交 `requestId`、预览 `token` 和原 `input`。来源、金额、税目及差额凭证由后端继承原票，客户端不能指定另一批账单或覆盖税率。专票仍必须提供购方税号。
+
+已模拟开具的蓝票确认后同事务红冲并开具新蓝票；已红冲且尚未重开的蓝票可继续重开，不重复产生红票。预览只将原票实际占用可释放金额纳入可用额度，不写票据或额度。确认在公司及来源锁下复算指纹，旧额度释放、新占用、蓝红票、链关联和审计一起提交；任何失败全部回滚。
+
+`rootDocumentId`、`previousDocumentId`、`reopenDocumentId` 和 `reopenCount` 分别记录根蓝票、前票、后继和累计重开次数，同一原票只允许一个后继。次数使用当前项目开票规则：0禁止重开、空值不限；普通红冲不受此次数限制。重开沿旧规则允许超过首次开票时效后纠错，不放宽首次开票的时效。原票及凭证快照永久保留，历史详情只读。
+
+同请求重试先恢复已成功结果，再校验当前项目和全部冻结空间权限；不因自己的额度占用、已耗次数、原票版本变化或跨日重试再次红冲。相同请求号换内容返回409。此能力只模拟税务动作，不接诺诺、工作流、APP或收银台开票。

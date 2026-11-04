@@ -21,7 +21,11 @@ import javax.persistence.*;
         name = "pm_fin_document",
         indexes = {
             @Index(name = "idx_pm_fin_doc_project", columnList = "projectId,documentType,issuedAt"),
-            @Index(name = "uk_pm_fin_doc_number", columnList = "documentNumber", unique = true)
+            @Index(name = "uk_pm_fin_doc_number", columnList = "documentNumber", unique = true),
+            @Index(
+                    name = "uk_pm_fin_doc_previous",
+                    columnList = "previousDocumentId",
+                    unique = true)
         })
 public class DocumentEntity extends FinanceEntity {
     @JsonIgnore
@@ -51,6 +55,19 @@ public class DocumentEntity extends FinanceEntity {
 
     @Column(length = 64)
     private String reverseDocumentId;
+
+    /** 蓝票重开链与红票反向关联分别保存，避免把新蓝票误当成红票。 */
+    @Column(length = 64, nullable = false)
+    private String rootDocumentId;
+
+    @Column(length = 64)
+    private String previousDocumentId;
+
+    @Column(length = 64)
+    private String reopenDocumentId;
+
+    @Column(nullable = false)
+    private Integer reopenCount;
 
     @Column(length = 64, nullable = false)
     private String companyId;

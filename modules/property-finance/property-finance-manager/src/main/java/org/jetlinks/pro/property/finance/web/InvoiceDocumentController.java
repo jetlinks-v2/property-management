@@ -25,6 +25,7 @@ public class InvoiceDocumentController {
     private final DocumentReverseService reverse;
     private final DocumentRecordService records;
     private final DocumentCandidateService candidates;
+    private final DocumentReopenService reopen;
     private final BillingJobProperties properties;
 
     @PostMapping("/_query")
@@ -91,5 +92,25 @@ public class InvoiceDocumentController {
                 id,
                 input,
                 LocalDateTime.now(ZoneId.of(properties.getZone())));
+    }
+
+    @PostMapping("/{id}/reopen/_preview")
+    @ResourceAction(id = "reopen", name = "模拟红冲重开")
+    public Mono<DocumentPreparationService.Preview> reopenPreview(
+            @PathVariable String projectId,
+            @PathVariable String id,
+            @RequestBody DocumentReopenService.Input input) {
+        return reopen.preview(
+                projectId, id, input, LocalDateTime.now(ZoneId.of(properties.getZone())));
+    }
+
+    @PostMapping("/{id}/reopen/_confirm")
+    @ResourceAction(id = "reopen", name = "模拟红冲重开")
+    public Mono<DocumentStore.Detail> reopenConfirm(
+            @PathVariable String projectId,
+            @PathVariable String id,
+            @RequestBody DocumentReopenService.Submission input) {
+        return reopen.confirm(
+                projectId, id, input, LocalDateTime.now(ZoneId.of(properties.getZone())));
     }
 }

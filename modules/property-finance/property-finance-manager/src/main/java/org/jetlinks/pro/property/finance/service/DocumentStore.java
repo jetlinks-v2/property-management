@@ -147,6 +147,18 @@ public class DocumentStore {
             DocumentPreparationService.Prepared prepared,
             String now,
             Authentication auth) {
+        return insertBlue(id, tenant, project, fingerprint, prepared, now, auth, null);
+    }
+
+    Mono<Detail> insertBlue(
+            String id,
+            String tenant,
+            String project,
+            String fingerprint,
+            DocumentPreparationService.Prepared prepared,
+            String now,
+            Authentication auth,
+            DocumentEntity previous) {
         var view = prepared.view();
         var row = new DocumentEntity();
         row.setId(id);
@@ -155,6 +167,9 @@ public class DocumentStore {
         row.setProjectId(project);
         row.setCreatorId(auth.getUser().getId());
         row.setDocumentType(view.documentType());
+        row.setRootDocumentId(previous == null ? id : previous.getRootDocumentId());
+        row.setPreviousDocumentId(previous == null ? null : previous.getId());
+        row.setReopenCount(previous == null ? 0 : previous.getReopenCount() + 1);
         row.setChannel("INVOICE".equals(view.documentType()) ? "SIMULATED" : "INTERNAL");
         row.setStatus("INVOICE".equals(view.documentType()) ? "SIMULATED_ISSUED" : "ISSUED");
         // 模拟编号永不伪装为税务发票号码；正式收据编号池在独立编号功能中接入。
@@ -218,6 +233,9 @@ public class DocumentStore {
         red.setCreatorId(auth.getUser().getId());
         red.setOriginalDocumentId(blue.getId());
         red.setReverseDocumentId(null);
+        // 红票只反向原蓝票，不占用蓝票链唯一的前驱键，也不能携带新蓝票后继。
+        red.setPreviousDocumentId(null);
+        red.setReopenDocumentId(null);
         red.setStatus("SIMULATED_RED");
         red.setDocumentNumber("SIM-RED-" + id);
         red.setIssuedAt(now);

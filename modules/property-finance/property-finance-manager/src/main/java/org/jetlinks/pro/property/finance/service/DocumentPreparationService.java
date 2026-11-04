@@ -66,6 +66,49 @@ public class DocumentPreparationService {
             List<DocumentSourceService.Source> rows,
             DocumentRuleService.View rule,
             LocalDateTime now) {
+        return build(input, rows, rule, now, Map.of(), false);
+    }
+
+    /** 重开只将原票真实journal可释放的额度加回；预览不实际释放，不放宽普通开票时效。 */
+    Mono<Prepared> prepareReopen(
+            String project,
+            DocumentIssueInput input,
+            LocalDateTime now,
+            boolean lock,
+            Map<DocumentRules.CanonicalSource, BigDecimal> credits) {
+        return Mono.defer(
+                () -> {
+                    var normalized = inputRules.normalize(input);
+                    var refs =
+                            normalized.items().stream()
+                                    .map(
+                                            item ->
+                                                    new DocumentSourceService.Reference(
+                                                            item.sourceType(), item.sourceId()))
+                                    .toList();
+                    return sources.load(project, refs, lock)
+                            .flatMap(
+                                    rows ->
+                                            settings.effective(project, lock)
+                                                    .map(
+                                                            rule ->
+                                                                    build(
+                                                                            normalized,
+                                                                            rows,
+                                                                            rule,
+                                                                            now,
+                                                                            credits,
+                                                                            true)));
+                });
+    }
+
+    private Prepared build(
+            DocumentIssueInput input,
+            List<DocumentSourceService.Source> rows,
+            DocumentRuleService.View rule,
+            LocalDateTime now,
+            Map<DocumentRules.CanonicalSource, BigDecimal> credits,
+            boolean reopen) {
         var first = rows.get(0);
         var lines = new ArrayList<Line>();
         var markers = new ArrayList<Object>();
@@ -78,9 +121,13 @@ public class DocumentPreparationService {
             var item = input.items().get(index);
             assertCompatible(input, first, source);
             var gross = rules.amount(item.amount(), false);
-            if (gross.compareTo(source.availableAmount()) > 0)
-                throw error("document_quota_insufficient", 409);
-            if ("INVOICE".equals(input.documentType())
+            var credit = credits.getOrDefault(source.canonical(), BigDecimal.ZERO);
+            if (credit.signum() < 0 || credit.compareTo(source.occupiedAmount()) > 0)
+                throw error("document_occupation_conflict", 409);
+            var available = source.availableAmount().add(credit);
+            if (gross.compareTo(available) > 0) throw error("document_quota_insufficient", 409);
+            if (!reopen
+                    && "INVOICE".equals(input.documentType())
                     && !rules.withinTime(
                             source.paidAt(), now, rule.timeLimitType(), rule.limitDays()))
                 throw error("document_expired", 409);
@@ -90,7 +137,7 @@ public class DocumentPreparationService {
                             source.tax().taxRate(),
                             item.collectionMethod(),
                             item.differenceAmount());
-            lines.add(line(source, item, calculated));
+            lines.add(line(source, item, calculated, available));
             markers.add(marker(source));
             amount = amount.add(gross);
             tax = tax.add(calculated.taxAmount());
@@ -107,7 +154,13 @@ public class DocumentPreparationService {
         // 来源版本、可用额度、冻结快照、规则及业务日全部进入指纹；不信任客户端传回的税额。
         var token =
                 PaymentRules.digest(
-                        encode(List.of(input, rule, now.toLocalDate().toString(), markers)));
+                        encode(
+                                List.of(
+                                        input,
+                                        rule,
+                                        now.toLocalDate().toString(),
+                                        markers,
+                                        reopen)));
         var view =
                 new Preview(
                         token,
@@ -144,7 +197,8 @@ public class DocumentPreparationService {
     private static Line line(
             DocumentSourceService.Source source,
             DocumentIssueInput.Item item,
-            DocumentRules.TaxAmounts tax) {
+            DocumentRules.TaxAmounts tax,
+            BigDecimal available) {
         return new Line(
                 source.canonical().type(),
                 source.canonical().id(),
@@ -160,7 +214,7 @@ public class DocumentPreparationService {
                 source.endDate(),
                 source.allowedAmount().toPlainString(),
                 source.paidAmount().toPlainString(),
-                source.availableAmount().toPlainString(),
+                available.toPlainString(),
                 item.amount(),
                 source.tax().taxItemId(),
                 source.tax().goodsName(),
