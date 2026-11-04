@@ -1,5 +1,8 @@
 package org.jetlinks.pro.property.finance.carry;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+
 import lombok.Getter;
 import lombok.Setter;
 
@@ -17,5 +20,7 @@ public class CarryForwardPlanInput {
     private String frequency, executeDay, executeAt, zone;
     private Boolean enabled = true, includeLateFee = false;
     private String remissionMode = "NONE";
+
+    @JsonSerialize(using = ToStringSerializer.class)
     private BigDecimal remissionValue;
 }

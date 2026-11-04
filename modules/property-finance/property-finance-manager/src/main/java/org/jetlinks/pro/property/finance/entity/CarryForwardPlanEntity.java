@@ -1,5 +1,7 @@
 package org.jetlinks.pro.property.finance.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import lombok.Getter;
 import lombok.Setter;
 
@@ -26,5 +28,11 @@ public class CarryForwardPlanEntity extends FinanceEntity {
     private Boolean enabled;
 
     @Column(length = 16000, nullable = false)
+    @JsonIgnore
     private String configJson;
+
+    /** 后台恢复保存计划所属租户；空串明确表示平台域，不能借用最近一次请求的租户。 */
+    @Column(length = 64)
+    @JsonIgnore
+    private String tenantId;
 }

@@ -31,6 +31,7 @@ public class ProjectSubjectService {
     private final ReactiveRepository<SubjectEntity, String> subjectRepository;
     private final ReactiveRepository<ProjectSubjectEntity, String> relations;
     private final ReactiveRepository<StandardEntity, String> standards;
+    private final ReactiveRepository<CarryForwardSubjectEntity, String> carrySubjects;
 
     public Mono<PagerResult<Row>> query(
             String projectId, QueryParamEntity input, String categoryId) {
@@ -226,7 +227,7 @@ public class ProjectSubjectService {
                                                         return Mono.error(
                                                                 error("version_conflict", 409));
                                                     // 标准保存方同样先锁科目和稳定项目关系，引用检查失败直接传播。
-                                                    return standards
+                                                    return carrySubjects
                                                             .createQuery()
                                                             .where("projectId", projectId)
                                                             .and(
@@ -242,6 +243,29 @@ public class ProjectSubjectService {
                                                                                                     "project_subject_referenced",
                                                                                                     409))
                                                                                     : Mono.empty())
+                                                            .then(
+                                                                    standards
+                                                                            .createQuery()
+                                                                            .where(
+                                                                                    "projectId",
+                                                                                    projectId)
+                                                                            .and(
+                                                                                    "subjectId",
+                                                                                    selected
+                                                                                            .getSubjectId())
+                                                                            .and("deleted", false)
+                                                                            .count()
+                                                                            .flatMap(
+                                                                                    count ->
+                                                                                            count
+                                                                                                            > 0
+                                                                                                    ? Mono
+                                                                                                            .error(
+                                                                                                                    error(
+                                                                                                                            "project_subject_referenced",
+                                                                                                                            409))
+                                                                                                    : Mono
+                                                                                                            .empty()))
                                                             .then(
                                                                     audit(
                                                                                     relations
