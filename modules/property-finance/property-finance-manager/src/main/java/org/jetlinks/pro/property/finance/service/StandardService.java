@@ -33,6 +33,9 @@ import java.util.*;
 @RequiredArgsConstructor
 public class StandardService {
     private final FinanceScope scope;
+    private final ReactiveRepository<
+                    org.jetlinks.pro.property.finance.entity.FundAccountEntity, String>
+            fundAccounts;
     private final TaxItemService taxes;
     private final SubjectService subjects;
     private final SubjectCategoryService categories;
@@ -369,7 +372,7 @@ public class StandardService {
                                                     if (!Objects.equals(old.getVersion(), version))
                                                         return Mono.error(
                                                                 error("version_conflict", 409));
-                                                    return houseSettings
+                                                    return fundAccounts
                                                             .createQuery()
                                                             .where("standardId", id)
                                                             .and("deleted", false)
@@ -383,6 +386,23 @@ public class StandardService {
                                                                                                     "standard_referenced",
                                                                                                     409))
                                                                                     : Mono.empty())
+                                                            .then(
+                                                                    houseSettings
+                                                                            .createQuery()
+                                                                            .where("standardId", id)
+                                                                            .and("deleted", false)
+                                                                            .fetchOne()
+                                                                            .hasElement()
+                                                                            .flatMap(
+                                                                                    used ->
+                                                                                            used
+                                                                                                    ? Mono
+                                                                                                            .error(
+                                                                                                                    error(
+                                                                                                                            "standard_referenced",
+                                                                                                                            409))
+                                                                                                    : Mono
+                                                                                                            .empty()))
                                                             .then(
                                                                     audit(
                                                                                     standards

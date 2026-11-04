@@ -30,6 +30,17 @@ public class PaymentRules {
 
     public Result prepare(List<ReceivableEntity> originals, CashierInput input, LocalDate date) {
         validate(input, date);
+        return calculate(originals, input, date);
+    }
+
+    /** 内部余额结转入口，人工收款接口仍只接受MANUAL_METHODS。 */
+    public Result prepareBalance(
+            List<ReceivableEntity> originals, CashierInput input, LocalDate date) {
+        validate(input, date, Set.of("ADVANCE", "DEPOSIT"));
+        return calculate(originals, input, date);
+    }
+
+    private Result calculate(List<ReceivableEntity> originals, CashierInput input, LocalDate date) {
         var indexed = new HashMap<String, ReceivableEntity>();
         originals.forEach(row -> indexed.put(row.getId(), row));
         var rows = new ArrayList<ReceivableEntity>();
@@ -79,6 +90,10 @@ public class PaymentRules {
     }
 
     public static void validate(CashierInput input, LocalDate date) {
+        validate(input, date, MANUAL_METHODS);
+    }
+
+    private static void validate(CashierInput input, LocalDate date, Set<String> methods) {
         if (input == null
                 || date == null
                 || input.getItems() == null
@@ -116,7 +131,7 @@ public class PaymentRules {
         var tenders = new HashSet<String>();
         for (var tender : input.getTenders()) {
             if (tender == null
-                    || !MANUAL_METHODS.contains(Objects.toString(tender.method(), ""))
+                    || !methods.contains(Objects.toString(tender.method(), ""))
                     || !"1".equals(tender.method()) && blank(tender.recordedId())
                     || "1".equals(tender.method()) && !blank(tender.recordedId())
                     || tooLong(tender.recordedId(), 64)

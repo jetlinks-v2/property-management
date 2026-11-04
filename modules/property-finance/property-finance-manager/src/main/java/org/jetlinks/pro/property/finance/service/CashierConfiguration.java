@@ -25,6 +25,25 @@ public class CashierConfiguration {
     private final ReactiveRepository<RecordedInfoEntity, String> records;
     private final ReactiveRepository<FinanceBankEntity, String> banks;
 
+    Mono<FinanceCompanyEntity> balanceCompany(String project, String companyId, boolean lock) {
+        return companies
+                .company(companyId, lock)
+                .flatMap(
+                        company ->
+                                relations
+                                        .createQuery()
+                                        .where("projectId", project)
+                                        .and("companyId", companyId)
+                                        .and("deleted", false)
+                                        .fetchOne()
+                                        .switchIfEmpty(
+                                                Mono.error(
+                                                        error(
+                                                                "cashier_configuration_invalid",
+                                                                409)))
+                                        .thenReturn(company));
+    }
+
     public Mono<Resolved> resolve(String project, CashierInput input, boolean lock) {
         return companies
                 .company(input.getCompanyId(), lock)

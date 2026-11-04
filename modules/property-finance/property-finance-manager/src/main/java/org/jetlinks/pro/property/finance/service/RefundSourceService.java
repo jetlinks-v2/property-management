@@ -92,6 +92,13 @@ public class RefundSourceService {
                                     .and("deleted", false)
                                     .fetchOne()
                                     .switchIfEmpty(Mono.error(error("payment_not_found", 404)))
+                                    .doOnNext(
+                                            line -> {
+                                                if (!org.jetlinks.pro.property.finance.payment
+                                                        .PaymentRules.MANUAL_METHODS
+                                                        .contains(line.getMethod()))
+                                                    throw error("fund_offset_refund_required", 409);
+                                            })
                                     .flatMap(
                                             line ->
                                                     AssetsHolder.assertPermission(
