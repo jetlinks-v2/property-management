@@ -115,6 +115,23 @@ class ArchivePersistenceTest {
     }
 
     @Test
+    void projectOptionsExposeOnlyVisibleAncestryAndExcludeExternalAndDeletedOrganizations() {
+        organization("company", null);
+        organization("hidden", null);
+        organization("external", OrganizationType.external);
+        organization("removed", OrganizationType.project);
+        organizations.createUpdate().set("parentId", "company").where("id", "project").execute().block(WAIT);
+        organizations.createUpdate().set("parentId", "hidden").where("id", "other-project").execute().block(WAIT);
+        organizations.createUpdate().set("deleted", true).where("id", "removed").execute().block(WAIT);
+        var result = spaceService.projects().contextWrite(access(Set.of(), Set.of(
+                "project", "other-project", "company", "external", "removed"))).block(WAIT);
+        assertEquals(List.of("other-project", "project"), result.stream().map(PropertySpaceService.Project::id).toList());
+        assertEquals(List.of("other-project"), result.get(0).organizationPath().stream().map(PropertySpaceService.OrganizationPath::id).toList());
+        assertEquals(List.of("company", "project"), result.get(1).organizationPath().stream().map(PropertySpaceService.OrganizationPath::id).toList());
+        StepVerifier.create(spaceService.projects()).expectError(UnAuthorizedException.class).verify(WAIT);
+    }
+
+    @Test
     void singleRootAndArbitraryDepthLeafCanBecomeHouseButNonLeafCannot() {
         var initial =
                 houseService

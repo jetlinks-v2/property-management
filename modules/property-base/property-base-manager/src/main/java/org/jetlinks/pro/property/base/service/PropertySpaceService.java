@@ -10,6 +10,7 @@ import org.hswebframework.ezorm.rdb.mapping.ReactiveRepository;
 import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.base.entity.*;
+import org.jetlinks.pro.property.base.organization.OrganizationType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,13 +36,38 @@ public class PropertySpaceService {
                                 organizations
                                         .createQuery()
                                         .where("deleted", false)
-                                        .and("organizationType", "project")
                                         .fetch(),
                                 ArchiveScope.ORGANIZATION,
                                 PropertyOrganizationEntity::getId,
                                 CrudAssetPermission.read))
-                .map(o -> new Project(o.getId(), o.getName()))
-                .collectList();
+                .collectList()
+                .map(PropertySpaceService::projectOptions);
+    }
+
+    /** 路径只使用权限过滤后的组织；隐藏的祖先不能通过项目选择器泄漏。 */
+    private static List<Project> projectOptions(List<PropertyOrganizationEntity> visible) {
+        var byId = new HashMap<String, PropertyOrganizationEntity>();
+        visible.forEach(node -> byId.put(node.getId(), node));
+        return visible.stream()
+                .filter(node -> node.getOrganizationType() == OrganizationType.project)
+                .sorted(
+                        Comparator.comparing(
+                                        PropertyOrganizationEntity::getSortIndex,
+                                        Comparator.nullsLast(Long::compareTo))
+                                .thenComparing(PropertyOrganizationEntity::getId))
+                .map(
+                        node -> {
+                            var path = new LinkedList<OrganizationPath>();
+                            var visited = new HashSet<String>();
+                            for (var current = node;
+                                    current != null && visited.add(current.getId());
+                                    current = byId.get(current.getParentId())) {
+                                path.addFirst(
+                                        new OrganizationPath(current.getId(), current.getName()));
+                            }
+                            return new Project(node.getId(), node.getName(), List.copyOf(path));
+                        })
+                .toList();
     }
 
     public Mono<List<SpaceView>> roots() {
@@ -315,7 +341,9 @@ public class PropertySpaceService {
         return result;
     }
 
-    public record Project(String id, String name) {}
+    public record OrganizationPath(String id, String name) {}
+
+    public record Project(String id, String name, List<OrganizationPath> organizationPath) {}
 
     @Getter
     @Setter
