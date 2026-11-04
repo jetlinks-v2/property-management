@@ -19,6 +19,8 @@
         <project.build.jdk>${java.version}</project.build.jdk>
         <jetlinks.pro.version>2.20.0-SNAPSHOT</jetlinks.pro.version>
         <spring.boot.version>3.4.13</spring.boot.version>
+        <!-- 与本轮 Cloud 集成基线一致，避免同名 SNAPSHOT 在验收与发布之间漂移。 -->
+        <hsweb.crud.version>5.0.3-20261103.081301-3</hsweb.crud.version>
     </properties>
 
     <modules>
@@ -36,6 +38,11 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.hswebframework.web</groupId>
+                <artifactId>hsweb-commons-crud</artifactId>
+                <version>${hsweb.crud.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.jetlinks.pro</groupId>
                 <artifactId>jetlinks-parent</artifactId>

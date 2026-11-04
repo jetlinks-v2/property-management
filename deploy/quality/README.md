@@ -27,6 +27,18 @@ mvn -pl :property-repair-service,:property-file-support -am verify
 
 配置必须通过环境变量或被 Git 忽略的本地文件注入。新服务使用独立数据库、服务身份及命名空间。发布时固定源码提交、依赖 JAR 校验和及镜像 digest，避免本机 SNAPSHOT 缓存漂移。
 
+当前集成基线固定 `hsweb-commons-crud` 为 `5.0.3-20261103.081301-3`，SHA-256 为 `9f2452b38651bcbe39e5c7bc0aff94ee7a360918c968783eaa2dc069a8bf8c8d`。升级此依赖须与 Cloud 运行环境一起验证，不替换本机公共 Maven 缓存来固定发布版本。
+
+## 初次指派权限回归
+
+在专用测试应用中准备项目 A、B，以及仅拥有 A 的品质工单范围和核查动作的员工。设置 `QUALITY_API_URL`、`QUALITY_ACCESS_TOKEN`、`QUALITY_TENANT_DOMAIN`、`QUALITY_APPLICATION_ID`，并将 `QUALITY_TEST_DATA_FILE` 指向数据文件：包含 `projectA`、`projectB`、`inspectorId` 和可创建公司任务的 `task` 表单（模板及条线核查人使用真实测试数据）。令牌由进程环境提供，禁止提交。
+
+```sh
+node deploy/quality/tests/assignment-scope.mjs
+```
+
+脚本验证 A 的候选人可选、B 的候选人不可选、伪造 B 指派被拒绝，以及失败请求未落库。它依赖真实 Cloud、基础档案、角色授权和品质服务；不能以单纯的动作权限替代品质工单的数据范围。
+
 ## 升级及回滚
 
 发布前备份 Cloud、基础档案和报修业务数据库，保留镜像、Compose、环境文件和公共文件卷，检查 dump 可由 `pg_restore -l` 读取。仅增量更新品质接入所需配置和服务。
