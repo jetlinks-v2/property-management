@@ -4,9 +4,11 @@
 
 首次部署需在后端建表后执行[默认字典 SQL](sql/init-property-dictionaries.sql)，包含当前 4 类、17 个选项。具体执行方式见[字典初始化章节](系统管理模块前后端开发与复用规范.md#14-部署时初始化默认字典)。
 
+基础服务与报修服务的 JVM 时区应与业务时区一致；中国本地部署可设置容器 `TZ=Asia/Shanghai` 或 `JAVA_OPTS=-Duser.timezone=Asia/Shanghai`。Excel 日期按 JVM 时区解析，仅设置 Jackson 的 `time-zone` 不会改变 Excel 日期含义。
+
 `property-base-manager` 承载本领域 Controller、Service、Entity、Repository、权限及国际化，由独立的 `property-base-service` 装配。从仓库根目录执行 `mvn -pl :property-base-service -am verify`，只构建基础系统及其依赖。
 
-`property-base-core` 只提供公共 DTO、组织类型枚举和组织树查询命令，不依赖 manager，不包含数据库实体或 CRUD。下述命令保留现有公开契约；当前财务、巡更后端不依赖或调用基础系统，均直接接入 SaaS 公共能力。
+`property-base-core` 提供公共 DTO、组织类型枚举、组织树及基础目录查询命令，不依赖 manager，不包含数据库实体或 CRUD。下述命令保留现有公开契约；当前财务、巡更后端不依赖或调用基础系统，均直接接入 SaaS 公共能力。
 
 ## 组织树公开命令
 
@@ -64,6 +66,10 @@ return CommandSupportManagerProviders
 ## 空间与房屋档案
 
 空间结构通过固定命令服务 `spaceService:space` 分页全量读取，最多 20000 个节点；不依赖 SaaS manager，不读取空间类型决定业务层级。`pm_space` 保存来源镜像，`pm_space_binding` 保存根空间与组织的关联，`pm_house` 保存物业房屋扩展。源节点名称和层级变化不覆盖本地面积、字典值或客户资料。
+
+空间类型名称通过共享运行服务的只读命令 `spaceService:space-type` 解析；部署时必须包含查询类及其自动配置注册。空间页或类型页任意失败均拒绝整轮快照。
+
+报修通过 `propertyService:directory` 消费本模块公开的 `QueryPropertyProjectsCommand`、`QueryPropertyUsersCommand` 和 `QueryPropertySpacesCommand`，只返回当前租户及资产权限交集内的项目、用户身份和绑定空间。消费方仅依赖 `property-base-core`；参数通过命令容器传递，项目范围和员工筛选跨 RPC 保持一致。空目录正常返回，缺少身份、权限或服务异常明确拒绝，不触发同步或查询旧报修目录。
 
 真实末端由完整来源树判断：只有一个“1栋”时也可完善为房屋，权限过滤后隐藏子节点不会把父节点变成末端。顶级空间可关联项目或外协单位，一个组织最多关联一个根空间，根空间与组织一对一绑定；项目选择返回已标注为项目且有权访问的组织。已有房屋资料的根不能直接改归属，避免客户历史随绑定静默迁移。
 

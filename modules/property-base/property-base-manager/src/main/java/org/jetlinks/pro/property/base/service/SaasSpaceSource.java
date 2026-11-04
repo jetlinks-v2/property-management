@@ -17,6 +17,7 @@ import java.util.List;
 
 /** 固定 SaaS 空间命令来源，读取完整分页快照，不继承调用者租户、资产筛选或事务。 */
 @Component
+@lombok.extern.slf4j.Slf4j
 public class SaasSpaceSource {
     static final int PAGE_SIZE = 200;
 
@@ -48,6 +49,8 @@ public class SaasSpaceSource {
             List<SaasSpaceInfo> result,
             boolean type) {
         long total = page.getTotal();
+        log.debug("Space source page: type={}, requested={}, returned={}, total={}, rows={}", type,
+            query.getPageIndex(),page.getPageIndex(),total,page.getData()==null?-1:page.getData().size());
         int wanted =
                 (int)
                         Math.min(
@@ -62,7 +65,12 @@ public class SaasSpaceSource {
             return Mono.error(SpaceSnapshot.invalid());
         String previous = result.isEmpty() ? null : result.get(result.size() - 1).getId();
         for (var node : page.getData()) {
-            SpaceSnapshot.validate(node);
+            try { SpaceSnapshot.validate(node); }
+            catch (BusinessException error) {
+                log.warn("Space source rejected node: type={}, idPresent={}, namePresent={}, parentPresent={}, spaceTypePresent={}",
+                    type,node.getId()!=null,node.getName()!=null,node.getParentId()!=null,node.getSpaceTypeId()!=null);
+                throw error;
+            }
             if (previous != null && previous.compareTo(node.getId()) >= 0)
                 throw SpaceSnapshot.invalid();
             result.add(node);

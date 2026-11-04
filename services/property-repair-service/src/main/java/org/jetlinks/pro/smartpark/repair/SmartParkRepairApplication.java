@@ -13,9 +13,9 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.FilterType;
 
 /**
- * 报事报修与物业共享基础数据服务启动入口。
+ * 报事报修独立服务启动入口。
  *
- * 复用平台运行时认证，装配报事领域和多应用共享的物业基础数据表。
+ * 复用平台运行时认证，基础数据通过公共只读命令访问独立基础服务。
  */
 @SpringBootApplication(
     exclude = DataSourceAutoConfiguration.class)

@@ -1,0 +1,12 @@
+[
+  {
+    "path": "/property/**",
+    "authorize": true,
+    "order": -10
+  },
+  {
+    "path": "/v3/api-docs/property-base-service",
+    "authorize": true,
+    "order": -10
+  }
+]

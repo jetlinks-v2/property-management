@@ -1,7 +1,7 @@
 package org.jetlinks.pro.smartpark.repair.service;
 
 import org.hswebframework.web.exception.BusinessException;
-import org.jetlinks.pro.property.service.PropertyPersonService;
+import org.jetlinks.pro.smartpark.repair.service.RepairDirectory;
 import org.jetlinks.pro.smartpark.repair.entity.RepairConfigurationEntity;
 import org.jetlinks.pro.smartpark.repair.entity.RepairOrderEntity;
 import org.junit.jupiter.api.Test;
@@ -19,7 +19,7 @@ class RepairFlowConfigurationTest {
             () -> RepairFlowConfiguration.requireEnabled(Map.of("flowEnabled", false))).getMessage());
     }
     @Test void disabledFlowDoesNotCreateCandidatePoolOrTouchEmployeeDirectory() {
-        var people=mock(PropertyPersonService.class);var orders=mock(RepairOrderService.class);
+        var people=mock(RepairDirectory.class);var orders=mock(RepairOrderService.class);
         var service=new RepairCandidateService(people,mock(RepairAssigneeService.class),orders);
         var order=new RepairOrderEntity();order.setStatus(0);
         var category=new RepairConfigurationEntity();category.setEnabled(true);

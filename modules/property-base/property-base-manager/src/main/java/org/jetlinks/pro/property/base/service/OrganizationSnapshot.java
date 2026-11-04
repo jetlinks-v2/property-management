@@ -43,7 +43,7 @@ final class OrganizationSnapshot {
                 || source.getName().length() > 64
                 || source.getCode() != null && source.getCode().length() > 128) throw invalid();
         String parent =
-                source.getParentId() == null || source.getParentId().isBlank()
+                source.getParentId() == null || source.getParentId().isBlank() || "-1".equals(source.getParentId())
                         ? null
                         : source.getParentId();
         if (enclosingParent != null && !enclosingParent.equals(parent)) throw invalid();

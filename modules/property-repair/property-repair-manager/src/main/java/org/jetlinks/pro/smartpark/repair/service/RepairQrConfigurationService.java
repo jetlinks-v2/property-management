@@ -5,8 +5,7 @@ import org.hswebframework.web.exception.NotFoundException;
 import org.jetlinks.pro.assets.AssetType;
 import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
-import org.jetlinks.pro.property.entity.PropertySpaceEntity;
-import org.jetlinks.pro.property.service.PropertySpaceService;
+import org.jetlinks.pro.property.base.space.PropertySpaceInfo;
 import org.jetlinks.pro.smartpark.repair.asset.RepairAssetType;
 import org.jetlinks.pro.smartpark.repair.entity.RepairConfigurationEntity;
 import org.springframework.stereotype.Service;
@@ -21,7 +20,7 @@ import java.util.Objects;
 @Service @AllArgsConstructor
 public class RepairQrConfigurationService {
     private final RepairConfigurationService configurations;
-    private final PropertySpaceService spaces;
+    private final RepairDirectory spaces;
 
     public Mono<Void> validate(RepairConfigurationEntity input, RepairContext context) {
         if (!"qr".equals(input.getKind())) return Mono.empty();
@@ -37,7 +36,8 @@ public class RepairQrConfigurationService {
             .thenMany(Flux.fromIterable(RepairQrRules.ids(data,"categoryIds"))
                 .concatMap(id -> reference(id,"category",input,context))).then()
             .then(AssetsHolder.assertPermission(AssetType.of("space"),referencedSpaces,CrudAssetPermission.read))
-            .thenMany(Flux.fromIterable(referencedSpaces).concatMap(id -> spaceUnderRoot(id,roots,input,context,0)))
+            .thenMany(spaces.spaces(input.getBusinessProjectId()).collectMap(PropertySpaceInfo::getId)
+                .flatMapMany(tree -> Flux.fromIterable(referencedSpaces).concatMap(id -> spaceUnderRoot(id,roots,tree,0))))
             .then();
     }
 
@@ -50,16 +50,13 @@ public class RepairQrConfigurationService {
                 && Objects.equals(row.getBusinessProjectId(),input.getBusinessProjectId()),"configuration_project_mismatch")).then();
     }
 
-    private Mono<Void> spaceUnderRoot(String id,List<String> roots,RepairConfigurationEntity input,RepairContext ctx,int depth) {
+    private Mono<Void> spaceUnderRoot(String id,List<String> roots,Map<String,PropertySpaceInfo> tree,int depth) {
         RepairFlowRules.require(depth < 64,"qr_space_not_allowed");
-        return spaces.findById(id).switchIfEmpty(Mono.error(new NotFoundException())).flatMap(space -> {
-            RepairFlowRules.require(Boolean.TRUE.equals(space.getSourceEnabled())
-                && Objects.equals(space.getTenantId(),ctx.tenantId())
-                && Objects.equals(space.getBusinessProjectId(),input.getBusinessProjectId()),"qr_space_not_allowed");
-            if (roots.contains(id)) return Mono.empty();
-            RepairFlowRules.require(space.getParentId()!=null,"qr_space_not_allowed");
-            return spaceUnderRoot(space.getParentId(),roots,input,ctx,depth+1);
-        });
+        PropertySpaceInfo space=tree.get(id);
+        RepairFlowRules.require(space!=null,"qr_space_not_allowed");
+        if(roots.contains(id))return Mono.empty();
+        RepairFlowRules.require(space.getParentId()!=null,"qr_space_not_allowed");
+        return spaceUnderRoot(space.getParentId(),roots,tree,depth+1);
     }
 
     static boolean references(RepairConfigurationEntity row,String id) {

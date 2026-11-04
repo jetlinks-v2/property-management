@@ -7,8 +7,8 @@ import org.jetlinks.core.command.CommandSupport;
 import org.jetlinks.pro.assets.AssetType;
 import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.command.CommandServices;
-import org.jetlinks.pro.property.entity.PropertyOrganizationEntity;
-import org.jetlinks.pro.property.service.PropertyExtensionService;
+import org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo;
+import org.jetlinks.pro.smartpark.repair.service.RepairDirectory;
 import org.jetlinks.pro.property.service.TenantAssetScope;
 import org.jetlinks.pro.smartpark.repair.api.CreateRepairRequest;
 import org.jetlinks.pro.smartpark.repair.entity.RepairConfigurationEntity;
@@ -26,9 +26,9 @@ import static org.mockito.Mockito.*;
 
 class RepairDeviceBoundaryTest {
  @Test void routePayloadPermissionsAndProjectionFollowCloudContract(){
-  var contexts=mock(RepairContextProvider.class);var projects=mock(PropertyExtensionService.class);var tenant=mock(TenantAssetScope.class);
+  var contexts=mock(RepairContextProvider.class);var projects=mock(RepairDirectory.class);var tenant=mock(TenantAssetScope.class);
   when(contexts.current()).thenReturn(Mono.just(new RepairContext("tenant","application","employee","员工")));
-  when(projects.businessProject("project-a")).thenReturn(Mono.just(new PropertyOrganizationEntity()));
+  when(projects.project("project-a")).thenReturn(Mono.just(new PropertyOrganizationInfo()));
   when(tenant.injectQuery(any(),argThat((AssetType type)->type!=null&&"device".equals(type.getId())),eq("id"))).thenAnswer(call->Mono.just(call.getArgument(0)));
   var support=mock(CommandSupport.class);var captured=new AtomicReference<QueryPagerCommand<?>>();
   DeviceInfo device=new DeviceInfo();device.setId("sensor-a");device.setName("水浸传感器");device.setConfiguration(Map.of("password","must-not-be-returned"));
@@ -48,9 +48,9 @@ class RepairDeviceBoundaryTest {
   }
  }
  @Test void remoteFailurePropagatesWithoutUnscopedFallback(){
-  var contexts=mock(RepairContextProvider.class);var projects=mock(PropertyExtensionService.class);var tenant=mock(TenantAssetScope.class);
+  var contexts=mock(RepairContextProvider.class);var projects=mock(RepairDirectory.class);var tenant=mock(TenantAssetScope.class);
   when(contexts.current()).thenReturn(Mono.just(new RepairContext("tenant","app","user","员工")));
-  when(projects.businessProject("a")).thenReturn(Mono.just(new PropertyOrganizationEntity()));
+  when(projects.project("a")).thenReturn(Mono.just(new PropertyOrganizationInfo()));
   when(tenant.injectQuery(any(),any(),anyString())).thenAnswer(call->Mono.just(call.getArgument(0)));
   try(var commands=mockStatic(CommandServices.class);var assets=mockStatic(AssetsHolder.class)){
    commands.when(()->CommandServices.getReactive("deviceService","device")).thenReturn(Mono.error(new IllegalStateException("device service unavailable")));

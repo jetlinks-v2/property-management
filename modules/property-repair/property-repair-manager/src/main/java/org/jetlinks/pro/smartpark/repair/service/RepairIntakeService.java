@@ -1,13 +1,6 @@
 package org.jetlinks.pro.smartpark.repair.service;
 
 import lombok.AllArgsConstructor;
-import org.hswebframework.web.api.crud.entity.QueryParamEntity;
-import org.hswebframework.web.bean.FastBeanCopier;
-import org.jetlinks.pro.command.CommandServices;
-import org.jetlinks.sdk.server.SdkServices;
-import org.jetlinks.sdk.server.auth.AuthCommandSupportTypes;
-import org.jetlinks.sdk.server.auth.UserDetail;
-import org.jetlinks.sdk.server.auth.cmd.QueryUserDetailPageCommand;
 import org.jetlinks.pro.smartpark.repair.api.CreateRepairRequest;
 import org.jetlinks.pro.smartpark.repair.entity.RepairConfigurationEntity;
 import org.jetlinks.pro.smartpark.repair.entity.RepairOrderEntity;
@@ -23,6 +16,7 @@ import java.util.Objects;
 public class RepairIntakeService {
     private final RepairConfigurationManager configurations;
     private final RepairDeviceService devices;
+    private final RepairDirectory directory;
 
     public Mono<RepairOrderEntity> populate(RepairOrderEntity order, CreateRepairRequest request,
                                             RepairConfigurationEntity category, RepairContext context,RepairFormOptions options) {
@@ -42,17 +36,10 @@ public class RepairIntakeService {
             });
     }
 
-    /** 只查询当前认证人的资料；未配置手机号时保留空值，不借用报事人电话或回填历史记录。 */
+    /** 从同一基础目录读取当前登记人电话，不额外要求 Cloud 用户管理菜单权限。 */
     Mono<Void> registrationPhone(RepairOrderEntity order,RepairContext context) {
-        QueryUserDetailPageCommand command=new QueryUserDetailPageCommand();
-        command.withQueryParam(QueryParamEntity.newQuery().where("id",context.userId())
-            .and("tenantId",context.tenantId()).doPaging(0,1).getParam());
-        return CommandServices.getReactive(SdkServices.authService,AuthCommandSupportTypes.user)
-            .flatMap(support -> support.execute(command))
-            // RPC分页的泛型元素可能解码为Map，沿用共享目录adapter的标准投影转换。
-            .flatMapMany(page -> Flux.fromIterable(page.getData())).cast(Object.class)
-            .map(source -> FastBeanCopier.copy(source,UserDetail.class))
-            .filter(user -> context.userId().equals(user.getId())).next()
+        return directory.user(context.userId())
+            .filter(user -> context.userId().equals(user.getId()))
             .doOnNext(user -> order.setRegisterPhone(user.getTelephone()))
             .then();
     }

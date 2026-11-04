@@ -19,7 +19,7 @@ public class RepairConfigurationManager {
  private final RepairOrderService orders;
  private final RepairProcessService processes;
  private final RepairQrConfigurationService qrConfigurations;
- private final org.jetlinks.pro.property.service.PropertyExtensionService projects;
+ private final RepairDirectory projects;
  @Transactional public Mono<RepairConfigurationEntity> save(RepairConfigurationEntity input){
   return contexts.current().flatMap(ctx->{
    input.setApplicationId(ctx.applicationId());
@@ -45,7 +45,7 @@ public class RepairConfigurationManager {
     RepairFlowConfiguration.record(input,old,ctx,"category".equals(input.getKind())?input.getModifyTime():modified);
     return AssetsHolder.assertPermission(RepairAssetType.repairConfiguration,old.getId(),CrudAssetPermission.save);
    });
-   permission=permission.then(projects.businessProject(input.getBusinessProjectId())).then(validateParent(input,ctx)).then(validateDictionary(input,ctx))
+   permission=permission.then(projects.project(input.getBusinessProjectId())).then(validateParent(input,ctx)).then(validateDictionary(input,ctx))
     .then(qrConfigurations.validate(input,ctx));
    return lockConfigurationWrite(input,ctx).then(permission).then(Mono.defer(()->{
     input.setApplicationId(ctx.applicationId());input.setExtension("tenantId",ctx.tenantId());
@@ -69,7 +69,7 @@ public class RepairConfigurationManager {
     var source=rows.get(sourceId);var target=rows.get(targetId);
     RepairFlowRules.require(Objects.equals(source.getModifyTime(),request.getSourceModifyTime()),"configuration_changed");
     RepairFlowConfiguration.move(source,target,request.getConfiguration(),System.currentTimeMillis());
-    return projects.businessProject(source.getBusinessProjectId()).then(
+    return projects.project(source.getBusinessProjectId()).then(
      configurations.createUpdate().set(RepairConfigurationEntity::getConfiguration,source.getConfiguration())
       .setNull(RepairConfigurationEntity::getFlowCreatorName).setNull(RepairConfigurationEntity::getFlowModifyTime)
       .set(RepairConfigurationEntity::getModifyTime,source.getModifyTime()).where("id",sourceId).execute())

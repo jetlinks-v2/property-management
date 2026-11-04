@@ -5,8 +5,7 @@ import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.i18n.LocaleUtils;
 import org.jetlinks.core.trace.MonoTracer;
 import org.jetlinks.pro.notify.command.SendUserNotificationCommand;
-import org.jetlinks.pro.property.entity.PropertyPersonEntity;
-import org.jetlinks.pro.property.service.PropertyPersonService;
+import org.jetlinks.pro.property.base.user.PropertyUserInfo;
 import org.jetlinks.pro.smartpark.repair.entity.RepairNotificationEntity;
 import org.jetlinks.pro.smartpark.repair.entity.RepairOrderEntity;
 import org.jetlinks.pro.smartpark.repair.entity.RepairProcessEntity;
@@ -34,7 +33,7 @@ public class RepairNotificationService {
     private final RepairOrderService orders;
     private final RepairConfigurationService configurations;
     private final RepairReviewService reviews;
-    private final PropertyPersonService people;
+    private final RepairDirectory people;
     private final RepairRoleService roles;
     private final AtomicLong sent=new AtomicLong(),failures=new AtomicLong();
     private volatile long pendingObserved;
@@ -42,7 +41,7 @@ public class RepairNotificationService {
 
     public RepairNotificationService(RepairNotificationStore store,RepairOrderService orders,
         RepairConfigurationService configurations,RepairReviewService reviews,
-        PropertyPersonService people,RepairRoleService roles){
+        RepairDirectory people,RepairRoleService roles){
         this.store=store;this.orders=orders;this.configurations=configurations;
         this.reviews=reviews;this.people=people;this.roles=roles;
     }
@@ -94,9 +93,7 @@ public class RepairNotificationService {
 
     private Flux<Recipient> recipients(Target target,RepairOrderEntity order,RepairContext context){
         Flux<String> users=target.userId()!=null?Flux.just(target.userId()):
-            people.createQuery().where(PropertyPersonEntity::getTenantId,context.tenantId())
-                .and(PropertyPersonEntity::getEmployee,true).and(PropertyPersonEntity::getSourceStatus,1)
-                .fetch().map(PropertyPersonEntity::getId);
+            people.employeesFor(order).map(PropertyUserInfo::getId);
         return users.filterWhen(user->allowed(user,target.roleId(),target.action(),order,context),8)
             .map(user->new Recipient(user,target.roleId(),target.action()));
     }

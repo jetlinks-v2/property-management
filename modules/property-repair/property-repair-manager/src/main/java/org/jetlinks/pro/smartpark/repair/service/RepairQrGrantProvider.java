@@ -10,12 +10,11 @@ import org.jetlinks.pro.assets.AssetType;
 import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.assets.scope.AssetScope;
+import org.jetlinks.pro.assets.scope.AssetScopeContext;
 import org.jetlinks.pro.assets.scope.AssetScopeResolverManager;
 import org.jetlinks.pro.authorize.BusinessApplicationDimension;
-import org.jetlinks.pro.property.entity.PropertyOrganizationEntity;
-import org.jetlinks.pro.property.entity.PropertySpaceEntity;
-import org.jetlinks.pro.property.service.PropertyOrganizationService;
-import org.jetlinks.pro.property.service.PropertySpaceService;
+import org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo;
+import org.jetlinks.pro.property.base.space.PropertySpaceInfo;
 import org.jetlinks.pro.property.service.TenantAssetScope;
 import org.jetlinks.pro.smartpark.repair.asset.RepairAssetType;
 import org.jetlinks.pro.smartpark.repair.entity.RepairConfigurationEntity;
@@ -35,8 +34,8 @@ import java.util.stream.Collectors;
 @Service @AllArgsConstructor @Slf4j
 public class RepairQrGrantProvider {
     private final RepairConfigurationService configurations;
-    private final PropertyOrganizationService organizations;
-    private final PropertySpaceService spaces;
+    private final RepairDirectory organizations;
+    private final RepairDirectory spaces;
     private final AssetScopeResolverManager scopeResolver;
     private final TenantAssetScope tenantScope;
 
@@ -52,8 +51,10 @@ public class RepairQrGrantProvider {
                     .flatMap(auth -> scopeResolver.resolve(AssetScope.of(BusinessApplicationDimension.TYPE,qr.getApplicationId()),auth)
                         .doOnError(error->log.warn("QR application activation failed: {}",error.getMessage())))
                     .filter(activation -> {boolean allowed=activation.authentication().hasPermission("repair-configuration","save");if(!allowed)log.warn("QR publisher has no configuration save action");return allowed;})
-                    .flatMap(activation -> AssetsHolder.fromAuth(activation.authentication(),activation.context()))
-                    .flatMap(holder -> load(qr,holder,tenant).doOnError(error->log.warn("QR grant scope rejected",error)))
+                    .flatMap(activation -> AssetsHolder.fromAuth(activation.authentication(),activation.context())
+                        .flatMap(holder -> load(qr,holder,tenant)
+                            .contextWrite(c -> c.put(org.hswebframework.web.authorization.Authentication.class,activation.authentication()).put(AssetsHolder.class,holder))
+                            .contextWrite(AssetScopeContext.replace(activation.context()))))
                     .switchIfEmpty(Mono.error(new AccessDenyException()))
                     // 租户仅来自唯一二维码存储记录；请求头不能扩张或切换这个授权。
                     .contextWrite(TenantHolder.makeCurrent(tenant));
@@ -61,24 +62,18 @@ public class RepairQrGrantProvider {
     }
 
     private Mono<Grant> load(RepairConfigurationEntity qr, AssetsHolder holder, String tenant) {
-        Mono<PropertyOrganizationEntity> project = holder.assertPermission0(RepairAssetType.repairConfiguration,List.of(qr.getId()),CrudAssetPermission.save).checkpoint("qr/configuration-save")
+        Mono<PropertyOrganizationInfo> project = holder.assertPermission0(RepairAssetType.repairConfiguration,List.of(qr.getId()),CrudAssetPermission.save).checkpoint("qr/configuration-save")
             .then(tenantScope.assertOwned(AssetType.of("business_application"),qr.getApplicationId()).checkpoint("qr/tenant-application"))
             .then(tenantScope.assertOwned(AssetType.of("organization"),qr.getBusinessProjectId()).checkpoint("qr/tenant-project"))
             .then(holder.assertPermission0(AssetType.of("organization"),List.of(qr.getBusinessProjectId()),CrudAssetPermission.read).checkpoint("qr/project-read"))
-            .then(organizations.findById(qr.getBusinessProjectId()))
-            .filter(row -> Boolean.TRUE.equals(row.getBusinessProject()) && Boolean.TRUE.equals(row.getSourceEnabled())
-                && tenant.equals(row.getTenantId())).switchIfEmpty(Mono.error(new NotFoundException()));
+            .then(organizations.project(qr.getBusinessProjectId()));
         QueryParamEntity configurationQuery = QueryParamEntity.newQuery().where("applicationId",qr.getApplicationId())
             .and("businessProjectId",qr.getBusinessProjectId()).and("enabled",true)
             .in("kind",List.of("category","label","description","channel")).doPaging(0,20_001).getParam();
         Mono<List<RepairConfigurationEntity>> dictionaries = holder.injectQuery(configurationQuery,"repairConfiguration","id",CrudAssetPermission.read)
             .flatMap(query -> tenantScope.injectQuery(query,RepairAssetType.repairConfiguration,"id"))
             .flatMapMany(query -> configurations.createQuery().setParam(query).fetch()).collectList();
-        QueryParamEntity spaceQuery = QueryParamEntity.newQuery().where("tenantId",tenant)
-            .and("businessProjectId",qr.getBusinessProjectId()).and("sourceEnabled",true).doPaging(0,20_001).getParam();
-        Mono<List<PropertySpaceEntity>> authorizedSpaces = holder.injectQuery(spaceQuery,"space","id",CrudAssetPermission.read)
-            .flatMap(query -> tenantScope.injectQuery(query,AssetType.of("space"),"id"))
-            .flatMapMany(query -> spaces.createQuery().setParam(query).fetch()).collectList();
+        Mono<List<PropertySpaceInfo>> authorizedSpaces = spaces.spaces(qr.getBusinessProjectId()).collectList();
         return project.flatMap(row -> Mono.zip(dictionaries,authorizedSpaces).map(tuple -> {
             RepairFlowRules.require(tuple.getT1().size()<=20_000 && tuple.getT2().size()<=20_000,"qr_scope_too_large");
             return new Grant(qr,row,tuple.getT1(),tuple.getT2());
@@ -88,18 +83,18 @@ public class RepairQrGrantProvider {
     /** 仅在已验证的能力范围内解析选项；所有后续公开操作都必须先重新resolve。 */
     public static final class Grant {
         final RepairConfigurationEntity qr;
-        final PropertyOrganizationEntity project;
+        final PropertyOrganizationInfo project;
         final Map<String,RepairConfigurationEntity> configurations;
-        final Map<String,PropertySpaceEntity> spaces;
+        final Map<String,PropertySpaceInfo> spaces;
         final Map<String,Object> settings;
         final java.util.Set<String> nonLeafSpaces;
-        Grant(RepairConfigurationEntity qr,PropertyOrganizationEntity project,List<RepairConfigurationEntity> configurations,List<PropertySpaceEntity> spaces) {
+        Grant(RepairConfigurationEntity qr,PropertyOrganizationInfo project,List<RepairConfigurationEntity> configurations,List<PropertySpaceInfo> spaces) {
             this.qr=qr;this.project=project;this.settings=qr.getConfiguration();
             this.configurations=configurations.stream().collect(Collectors.toMap(RepairConfigurationEntity::getId,Function.identity()));
-            this.spaces=spaces.stream().collect(Collectors.toMap(PropertySpaceEntity::getId,Function.identity()));
-            this.nonLeafSpaces=spaces.stream().filter(row->spaceAllowed(row.getId())).map(PropertySpaceEntity::getParentId).filter(Objects::nonNull).collect(Collectors.toSet());
+            this.spaces=spaces.stream().collect(Collectors.toMap(PropertySpaceInfo::getId,Function.identity()));
+            this.nonLeafSpaces=spaces.stream().filter(row->spaceAllowed(row.getId())).map(PropertySpaceInfo::getParentId).filter(Objects::nonNull).collect(Collectors.toSet());
         }
-        RepairContext context() { return new RepairContext(project.getTenantId(),qr.getApplicationId(),"anonymous-qr:"+qr.getId(),"二维码匿名报事"); }
+        RepairContext context() { return new RepairContext(Objects.toString(qr.getExtension("tenantId")),qr.getApplicationId(),"anonymous-qr:"+qr.getId(),"二维码匿名报事"); }
         RepairConfigurationEntity channel() { return configuration(Objects.toString(settings.get("channelId")),"channel"); }
         RepairConfigurationEntity configuration(String id,String kind) {
             RepairConfigurationEntity row=configurations.get(id);
@@ -118,7 +113,7 @@ public class RepairQrGrantProvider {
         }
         boolean within(String id,List<String> roots) {
             for(int depth=0;id!=null&&depth<64;depth++) {
-                PropertySpaceEntity row=spaces.get(id);
+                PropertySpaceInfo row=spaces.get(id);
                 if(row==null)return false;
                 if(roots.contains(id))return true;
                 id=row.getParentId();
@@ -135,7 +130,7 @@ public class RepairQrGrantProvider {
             if(within(id,RepairQrRules.ids(settings,"publicAreaRootIds")))return true;
             if(Boolean.FALSE.equals(settings.get("enableRoom")))return RepairQrRules.ids(settings,"spaceRootIds").contains(id)
                 || RepairQrRules.areas(settings).stream().anyMatch(area -> RepairQrRules.ids(area,"spaceRootIds").contains(id));
-            return !nonLeafSpaces.contains(id);
+            return Boolean.TRUE.equals(spaces.get(id).getLeaf());
         }
         int positionType(String id) { return within(id,RepairQrRules.ids(settings,"publicAreaRootIds"))?1:2; }
     }

@@ -6,7 +6,6 @@ import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.authorization.Authentication;
 import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
-import org.jetlinks.pro.property.service.PropertyPersonService;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
@@ -19,14 +18,13 @@ public class RepairTaskQuery {
     public static final String TERM_TYPE = "repair-task";
     public static final String TODO_TERM_TYPE = "repair-todo";
     private static final List<Integer> STATUSES = List.of(0,1,2,3,4,5,6,7,8,9);
-    private final PropertyPersonService people;
+    private final RepairDirectory people;
 
     public Mono<QueryParamEntity> resolve(QueryParamEntity source, RepairContext context) {
         QueryParamEntity query = source.clone();
         if (!contains(query.getTerms())) return Mono.just(query);
         return Mono.zip(Authentication.currentReactive(), AssetsHolder.currentReactive(),
-                people.findById(context.userId()).map(person -> context.tenantId().equals(person.getTenantId())
-                    && Boolean.TRUE.equals(person.getEmployee()) && person.getSourceStatus()!=null && person.getSourceStatus()==1)
+                people.user(context.userId()).map(person -> person.isEmployee() && person.getStatus()!=null && person.getStatus()==1)
                     .defaultIfEmpty(false))
             .flatMap(access -> access.getT2().injectQuery(new QueryParamEntity(), "repairOrder", "id", CrudAssetPermission.save)
                 .map(save -> {

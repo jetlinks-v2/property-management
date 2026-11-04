@@ -10,7 +10,6 @@ import org.jetlinks.pro.assets.DimensionInfo;
 import org.jetlinks.pro.assets.impl.terms.DimensionAssetsTerm;
 import org.jetlinks.pro.assets.impl.terms.DimensionAssetsTermBuilder;
 import org.jetlinks.pro.command.CommandServices;
-import org.jetlinks.pro.property.service.PropertyExtensionService;
 import org.jetlinks.pro.property.service.TenantAssetScope;
 import org.jetlinks.pro.smartpark.repair.api.RepairDeviceOption;
 import org.jetlinks.pro.smartpark.repair.api.CreateRepairRequest;
@@ -33,11 +32,11 @@ import java.util.List;
 public class RepairDeviceService {
  private static final AssetType DEVICE=AssetType.of("device");
  private final RepairContextProvider contexts;
- private final PropertyExtensionService projects;
+ private final RepairDirectory projects;
  private final TenantAssetScope tenantScope;
 
  public Mono<PagerResult<RepairDeviceOption>> query(String businessProjectId,QueryParamEntity query){
-  return contexts.current().flatMap(context->projects.businessProject(businessProjectId)
+  return contexts.current().flatMap(context->projects.project(businessProjectId)
    .then(scope(businessProjectId,query))
    .flatMap(this::execute)
    .map(page->{

@@ -36,12 +36,12 @@ public class RepairPublicService {
                 .map(row->Map.<String,Object>of("id",row.getId(),"name",row.getName(),"kind",row.getKind(),
                     "parentId",Objects.toString(row.getParentId(),""),"content",Objects.toString(row.getConfiguration()==null?null:row.getConfiguration().get("content"),""))).toList();
             List<Map<String,Object>> spaces=grant.spaces.values().stream().filter(row->grant.spaceAllowed(row.getId()))
-                .sorted(java.util.Comparator.comparing(row->display(row.getDisplayName(),row.getSourceName())))
-                .map(row->Map.<String,Object>of("id",row.getId(),"name",display(row.getDisplayName(),row.getSourceName()),
+                .sorted(java.util.Comparator.comparing(row->display(row.getName(),row.getName())))
+                .map(row->Map.<String,Object>of("id",row.getId(),"name",display(row.getName(),row.getName()),
                     "parentId",row.getParentId()!=null&&grant.spaceAllowed(row.getParentId())?row.getParentId():"",
                     "selectable",grant.selectable(row.getId()),"positionType",grant.positionType(row.getId()))).toList();
             return Map.<String,Object>of("name",grant.qr.getName(),"welcomeText",grant.settings.get("welcomeText"),
-                "projectName",display(grant.project.getDisplayName(),grant.project.getSourceName()),"configurations",dictionaries,
+                "projectName",display(grant.project.getName(),grant.project.getName()),"configurations",dictionaries,
                 "spaces",spaces,"enableCampus",Boolean.TRUE.equals(grant.settings.get("enableCampus")),
                 "campusOptions",RepairQrRules.areas(grant.settings),"formOptions",options.values());
         }));
@@ -74,7 +74,7 @@ public class RepairPublicService {
                     order.setLabelIds(labels.stream().map(RepairConfigurationEntity::getId).toList());order.setLabelNames(labels.stream().map(RepairConfigurationEntity::getName).toList());
                     order.setIntakeIdentity("anonymous");order.setQrConfigurationId(grant.qr.getId());
                     return Mono.empty();
-                },order->binder.bind("repairOrder",order.getId(),grant))
+                },order->binder.bind("repairOrder",order.getId(),grant),grant.spaces.get(input.getSpaceId()))
                     .flatMap(order->uploads.consume(receipts,order.getId()).thenReturn(Map.of("number",order.getNumber())))
                     .contextWrite(TenantHolder.makeCurrent(grant.context().tenantId()));
             });

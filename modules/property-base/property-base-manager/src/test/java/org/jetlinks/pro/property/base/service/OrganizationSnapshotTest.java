@@ -19,6 +19,16 @@ class OrganizationSnapshotTest {
     }
 
     @Test
+    void sourceRootSentinelIsNormalizedWithoutAcceptingUnknownParents() {
+        var root = new org.jetlinks.sdk.server.auth.OrganizationInfo();
+        root.setId("root"); root.setName("根组织"); root.setParentId("-1");
+        assertNull(OrganizationSnapshot.from(java.util.List.of(root)).get("root").getParentId());
+        root.setParentId("unknown");
+        assertThrows(org.hswebframework.web.exception.BusinessException.class,
+            () -> OrganizationSnapshot.from(java.util.List.of(root)));
+    }
+
+    @Test
     void flattensCompleteTreeAndKeepsSourceIdentity() {
         var company = node("company", null, "重庆公司");
         company.setChildren(List.of(node("park", "company", "5G园区")));

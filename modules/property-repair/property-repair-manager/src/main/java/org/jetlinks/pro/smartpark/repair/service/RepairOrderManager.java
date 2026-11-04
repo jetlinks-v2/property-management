@@ -12,7 +12,8 @@ import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.io.file.FileManager;
 import org.jetlinks.pro.property.service.*;
-import org.jetlinks.pro.property.entity.*;
+import org.jetlinks.pro.property.base.user.PropertyUserInfo;
+import org.jetlinks.pro.property.base.space.PropertySpaceInfo;
 import org.jetlinks.pro.smartpark.repair.api.*;
 import org.jetlinks.pro.smartpark.repair.asset.RepairAssetType;
 import org.jetlinks.pro.smartpark.repair.entity.*;
@@ -35,9 +36,9 @@ public class RepairOrderManager {
  private final RepairOrderService orders;
  private final RepairProcessService processes;
  private final RepairConfigurationManager configurations;
- private final PropertyExtensionService extensions;
- private final PropertyPersonService people;
- private final PropertySpaceService spaces;
+ private final RepairDirectory extensions;
+ private final RepairDirectory people;
+ private final RepairDirectory spaces;
  private final FileManager files;
  private final RepairAssigneeService assignees;
  private final TenantAssetScope tenantScope;
@@ -53,11 +54,11 @@ public class RepairOrderManager {
  @Transactional
  public Mono<RepairOrderEntity> create(CreateRepairRequest request){
   return contexts.current().flatMap(ctx -> employee(ctx.userId(),ctx)
-   .then(Mono.zip(extensions.businessProject(request.getBusinessProjectId()),configurations.enabled(request.getCategoryId(),"category",request.getBusinessProjectId(),ctx),configurations.enabled(request.getChannelId(),"channel",request.getBusinessProjectId(),ctx),formOptions.load(ctx,request.getBusinessProjectId())))
-   .flatMap(tuple -> {tuple.getT4().normalize(request);return validateSpace(request).then(validateFiles(request.getAttachmentIds()))
+   .then(Mono.zip(extensions.project(request.getBusinessProjectId()),configurations.enabled(request.getCategoryId(),"category",request.getBusinessProjectId(),ctx),configurations.enabled(request.getChannelId(),"channel",request.getBusinessProjectId(),ctx),formOptions.load(ctx,request.getBusinessProjectId())))
+   .flatMap(tuple -> {tuple.getT4().normalize(request);return validateSpace(request).flatMap(space -> validateFiles(request.getAttachmentIds())
     .then(creation.create(request,tuple.getT1(),tuple.getT2(),tuple.getT3(),ctx,
      order->intake.populate(order,request,tuple.getT2(),ctx,tuple.getT4()),
-     order->AssetsHolder.bindAssets(Flux.just(order),RepairAssetType.repairOrder,RepairOrderEntity::getId).then()));}));
+     order->AssetsHolder.bindAssets(Flux.just(order),RepairAssetType.repairOrder,RepairOrderEntity::getId).then(), space)));}));
  }
 
  public Mono<RepairOrderEntity> read(String id){
@@ -139,13 +140,9 @@ public class RepairOrderManager {
  public Flux<RepairAssignee> assignees(String id){
   return contexts.current().flatMapMany(ctx->read(id).flatMapMany(order->{
    RepairFlowRules.require(java.util.Set.of(0,6,7,1).contains(order.getStatus()),"invalid_state");
-   QueryParamEntity query=QueryParamEntity.newQuery()
-    .where(PropertyPersonEntity::getEmployee,true).and(PropertyPersonEntity::getSourceStatus,1)
-    .orderByAsc(PropertyPersonEntity::getId).noPaging().getParam();
-   return tenantScope.injectQuery(query,AssetType.of("user"),"id")
-    .flatMapMany(scoped->people.createQuery().setParam(scoped).fetch())
+   return people.employees()
     .filterWhen(person->assignees.canHandle(person,order,ctx),8)
-    .map(person->new RepairAssignee(person.getId(),display(person.getDisplayName(),person.getSourceName())));
+    .map(person->new RepairAssignee(person.getId(),display(person.getName(),person.getName())));
   }));
  }
  public Flux<RepairReviewEntity> reviews(String id){
@@ -174,7 +171,7 @@ public class RepairOrderManager {
   RepairFlowRules.require(request.getAssignedUserId()!=null&&!request.getAssignedUserId().isBlank(),"assignee_required");
   return employee(request.getAssignedUserId(),ctx)
    .flatMap(person->assignees.assertCanHandle(person,order,ctx))
-   .doOnNext(person->{order.setAssignedUserId(person.getId());order.setAssignedUserName(display(person.getDisplayName(),person.getSourceName()));
+   .doOnNext(person->{order.setAssignedUserId(person.getId());order.setAssignedUserName(display(person.getName(),person.getName()));
     order.setCandidateRoleId(null);order.setCandidateSource(null);}).then();
  }
  private Mono<Void> prepareFollow(RepairOrderEntity order,RepairContext ctx,RepairActionRequest request,Map<String,Object> flow){
@@ -189,15 +186,12 @@ public class RepairOrderManager {
   if(role.isBlank()){RepairFlowRules.require(Objects.equals(order.getAssignedUserId(),ctx.userId()),"not_assignee");return Mono.empty();}
   return roles.assertRole(role,"callback",order,ctx);
  }
- private Mono<PropertyPersonEntity> employee(String id,RepairContext ctx){
-  return people.findById(id).filter(p->Objects.equals(p.getTenantId(),ctx.tenantId())&&Boolean.TRUE.equals(p.getEmployee())&&p.getSourceStatus()!=null&&p.getSourceStatus()==1)
-   .switchIfEmpty(Mono.error(new BusinessException("error.repair.employee_required",400)));
+ private Mono<PropertyUserInfo> employee(String id,RepairContext ctx){
+  return people.employee(id);
  }
- private Mono<Void> validateSpace(CreateRepairRequest request){
-  if(request.getSpaceId()==null||request.getSpaceId().isBlank())return Mono.empty();
-  return AssetsHolder.assertPermission(AssetType.of("space"),request.getSpaceId(),CrudAssetPermission.read)
-   .then(spaces.findById(request.getSpaceId())).filter(space->Objects.equals(space.getBusinessProjectId(),request.getBusinessProjectId())&&Boolean.TRUE.equals(space.getSourceEnabled()))
-   .switchIfEmpty(Mono.error(new BusinessException("error.repair.space_project_mismatch",400))).then();
+ private Mono<PropertySpaceInfo> validateSpace(CreateRepairRequest request){
+  if(request.getSpaceId()==null||request.getSpaceId().isBlank())return Mono.just(new PropertySpaceInfo());
+  return spaces.space(request.getBusinessProjectId(),request.getSpaceId());
  }
  private Mono<Void> validateFiles(List<String> ids){
   if(ids==null||ids.isEmpty())return Mono.empty();
