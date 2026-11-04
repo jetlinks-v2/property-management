@@ -279,7 +279,7 @@ class DocumentSourcePersistenceTest extends TemporaryPersistenceTest {
         assertEquals(new BigDecimal("40.00"), source.paymentLines().get(0).getRefundedAmount());
     }
 
-    private ReceivableEntity documentBill() {
+    ReceivableEntity documentBill() {
         var row = fixture.bill("document");
         var snapshot = JSON.parseObject(row.getSnapshotJson());
         snapshot.getJSONObject("standard").put("id", row.getStandardId());
@@ -294,6 +294,39 @@ class DocumentSourcePersistenceTest extends TemporaryPersistenceTest {
                 .execute()
                 .block(WAIT);
         return row;
+    }
+
+    @Test
+    void sourcePaginationRejectsOversizedHistoryInsteadOfTruncatingIt() {
+        var payment = collect(input());
+        var copies = new ArrayList<PaymentAllocationEntity>();
+        for (int index = 0; index < 999; index++) {
+            var line = new PaymentAllocationEntity();
+            org.springframework.beans.BeanUtils.copyProperties(payment.lines().get(0), line);
+            line.setId(UUID.randomUUID().toString());
+            copies.add(line);
+        }
+        lines.insertBatch(Mono.just(copies)).block(WAIT);
+        reactor.test.StepVerifier.create(
+                        documents
+                                .load(
+                                        project,
+                                        references("TEMP_PAYMENT", payment.payment().getId()),
+                                        false)
+                                .contextWrite(fixture.allowed()))
+                .expectErrorMatches(
+                        error ->
+                                TaxItemPersistenceTest.status(error, 409)
+                                        && error.getMessage()
+                                                .equals(
+                                                        "error.property_finance_document_source_limit"))
+                .verify(WAIT);
+        assertEquals(
+                1001,
+                lines.createQuery()
+                        .where("paymentId", payment.payment().getId())
+                        .count()
+                        .block(WAIT));
     }
 
     private DocumentSourceService.Source load(String type, String id) {
