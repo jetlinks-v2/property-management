@@ -1,0 +1,87 @@
+server:
+  port: ${SERVER_PORT:8504}
+  error:
+    include-message: always
+  max-http-request-header-size: 200KB
+
+spring:
+  profiles:
+    default: default
+  application:
+    name: property-finance-service
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    serialization:
+      WRITE_DATES_AS_TIMESTAMPS: true
+    default-property-inclusion: non_null
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:127.0.0.1}:${DB_PORT:5432}/${DB_DATABASE:property_finance}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    pool:
+      max-size: 128
+      max-idle-time: 60s
+      max-life-time: 1m
+      max-acquire-time: 10s
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      timeout: 20s
+      password: ${REDIS_PASSWORD}
+      database: ${REDIS_DATABASE:0}
+
+easyorm:
+  default-schema: ${DB_SCHEMA:public}
+  dialect: postgres
+
+hsweb:
+  webflux:
+    response-wrapper:
+      enabled: true
+      excludes:
+        - org.springdoc
+  authorize:
+    auto-parse: true
+  cache:
+    type: redis
+    redis:
+      local-cache-type: caffeine
+
+jetlinks:
+  server-id: ${SERVER_ID:property-finance-service-1}
+  cluster:
+    id: ${jetlinks.server-id}
+    name: ${spring.application.name}
+    port: ${CLUSTER_PORT:18504}
+    external-host: ${CLUSTER_EXTERNAL_HOST:127.0.0.1}
+    external-port: ${CLUSTER_EXTERNAL_PORT:${jetlinks.cluster.port}}
+    rpc-port: ${RPC_PORT:28504}
+    rpc-external-host: ${RPC_EXTERNAL_HOST:${jetlinks.cluster.external-host}}
+    rpc-external-port: ${RPC_EXTERNAL_PORT:${jetlinks.cluster.rpc-port}}
+    rpc-token: ${RPC_TOKEN}
+    seeds: ${CLUSTER_SEEDS:127.0.0.1:18800}
+    event-namespace: property-finance
+    config-storage-namespace: property-finance
+    namespace: default,property-finance
+  microservice:
+    discovery:
+      enabled: true
+    token:
+      jwt:
+        decode-key: ${JWT_PUBLIC_KEY}
+
+logging:
+  file:
+    name: ./data/logs/${spring.application.name}_${server.port}.log
+    path: ./data/logs
+
+springdoc:
+  group-configs:
+    - group: ${spring.application.name}
+      display-name: 财务收费
+      packages-to-scan:
+        - org.jetlinks.pro.property.finance
+  security:
+    enabled: true

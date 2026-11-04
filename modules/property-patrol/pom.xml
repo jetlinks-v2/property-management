@@ -12,6 +12,7 @@
     <packaging>pom</packaging>
     <name>Property Patrol</name>
     <modules>
+        <module>property-patrol-core</module>
         <module>property-patrol-manager</module>
     </modules>
 </project>
