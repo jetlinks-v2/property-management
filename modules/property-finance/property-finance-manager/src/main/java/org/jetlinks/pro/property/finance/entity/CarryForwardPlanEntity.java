@@ -35,4 +35,9 @@ public class CarryForwardPlanEntity extends FinanceEntity {
     @Column(length = 64)
     @JsonIgnore
     private String tenantId;
+
+    /** 官方认证快照及应用scope，仅用于恢复后台执行上限，不返回到HTTP或配置审计。 */
+    @Column(length = 60000)
+    @JsonIgnore
+    private String executorSnapshot;
 }

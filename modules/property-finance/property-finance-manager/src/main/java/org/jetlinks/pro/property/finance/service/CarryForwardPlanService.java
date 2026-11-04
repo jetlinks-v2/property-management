@@ -108,10 +108,15 @@ public class CarryForwardPlanService {
         row.setEnabled(input.getEnabled());
         input.setVersion(row.getVersion());
         row.setConfigJson(JSON.toJSONString(input));
-        return replaceClaims(project, row.getId(), input.getSubjectIds(), auth)
-                .then(plans.insert(row))
-                .then(log(null, row, "CREATE", auth))
-                .thenReturn(detail(row));
+        return CarryForwardAuthority.capture(auth)
+                .flatMap(
+                        snapshot -> {
+                            row.setExecutorSnapshot(snapshot);
+                            return replaceClaims(project, row.getId(), input.getSubjectIds(), auth)
+                                    .then(plans.insert(row))
+                                    .then(log(null, row, "CREATE", auth))
+                                    .thenReturn(detail(row));
+                        });
     }
 
     @Transactional
@@ -205,20 +210,27 @@ public class CarryForwardPlanService {
         after.setEnabled(input.getEnabled());
         input.setVersion(after.getVersion());
         after.setConfigJson(JSON.toJSONString(input));
-        return replaceClaims(project, before.getId(), input.getSubjectIds(), auth)
-                .then(
-                        audit(plans.createUpdate(), auth, before.getVersion())
-                                .set("name", after.getName())
-                                .set("enabled", after.getEnabled())
-                                .set("configJson", after.getConfigJson())
-                                .where("id", before.getId())
-                                .and("projectId", project)
-                                .and("version", before.getVersion())
-                                .and("deleted", false)
-                                .execute())
-                .flatMap(SubjectService::changed)
-                .then(log(before, after, operation, auth))
-                .thenReturn(detail(after));
+        return CarryForwardAuthority.capture(auth)
+                .flatMap(
+                        snapshot -> {
+                            after.setExecutorSnapshot(snapshot);
+                            return replaceClaims(
+                                            project, before.getId(), input.getSubjectIds(), auth)
+                                    .then(
+                                            audit(plans.createUpdate(), auth, before.getVersion())
+                                                    .set("name", after.getName())
+                                                    .set("enabled", after.getEnabled())
+                                                    .set("configJson", after.getConfigJson())
+                                                    .set("executorSnapshot", snapshot)
+                                                    .where("id", before.getId())
+                                                    .and("projectId", project)
+                                                    .and("version", before.getVersion())
+                                                    .and("deleted", false)
+                                                    .execute())
+                                    .flatMap(SubjectService::changed)
+                                    .then(log(before, after, operation, auth))
+                                    .thenReturn(detail(after));
+                        });
     }
 
     @Transactional

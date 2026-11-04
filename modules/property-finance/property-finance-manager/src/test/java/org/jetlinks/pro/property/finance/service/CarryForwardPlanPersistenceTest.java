@@ -98,6 +98,7 @@ class CarryForwardPlanPersistenceTest {
         var detail = run(service.detail(fixture.project, d.plan().getId()));
         assertEquals(d.plan().getVersion(), detail.plan().getVersion());
         assertEquals(List.of(fixture.subjectId), detail.input().getSubjectIds());
+        assertNotNull(plans.findById(d.plan().getId()).block(WAIT).getExecutorSnapshot());
         assertEquals(
                 1,
                 run(service.history(fixture.project, d.plan().getId(), new QueryParamEntity()))
@@ -344,6 +345,8 @@ class CarryForwardPlanPersistenceTest {
                 .jsonPath("$.plan.configJson")
                 .doesNotExist()
                 .jsonPath("$.plan.tenantId")
+                .doesNotExist()
+                .jsonPath("$.plan.executorSnapshot")
                 .doesNotExist();
         client.put()
                 .uri(path + "/_state")
