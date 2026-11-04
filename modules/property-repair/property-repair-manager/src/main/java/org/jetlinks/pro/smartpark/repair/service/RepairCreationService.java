@@ -2,8 +2,7 @@ package org.jetlinks.pro.smartpark.repair.service;
 
 import lombok.AllArgsConstructor;
 import org.hswebframework.web.id.IDGenerator;
-import org.jetlinks.pro.property.entity.PropertyOrganizationEntity;
-import org.jetlinks.pro.property.service.PropertySpaceService;
+import org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo;
 import org.jetlinks.pro.smartpark.repair.api.CreateRepairRequest;
 import org.jetlinks.pro.smartpark.repair.entity.RepairConfigurationEntity;
 import org.jetlinks.pro.smartpark.repair.entity.RepairOrderEntity;
@@ -20,16 +19,16 @@ public class RepairCreationService {
     private final RepairOrderService orders;
     private final RepairProcessService processes;
     private final RepairCandidateService candidates;
-    private final PropertySpaceService spaces;
 
-    Mono<RepairOrderEntity> create(CreateRepairRequest request,PropertyOrganizationEntity project,
+    Mono<RepairOrderEntity> create(CreateRepairRequest request,PropertyOrganizationInfo project,
         RepairConfigurationEntity category,RepairConfigurationEntity channel,RepairContext ctx,
-        Function<RepairOrderEntity,Mono<?>> populate,Function<RepairOrderEntity,Mono<Void>> bind) {
+        Function<RepairOrderEntity,Mono<?>> populate,Function<RepairOrderEntity,Mono<Void>> bind,
+        org.jetlinks.pro.property.base.space.PropertySpaceInfo space) {
         return Mono.defer(() -> {
             RepairOrderEntity order=new RepairOrderEntity();order.setId(IDGenerator.MD5.generate());
             order.setExtension("tenantId",ctx.tenantId());order.setApplicationId(ctx.applicationId());
             order.setBusinessProjectId(project.getId());order.setOrganizationId(project.getId());
-            order.setBusinessProjectName(display(project.getDisplayName(),project.getSourceName()));
+            order.setBusinessProjectName(display(project.getName(),project.getName()));
             order.setNumber("BS-"+java.time.format.DateTimeFormatter.ofPattern("yyMMddHHmmss").format(java.time.LocalDateTime.now())+"-"+order.getId().substring(0,8));
             order.setCategoryId(category.getId());order.setCategoryName(category.getName());
             order.setChannelId(channel.getId());order.setChannelName(channel.getName());
@@ -38,9 +37,8 @@ public class RepairCreationService {
             order.setTransferCount(0);order.setDelayCount(0);order.setStaffEvaluated(false);order.setOwnerEvaluated(false);
             order.setReporterId(ctx.userId());order.setStatus(0);order.setVersion(0L);order.setFlowVersion(2);
             order.setAttachmentIds(request.getAttachmentIds());order.setCreateTime(System.currentTimeMillis());order.setModifyTime(order.getCreateTime());
-            Mono<Void> spaceName=order.getSpaceId()==null||order.getSpaceId().isBlank()?Mono.empty():spaces.findById(order.getSpaceId())
-                .doOnNext(space->order.setSpaceName(display(space.getDisplayName(),space.getSourceName()))).then();
-            return populate.apply(order).then(spaceName).then(Mono.defer(()->orders.insert(order)))
+            if (space != null) order.setSpaceName(space.getName());
+            return populate.apply(order).then(Mono.defer(()->orders.insert(order)))
                 .then(Mono.defer(()->bind.apply(order))).then(candidates.initialize(order,category,ctx))
                 .flatMap(created->record(created,ctx,request).thenReturn(created));
         });

@@ -25,11 +25,11 @@ class RepairModuleAssemblyTest {
             "org.jetlinks.pro.property.base.service.PropertyOrganizationService"));
         assertThrows(ClassNotFoundException.class, () -> Class.forName(
             "org.jetlinks.pro.patrol.service.PatrolTaskService"));
-        assertEquals("org.jetlinks.pro.property.service.PropertyOrganizationService",
-            registry.getBeanDefinition("repairPropertyOrganizationService").getBeanClassName());
-        assertTrue(registry.containsBeanDefinition("repairPropertySpaceController"));
+        assertFalse(registry.containsBeanDefinition("repairPropertyOrganizationService"));
+        assertFalse(registry.containsBeanDefinition("repairPropertySpaceController"));
+        assertTrue(registry.containsBeanDefinition("repairDirectory"));
         assertTrue(registry.containsBeanDefinition("repairOrderController"));
-        assertTrue(registry.containsBeanDefinition("commandCloudDirectory"));
+        assertFalse(registry.containsBeanDefinition("commandCloudDirectory"));
     }
 
     @Test
@@ -37,15 +37,13 @@ class RepairModuleAssemblyTest {
         var resource = new ClassPathResource("route/property-repair.json");
         try (var stream = resource.getInputStream()) {
             var routes = new ObjectMapper().readTree(stream);
-            assertEquals(4, routes.size());
+            assertEquals(3, routes.size());
             assertEquals("/repair/public/qr/**", routes.get(0).path("path").asText());
             assertFalse(routes.get(0).path("authorize").asBoolean());
             assertEquals("/repair/**", routes.get(1).path("path").asText());
             assertTrue(routes.get(1).path("authorize").asBoolean());
-            assertEquals("/property-data/**", routes.get(2).path("path").asText());
+            assertEquals("/v3/api-docs/smart-park-repair-service", routes.get(2).path("path").asText());
             assertTrue(routes.get(2).path("authorize").asBoolean());
-            assertEquals("/v3/api-docs/smart-park-repair-service", routes.get(3).path("path").asText());
-            assertTrue(routes.get(3).path("authorize").asBoolean());
             assertTrue(routes.get(0).path("order").asInt() < routes.get(1).path("order").asInt());
         }
     }
@@ -64,6 +62,6 @@ class RepairModuleAssemblyTest {
         assertEquals("applicationId", properties.getProperty(
             "jetlinks.assets.direct.tables.sp_repair_order.dimension-column.business_application"));
         assertEquals("org.jetlinks.pro.smartpark.repair.web", properties.getProperty(
-            "springdoc.group-configs[0].packages-to-scan[1]"));
+            "springdoc.group-configs[0].packages-to-scan[0]"));
     }
 }

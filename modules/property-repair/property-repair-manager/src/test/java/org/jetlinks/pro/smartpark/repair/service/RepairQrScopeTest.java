@@ -1,8 +1,8 @@
 package org.jetlinks.pro.smartpark.repair.service;
 
 import org.hswebframework.web.exception.BusinessException;
-import org.jetlinks.pro.property.entity.PropertyOrganizationEntity;
-import org.jetlinks.pro.property.entity.PropertySpaceEntity;
+import org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo;
+import org.jetlinks.pro.property.base.space.PropertySpaceInfo;
 import org.jetlinks.pro.smartpark.repair.entity.RepairConfigurationEntity;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
@@ -27,6 +27,11 @@ class RepairQrScopeTest {
         assertFalse(grant.spaceAllowed("unknown"));
         grant.spaces.get("building").setParentId("room");
         assertFalse(grant.within("room",List.of("unrelated-root")),"循环空间不能扩张授权");
+    }
+    @Test void permissionPrunedChildrenNeverTurnParentIntoSelectableRoom() {
+        var grant=grant();
+        grant.spaces.remove("room");
+        assertFalse(grant.selectable("building"));
     }
     @Test void roomSwitchAndPublicAreaHaveDistinctSelectionSemantics() {
         var grant=grant();grant.settings.put("enableRoom",false);
@@ -62,7 +67,7 @@ class RepairQrScopeTest {
         var qr=new RepairConfigurationEntity();qr.setId("qr-id");qr.setName("楼栋二维码");qr.setKind("qr");qr.setApplicationId("application-a");
         qr.setConfiguration(new HashMap<>(Map.of("code","published-code","welcomeText","欢迎报事","channelId","channel",
             "categoryIds",List.of("root"),"spaceRootIds",List.of("building"),"enableRoom",true)));
-        var project=new PropertyOrganizationEntity();project.setId("project-a");project.setTenantId("tenant-a");project.setSourceName("测试小区");
+        var project=new PropertyOrganizationInfo();project.setId("project-a");qr.setExtension("tenantId","tenant-a");project.setName("测试小区");
         return new RepairQrGrantProvider.Grant(qr,project,List.of(
             config("root","category",null),config("second","category","root"),config("leaf","category","second"),
             config("other-leaf","category",null),config("label","label","leaf"),config("description","description","label"),config("channel","channel",null)),
@@ -71,7 +76,7 @@ class RepairQrScopeTest {
     private static RepairConfigurationEntity config(String id,String kind,String parent) {
         var row=new RepairConfigurationEntity();row.setId(id);row.setName(id);row.setKind(kind);row.setParentId(parent);return row;
     }
-    private static PropertySpaceEntity space(String id,String parent) {
-        var row=new PropertySpaceEntity();row.setId(id);row.setSourceName(id);row.setParentId(parent);return row;
+    private static PropertySpaceInfo space(String id,String parent) {
+        var row=new PropertySpaceInfo();row.setId(id);row.setName(id);row.setParentId(parent);row.setLeaf(!"building".equals(id));return row;
     }
 }

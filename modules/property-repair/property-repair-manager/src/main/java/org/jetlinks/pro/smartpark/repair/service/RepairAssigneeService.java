@@ -9,7 +9,7 @@ import org.jetlinks.pro.assets.scope.AssetScope;
 import org.jetlinks.pro.assets.scope.AssetScopeContext;
 import org.jetlinks.pro.assets.scope.AssetScopeResolverManager;
 import org.jetlinks.pro.authorize.BusinessApplicationDimension;
-import org.jetlinks.pro.property.entity.PropertyPersonEntity;
+import org.jetlinks.pro.property.base.user.PropertyUserInfo;
 import org.jetlinks.pro.smartpark.repair.asset.RepairAssetType;
 import org.jetlinks.pro.smartpark.repair.entity.RepairOrderEntity;
 import org.springframework.stereotype.Service;
@@ -22,13 +22,13 @@ import java.util.List;
 public class RepairAssigneeService {
     private final AssetScopeResolverManager scopeResolver;
 
-    public Mono<Boolean> canHandle(PropertyPersonEntity person, RepairOrderEntity order, RepairContext context) {
+    public Mono<Boolean> canHandle(PropertyUserInfo person, RepairOrderEntity order, RepairContext context) {
         return canHandle(person, order, context, null);
     }
 
-    public Mono<Boolean> canHandle(PropertyPersonEntity person, RepairOrderEntity order, RepairContext context, String roleId) {
-        if (!context.tenantId().equals(person.getTenantId()) || !Boolean.TRUE.equals(person.getEmployee())
-            || person.getSourceStatus() == null || person.getSourceStatus() != 1) {
+    public Mono<Boolean> canHandle(PropertyUserInfo person, RepairOrderEntity order, RepairContext context, String roleId) {
+        if (!person.isEmployee()
+            || person.getStatus() == null || person.getStatus() != 1) {
             return Mono.just(false);
         }
         AssetScope scope = AssetScope.of(BusinessApplicationDimension.TYPE, context.applicationId());
@@ -47,7 +47,7 @@ public class RepairAssigneeService {
             .onErrorReturn(AccessDenyException.class, false);
     }
 
-    public Mono<PropertyPersonEntity> assertCanHandle(PropertyPersonEntity person, RepairOrderEntity order,
+    public Mono<PropertyUserInfo> assertCanHandle(PropertyUserInfo person, RepairOrderEntity order,
                                                      RepairContext context) {
         return canHandle(person, order, context)
             .flatMap(allowed -> allowed ? Mono.just(person) : Mono.error(new AccessDenyException()));

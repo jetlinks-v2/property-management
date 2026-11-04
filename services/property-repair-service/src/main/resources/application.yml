@@ -96,7 +96,6 @@ springdoc:
     - group: ${spring.application.name}
       display-name: 报事报修
       packages-to-scan:
-        - org.jetlinks.pro.property.web
         - org.jetlinks.pro.smartpark.repair.web
   security:
     enabled: true

@@ -1,5 +1,347 @@
 [
   {
+    "id": "repair-7f8fa9a4fd82483db038a6994ff6236b",
+    "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+    "path": "rRgX-GNTy",
+    "sortIndex": 40,
+    "level": 2,
+    "owner": "app",
+    "name": "标签配置",
+    "code": "repair-7f8fa9a4fd82483db038a6994ff6236b",
+    "describe": "报事报修业务配置",
+    "url": "/theMatterConfiguration/labelSet",
+    "icon": "",
+    "status": 1,
+    "permissions": [
+      {
+        "permission": "repair-configuration",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "accessSupport": {
+      "text": "Support",
+      "value": "support"
+    },
+    "assetTypes": [
+      "repairConfiguration"
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "repair-configuration",
+            "actions": [
+              "save"
+            ]
+          }
+        ],
+        "i18nName": "保存"
+      }
+    ],
+    "options": {
+      "show": true,
+      "legacyRouter": "labelSet",
+      "legacyResourceId": "7f8fa9a4fd82483db038a6994ff6236b",
+      "previewOnly": false,
+      "meta": {
+        "componentCode": "repair/Configuration"
+      }
+    },
+    "i18nName": "标签配置",
+    "i18nDescribe": "报事报修业务配置",
+    "supportDataAccess": true
+  },
+  {
+    "id": "repair-397fa00d0f8b4f9ebcbcfdc8f9b43fa7",
+    "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+    "path": "rRgX-Z9hC",
+    "sortIndex": 60,
+    "level": 2,
+    "owner": "app",
+    "name": "回复语设置",
+    "code": "repair-397fa00d0f8b4f9ebcbcfdc8f9b43fa7",
+    "describe": "报事报修业务配置",
+    "url": "/theMatterConfiguration/replyLanguageSetting",
+    "icon": "",
+    "status": 1,
+    "permissions": [
+      {
+        "permission": "repair-configuration",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "accessSupport": {
+      "text": "Support",
+      "value": "support"
+    },
+    "assetTypes": [
+      "repairConfiguration"
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "repair-configuration",
+            "actions": [
+              "save"
+            ]
+          }
+        ],
+        "i18nName": "保存"
+      }
+    ],
+    "options": {
+      "show": true,
+      "legacyRouter": "replyLanguageSetting",
+      "legacyResourceId": "397fa00d0f8b4f9ebcbcfdc8f9b43fa7",
+      "previewOnly": false,
+      "meta": {
+        "componentCode": "repair/Configuration"
+      }
+    },
+    "i18nName": "回复语设置",
+    "i18nDescribe": "报事报修业务配置",
+    "supportDataAccess": true
+  },
+  {
+    "id": "repair-25a3662e55d3445aa65548c2506839c0",
+    "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+    "path": "rRgX-VIeL",
+    "sortIndex": 60,
+    "level": 2,
+    "owner": "app",
+    "name": "评价标签设置",
+    "code": "repair-25a3662e55d3445aa65548c2506839c0",
+    "describe": "报事报修业务配置",
+    "url": "/theMatterConfiguration/evaluationOfTheLabel",
+    "icon": "",
+    "status": 1,
+    "permissions": [
+      {
+        "permission": "repair-configuration",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "accessSupport": {
+      "text": "Support",
+      "value": "support"
+    },
+    "assetTypes": [
+      "repairConfiguration"
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "repair-configuration",
+            "actions": [
+              "save"
+            ]
+          }
+        ],
+        "i18nName": "保存"
+      }
+    ],
+    "options": {
+      "show": true,
+      "legacyRouter": "evaluationOfTheLabel",
+      "legacyResourceId": "25a3662e55d3445aa65548c2506839c0",
+      "previewOnly": false,
+      "meta": {
+        "componentCode": "repair/Configuration"
+      }
+    },
+    "i18nName": "评价标签设置",
+    "i18nDescribe": "报事报修业务配置",
+    "supportDataAccess": true
+  },
+  {
+    "id": "repair-1ffad82658d2452eb21f4cee0df97687",
+    "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+    "path": "rRgX-T56K",
+    "sortIndex": 20,
+    "level": 2,
+    "owner": "app",
+    "name": "满意度配置",
+    "code": "repair-1ffad82658d2452eb21f4cee0df97687",
+    "describe": "报事报修业务配置",
+    "url": "/theMatterConfiguration/satisfaction",
+    "icon": "",
+    "status": 1,
+    "permissions": [
+      {
+        "permission": "repair-configuration",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "accessSupport": {
+      "text": "Support",
+      "value": "support"
+    },
+    "assetTypes": [
+      "repairConfiguration"
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "repair-configuration",
+            "actions": [
+              "save"
+            ]
+          }
+        ],
+        "i18nName": "保存"
+      }
+    ],
+    "options": {
+      "show": true,
+      "legacyRouter": "satisfaction",
+      "legacyResourceId": "1ffad82658d2452eb21f4cee0df97687",
+      "previewOnly": false,
+      "meta": {
+        "componentCode": "repair/Configuration"
+      }
+    },
+    "i18nName": "满意度配置",
+    "i18nDescribe": "报事报修业务配置",
+    "supportDataAccess": true
+  },
+  {
+    "id": "repair-75d939bcd10c499ca3bce8bb39d9eab6",
+    "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
+    "path": "rRgX-Lhii",
+    "sortIndex": 30,
+    "level": 2,
+    "owner": "app",
+    "name": "报事流程配置",
+    "code": "repair-75d939bcd10c499ca3bce8bb39d9eab6",
+    "describe": "报事报修业务配置",
+    "url": "/theMatterConfiguration/theBusinessProcess",
+    "icon": "",
+    "status": 1,
+    "permissions": [
+      {
+        "permission": "repair-configuration",
+        "actions": [
+          "query"
+        ]
+      },
+      {
+        "permission": "role",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "accessSupport": {
+      "text": "Support",
+      "value": "support"
+    },
+    "assetTypes": [
+      "repairConfiguration"
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "repair-configuration",
+            "actions": [
+              "save"
+            ]
+          }
+        ],
+        "i18nName": "保存"
+      }
+    ],
+    "options": {
+      "show": true,
+      "legacyRouter": "theBusinessProcess",
+      "legacyResourceId": "75d939bcd10c499ca3bce8bb39d9eab6",
+      "previewOnly": false,
+      "meta": {
+        "componentCode": "repair/Configuration"
+      }
+    },
+    "i18nName": "报事流程配置",
+    "i18nDescribe": "报事报修业务配置",
+    "supportDataAccess": true
+  },
+  {
+    "id": "repair-c2bf033506f0400099bb2d96c9b70982",
+    "parentId": "repair-12c861faf39e4aa88ffde83c527b8544",
+    "path": "mfl0-jVIl",
+    "sortIndex": 60,
+    "level": 2,
+    "owner": "app",
+    "name": "评价管理",
+    "code": "repair-c2bf033506f0400099bb2d96c9b70982",
+    "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
+    "url": "/theMatterStatistic/evaluationManagement",
+    "icon": "",
+    "status": 1,
+    "permissions": [
+      {
+        "permission": "repair-order",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "accessSupport": {
+      "text": "Support",
+      "value": "support"
+    },
+    "assetTypes": [
+      "repairOrder"
+    ],
+    "buttons": [
+      {
+        "id": "export",
+        "name": "导出",
+        "permissions": [
+          {
+            "permission": "repair-order",
+            "actions": [
+              "export"
+            ]
+          }
+        ],
+        "i18nName": "导出"
+      }
+    ],
+    "options": {
+      "show": true,
+      "legacyRouter": "evaluationManagement",
+      "legacyResourceId": "c2bf033506f0400099bb2d96c9b70982",
+      "previewOnly": false,
+      "meta": {
+        "componentCode": "repair/Reports"
+      }
+    },
+    "i18nName": "评价管理",
+    "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+    "supportDataAccess": true
+  },
+  {
     "id": "repair-shared-data",
     "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
     "path": "rRgX-boac",
@@ -74,368 +416,12 @@
       }
     ],
     "options": {
-      "show": true,
+      "show": false,
       "meta": {
         "componentCode": "repair/SharedData"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793631414849,
     "i18nName": "共享基础数据",
-    "supportDataAccess": true
-  },
-  {
-    "id": "repair-7f8fa9a4fd82483db038a6994ff6236b",
-    "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
-    "path": "rRgX-GNTy",
-    "sortIndex": 40,
-    "level": 2,
-    "owner": "app",
-    "name": "标签配置",
-    "code": "repair-7f8fa9a4fd82483db038a6994ff6236b",
-    "describe": "报事报修业务配置",
-    "url": "/theMatterConfiguration/labelSet",
-    "icon": "",
-    "status": 1,
-    "permissions": [
-      {
-        "permission": "repair-configuration",
-        "actions": [
-          "query"
-        ]
-      }
-    ],
-    "accessSupport": {
-      "text": "Support",
-      "value": "support"
-    },
-    "assetTypes": [
-      "repairConfiguration"
-    ],
-    "buttons": [
-      {
-        "id": "save",
-        "name": "保存",
-        "permissions": [
-          {
-            "permission": "repair-configuration",
-            "actions": [
-              "save"
-            ]
-          }
-        ],
-        "i18nName": "保存"
-      }
-    ],
-    "options": {
-      "show": true,
-      "legacyRouter": "labelSet",
-      "legacyResourceId": "7f8fa9a4fd82483db038a6994ff6236b",
-      "previewOnly": false,
-      "meta": {
-        "componentCode": "repair/Configuration"
-      }
-    },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922068,
-    "i18nName": "标签配置",
-    "i18nDescribe": "报事报修业务配置",
-    "supportDataAccess": true
-  },
-  {
-    "id": "repair-397fa00d0f8b4f9ebcbcfdc8f9b43fa7",
-    "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
-    "path": "rRgX-Z9hC",
-    "sortIndex": 60,
-    "level": 2,
-    "owner": "app",
-    "name": "回复语设置",
-    "code": "repair-397fa00d0f8b4f9ebcbcfdc8f9b43fa7",
-    "describe": "报事报修业务配置",
-    "url": "/theMatterConfiguration/replyLanguageSetting",
-    "icon": "",
-    "status": 1,
-    "permissions": [
-      {
-        "permission": "repair-configuration",
-        "actions": [
-          "query"
-        ]
-      }
-    ],
-    "accessSupport": {
-      "text": "Support",
-      "value": "support"
-    },
-    "assetTypes": [
-      "repairConfiguration"
-    ],
-    "buttons": [
-      {
-        "id": "save",
-        "name": "保存",
-        "permissions": [
-          {
-            "permission": "repair-configuration",
-            "actions": [
-              "save"
-            ]
-          }
-        ],
-        "i18nName": "保存"
-      }
-    ],
-    "options": {
-      "show": true,
-      "legacyRouter": "replyLanguageSetting",
-      "legacyResourceId": "397fa00d0f8b4f9ebcbcfdc8f9b43fa7",
-      "previewOnly": false,
-      "meta": {
-        "componentCode": "repair/Configuration"
-      }
-    },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922100,
-    "i18nName": "回复语设置",
-    "i18nDescribe": "报事报修业务配置",
-    "supportDataAccess": true
-  },
-  {
-    "id": "repair-25a3662e55d3445aa65548c2506839c0",
-    "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
-    "path": "rRgX-VIeL",
-    "sortIndex": 60,
-    "level": 2,
-    "owner": "app",
-    "name": "评价标签设置",
-    "code": "repair-25a3662e55d3445aa65548c2506839c0",
-    "describe": "报事报修业务配置",
-    "url": "/theMatterConfiguration/evaluationOfTheLabel",
-    "icon": "",
-    "status": 1,
-    "permissions": [
-      {
-        "permission": "repair-configuration",
-        "actions": [
-          "query"
-        ]
-      }
-    ],
-    "accessSupport": {
-      "text": "Support",
-      "value": "support"
-    },
-    "assetTypes": [
-      "repairConfiguration"
-    ],
-    "buttons": [
-      {
-        "id": "save",
-        "name": "保存",
-        "permissions": [
-          {
-            "permission": "repair-configuration",
-            "actions": [
-              "save"
-            ]
-          }
-        ],
-        "i18nName": "保存"
-      }
-    ],
-    "options": {
-      "show": true,
-      "legacyRouter": "evaluationOfTheLabel",
-      "legacyResourceId": "25a3662e55d3445aa65548c2506839c0",
-      "previewOnly": false,
-      "meta": {
-        "componentCode": "repair/Configuration"
-      }
-    },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922089,
-    "i18nName": "评价标签设置",
-    "i18nDescribe": "报事报修业务配置",
-    "supportDataAccess": true
-  },
-  {
-    "id": "repair-1ffad82658d2452eb21f4cee0df97687",
-    "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
-    "path": "rRgX-T56K",
-    "sortIndex": 20,
-    "level": 2,
-    "owner": "app",
-    "name": "满意度配置",
-    "code": "repair-1ffad82658d2452eb21f4cee0df97687",
-    "describe": "报事报修业务配置",
-    "url": "/theMatterConfiguration/satisfaction",
-    "icon": "",
-    "status": 1,
-    "permissions": [
-      {
-        "permission": "repair-configuration",
-        "actions": [
-          "query"
-        ]
-      }
-    ],
-    "accessSupport": {
-      "text": "Support",
-      "value": "support"
-    },
-    "assetTypes": [
-      "repairConfiguration"
-    ],
-    "buttons": [
-      {
-        "id": "save",
-        "name": "保存",
-        "permissions": [
-          {
-            "permission": "repair-configuration",
-            "actions": [
-              "save"
-            ]
-          }
-        ],
-        "i18nName": "保存"
-      }
-    ],
-    "options": {
-      "show": true,
-      "legacyRouter": "satisfaction",
-      "legacyResourceId": "1ffad82658d2452eb21f4cee0df97687",
-      "previewOnly": false,
-      "meta": {
-        "componentCode": "repair/Configuration"
-      }
-    },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922053,
-    "i18nName": "满意度配置",
-    "i18nDescribe": "报事报修业务配置",
-    "supportDataAccess": true
-  },
-  {
-    "id": "repair-75d939bcd10c499ca3bce8bb39d9eab6",
-    "parentId": "repair-e6c65912104140c688a2237037a8c0e0",
-    "path": "rRgX-Lhii",
-    "sortIndex": 30,
-    "level": 2,
-    "owner": "app",
-    "name": "报事流程配置",
-    "code": "repair-75d939bcd10c499ca3bce8bb39d9eab6",
-    "describe": "报事报修业务配置",
-    "url": "/theMatterConfiguration/theBusinessProcess",
-    "icon": "",
-    "status": 1,
-    "permissions": [
-      {
-        "permission": "repair-configuration",
-        "actions": [
-          "query"
-        ]
-      },
-      {
-        "permission": "role",
-        "actions": [
-          "query"
-        ]
-      }
-    ],
-    "accessSupport": {
-      "text": "Support",
-      "value": "support"
-    },
-    "assetTypes": [
-      "repairConfiguration"
-    ],
-    "buttons": [
-      {
-        "id": "save",
-        "name": "保存",
-        "permissions": [
-          {
-            "permission": "repair-configuration",
-            "actions": [
-              "save"
-            ]
-          }
-        ],
-        "i18nName": "保存"
-      }
-    ],
-    "options": {
-      "show": true,
-      "legacyRouter": "theBusinessProcess",
-      "legacyResourceId": "75d939bcd10c499ca3bce8bb39d9eab6",
-      "previewOnly": false,
-      "meta": {
-        "componentCode": "repair/Configuration"
-      }
-    },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922061,
-    "i18nName": "报事流程配置",
-    "i18nDescribe": "报事报修业务配置",
-    "supportDataAccess": true
-  },
-  {
-    "id": "repair-c2bf033506f0400099bb2d96c9b70982",
-    "parentId": "repair-12c861faf39e4aa88ffde83c527b8544",
-    "path": "mfl0-jVIl",
-    "sortIndex": 60,
-    "level": 2,
-    "owner": "app",
-    "name": "评价管理",
-    "code": "repair-c2bf033506f0400099bb2d96c9b70982",
-    "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
-    "url": "/theMatterStatistic/evaluationManagement",
-    "icon": "",
-    "status": 1,
-    "permissions": [
-      {
-        "permission": "repair-order",
-        "actions": [
-          "query"
-        ]
-      }
-    ],
-    "accessSupport": {
-      "text": "Support",
-      "value": "support"
-    },
-    "assetTypes": [
-      "repairOrder"
-    ],
-    "buttons": [
-      {
-        "id": "export",
-        "name": "导出",
-        "permissions": [
-          {
-            "permission": "repair-order",
-            "actions": [
-              "export"
-            ]
-          }
-        ],
-        "i18nName": "导出"
-      }
-    ],
-    "options": {
-      "show": true,
-      "legacyRouter": "evaluationManagement",
-      "legacyResourceId": "c2bf033506f0400099bb2d96c9b70982",
-      "previewOnly": false,
-      "meta": {
-        "componentCode": "repair/Reports"
-      }
-    },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922017,
-    "i18nName": "评价管理",
-    "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": true
   },
   {
@@ -758,8 +744,6 @@
         "componentCode": "repair/Orders"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614921899,
     "i18nName": "报事记录",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": true
@@ -824,8 +808,6 @@
         "componentCode": "repair/Configuration"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793691016242,
     "i18nName": "报事二维码配置",
     "i18nDescribe": "报事报修业务配置",
     "supportDataAccess": true
@@ -882,8 +864,6 @@
         "componentCode": "repair/Configuration"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922033,
     "i18nName": "报事渠道配置",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": true
@@ -913,8 +893,6 @@
       "legacyResourceId": "cc2d4857d9ce4eaea3696107baad7965",
       "previewOnly": true
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614921980,
     "i18nName": "首页统计",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": false
@@ -971,8 +949,6 @@
         "componentCode": "repair/Reports"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614921964,
     "i18nName": "报事统计",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": true
@@ -1029,8 +1005,6 @@
         "componentCode": "repair/Reports"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614921972,
     "i18nName": "有偿报事统计",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": true
@@ -1087,8 +1061,6 @@
         "componentCode": "repair/Reports"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922000,
     "i18nName": "超月报事统计",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": true
@@ -1145,8 +1117,6 @@
         "componentCode": "repair/Reports"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614921990,
     "i18nName": "报事节点统计",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": true
@@ -1203,10 +1173,271 @@
         "componentCode": "repair/Reports"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922010,
     "i18nName": "跟进情况统计",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+    "supportDataAccess": true
+  },
+  {
+    "id": "repair-system-Customer",
+    "parentId": "repair-system-basic",
+    "path": "4gZF-ZNXN",
+    "sortIndex": 4,
+    "level": 2,
+    "owner": "app",
+    "name": "客户管理",
+    "code": "system-management/Customer",
+    "url": "/repair/system/customers",
+    "icon": "TeamOutlined",
+    "status": 1,
+    "permissions": [
+      {
+        "permission": "property-customer",
+        "actions": [
+          "query"
+        ]
+      },
+      {
+        "permission": "property-space",
+        "actions": [
+          "query"
+        ]
+      },
+      {
+        "permission": "property-dictionary",
+        "actions": [
+          "query"
+        ]
+      },
+      {
+        "permission": "property-house",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "accessSupport": {
+      "text": "Support",
+      "value": "support"
+    },
+    "assetType": "organization",
+    "assetTypes": [
+      "organization"
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "property-customer",
+            "actions": [
+              "save"
+            ]
+          },
+          {
+            "permission": "property-user",
+            "actions": [
+              "query"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "保存",
+          "en_US": "Save",
+          "en": "Save"
+        },
+        "i18nName": "Save"
+      },
+      {
+        "id": "delete",
+        "name": "删除",
+        "permissions": [
+          {
+            "permission": "property-customer",
+            "actions": [
+              "delete"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "删除",
+          "en_US": "Delete",
+          "en": "Delete"
+        },
+        "i18nName": "Delete"
+      },
+      {
+        "id": "import",
+        "name": "导入",
+        "permissions": [
+          {
+            "permission": "property-customer",
+            "actions": [
+              "import"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "导入",
+          "en_US": "Import",
+          "en": "Import"
+        },
+        "i18nName": "Import"
+      },
+      {
+        "id": "export",
+        "name": "导出",
+        "permissions": [
+          {
+            "permission": "property-customer",
+            "actions": [
+              "export"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "导出",
+          "en_US": "Export",
+          "en": "Export"
+        },
+        "i18nName": "Export"
+      }
+    ],
+    "options": {
+      "show": true,
+      "appName": "report-repair-ui",
+      "meta": {
+        "componentCode": "system-management/Customer"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "客户管理",
+        "en_US": "Customer management",
+        "en": "Customer management"
+      }
+    },
+    "i18nName": "Customer management",
+    "supportDataAccess": true
+  },
+  {
+    "id": "repair-system-OrganizationType",
+    "parentId": "repair-system-basic",
+    "path": "4gZF-I8DI",
+    "sortIndex": 1,
+    "level": 2,
+    "owner": "app",
+    "name": "组织配置",
+    "code": "system-management/OrganizationType",
+    "url": "/repair/system/organizations",
+    "icon": "ApartmentOutlined",
+    "status": 1,
+    "permissions": [
+      {
+        "permission": "property-organization",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "accessSupport": {
+      "text": "Support",
+      "value": "support"
+    },
+    "assetType": "organization",
+    "assetTypes": [
+      "organization",
+      "space"
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "标注类型",
+        "permissions": [
+          {
+            "permission": "property-organization",
+            "actions": [
+              "save"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "标注类型",
+          "en_US": "Set type",
+          "en": "Set type"
+        },
+        "i18nName": "Set type"
+      },
+      {
+        "id": "sync",
+        "name": "同步组织",
+        "permissions": [
+          {
+            "permission": "property-organization",
+            "actions": [
+              "sync"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "同步组织",
+          "en_US": "Sync organizations",
+          "en": "Sync organizations"
+        },
+        "i18nName": "Sync organizations"
+      },
+      {
+        "id": "bind",
+        "name": "绑定空间",
+        "permissions": [
+          {
+            "permission": "property-space",
+            "actions": [
+              "save"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "绑定空间",
+          "en_US": "Bind space",
+          "en": "Bind space"
+        },
+        "i18nName": "Bind space"
+      },
+      {
+        "id": "spaceSync",
+        "name": "同步空间",
+        "permissions": [
+          {
+            "permission": "property-space",
+            "actions": [
+              "sync"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "同步空间",
+          "en_US": "Sync spaces",
+          "en": "Sync spaces"
+        },
+        "i18nName": "Sync spaces"
+      }
+    ],
+    "options": {
+      "show": true,
+      "appName": "report-repair-ui",
+      "meta": {
+        "componentCode": "system-management/OrganizationType"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "组织配置",
+        "en_US": "Organization configuration",
+        "en": "Organization configuration"
+      }
+    },
+    "i18nName": "Organization configuration",
     "supportDataAccess": true
   },
   {
@@ -1220,7 +1451,7 @@
     "code": "repair-e6c65912104140c688a2237037a8c0e0",
     "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "url": "/theMatterConfiguration",
-    "icon": "",
+    "icon": "SettingOutlined",
     "status": 1,
     "permissions": [],
     "accessSupport": {
@@ -1234,8 +1465,6 @@
       "legacyResourceId": "e6c65912104140c688a2237037a8c0e0",
       "previewOnly": true
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922026,
     "i18nName": "报事配置",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": false
@@ -1251,7 +1480,7 @@
     "code": "repair-3638364d5aec4302a6c7635d15f6163f",
     "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "url": "/homeStatistic",
-    "icon": "",
+    "icon": "DashboardOutlined",
     "status": 1,
     "permissions": [
       {
@@ -1278,8 +1507,6 @@
         "componentCode": "repair/Overview"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614921830,
     "i18nName": "首页统计",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": true
@@ -1336,10 +1563,359 @@
         "componentCode": "repair/Exports"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614921919,
     "i18nName": "导出管理",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
+    "supportDataAccess": true
+  },
+  {
+    "id": "repair-system-Space",
+    "parentId": "repair-system-basic",
+    "path": "4gZF-rWDS",
+    "sortIndex": 3,
+    "level": 2,
+    "owner": "app",
+    "name": "空间管理",
+    "code": "system-management/Space",
+    "url": "/repair/system/spaces",
+    "icon": "HomeOutlined",
+    "status": 1,
+    "permissions": [
+      {
+        "permission": "property-house",
+        "actions": [
+          "query"
+        ]
+      },
+      {
+        "permission": "property-space",
+        "actions": [
+          "query"
+        ]
+      },
+      {
+        "permission": "property-dictionary",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "accessSupport": {
+      "text": "Support",
+      "value": "support"
+    },
+    "assetType": "space",
+    "assetTypes": [
+      "space"
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "property-house",
+            "actions": [
+              "save"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "保存",
+          "en_US": "Save",
+          "en": "Save"
+        },
+        "i18nName": "Save"
+      },
+      {
+        "id": "delete",
+        "name": "删除",
+        "permissions": [
+          {
+            "permission": "property-house",
+            "actions": [
+              "delete"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "删除",
+          "en_US": "Delete",
+          "en": "Delete"
+        },
+        "i18nName": "Delete"
+      },
+      {
+        "id": "import",
+        "name": "导入",
+        "permissions": [
+          {
+            "permission": "property-house",
+            "actions": [
+              "import"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "导入",
+          "en_US": "Import",
+          "en": "Import"
+        },
+        "i18nName": "Import"
+      },
+      {
+        "id": "export",
+        "name": "导出",
+        "permissions": [
+          {
+            "permission": "property-house",
+            "actions": [
+              "export"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "导出",
+          "en_US": "Export",
+          "en": "Export"
+        },
+        "i18nName": "Export"
+      },
+      {
+        "id": "sync",
+        "name": "同步空间",
+        "permissions": [
+          {
+            "permission": "property-space",
+            "actions": [
+              "sync"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "同步空间",
+          "en_US": "Sync",
+          "en": "Sync"
+        },
+        "i18nName": "Sync"
+      }
+    ],
+    "options": {
+      "show": true,
+      "appName": "report-repair-ui",
+      "meta": {
+        "componentCode": "system-management/Space"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "空间管理",
+        "en_US": "Space management",
+        "en": "Space management"
+      }
+    },
+    "i18nName": "Space management",
+    "supportDataAccess": true
+  },
+  {
+    "id": "repair-system-User",
+    "parentId": "repair-system-basic",
+    "path": "4gZF-2N2r",
+    "sortIndex": 2,
+    "level": 2,
+    "owner": "app",
+    "name": "用户管理",
+    "code": "system-management/User",
+    "url": "/repair/system/users",
+    "icon": "TeamOutlined",
+    "status": 1,
+    "permissions": [
+      {
+        "permission": "property-user",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "accessSupport": {
+      "text": "Support",
+      "value": "support"
+    },
+    "assetType": "user",
+    "assetTypes": [
+      "user"
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "标注身份",
+        "permissions": [
+          {
+            "permission": "property-user",
+            "actions": [
+              "save"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "标注身份",
+          "en_US": "Set identity",
+          "en": "Set identity"
+        },
+        "i18nName": "Set identity"
+      },
+      {
+        "id": "sync",
+        "name": "同步用户",
+        "permissions": [
+          {
+            "permission": "property-user",
+            "actions": [
+              "sync"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "同步用户",
+          "en_US": "Sync users",
+          "en": "Sync users"
+        },
+        "i18nName": "Sync users"
+      }
+    ],
+    "options": {
+      "show": true,
+      "appName": "report-repair-ui",
+      "meta": {
+        "componentCode": "system-management/User"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "用户管理",
+        "en_US": "Users",
+        "en": "Users"
+      }
+    },
+    "i18nName": "Users",
+    "supportDataAccess": true
+  },
+  {
+    "id": "repair-system-Dictionary",
+    "parentId": "repair-system-basic",
+    "path": "4gZF-iYuB",
+    "sortIndex": 5,
+    "level": 2,
+    "owner": "app",
+    "name": "字典配置",
+    "code": "system-management/Dictionary",
+    "url": "/repair/system/dictionaries",
+    "icon": "BookOutlined",
+    "status": 1,
+    "permissions": [
+      {
+        "permission": "property-dictionary",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "accessSupport": {
+      "text": "Support",
+      "value": "support"
+    },
+    "assetType": "organization",
+    "assetTypes": [
+      "organization"
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "property-dictionary",
+            "actions": [
+              "save"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "保存",
+          "en_US": "Save",
+          "en": "Save"
+        },
+        "i18nName": "Save"
+      },
+      {
+        "id": "delete",
+        "name": "删除",
+        "permissions": [
+          {
+            "permission": "property-dictionary",
+            "actions": [
+              "delete"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "删除",
+          "en_US": "Delete",
+          "en": "Delete"
+        },
+        "i18nName": "Delete"
+      }
+    ],
+    "options": {
+      "show": true,
+      "appName": "report-repair-ui",
+      "meta": {
+        "componentCode": "system-management/Dictionary"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "字典配置",
+        "en_US": "Dictionaries",
+        "en": "Dictionaries"
+      }
+    },
+    "i18nName": "Dictionaries",
+    "supportDataAccess": true
+  },
+  {
+    "id": "repair-system-basic",
+    "parentId": "-1",
+    "path": "4gZF",
+    "sortIndex": 50,
+    "level": 1,
+    "owner": "app",
+    "name": "系统管理",
+    "code": "system-management/basic",
+    "url": "/repair/system",
+    "icon": "ApartmentOutlined",
+    "status": 1,
+    "permissions": [],
+    "accessSupport": {
+      "text": "Support",
+      "value": "support"
+    },
+    "assetTypes": [],
+    "buttons": [],
+    "options": {
+      "show": true,
+      "appName": "report-repair-ui",
+      "meta": {
+        "componentCode": "system-management/basic"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "系统管理",
+        "en_US": "System management",
+        "en": "System management"
+      }
+    },
+    "i18nName": "System management",
     "supportDataAccess": true
   },
   {
@@ -1367,8 +1943,6 @@
       "legacyResourceId": "6285021681eb457484ec5c32cc1b9893",
       "previewOnly": true
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922130,
     "i18nName": "承接查验",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": false
@@ -1398,8 +1972,6 @@
       "legacyResourceId": "ffce1043f61547d6aaee22c960a3be89",
       "previewOnly": true
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922141,
     "i18nName": "公区查验",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": false
@@ -1429,8 +2001,6 @@
       "legacyResourceId": "21e984d361504688b7028b5a775ff838",
       "previewOnly": true
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922153,
     "i18nName": "钥匙清单",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": false
@@ -1460,8 +2030,6 @@
       "legacyResourceId": "2f6bc3bab21f46e69d8437ea68c6acf9",
       "previewOnly": true
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614921928,
     "i18nName": "发起报事",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": false
@@ -1491,8 +2059,6 @@
       "legacyResourceId": "186e3afb199b42d1a80b06108be6211d",
       "previewOnly": true
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614921947,
     "i18nName": "报事审核详情",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": false
@@ -1508,7 +2074,7 @@
     "code": "repair-15b1f999319949428ea1e81bbac73350",
     "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "url": "/businessProcessing",
-    "icon": "",
+    "icon": "ToolOutlined",
     "status": 1,
     "permissions": [],
     "accessSupport": {
@@ -1522,8 +2088,6 @@
       "legacyResourceId": "15b1f999319949428ea1e81bbac73350",
       "previewOnly": true
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614921847,
     "i18nName": "报事处理",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": false
@@ -1553,8 +2117,6 @@
       "legacyResourceId": "8ba21f2e6aed4e52884395e3c0ff690b",
       "previewOnly": true
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614921937,
     "i18nName": "报事详情",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": false
@@ -1611,8 +2173,6 @@
         "componentCode": "repair/Configuration"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922122,
     "i18nName": "报事等级配置",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": true
@@ -1642,8 +2202,6 @@
       "legacyResourceId": "95ba1c0107da4cfe928acf91df0197ae",
       "previewOnly": true
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614921766,
     "i18nName": "报事报修",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": false
@@ -1700,8 +2258,6 @@
         "componentCode": "repair/Configuration"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922042,
     "i18nName": "报事分类配置",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": true
@@ -1758,8 +2314,6 @@
         "componentCode": "repair/Configuration"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922111,
     "i18nName": "有偿报事抽佣配置",
     "i18nDescribe": "报事报修业务配置",
     "supportDataAccess": true
@@ -1775,7 +2329,7 @@
     "code": "repair-12c861faf39e4aa88ffde83c527b8544",
     "describe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "url": "/theMatterStatistic",
-    "icon": "",
+    "icon": "BarChartOutlined",
     "status": 1,
     "permissions": [],
     "accessSupport": {
@@ -1789,8 +2343,6 @@
       "legacyResourceId": "12c861faf39e4aa88ffde83c527b8544",
       "previewOnly": false
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614921956,
     "i18nName": "报事统计",
     "i18nDescribe": "旧报事报修菜单预览；页面与接口尚未部署。",
     "supportDataAccess": false
@@ -1830,8 +2382,6 @@
         "componentCode": "repair/OperationLogs"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614922078,
     "i18nName": "操作日志",
     "i18nDescribe": "应用管理员查看当前应用全部操作日志",
     "supportDataAccess": false
@@ -1901,8 +2451,6 @@
         "componentCode": "repair/Orders"
       }
     },
-    "creatorId": "1199596756811550720",
-    "createTime": 1793614921910,
     "i18nName": "报事审核",
     "i18nDescribe": "报事审核清单及流程审核",
     "supportDataAccess": true

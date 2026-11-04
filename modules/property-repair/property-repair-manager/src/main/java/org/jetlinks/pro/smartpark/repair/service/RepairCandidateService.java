@@ -1,8 +1,7 @@
 package org.jetlinks.pro.smartpark.repair.service;
 
 import lombok.AllArgsConstructor;
-import org.jetlinks.pro.property.entity.PropertyPersonEntity;
-import org.jetlinks.pro.property.service.PropertyPersonService;
+import org.jetlinks.pro.property.base.user.PropertyUserInfo;
 import org.jetlinks.pro.smartpark.repair.entity.RepairConfigurationEntity;
 import org.jetlinks.pro.smartpark.repair.entity.RepairOrderEntity;
 import org.springframework.stereotype.Service;
@@ -15,7 +14,7 @@ import java.util.Objects;
 @Service
 @AllArgsConstructor
 public class RepairCandidateService {
-    private final PropertyPersonService people;
+    private final RepairDirectory people;
     private final RepairAssigneeService assignees;
     private final RepairOrderService orders;
 
@@ -34,14 +33,13 @@ public class RepairCandidateService {
     }
 
     public Mono<Boolean> available(String role, RepairOrderEntity order, RepairContext context) {
-        return people.createQuery().where(PropertyPersonEntity::getTenantId, context.tenantId())
-            .and(PropertyPersonEntity::getEmployee, true).and(PropertyPersonEntity::getSourceStatus, 1).fetch()
+        return people.employeesFor(order)
             .filterWhen(person -> assignees.canHandle(person, order, context, role), 8).hasElements();
     }
 
     public Mono<Void> accept(RepairOrderEntity order, RepairContext context) {
         if (order.getCandidateRoleId() == null) return Mono.empty();
-        return people.findById(context.userId())
+        return people.user(context.userId())
             .flatMap(person -> assignees.canHandle(person, order, context, order.getCandidateRoleId()))
             .defaultIfEmpty(false)
             .doOnNext(allowed -> RepairFlowRules.require(allowed, "candidate_not_eligible"))

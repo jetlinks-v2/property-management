@@ -8,8 +8,7 @@ import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.assets.scope.AssetScope;
 import org.jetlinks.pro.assets.scope.AssetScopeResolverManager;
 import org.jetlinks.pro.authorize.BusinessApplicationDimension;
-import org.jetlinks.pro.property.entity.PropertyPersonEntity;
-import org.jetlinks.pro.property.service.PropertyPersonService;
+import org.jetlinks.pro.property.base.user.PropertyUserInfo;
 import org.jetlinks.pro.smartpark.repair.asset.RepairAssetType;
 import org.jetlinks.pro.smartpark.repair.entity.RepairOrderEntity;
 import org.springframework.stereotype.Service;
@@ -19,7 +18,7 @@ import reactor.core.publisher.Mono;
 @Service @AllArgsConstructor
 public class RepairRoleService {
     private final AssetScopeResolverManager resolver;
-    private final PropertyPersonService people;
+    private final RepairDirectory people;
 
     public Mono<Boolean> eligible(String userId,String roleId,String action,RepairOrderEntity order,RepairContext context){
         if(roleId==null||roleId.isBlank())return Mono.just(false);
@@ -30,25 +29,24 @@ public class RepairRoleService {
         return permitted(userId,null,action,order,context);
     }
     private Mono<Boolean> permitted(String userId,String roleId,String action,RepairOrderEntity order,RepairContext context){
-        return people.findById(userId)
-            .filter(person->context.tenantId().equals(person.getTenantId())&&Boolean.TRUE.equals(person.getEmployee())
-                &&person.getSourceStatus()!=null&&person.getSourceStatus()==1)
-            .flatMap(person->ReactiveAuthenticationHolder.get(userId))
-            .flatMap(auth->resolver.resolve(AssetScope.of(BusinessApplicationDimension.TYPE,context.applicationId()),auth))
-            .filter(active->active.authentication().hasPermission("repair-order",action)
-                &&(roleId==null||active.authentication().getDimensions("role").stream().anyMatch(role->roleId.equals(role.getId()))))
-            .flatMap(active->AssetsHolder.fromAuth(active.authentication(),active.context()))
-            .flatMap(holder->holder.hasPermission(RepairAssetType.repairOrder,java.util.List.of(order.getId()),"query".equals(action)?CrudAssetPermission.read:CrudAssetPermission.save))
-            .defaultIfEmpty(false).onErrorReturn(AccessDenyException.class,false);
+        return people.withUser(userId, context, () -> people.user(userId)
+            .filter(person -> person.isEmployee() && person.getStatus() != null && person.getStatus() == 1)
+            .flatMap(person -> org.hswebframework.web.authorization.Authentication.currentReactive())
+            .filter(auth -> auth.hasPermission("repair-order", action)
+                && (roleId == null || auth.getDimensions("role").stream().anyMatch(role -> roleId.equals(role.getId()))))
+            .flatMap(auth -> AssetsHolder.currentReactive())
+            .flatMap(holder -> holder.hasPermission(RepairAssetType.repairOrder, java.util.List.of(order.getId()),
+                "query".equals(action) ? CrudAssetPermission.read : CrudAssetPermission.save)))
+            .defaultIfEmpty(false).onErrorReturn(AccessDenyException.class, false);
     }
+
     public Mono<Void> assertRole(String roleId,String action,RepairOrderEntity order,RepairContext context){
         return eligible(context.userId(),roleId,action,order,context)
             .flatMap(allowed->allowed?Mono.empty():Mono.error(new AccessDenyException()));
     }
     public Mono<Void> assertAvailable(String roleId,String action,RepairOrderEntity order,RepairContext context){
         RepairFlowRules.require(roleId!=null&&!roleId.isBlank(),"review_role_required");
-        return people.createQuery().where(PropertyPersonEntity::getTenantId,context.tenantId())
-            .and(PropertyPersonEntity::getEmployee,true).and(PropertyPersonEntity::getSourceStatus,1).fetch()
+        return people.employeesFor(order)
             .filterWhen(person->eligible(person.getId(),roleId,action,order,context),8).hasElements()
             .doOnNext(exists->RepairFlowRules.require(exists,"role_has_no_eligible_users")).then();
     }

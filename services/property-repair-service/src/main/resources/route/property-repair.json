@@ -1,6 +1,17 @@
 [
-  {"path": "/repair/public/qr/**", "authorize": false, "order": -20},
-  {"path": "/repair/**", "authorize": true, "order": -10},
-  {"path": "/property-data/**", "authorize": true, "order": -10},
-  {"path": "/v3/api-docs/smart-park-repair-service", "authorize": true, "order": -10}
+  {
+    "path": "/repair/public/qr/**",
+    "authorize": false,
+    "order": -20
+  },
+  {
+    "path": "/repair/**",
+    "authorize": true,
+    "order": -10
+  },
+  {
+    "path": "/v3/api-docs/smart-park-repair-service",
+    "authorize": true,
+    "order": -10
+  }
 ]
