@@ -33,6 +33,7 @@ public class DocumentRules {
                 yield new CanonicalSource("TEMP_PAYMENT", paymentId);
             }
             case "TEMP_PAYMENT" -> new CanonicalSource("TEMP_PAYMENT", sourceId);
+            case "FUND_TOPUP" -> new CanonicalSource("FUND_TOPUP", sourceId);
             default -> throw error("document_source_invalid", 400);
         };
     }
@@ -128,7 +129,8 @@ public class DocumentRules {
 
     public record CanonicalSource(String type, String id) {
         public CanonicalSource {
-            if (!Set.of("RECEIVABLE", "TEMP_PAYMENT").contains(Objects.toString(type, ""))
+            if (!Set.of("RECEIVABLE", "TEMP_PAYMENT", "FUND_TOPUP")
+                            .contains(Objects.toString(type, ""))
                     || !DocumentRules.id(id)) throw error("document_source_invalid", 400);
         }
     }

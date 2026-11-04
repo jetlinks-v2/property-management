@@ -68,6 +68,8 @@ public class FundLedger {
         entry.setAttachmentName(input.getAttachmentName());
         entry.setRequestFingerprint(fingerprint);
         entry.setInputSnapshotJson(FundRules.canonical(input));
+        if ("TOPUP".equals(entry.getAction()))
+            entry.setDocumentSnapshotJson(a.getDocumentSnapshotJson());
         entry.setAmount(delta);
         entry.setCashAmount(cash);
         entry.setBeforeBalance(a.getBalance());

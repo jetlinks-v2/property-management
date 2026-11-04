@@ -228,6 +228,16 @@ public class FundSourceService {
                                                                 + customer.relationshipVersion()
                                                                 + ":"
                                                                 + customer.customerVersion());
+                                                account.setDocumentSnapshotJson(
+                                                        JSON.toJSONString(
+                                                                java.util.Map.of(
+                                                                        "standard", standard,
+                                                                        "fundType", type,
+                                                                        "customerId",
+                                                                                customer
+                                                                                        .customerId(),
+                                                                        "relationshipId",
+                                                                                relationship)));
                                                 return account;
                                             });
                         });
@@ -324,6 +334,7 @@ public class FundSourceService {
                         account.setStandardId(candidate.getStandardId());
                         account.setStandardName(candidate.getStandardName());
                         account.setSubjectName(candidate.getSubjectName());
+                        account.setDocumentSnapshotJson(candidate.getDocumentSnapshotJson());
                     }
                     return account;
                 });

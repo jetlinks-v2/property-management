@@ -67,8 +67,8 @@ public class DocumentInputRules {
 
     private DocumentIssueInput.Item item(DocumentIssueInput.Item item, boolean invoice) {
         var type = Objects.toString(item.sourceType(), "");
-        if (!Set.of("RECEIVABLE", "RECEIVED", "TEMPORARY", "TEMP_PAYMENT").contains(type))
-            throw error("document_source_invalid", 400);
+        if (!Set.of("RECEIVABLE", "RECEIVED", "TEMPORARY", "TEMP_PAYMENT", "FUND_TOPUP")
+                .contains(type)) throw error("document_source_invalid", 400);
         var id = text(item.sourceId(), 64, true, "document_source_invalid");
         var amount = rules.amount(item.amount(), false);
         var method =

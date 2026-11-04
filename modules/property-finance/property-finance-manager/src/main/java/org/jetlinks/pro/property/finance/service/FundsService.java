@@ -253,6 +253,7 @@ public class FundsService {
                                 Objects.toString(a.getSourceIdentity(), ""),
                                 config.identity(),
                                 p.referenceIdentity(),
+                                Objects.toString(a.getDocumentSnapshotJson(), ""),
                                 p.target() == null
                                         ? ""
                                         : p.target().getId()

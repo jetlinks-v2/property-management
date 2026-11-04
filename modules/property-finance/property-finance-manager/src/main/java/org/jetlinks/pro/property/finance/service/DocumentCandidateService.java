@@ -31,6 +31,7 @@ public class DocumentCandidateService {
     private final ReactiveRepository<ReceivableEntity, String> bills;
     private final ReactiveRepository<PaymentEntity, String> payments;
     private final ReactiveRepository<PaymentAllocationEntity, String> lines;
+    private final ReactiveRepository<FundEntryEntity, String> fundEntries;
 
     public Mono<PagerResult<View>> query(
             String project, String type, Input input, LocalDateTime now) {
@@ -46,9 +47,18 @@ public class DocumentCandidateService {
                                                                     ? receivables(
                                                                             project, type, input,
                                                                             rule, now)
-                                                                    : temporary(
-                                                                            project, type, input,
-                                                                            rule, now));
+                                                                    : "FUND_TOPUP"
+                                                                                    .equals(
+                                                                                            input
+                                                                                                    .sourceType())
+                                                                            ? originalFunds(
+                                                                                    project, type,
+                                                                                    input, rule,
+                                                                                    now)
+                                                                            : temporary(
+                                                                                    project, type,
+                                                                                    input, rule,
+                                                                                    now));
                                 }))
                 .as(MonoTracer.create("property.finance.document.sources"));
     }
@@ -159,6 +169,70 @@ public class DocumentCandidateService {
                 .map(rows -> rows.stream().map(row -> view(type, row, rule, now)).toList());
     }
 
+    private Mono<PagerResult<View>> originalFunds(
+            String project,
+            String type,
+            Input input,
+            DocumentRuleService.View rule,
+            LocalDateTime now) {
+        var q = page(input);
+        q.toQuery()
+                .and("projectId", project)
+                .and("deleted", false)
+                .and("action", "TOPUP")
+                .gt("amount", 0);
+        // 客户ID来自每笔存入的不可变快照，不能关联到可变账户的当前客户或标准。
+        if (input.customerId() != null)
+            q.toQuery()
+                    .accept(
+                            SqlTerm.of(
+                                    "cast(document_snapshot_json as jsonb) ->> 'customerId' = ?",
+                                    input.customerId()));
+        if (input.companyId() != null) q.toQuery().and("companyId", input.companyId());
+        if (input.spaceIds() != null && !input.spaceIds().isEmpty())
+            q.toQuery().in("spaceId", input.spaceIds());
+        if (input.keywords() != null && !input.keywords().isBlank()) {
+            var keyword = "%" + input.keywords().trim() + "%";
+            q.toQuery()
+                    .nest()
+                    .like("fullName", keyword)
+                    .or()
+                    .like("customerName", keyword)
+                    .or()
+                    .like("subjectName", keyword)
+                    .end();
+        }
+        // 已消费原存入不再是候选。SQL只使用本财务模块的控制账，不跨基础表。
+        q.toQuery()
+                .accept(
+                        SqlTerm.of(
+                                "id in (select entry_id from pm_fin_fund_credit where project_id ="
+                                        + " ? and deleted = false and remaining_amount ="
+                                        + " original_amount)",
+                                project));
+        return visibility
+                .inject(q, CrudAssetPermission.save)
+                .flatMap(
+                        secured ->
+                                QueryHelper.transformPageResult(
+                                        QueryHelper.queryPager(secured, fundEntries::createQuery),
+                                        rows ->
+                                                views(
+                                                        project,
+                                                        type,
+                                                        rows.stream()
+                                                                .map(
+                                                                        row ->
+                                                                                new DocumentSourceService
+                                                                                        .Reference(
+                                                                                        "FUND_TOPUP",
+                                                                                        row
+                                                                                                .getId()))
+                                                                .toList(),
+                                                        rule,
+                                                        now)));
+    }
+
     private View view(
             String type,
             DocumentSourceService.Source row,
@@ -190,7 +264,8 @@ public class DocumentCandidateService {
                 row.tax().taxRate(),
                 row.tax().goodsCode(),
                 unavailable == null,
-                unavailable);
+                unavailable,
+                row.fund() == null ? null : row.fund().account().getType());
     }
 
     private static void filters(QueryParamEntity q, Input input) {
@@ -224,7 +299,7 @@ public class DocumentCandidateService {
         DocumentStore.validateType(type);
         if (input == null
                 || now == null
-                || !Set.of("RECEIVABLE", "TEMP_PAYMENT")
+                || !Set.of("RECEIVABLE", "TEMP_PAYMENT", "FUND_TOPUP")
                         .contains(Objects.toString(input.sourceType(), ""))
                 || input.companyId() != null && !id(input.companyId())
                 || input.customerId() != null && !id(input.customerId())
@@ -271,5 +346,6 @@ public class DocumentCandidateService {
             String taxRate,
             String goodsCode,
             boolean selectable,
-            String unavailableCode) {}
+            String unavailableCode,
+            String fundType) {}
 }

@@ -104,6 +104,11 @@ public class FundEntryEntity extends FinanceEntity {
     @Column(length = 12000, nullable = false)
     private String inputSnapshotJson;
 
+    /** 原始存入的客户、科目及标准税快照；内部来源使用，普通详情不暴露原始JSON。 */
+    @JsonIgnore
+    @Column(length = 16000)
+    private String documentSnapshotJson;
+
     @Column(precision = 20, scale = 2, nullable = false)
     @JsonSerialize(using = ToStringSerializer.class)
     private BigDecimal amount;

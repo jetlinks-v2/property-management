@@ -32,6 +32,8 @@ public class DocumentOccupationLedger {
     private final ReactiveRepository<ReceivableEntity, String> bills;
     private final ReactiveRepository<PaymentAllocationEntity, String> lines;
     private final ReactiveRepository<DocumentOccupationEntity, String> occupations;
+    private final ReactiveRepository<FundAccountEntity, String> fundAccounts;
+    private final ReactiveRepository<FundCreditEntity, String> fundCredits;
 
     Mono<List<DocumentOccupationEntity>> occupy(
             String project,
@@ -154,6 +156,9 @@ public class DocumentOccupationLedger {
         Mono<Void> update;
         if (source.bill() != null) {
             update = billCounter(source.bill(), amount, auth);
+        } else if (source.fund() != null) {
+            allocation.put(source.fund().entry().getId(), amount.toPlainString());
+            update = fundCounter(source, amount, auth);
         } else {
             var remaining = amount;
             for (var line : source.paymentLines()) {
@@ -200,6 +205,11 @@ public class DocumentOccupationLedger {
             if (source.bill().getInvoiceOccupiedAmount().compareTo(amount) < 0)
                 throw error("document_occupation_conflict", 409);
             update = billCounter(source.bill(), amount.negate(), auth);
+        } else if (source.fund() != null) {
+            if (!allocation(row.getAllocationJson())
+                    .equals(Map.of(source.fund().entry().getId(), amount.toPlainString())))
+                throw error("document_occupation_conflict", 409);
+            update = fundCounter(source, amount.negate(), auth);
         } else {
             // 反向操作按原逐行分配恢复，不能把另一张票据的占用从不同资金来源扣除。
             var allocation = allocation(row.getAllocationJson());
@@ -237,6 +247,97 @@ public class DocumentOccupationLedger {
                 .execute()
                 .flatMap(SubjectService::changed)
                 .then();
+    }
+
+    /** 来源和账户已持锁。多笔来源可共用账户，逐次读取当前版本，不能用各来源加载时的旧计数覆盖。 */
+    private Mono<Void> fundCounter(
+            DocumentSourceService.Source source, BigDecimal delta, Authentication auth) {
+        var fund = source.fund();
+        return fundAccounts
+                .findById(fund.account().getId())
+                .switchIfEmpty(Mono.error(error("document_occupation_conflict", 409)))
+                .flatMap(
+                        account ->
+                                fundCredits
+                                        .findById(fund.credit().getId())
+                                        .switchIfEmpty(
+                                                Mono.error(
+                                                        error("document_occupation_conflict", 409)))
+                                        .flatMap(
+                                                credit -> {
+                                                    var occupied =
+                                                            money(credit.getInvoiceOccupiedAmount())
+                                                                    .add(delta);
+                                                    var total =
+                                                            money(
+                                                                            account
+                                                                                    .getInvoiceOccupiedAmount())
+                                                                    .add(delta);
+                                                    if (!source.projectId()
+                                                                    .equals(account.getProjectId())
+                                                            || !source.projectId()
+                                                                    .equals(credit.getProjectId())
+                                                            || !account.getId()
+                                                                    .equals(credit.getAccountId())
+                                                            || Boolean.TRUE.equals(
+                                                                    account.getDeleted())
+                                                            || Boolean.TRUE.equals(
+                                                                    credit.getDeleted())
+                                                            || occupied.signum() < 0
+                                                            || occupied.compareTo(
+                                                                            money(
+                                                                                    credit
+                                                                                            .getRemainingAmount()))
+                                                                    > 0
+                                                            || total.signum() < 0
+                                                            || total.compareTo(
+                                                                            money(
+                                                                                    account
+                                                                                            .getBalance()))
+                                                                    > 0)
+                                                        return Mono.error(
+                                                                error(
+                                                                        "document_occupation_conflict",
+                                                                        409));
+                                                    return audit(
+                                                                    fundCredits.createUpdate(),
+                                                                    auth,
+                                                                    credit.getVersion())
+                                                            .set("invoiceOccupiedAmount", occupied)
+                                                            .where("id", credit.getId())
+                                                            .and("projectId", source.projectId())
+                                                            .and("version", credit.getVersion())
+                                                            .and("deleted", false)
+                                                            .execute()
+                                                            .flatMap(SubjectService::changed)
+                                                            .then(
+                                                                    audit(
+                                                                                    fundAccounts
+                                                                                            .createUpdate(),
+                                                                                    auth,
+                                                                                    account
+                                                                                            .getVersion())
+                                                                            .set(
+                                                                                    "invoiceOccupiedAmount",
+                                                                                    total)
+                                                                            .where(
+                                                                                    "id",
+                                                                                    account.getId())
+                                                                            .and(
+                                                                                    "projectId",
+                                                                                    source
+                                                                                            .projectId())
+                                                                            .and(
+                                                                                    "version",
+                                                                                    account
+                                                                                            .getVersion())
+                                                                            .and("deleted", false)
+                                                                            .execute()
+                                                                            .flatMap(
+                                                                                    SubjectService
+                                                                                            ::changed))
+                                                            .then();
+                                                }));
     }
 
     private Mono<Void> paymentCounters(

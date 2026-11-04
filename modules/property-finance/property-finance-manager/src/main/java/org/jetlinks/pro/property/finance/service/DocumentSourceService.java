@@ -32,6 +32,9 @@ public class DocumentSourceService {
     private final ReactiveRepository<ReceivableEntity, String> bills;
     private final ReactiveRepository<PaymentAllocationEntity, String> lines;
     private final ReactiveRepository<PaymentEntity, String> payments;
+    private final ReactiveRepository<FundEntryEntity, String> fundEntries;
+    private final ReactiveRepository<FundAccountEntity, String> fundAccounts;
+    private final ReactiveRepository<FundCreditEntity, String> fundCredits;
 
     Mono<List<Source>> load(String project, List<Reference> references, boolean lock) {
         return scope.project(project, CrudAssetPermission.save)
@@ -61,11 +64,12 @@ public class DocumentSourceService {
                                 Comparator.comparing(CanonicalSource::type)
                                         .thenComparing(CanonicalSource::id))
                         .toList();
-        // 先锁全部应收，再锁实收行；不能按外部输入顺序交替锁账单和支付。
+        // 公司锁之后：全部应收→实收行→按ID排序的资金账户→原存入；不按外部输入交替申请锁。
         return billRows(project, ordered, lock)
                 .flatMap(
                         rows ->
                                 Flux.fromIterable(ordered)
+                                        .filter(key -> !"FUND_TOPUP".equals(key.type()))
                                         .concatMap(
                                                 key ->
                                                         "RECEIVABLE".equals(key.type())
@@ -76,6 +80,27 @@ public class DocumentSourceService {
                                                                         lock)
                                                                 : temporary(project, key, lock))
                                         .collectList())
+                .flatMap(
+                        loaded ->
+                                lockFundAccounts(project, ordered, lock)
+                                        .thenMany(
+                                                Flux.fromIterable(ordered)
+                                                        .filter(
+                                                                key ->
+                                                                        "FUND_TOPUP"
+                                                                                .equals(key.type()))
+                                                        .concatMap(
+                                                                key ->
+                                                                        originalFund(
+                                                                                project, key,
+                                                                                lock)))
+                                        .collectList()
+                                        .map(
+                                                funds -> {
+                                                    var all = new ArrayList<>(loaded);
+                                                    all.addAll(funds);
+                                                    return all;
+                                                }))
                 .map(
                         loaded -> {
                             var indexed = new HashMap<CanonicalSource, Source>();
@@ -93,6 +118,8 @@ public class DocumentSourceService {
                 || !reference.id().equals(reference.id().trim()))
             return Mono.error(error("document_source_invalid", 400));
         return switch (reference.type()) {
+            case "FUND_TOPUP" ->
+                    Mono.just(rules.canonical("FUND_TOPUP", reference.id(), null, null));
             case "RECEIVABLE" ->
                     Mono.just(rules.canonical("RECEIVABLE", reference.id(), null, null));
             case "RECEIVED" ->
@@ -227,7 +254,8 @@ public class DocumentSourceService {
                                                             paidAt.orElse(null),
                                                             row,
                                                             receipts,
-                                                            row.getSnapshotJson()));
+                                                            row.getSnapshotJson(),
+                                                            null));
                         });
     }
 
@@ -291,10 +319,180 @@ public class DocumentSourceService {
                         paidAt(payment),
                         null,
                         receipts,
-                        payment.getSourceSnapshotJson());
+                        payment.getSourceSnapshotJson(),
+                        null);
         return AssetsHolder.assertPermission(
                         AssetType.of("space"), first.getSpaceId(), CrudAssetPermission.save)
                 .thenReturn(source);
+    }
+
+    /** 原存入只用持久快照，客户搬离、标准改名或停用都不替换历史。账户锁和资金动作共用。 */
+    private Mono<Source> originalFund(String project, CanonicalSource key, boolean lock) {
+        return fundEntries
+                .createQuery()
+                .where("id", key.id())
+                .and("projectId", project)
+                .and("deleted", false)
+                .fetchOne()
+                .switchIfEmpty(Mono.error(error("document_source_not_found", 404)))
+                .flatMap(
+                        entry -> {
+                            if (!"TOPUP".equals(entry.getAction())
+                                    || entry.getAmount().signum() <= 0
+                                    || entry.getAmount().compareTo(entry.getCashAmount()) != 0
+                                    || !org.jetlinks.pro.property.finance.payment.PaymentRules
+                                            .MANUAL_METHODS
+                                            .contains(entry.getMethod()))
+                                return Mono.error(error("document_source_blocked", 409));
+                            var q = new QueryParamEntity();
+                            q.setForUpdate(lock);
+                            var creditQuery = new QueryParamEntity();
+                            creditQuery.setForUpdate(lock);
+                            return AssetsHolder.assertPermission(
+                                            AssetType.of("space"),
+                                            entry.getSpaceId(),
+                                            CrudAssetPermission.save)
+                                    .then(
+                                            fundAccounts
+                                                    .createQuery()
+                                                    .setParam(q)
+                                                    .where("id", entry.getAccountId())
+                                                    .and("projectId", project)
+                                                    .and("deleted", false)
+                                                    .fetchOne())
+                                    .switchIfEmpty(
+                                            Mono.error(
+                                                    error("document_source_snapshot_invalid", 409)))
+                                    .flatMap(
+                                            account ->
+                                                    fundCredits
+                                                            .createQuery()
+                                                            .setParam(creditQuery)
+                                                            .where("id", entry.getId())
+                                                            .and("entryId", entry.getId())
+                                                            .and("accountId", account.getId())
+                                                            .and("projectId", project)
+                                                            .and("deleted", false)
+                                                            .fetchOne()
+                                                            .switchIfEmpty(
+                                                                    Mono.error(
+                                                                            error(
+                                                                                    "document_source_snapshot_invalid",
+                                                                                    409)))
+                                                            .map(
+                                                                    credit ->
+                                                                            fundSource(
+                                                                                    key, entry,
+                                                                                    account,
+                                                                                    credit)));
+                        });
+    }
+
+    /** 不同存入可归属同一账户，账户锁必须按账户ID排序，不能由票据选择顺序决定。 */
+    private Mono<Void> lockFundAccounts(String project, List<CanonicalSource> keys, boolean lock) {
+        if (!lock) return Mono.empty();
+        return Flux.fromIterable(keys)
+                .filter(key -> "FUND_TOPUP".equals(key.type()))
+                .concatMap(
+                        key ->
+                                fundEntries
+                                        .createQuery()
+                                        .where("id", key.id())
+                                        .and("projectId", project)
+                                        .and("deleted", false)
+                                        .fetchOne()
+                                        .switchIfEmpty(
+                                                Mono.error(
+                                                        error("document_source_not_found", 404))))
+                .map(FundEntryEntity::getAccountId)
+                .distinct()
+                .sort()
+                .concatMap(
+                        id -> {
+                            var q = new QueryParamEntity();
+                            q.setForUpdate(true);
+                            return fundAccounts
+                                    .createQuery()
+                                    .setParam(q)
+                                    .where("id", id)
+                                    .and("projectId", project)
+                                    .and("deleted", false)
+                                    .fetchOne()
+                                    .switchIfEmpty(
+                                            Mono.error(
+                                                    error("document_source_snapshot_invalid", 409)))
+                                    .flatMap(
+                                            account ->
+                                                    AssetsHolder.assertPermission(
+                                                            AssetType.of("space"),
+                                                            account.getSpaceId(),
+                                                            CrudAssetPermission.save));
+                        })
+                .then();
+    }
+
+    private Source fundSource(
+            CanonicalSource key,
+            FundEntryEntity entry,
+            FundAccountEntity account,
+            FundCreditEntity credit) {
+        var standard = frozenStandard(entry.getDocumentSnapshotJson());
+        var tax = tax(standard);
+        text(standard.getId());
+        text(standard.getSubjectId());
+        String type, customer;
+        try {
+            var snapshot = JSON.parseObject(entry.getDocumentSnapshotJson());
+            type = text(snapshot.getString("fundType"));
+            customer = text(snapshot.getString("customerId"));
+        } catch (RuntimeException invalid) {
+            throw error("document_source_snapshot_invalid", 409);
+        }
+        var amount = nonnegative(entry.getAmount());
+        var occupied = nonnegative(credit.getInvoiceOccupiedAmount());
+        if (!Set.of("ADVANCE", "DEPOSIT").contains(type)
+                || !type.equals(account.getType())
+                || !customer.equals(account.getCustomerId())
+                || !entry.getSpaceId().equals(account.getSpaceId())
+                || !entry.getCompanyId().equals(account.getCompanyId())
+                || !entry.getCompanyId().equals(tax.companyId())
+                || !standard.getSubjectId().equals(account.getSubjectId())
+                || amount.compareTo(nonnegative(credit.getOriginalAmount())) != 0
+                || occupied.compareTo(amount) > 0
+                || occupied.compareTo(nonnegative(account.getInvoiceOccupiedAmount())) > 0)
+            throw error("document_source_snapshot_invalid", 409);
+        // 消费、退款、划转后不得把账户其他存入当作本笔可开额度；历史占用仍可准确释放。
+        if (amount.compareTo(nonnegative(credit.getRemainingAmount())) != 0)
+            throw error("document_source_blocked", 409);
+        LocalDateTime paidAt;
+        try {
+            paidAt = LocalDateTime.parse(entry.getOccurredAt());
+        } catch (RuntimeException invalid) {
+            throw error("document_source_snapshot_invalid", 409);
+        }
+        return new Source(
+                key,
+                entry.getProjectId(),
+                entry.getSpaceId(),
+                entry.getFullName(),
+                customer,
+                entry.getCustomerName(),
+                standard.getSubjectId(),
+                entry.getSubjectName(),
+                standard.getId(),
+                entry.getStandardName(),
+                null,
+                null,
+                tax,
+                amount,
+                amount,
+                occupied,
+                rules.available(amount, occupied),
+                paidAt,
+                null,
+                List.of(),
+                entry.getDocumentSnapshotJson(),
+                new FundSource(entry, account, credit));
     }
 
     private static void assertBillLine(ReceivableEntity bill, PaymentAllocationEntity line) {
@@ -489,5 +687,8 @@ public class DocumentSourceService {
             LocalDateTime paidAt,
             ReceivableEntity bill,
             List<PaymentAllocationEntity> paymentLines,
-            String snapshotJson) {}
+            String snapshotJson,
+            FundSource fund) {}
+
+    record FundSource(FundEntryEntity entry, FundAccountEntity account, FundCreditEntity credit) {}
 }

@@ -25,6 +25,9 @@ import javax.persistence.*;
 public class FundAccountEntity extends FinanceEntity {
     @Transient @com.fasterxml.jackson.annotation.JsonIgnore private String sourceIdentity;
 
+    /** 本次存入的可信资料，随流水冻结；不落入可变账户，也不接收客户端覆盖。 */
+    @Transient @com.fasterxml.jackson.annotation.JsonIgnore private String documentSnapshotJson;
+
     @Column(length = 64, nullable = false)
     private String projectId;
 

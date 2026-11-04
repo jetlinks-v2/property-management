@@ -238,6 +238,10 @@ public class DocumentPreparationService {
         marker.put("paid", source.paidAmount().toPlainString());
         marker.put("occupied", source.occupiedAmount().toPlainString());
         marker.put("version", source.bill() == null ? null : source.bill().getVersion());
+        if (source.fund() != null) {
+            marker.put("creditVersion", source.fund().credit().getVersion());
+            marker.put("remaining", source.fund().credit().getRemainingAmount().toPlainString());
+        }
         marker.put(
                 "lines",
                 source.paymentLines().stream()
