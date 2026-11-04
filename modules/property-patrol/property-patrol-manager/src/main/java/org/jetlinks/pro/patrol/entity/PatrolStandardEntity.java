@@ -30,7 +30,14 @@ import javax.persistence.Table;
 @EnableEntityEvent
 @Table(name = "pt_standard")
 @Asset(type = "patrolStandard")
-public class PatrolStandardEntity extends PatrolConfigEntity {
+public class PatrolStandardEntity extends PatrolRemovableConfigEntity {
+    /** 旧巡更标准名称最多 30 字；保留历史列宽，不截断已有名称。 */
+    @Override
+    @Size(max = 30)
+    public String getName() {
+        return super.getName();
+    }
+
     @Column
     @JsonCodec
     @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)
@@ -44,7 +51,7 @@ public class PatrolStandardEntity extends PatrolConfigEntity {
     /** 历史任务保存完整标准；缺少 type 的已部署选项标准仍按 choice 解释。 */
     public record CheckItem(
             @NotBlank @Size(max = 64) String id,
-            @NotBlank @Size(max = 128) String title,
+            @NotBlank @Size(max = 200) String title,
             boolean required,
             @Size(max = 50) List<@NotBlank @Size(max = 128) String> options,
             ItemType type,

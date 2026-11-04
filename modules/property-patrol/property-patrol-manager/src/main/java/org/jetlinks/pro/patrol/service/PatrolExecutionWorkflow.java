@@ -46,7 +46,9 @@ public class PatrolExecutionWorkflow {
             String taskId,
             String requestId,
             List<PatrolExecutionEntity.Answer> answers,
-            String remark) {}
+            String remark,
+            Long collectedTime,
+            PatrolExecutionEntity.NetworkStatus networkStatus) {}
 
     public Mono<PatrolExecutionEntity> submit(Submission submission) {
         return ReactiveAuthenticationHolder.get()
@@ -98,7 +100,9 @@ public class PatrolExecutionWorkflow {
             PatrolExecutionEntity record, Submission submission) {
         if (!record.getTaskId().equals(submission.taskId())
                 || !Objects.equals(record.getAnswers(), submission.answers())
-                || !Objects.equals(record.getRemark(), submission.remark()))
+                || !Objects.equals(record.getRemark(), submission.remark())
+                || !Objects.equals(record.getCollectedTime(), submission.collectedTime())
+                || !Objects.equals(record.getNetworkStatus(), submission.networkStatus()))
             return Mono.error(new BusinessException("error.patrol.execution.idempotency_conflict"));
         return Mono.just(record);
     }
@@ -235,6 +239,12 @@ public class PatrolExecutionWorkflow {
         record.setBelongDate(task.getBelongDate());
         record.setPeriodNo(task.getPeriodNo());
         record.setRuleVersion(task.getRuleVersion());
+        record.setPeriodStartTime(task.getStartTime());
+        record.setPeriodEndTime(task.getEndTime());
+        record.setCategoryId(task.getCategoryId());
+        record.setCategoryName(task.getCategoryName());
+        record.setLevelId(task.getLevelId());
+        record.setLevelName(task.getLevelName());
         record.setPlanId(task.getPlanId());
         record.setPointId(task.getPointId());
         record.setPointName(task.getPointName());
@@ -242,6 +252,8 @@ public class PatrolExecutionWorkflow {
         record.setUserName(auth.getUser().getName());
         record.setRequestId(submission.requestId());
         record.setReceiveTime(now.toEpochMilli());
+        record.setCollectedTime(submission.collectedTime());
+        record.setNetworkStatus(submission.networkStatus());
         record.setRemark(submission.remark());
         record.setAnswers(List.copyOf(submission.answers()));
         record.setStandardSnapshot(task.getStandardSnapshot());

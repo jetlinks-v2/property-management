@@ -6,6 +6,7 @@ import org.jetlinks.pro.assets.annotation.Asset;
 import javax.persistence.Table;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import javax.persistence.Column;
 
 /** 巡更内部异常预警配置，通过应用资产边界授权并以停用保留历史。 */
@@ -14,7 +15,14 @@ import javax.persistence.Column;
 @EnableEntityEvent
 @Table(name = "pt_warning")
 @Asset(type = "patrolWarning")
-public class PatrolWarningEntity extends PatrolConfigEntity {
+public class PatrolWarningEntity extends PatrolRemovableConfigEntity {
+    /** 与原预警名称的 30 字输入限制一致，不改变历史列宽。 */
+    @Override
+    @Size(max = 30)
+    public String getName() {
+        return super.getName();
+    }
+
     /** 与原 PatrolAbnormalWarningServiceImpl 的分类、条件保持一致。 */
     @Column(length = 16, nullable = false)
     @NotBlank

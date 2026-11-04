@@ -8,6 +8,33 @@ import java.time.LocalDate;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PatrolDateCodecTest {
+    @Test void productionPropertyOperatorPreservesInspectionAnswers() {
+        new PatrolJsonMetadataCustomizer(new com.fasterxml.jackson.databind.ObjectMapper())
+                .registerBusinessDateConverter();
+        var previous = org.hswebframework.ezorm.core.GlobalConfig.getPropertyOperator();
+        try {
+            var properties = new org.jetlinks.pro.configure.crud.FastObjectPropertyOperator();
+            var record = new org.jetlinks.pro.patrol.entity.PatrolExecutionEntity();
+            var answers = java.util.List.of(
+                    new org.jetlinks.pro.patrol.entity.PatrolExecutionEntity.Answer("choice", "正常"),
+                    new org.jetlinks.pro.patrol.entity.PatrolExecutionEntity.Answer("number", "0.35"));
+            properties.setProperty(record, "answers", answers);
+            assertEquals(answers, record.getAnswers());
+
+        } finally {
+            org.hswebframework.ezorm.core.GlobalConfig.setPropertyOperator(previous);
+        }
+    }
+    @Test void answerJsonContractRemainsCompatibleWithStoredHistory() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        String json = "{\"itemId\":\"number\",\"value\":\"0.35\",\"attachmentId\":\"photo\"}";
+        var answer = mapper.readValue(json, org.jetlinks.pro.patrol.entity.PatrolExecutionEntity.Answer.class);
+        assertEquals("0.35", answer.value());
+        var encoded = mapper.readTree(mapper.writeValueAsString(answer));
+        assertEquals(mapper.readTree(json), encoded);
+        assertFalse(encoded.has("answerValue"));
+    }
+
     @Test void productionPropertyOperatorPreservesImmutableBusinessDates() {
         new PatrolJsonMetadataCustomizer(new com.fasterxml.jackson.databind.ObjectMapper())
                 .registerBusinessDateConverter();

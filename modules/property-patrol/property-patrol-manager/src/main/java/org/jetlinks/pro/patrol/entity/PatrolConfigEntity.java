@@ -35,6 +35,13 @@ public abstract class PatrolConfigEntity extends ExtendableEntity<String>
     @Column(length = 64, updatable = false)
     private String creatorId;
 
+    /** 操作时的可信姓名快照；历史缺失留空，不按当前人员名称回填。 */
+    @Column(length = 128, updatable = false)
+    private String creatorName;
+
+    @Column(length = 128)
+    private String modifierName;
+
     @Column(updatable = false)
     private Long createTime;
 
