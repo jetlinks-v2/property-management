@@ -188,19 +188,26 @@ public class PrepayQuoteSource {
                                     .then(activitySource.spaces(project))
                                     .map(
                                             spaces -> {
-                                                var parents = new HashMap<String, String>();
-                                                for (var space : spaces)
-                                                    parents.put(space.id(), space.parentId());
-                                                var seen = new HashSet<String>();
-                                                String cursor = setting.getSpaceId();
-                                                while (cursor != null && seen.add(cursor)) {
-                                                    if (config.getTargetIds().contains(cursor))
-                                                        return Optional.of(row);
-                                                    cursor = parents.get(cursor);
-                                                }
+                                                if (covers(
+                                                        setting.getSpaceId(),
+                                                        config.getTargetIds(),
+                                                        spaces)) return Optional.of(row);
                                                 throw error("prepay_activity_invalid", 409);
                                             });
                         });
+    }
+
+    /** 选项和确认共用真实父ID范围判定，不按路径文本或固定楼栋/楼层层级猜测。 */
+    static boolean covers(String space, List<String> targets, List<PropertySpaceInfo> spaces) {
+        var parents = new HashMap<String, String>();
+        for (var node : spaces) parents.put(node.id(), node.parentId());
+        var seen = new HashSet<String>();
+        String cursor = space;
+        while (cursor != null && seen.add(cursor)) {
+            if (targets.contains(cursor)) return true;
+            cursor = parents.get(cursor);
+        }
+        return false;
     }
 
     private Mono<List<ReceivableEntity>> rows(HouseSettingEntity setting) {

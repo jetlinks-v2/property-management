@@ -36,6 +36,8 @@ psql -h <数据库地址> -p <端口> -U <用户名> -d <数据库> -W -v ON_ERR
 
 柜台预缴报价位于 `/property/finance/projects/{projectId}/cashier/prepay/quotes`，`POST` 创建、`GET /{id}` 恢复原报价，复用 `property-finance-cashier:collect`。请求仅含 `requestId/settingId/payerRelationshipId/activityId/paidMonths/giftMonths`；普通预缴不传活动且赠送月数为0，活动档位必须匹配服务器配置。报价使用算费任务配置的业务时区，不接收客户端金额或业务日期。
 
+`GET /property/finance/projects/{projectId}/cashier/prepay/_options?spaceId=...` 同样使用柜台 `collect` 权限，返回当前房屋有效收费设置、冻结公司和结算方式、当前所选付款人以及适用的未消费活动/档位。该接口不借用收费设置、活动维护权限，不返回原始快照、来源账号或其他房屋客户；停用、未下发、关系已结束、超出优惠空间及已消费活动不作为候选。单房屋超过200条有效设置或500项匹配活动时明确返回错误，避免静默截断。
+
 报价保存十分钟，只允许原操作员在仍有项目、房屋写权限时读取；同请求重试恢复冻结结果，更换内容复用请求号返回409。金额、逐期日期和优惠通过字符串返回，完整计费与来源版本快照仅在后端保存，不开放通用编辑和删除接口。报价不生成应收、支付或活动消费，也不占用活动参与资格。
 
 `POST /{id}/_confirm` 由柜台人工确认收款，请求为 `requestId/version/companyId/paidAt/tenders/remark/attachmentName/attachmentFileId`。支付方式和入账配置复用普通柜台规则，合计必须等于报价实收；房屋、付款人、活动及账期版本变化、过期或跨业务日的未确认报价返回409。确认按基础、公司、科目/设置、活动、应收、报价的顺序加锁，同一事务生成缺少的未来应收、应用逐期优惠、写实收及核销、占用活动资格并确认报价；任何一步失败整体回滚。确认后使用原请求重试可恢复原实收，查询报价返回 `paymentId`；重复确认不会生成第二笔支付。
