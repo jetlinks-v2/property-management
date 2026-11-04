@@ -130,6 +130,14 @@ property:
 
 内部票据账本保存每张票据对各规范来源的占用事实，与来源计数和票据主单必须处于同一事务。相同请求重放不重复占用，金额或来源变化拒绝；作废、红冲按原分配释放一次并保留原因及操作者。临时款逐支付行保存占用分配，释放时恢复原行，不能挪用其他票据额度。有效占用仍沿应收和实收原有保护阻止退款。本账本不单独开放预约额度接口，也不代表已接入真实税务开票通道。
 
+### 开票规则与预览
+
+`GET /property/finance/projects/{projectId}/document-rule` 查询项目开票规则；`PUT` 携带 `version`、`timeLimitType`、`limitDays`、`maxReopenTimes`、`reason` 保存，版本冲突返回409，修改与日志同事务。未配置时返回自然年时效、最大重开0次和空版本，首次保存提交空版本；自定义天数须为1至36500，重开上限为空表示不限次数。切回自然年会清空原天数。规则不提供删除接口，红冲释放与重新开具的次数限制分别处理。
+
+`POST /property/finance/projects/{projectId}/invoices/_preview` 与 `/receipts/_preview` 分别使用发票、收据的 `create` 动作权限，校验项目和空间资产。请求包含 `documentType`、`companyId`、`buyer`、`invoiceType`、`remark`、`items`；发票类型1为普票、2为专票，专票需购方税号，收据不提交发票类型。每行提交 `sourceType`、`sourceId`、`amount`、`collectionMethod`、`differenceAmount`、`voucher`。全额征收不提交凭证；差额征收必须提交合法扣除凭证、日期、足额金额和附件。所有金额以字符串传输，后台计算税率、税额和销方资料，不能由前端覆盖。
+
+预览返回逐行金额、税额、购销方快照、开具场景和 `token`，不写票据、不占额度。批量来源须同项目、客户和销方快照；已收款发票受项目时效约束，未收应收保留先票后款。来源、版本、可用额度、规则或业务日变化会使预览指纹变化，正式开具须复算核对。流程审批、APP申请、诺诺通道和收银台开票入口不在这些接口内。
+
 ## 应收管理
 
 应收接口位于 `/property/finance/projects/{projectId}/receivables`，查询与操作同时校验项目和空间资产权限。账单以已出账的房屋、客户和计费快照显示，客户结束关联不替换历史收费客户。

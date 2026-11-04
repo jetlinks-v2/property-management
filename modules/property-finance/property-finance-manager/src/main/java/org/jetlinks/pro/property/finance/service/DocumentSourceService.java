@@ -75,7 +75,14 @@ public class DocumentSourceService {
                                                                         rows.get(key.id()),
                                                                         lock)
                                                                 : temporary(project, key, lock))
-                                        .collectList());
+                                        .collectList())
+                .map(
+                        loaded -> {
+                            var indexed = new HashMap<CanonicalSource, Source>();
+                            for (var source : loaded) indexed.put(source.canonical(), source);
+                            // 对外结果与输入对应，内部加锁仍按规范来源排序，不能将金额串到其他行。
+                            return keys.stream().map(indexed::get).toList();
+                        });
     }
 
     private Mono<CanonicalSource> resolve(String project, Reference reference) {
