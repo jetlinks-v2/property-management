@@ -297,6 +297,15 @@ public class StandardService {
             StandardEntity next, Authentication auth, List<VariableDefinition> used) {
         next.setId(UUID.randomUUID().toString());
         init(next, auth);
+        // 沿用科目编码规则，编码只在创建时生成，由项目内唯一约束兜底。
+        next.setStandardCode(
+                "BZ"
+                        + UUID.randomUUID()
+                                .toString()
+                                .replace("-", "")
+                                .substring(0, 16)
+                                .toUpperCase(Locale.ROOT));
+        next.setCodeKey(next.getStandardCode().toLowerCase(Locale.ROOT));
         next.setFormulaVersion(0L);
         return standards.insert(next).then(replaceReferences(next.getId(), used)).thenReturn(next);
     }
@@ -309,6 +318,7 @@ public class StandardService {
             List<VariableDefinition> used) {
         if (!Objects.equals(old.getVersion(), version))
             return Mono.error(error("version_conflict", 409));
+        // 编码为稳定身份，旧客户端传入的编码及人工历史编码都不参与普通编辑。
         next.setFormulaVersion(old.getFormulaVersion() + 1);
         var update = audit(standards.createUpdate(), auth, version);
         var wrapper = new BeanWrapperImpl(next);
@@ -317,6 +327,8 @@ public class StandardService {
             if (property.getWriteMethod() == null
                     || List.of(
                                     "id",
+                                    "standardCode",
+                                    "codeKey",
                                     "version",
                                     "deleted",
                                     "deletedTime",

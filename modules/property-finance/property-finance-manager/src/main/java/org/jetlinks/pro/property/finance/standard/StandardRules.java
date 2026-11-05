@@ -31,10 +31,8 @@ public final class StandardRules {
     public static StandardEntity validate(StandardInput input) {
         if (input == null) throw error("standard_invalid", 400);
         var next = new StandardEntity();
-        BeanUtils.copyProperties(input, next, "price", "rateAmount", "version");
-        next.setStandardCode(text(input.getStandardCode(), 60, true));
+        BeanUtils.copyProperties(input, next, "price", "rateAmount", "version", "standardCode");
         next.setStandardName(text(input.getStandardName(), 30, true));
-        next.setCodeKey(next.getStandardCode().toLowerCase(Locale.ROOT));
         next.setNameKey(next.getStandardName().toLowerCase(Locale.ROOT));
         next.setSubjectId(text(input.getSubjectId(), 64, true));
         next.setCompanyId(text(input.getCompanyId(), 64, true));

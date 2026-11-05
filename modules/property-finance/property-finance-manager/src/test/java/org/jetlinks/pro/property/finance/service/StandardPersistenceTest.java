@@ -168,7 +168,7 @@ class StandardPersistenceTest {
     @Test
     void concurrentUniquenessAndCasAreEnforcedByActualPersistence() {
         var first = input("S1", "标准");
-        var duplicate = input("s1", "另一名称");
+        var duplicate = input("s1", "标准");
         var results =
                 Flux.merge(
                                 service.create(projectId, first).materialize(),
@@ -205,7 +205,45 @@ class StandardPersistenceTest {
         conflict(service.delete(projectId, saved.getId(), 0L), 409);
         var current = service.detail(projectId, saved.getId()).contextWrite(auth()).block(WAIT);
         service.delete(projectId, saved.getId(), 1L).contextWrite(auth()).block(WAIT);
-        conflict(service.create(projectId, input(current.getStandardCode(), "不能重建历史编码")), 409);
+        var recreated =
+                service.create(projectId, input(current.getStandardCode(), "重新建档"))
+                        .contextWrite(auth())
+                        .block(WAIT);
+        assertNotEquals(current.getStandardCode(), recreated.getStandardCode());
+        assertTrue(standardRows.findById(saved.getId()).block(WAIT).getDeleted());
+    }
+
+    @Test
+    void concurrentCreationGeneratesIndependentCodesAndEditingWithoutCodePreservesIdentity() {
+        var inputs = List.of(input("USER-CODE", "自动编码甲"), input("USER-CODE", "自动编码乙"));
+        var rows =
+                Flux.fromIterable(inputs)
+                        .flatMap(input -> service.create(projectId, input))
+                        .contextWrite(auth())
+                        .collectList()
+                        .block(WAIT);
+        assertEquals(2, rows.size());
+        assertEquals(2, rows.stream().map(StandardView::getStandardCode).distinct().count());
+        for (var row : rows) {
+            assertTrue(row.getStandardCode().matches("BZ[A-F0-9]{16}"));
+            assertEquals(
+                    row.getStandardCode().toLowerCase(Locale.ROOT),
+                    standardRows.findById(row.getId()).block(WAIT).getCodeKey());
+        }
+        var row = rows.get(0);
+        // 老数据的人工编码同样保留，普通编辑不能重新生成或清空。
+        standardRows
+                .createUpdate()
+                .set("standardCode", "OLD-001")
+                .set("codeKey", "old-001")
+                .where("id", row.getId())
+                .execute()
+                .block(WAIT);
+        var edit = input(null, row.getStandardName());
+        edit.setVersion(row.getVersion());
+        var saved = service.update(projectId, row.getId(), edit).contextWrite(auth()).block(WAIT);
+        assertEquals("OLD-001", saved.getStandardCode());
+        assertEquals("old-001", standardRows.findById(row.getId()).block(WAIT).getCodeKey());
     }
 
     @Test
@@ -361,7 +399,9 @@ class StandardPersistenceTest {
         try (var workbook =
                 org.apache.poi.ss.usermodel.WorkbookFactory.create(
                         new java.io.ByteArrayInputStream(bytes))) {
-            assertEquals("S1", workbook.getSheetAt(0).getRow(1).getCell(0).getStringCellValue());
+            assertEquals(
+                    saved.getStandardCode(),
+                    workbook.getSheetAt(0).getRow(1).getCell(0).getStringCellValue());
             assertEquals("面积", workbook.getSheetAt(0).getRow(1).getCell(3).getStringCellValue());
             assertEquals("分", workbook.getSheetAt(0).getRow(1).getCell(6).getStringCellValue());
             assertEquals("按月", workbook.getSheetAt(0).getRow(1).getCell(8).getStringCellValue());
@@ -484,7 +524,7 @@ class StandardPersistenceTest {
                         .controllerAdvice(new TaxItemPersistenceTest.HttpErrors())
                         .webFilter((exchange, chain) -> chain.filter(exchange).contextWrite(auth()))
                         .build();
-        var input = input("HTTP", "HTTP标准");
+        var input = input(null, "HTTP标准");
         input.setPrice("999999999999999999.99");
         var saved =
                 client.post()
@@ -516,6 +556,23 @@ class StandardPersistenceTest {
                 .exchange()
                 .expectStatus()
                 .isEqualTo(409);
+        var originalCode =
+                service.detail(projectId, id).contextWrite(auth()).block(WAIT).getStandardCode();
+        assertTrue(originalCode.matches("BZ[A-F0-9]{16}"));
+        input.setVersion(0L);
+        input.setStandardCode("FORGED-CODE");
+        client.put()
+                .uri(base() + "/" + id)
+                .bodyValue(input)
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody()
+                .jsonPath("$.standardCode")
+                .isEqualTo(originalCode);
+        assertEquals(
+                originalCode.toLowerCase(Locale.ROOT),
+                standardRows.findById(id).block(WAIT).getCodeKey());
         client.delete().uri(base() + "/" + id).exchange().expectStatus().isBadRequest();
         client.post()
                 .uri(base() + "/formula/_validate")

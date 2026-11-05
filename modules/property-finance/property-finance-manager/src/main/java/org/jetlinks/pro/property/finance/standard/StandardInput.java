@@ -7,7 +7,9 @@ import lombok.Setter;
 @Getter
 @Setter
 public class StandardInput {
+    /** 仅兼容旧请求字段；创建由后端生成，编辑始终保留原编码。 */
     private String standardCode;
+
     private String standardName;
     private String subjectId;
     private String billingMethod;
