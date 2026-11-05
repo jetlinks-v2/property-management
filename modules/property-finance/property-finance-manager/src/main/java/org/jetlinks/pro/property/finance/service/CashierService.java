@@ -24,6 +24,7 @@ import reactor.core.publisher.*;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 
 /** 柜台人工收款；在线支付和余额支付不接受人工成功标记，后续由各自可核验通道进入账本。 */
@@ -32,6 +33,7 @@ import java.util.*;
 public class CashierService {
     private static final AssetType SPACE = AssetType.of("space");
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final CashierConfiguration configuration;
     private final HouseArchiveSource archive;
     private final PaymentRules rules;
@@ -182,11 +184,20 @@ public class CashierService {
                                                     .switchIfEmpty(
                                                             Mono.defer(
                                                                     () ->
-                                                                            // 客户关系命令先锁基础项目，再锁公司和账单，避免与档案/拆分的锁顺序相反。
-                                                                            payer(
+                                                                            // 先锁财务期间，再锁基础项目、公司和账单；已成功请求在外层优先恢复。
+                                                                            periodGate
+                                                                                    .assertOpen(
                                                                                             project,
-                                                                                            input,
-                                                                                            true)
+                                                                                            LocalDateTime
+                                                                                                    .parse(
+                                                                                                            input
+                                                                                                                    .getPaidAt())
+                                                                                                    .toLocalDate())
+                                                                                    .then(
+                                                                                            payer(
+                                                                                                    project,
+                                                                                                    input,
+                                                                                                    true))
                                                                                     .flatMap(
                                                                                             payer ->
                                                                                                     configuration
