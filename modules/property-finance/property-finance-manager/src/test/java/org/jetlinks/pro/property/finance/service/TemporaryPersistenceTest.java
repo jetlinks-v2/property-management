@@ -97,6 +97,31 @@ class TemporaryPersistenceTest {
                 .block(WAIT);
     }
 
+    @Autowired FinancialPeriodTestSupport periods;
+
+    @Test
+    void closedPeriodBlocksNewTemporaryCollectionButRecoversOriginalReceipt() {
+        var original = request(input());
+        var result =
+                service.collect(project, original, DATE)
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT);
+        var next = request(input());
+        periods.close(project, DATE).contextWrite(fixture.allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                service.collect(project, next, DATE).contextWrite(fixture.allowed()));
+        assertEquals(
+                result.payment().getId(),
+                service.collect(project, original, DATE)
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT)
+                        .payment()
+                        .getId());
+        assertEquals(1, payments.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(2, lines.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
     @Test
     void mixedReceiptHasNoBillAndKeepsHistoricalSnapshots() {
         var result = collect(input());

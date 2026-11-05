@@ -576,6 +576,7 @@ class StandardPersistenceTest {
         FormulaVariableService.class,
         StandardService.class,
         FinancialPeriodGate.class,
+        FinancialPeriodTestSupport.class,
         ChargeFormulaParser.class
     })
     @ImportAutoConfiguration({

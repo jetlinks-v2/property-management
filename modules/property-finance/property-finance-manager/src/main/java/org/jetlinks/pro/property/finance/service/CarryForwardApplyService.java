@@ -37,6 +37,7 @@ import java.util.*;
 public class CarryForwardApplyService {
     private static final BigDecimal ZERO = new BigDecimal("0.00");
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final HouseArchiveSource archive;
     private final FundSourceService sources;
     private final CashierConfiguration configuration;
@@ -81,25 +82,27 @@ public class CarryForwardApplyService {
                                         r.accountId(),
                                         r.occurredAt(),
                                         date.toString())));
-        return existing(project, id, fingerprint)
-                .switchIfEmpty(
-                        Mono.defer(
-                                () ->
-                                        lockedPlan(project, r.planId())
-                                                .flatMap(
-                                                        plan ->
-                                                                existing(project, id, fingerprint)
-                                                                        .switchIfEmpty(
-                                                                                Mono.defer(
-                                                                                        () ->
-                                                                                                prepare(
-                                                                                                        project,
-                                                                                                        r,
-                                                                                                        date,
-                                                                                                        plan,
-                                                                                                        id,
-                                                                                                        fingerprint,
-                                                                                                        auth))))));
+        // 先锁期间再锁计划/应收，包含零资金的纯减免；嵌套资金入口沿用本事务的期间锁。
+        return periodGate.inOpenPeriod(
+                project,
+                LocalDateTime.parse(r.occurredAt()).toLocalDate(),
+                existing(project, id, fingerprint),
+                () ->
+                        lockedPlan(project, r.planId())
+                                .flatMap(
+                                        plan ->
+                                                existing(project, id, fingerprint)
+                                                        .switchIfEmpty(
+                                                                Mono.defer(
+                                                                        () ->
+                                                                                prepare(
+                                                                                        project,
+                                                                                        r,
+                                                                                        date,
+                                                                                        plan,
+                                                                                        id,
+                                                                                        fingerprint,
+                                                                                        auth)))));
     }
 
     private Mono<CarryForwardItemEntity> prepare(

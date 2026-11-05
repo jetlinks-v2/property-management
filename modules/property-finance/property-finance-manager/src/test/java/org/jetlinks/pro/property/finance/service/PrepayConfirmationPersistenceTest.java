@@ -80,6 +80,46 @@ class PrepayConfirmationPersistenceTest extends PrepayQuotePersistenceTest {
         return run(confirmation.confirm(fixture.project, q.id(), p, DATE));
     }
 
+    @Autowired FinancialPeriodTestSupport periods;
+
+    @Test
+    void closedPeriodBlocksPrepayBeforeGeneratingBillsOrConsumingBenefits() {
+        var quote = create(input());
+        var request = payment(quote.payAmount());
+        long before = bills.createQuery().where("projectId", fixture.project).count().block(WAIT);
+        run(periods.close(fixture.project, DATE));
+        FinancialPeriodTestSupport.rejectsClosed(
+                confirmation
+                        .confirm(fixture.project, quote.id(), request, DATE)
+                        .contextWrite(fixture.allowed()));
+        assertEquals(
+                0, payments.createQuery().where("projectId", fixture.project).count().block(WAIT));
+        assertEquals(
+                0,
+                consumption.createQuery().where("projectId", fixture.project).count().block(WAIT));
+        assertEquals(
+                before,
+                bills.createQuery()
+                        .where("projectId", fixture.project)
+                        .count()
+                        .block(WAIT)
+                        .longValue());
+        assertEquals("OPEN", run(service.detail(fixture.project, quote.id())).status());
+    }
+
+    @Test
+    void successfulPrepayRecoversAfterItsBusinessPeriodCloses() {
+        var quote = create(input());
+        var request = payment(quote.payAmount());
+        var paid = confirm(quote, request);
+        run(periods.close(fixture.project, DATE));
+        assertEquals(
+                paid.receipt().payment().getId(),
+                confirm(quote, request).receipt().payment().getId());
+        assertEquals(
+                1, payments.createQuery().where("projectId", fixture.project).count().block(WAIT));
+    }
+
     @Test
     void ordinaryPrepayCreatesFutureBillAndFullyPaysOnlyQuotedPeriods() {
         var quote = create(input());

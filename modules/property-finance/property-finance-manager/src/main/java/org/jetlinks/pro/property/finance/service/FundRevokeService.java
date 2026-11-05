@@ -26,6 +26,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class FundRevokeService {
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final FundSourceService accounts;
     private final CashierConfiguration configuration;
     private final FundCreditLedger credits;
@@ -67,23 +68,22 @@ public class FundRevokeService {
                                         .getBytes(StandardCharsets.UTF_8))
                         .toString();
         var fingerprint = r.input().fingerprint();
-        return existing(project, id, fingerprint)
-                .switchIfEmpty(
-                        Mono.defer(
-                                () ->
-                                        prepare(project, r.input(), true)
-                                                .flatMap(
-                                                        p ->
-                                                                existing(project, id, fingerprint)
-                                                                        .switchIfEmpty(
-                                                                                Mono.defer(
-                                                                                        () ->
-                                                                                                write(
-                                                                                                        id,
-                                                                                                        r,
-                                                                                                        date,
-                                                                                                        p,
-                                                                                                        auth))))));
+        return periodGate.inOpenPeriod(
+                project,
+                LocalDateTime.parse(r.input().occurredAt()).toLocalDate(),
+                existing(project, id, fingerprint),
+                () ->
+                        prepare(project, r.input(), true)
+                                .flatMap(
+                                        p ->
+                                                existing(project, id, fingerprint)
+                                                        .switchIfEmpty(
+                                                                Mono.defer(
+                                                                        () ->
+                                                                                write(
+                                                                                        id, r, date,
+                                                                                        p,
+                                                                                        auth)))));
     }
 
     private void validate(FundRevokeInput input, LocalDate date) {

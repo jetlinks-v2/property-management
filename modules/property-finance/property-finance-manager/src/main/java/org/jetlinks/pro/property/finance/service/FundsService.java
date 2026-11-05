@@ -21,6 +21,7 @@ import reactor.core.publisher.*;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 
 /** 资金业务唯一入口，预览不写库；余额、内部核销、双边流水在同一响应式事务内发布。 */
@@ -28,6 +29,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class FundsService {
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final FundSourceService sources;
     private final CashierConfiguration configuration;
     private final FundLedger ledger;
@@ -131,9 +133,11 @@ public class FundsService {
                                 ("fund:" + project.length() + ":" + project + request.requestId())
                                         .getBytes(StandardCharsets.UTF_8))
                         .toString();
-        return existing(project, id, fingerprint)
-                .switchIfEmpty(
-                        Mono.defer(() -> commit(project, id, fingerprint, request, date, auth)));
+        return periodGate.inOpenPeriod(
+                project,
+                LocalDateTime.parse(request.input().getOccurredAt()).toLocalDate(),
+                existing(project, id, fingerprint),
+                () -> commit(project, id, fingerprint, request, date, auth));
     }
 
     private Mono<Result> commit(

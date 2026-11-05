@@ -104,6 +104,31 @@ class FundReturnPersistenceTest {
         assertEquals(new BigDecimal(n), v);
     }
 
+    @Autowired FinancialPeriodTestSupport periods;
+
+    @Test
+    void closedPeriodBlocksNewOffsetReturnButRecoversSuccessfulRequest() {
+        var original = request(input("10.01"));
+        var result =
+                service.confirm(project, original, DATE)
+                        .contextWrite(fixture.fixture.allowed())
+                        .block(WAIT);
+        var next = request(input("10.00"));
+        periods.close(project, DATE).contextWrite(fixture.fixture.allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                service.confirm(project, next, DATE).contextWrite(fixture.fixture.allowed()));
+        assertEquals(
+                result.entry().getId(),
+                service.confirm(project, original, DATE)
+                        .contextWrite(fixture.fixture.allowed())
+                        .block(WAIT)
+                        .entry()
+                        .getId());
+        money("60.00", accounts.findById(accountId).block(WAIT).getBalance());
+        money("20.00", bills.findById(billId).block(WAIT).getPaidAmount());
+        assertEquals(1, refunds.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
     @Test
     void partialAndFullReturnRestoreOriginalBalanceAndDebtWithZeroCash() {
         var partial = run("10.01");

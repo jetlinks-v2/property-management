@@ -21,6 +21,7 @@ import reactor.core.publisher.*;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 
 /** 原实收的可退额、应收欠费与目标预收同事务变动，内部转存不产生现金流。 */
@@ -28,6 +29,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class PaymentToAdvanceService {
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final FundSourceService accounts;
     private final CashierConfiguration configuration;
     private final RefundSourceService sources;
@@ -74,23 +76,22 @@ public class PaymentToAdvanceService {
                                         .getBytes(StandardCharsets.UTF_8))
                         .toString();
         var fingerprint = r.input().fingerprint();
-        return existing(project, id, fingerprint)
-                .switchIfEmpty(
-                        Mono.defer(
-                                () ->
-                                        prepare(project, r.input(), date, true)
-                                                .flatMap(
-                                                        p ->
-                                                                existing(project, id, fingerprint)
-                                                                        .switchIfEmpty(
-                                                                                Mono.defer(
-                                                                                        () ->
-                                                                                                write(
-                                                                                                        id,
-                                                                                                        r,
-                                                                                                        date,
-                                                                                                        p,
-                                                                                                        auth))))));
+        return periodGate.inOpenPeriod(
+                project,
+                LocalDateTime.parse(r.input().getOccurredAt()).toLocalDate(),
+                existing(project, id, fingerprint),
+                () ->
+                        prepare(project, r.input(), date, true)
+                                .flatMap(
+                                        p ->
+                                                existing(project, id, fingerprint)
+                                                        .switchIfEmpty(
+                                                                Mono.defer(
+                                                                        () ->
+                                                                                write(
+                                                                                        id, r, date,
+                                                                                        p,
+                                                                                        auth)))));
     }
 
     private void validate(PaymentToAdvanceInput i, LocalDate date) {

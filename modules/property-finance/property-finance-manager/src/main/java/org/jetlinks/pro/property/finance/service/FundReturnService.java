@@ -28,6 +28,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class FundReturnService {
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final FundSourceService accounts;
     private final CashierConfiguration configuration;
     private final RefundSourceService sources;
@@ -81,24 +82,24 @@ public class FundReturnService {
                                         .getBytes(StandardCharsets.UTF_8))
                         .toString();
         var fingerprint = request.input().fingerprint();
-        return existing(project, id, fingerprint)
-                .switchIfEmpty(
-                        Mono.defer(
-                                () ->
-                                        prepare(project, request.input(), date, true)
-                                                .flatMap(
-                                                        prepared ->
-                                                                existing(project, id, fingerprint)
-                                                                        .switchIfEmpty(
-                                                                                Mono.defer(
-                                                                                        () ->
-                                                                                                write(
-                                                                                                        project,
-                                                                                                        id,
-                                                                                                        request,
-                                                                                                        date,
-                                                                                                        prepared,
-                                                                                                        auth))))));
+        return periodGate.inOpenPeriod(
+                project,
+                LocalDateTime.parse(request.input().occurredAt()).toLocalDate(),
+                existing(project, id, fingerprint),
+                () ->
+                        prepare(project, request.input(), date, true)
+                                .flatMap(
+                                        prepared ->
+                                                existing(project, id, fingerprint)
+                                                        .switchIfEmpty(
+                                                                Mono.defer(
+                                                                        () ->
+                                                                                write(
+                                                                                        project, id,
+                                                                                        request,
+                                                                                        date,
+                                                                                        prepared,
+                                                                                        auth)))));
     }
 
     private Mono<Origin> origin(String project, FundReturnInput input) {

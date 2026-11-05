@@ -94,6 +94,29 @@ class FundRevokePersistenceTest {
         return credits.findById(entry).block(WAIT);
     }
 
+    @Autowired FinancialPeriodTestSupport periods;
+
+    @Test
+    void closedPeriodRejectsNewTopupRevocationWithoutChangingItsSource() {
+        var request = request(input());
+        periods.close(project, DATE).contextWrite(fixture.fixture.allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                service.confirm(project, request, DATE).contextWrite(fixture.fixture.allowed()));
+        money("100.01", accounts.findById(accountId).block(WAIT).getBalance());
+        money("100.01", credit(entryId).getRemainingAmount());
+        assertEquals(1, entries.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    @Test
+    void originalTopupRevocationRecoversAfterClosing() {
+        var request = request(input());
+        var result = confirm(request);
+        periods.close(project, DATE).contextWrite(fixture.fixture.allowed()).block(WAIT);
+        assertEquals(result.entry().getId(), confirm(request).entry().getId());
+        money("0.00", accounts.findById(accountId).block(WAIT).getBalance());
+        assertEquals(2, entries.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
     @Test
     void untouchedTopupIsReversedInFullWithImmutableOriginalAndExactSourceConsumption() {
         var r = request(input());

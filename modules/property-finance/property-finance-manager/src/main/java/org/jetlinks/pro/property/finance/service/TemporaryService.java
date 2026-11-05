@@ -19,6 +19,7 @@ import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 
 /** 临时收款唯一写入口；主单、逐方式流水同事务，不开放修改或删除资金事实。 */
@@ -26,6 +27,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class TemporaryService {
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final TemporarySourceService sources;
     private final TemporaryLedger ledger;
     private final CashierConfiguration configuration;
@@ -92,9 +94,11 @@ public class TemporaryService {
                                                 + request.requestId())
                                         .getBytes(StandardCharsets.UTF_8))
                         .toString();
-        return existing(project, id, fingerprint)
-                .switchIfEmpty(
-                        Mono.defer(() -> commit(project, id, fingerprint, request, date, auth)));
+        return periodGate.inOpenPeriod(
+                project,
+                LocalDateTime.parse(request.input().getPaidAt()).toLocalDate(),
+                existing(project, id, fingerprint),
+                () -> commit(project, id, fingerprint, request, date, auth));
     }
 
     private Mono<Detail> commit(

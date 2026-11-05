@@ -106,6 +106,22 @@ class PaymentToAdvancePersistenceTest {
         assertEquals(new BigDecimal(expected), actual);
     }
 
+    @Autowired FinancialPeriodTestSupport periods;
+
+    @Test
+    void closedPeriodBlocksNewPaymentConversionButRecoversSuccessfulRequest() {
+        var original = request(input("10.01"));
+        var result = confirm(original);
+        var next = request(input("5.00"));
+        periods.close(project, DATE).contextWrite(fixture.fixture.allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                service.confirm(project, next, DATE).contextWrite(fixture.fixture.allowed()));
+        assertEquals(result.entry().getId(), confirm(original).entry().getId());
+        money("10.01", accounts.findById(result.account().getId()).block(WAIT).getBalance());
+        money("50.00", bills.findById(billId).block(WAIT).getPaidAmount());
+        assertEquals(1, refunds.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
     @Test
     void partialAndRepeatedConversionRestoreDebtWithoutCashOrSecondReceipt() {
         var first = confirm(request(input("10.01")));

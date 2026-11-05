@@ -180,57 +180,46 @@ public class CashierService {
                                                                                             .UTF_8))
                                                             .toString();
                                             var fingerprint = PaymentRules.fingerprint(input);
-                                            return existing(project, id, fingerprint)
-                                                    .switchIfEmpty(
-                                                            Mono.defer(
-                                                                    () ->
-                                                                            // 先锁财务期间，再锁基础项目、公司和账单；已成功请求在外层优先恢复。
-                                                                            periodGate
-                                                                                    .assertOpen(
-                                                                                            project,
-                                                                                            LocalDateTime
-                                                                                                    .parse(
-                                                                                                            input
-                                                                                                                    .getPaidAt())
-                                                                                                    .toLocalDate())
-                                                                                    .then(
-                                                                                            payer(
+                                            return periodGate.inOpenPeriod(
+                                                    project,
+                                                    LocalDateTime.parse(input.getPaidAt())
+                                                            .toLocalDate(),
+                                                    existing(project, id, fingerprint),
+                                                    () ->
+                                                            payer(project, input, true)
+                                                                    .flatMap(
+                                                                            payer ->
+                                                                                    configuration
+                                                                                            .resolve(
                                                                                                     project,
                                                                                                     input,
-                                                                                                    true))
-                                                                                    .flatMap(
-                                                                                            payer ->
-                                                                                                    configuration
-                                                                                                            .resolve(
-                                                                                                                    project,
-                                                                                                                    input,
-                                                                                                                    true)
-                                                                                                            .flatMap(
-                                                                                                                    config ->
-                                                                                                                            rows(
-                                                                                                                                            project,
-                                                                                                                                            input,
-                                                                                                                                            true)
-                                                                                                                                    .flatMap(
-                                                                                                                                            rows ->
-                                                                                                                                                    existing(
-                                                                                                                                                                    project,
-                                                                                                                                                                    id,
-                                                                                                                                                                    fingerprint)
-                                                                                                                                                            .switchIfEmpty(
-                                                                                                                                                                    Mono
-                                                                                                                                                                            .defer(
-                                                                                                                                                                                    () ->
-                                                                                                                                                                                            write(
-                                                                                                                                                                                                    project,
-                                                                                                                                                                                                    id,
-                                                                                                                                                                                                    fingerprint,
-                                                                                                                                                                                                    request,
-                                                                                                                                                                                                    rows,
-                                                                                                                                                                                                    config,
-                                                                                                                                                                                                    payer,
-                                                                                                                                                                                                    date,
-                                                                                                                                                                                                    auth))))))));
+                                                                                                    true)
+                                                                                            .flatMap(
+                                                                                                    config ->
+                                                                                                            rows(
+                                                                                                                            project,
+                                                                                                                            input,
+                                                                                                                            true)
+                                                                                                                    .flatMap(
+                                                                                                                            rows ->
+                                                                                                                                    existing(
+                                                                                                                                                    project,
+                                                                                                                                                    id,
+                                                                                                                                                    fingerprint)
+                                                                                                                                            .switchIfEmpty(
+                                                                                                                                                    Mono
+                                                                                                                                                            .defer(
+                                                                                                                                                                    () ->
+                                                                                                                                                                            write(
+                                                                                                                                                                                    project,
+                                                                                                                                                                                    id,
+                                                                                                                                                                                    fingerprint,
+                                                                                                                                                                                    request,
+                                                                                                                                                                                    rows,
+                                                                                                                                                                                    config,
+                                                                                                                                                                                    payer,
+                                                                                                                                                                                    date,
+                                                                                                                                                                                    auth)))))));
                                         }))
                 .onErrorMap(this::duplicate)
                 .as(MonoTracer.create("/property/finance/cashier/collect"));

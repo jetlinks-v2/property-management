@@ -21,6 +21,7 @@ import reactor.core.publisher.*;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 
 /** 人工退款确认入口；线上原路退款需通道确认，不接受客户端传成功状态。 */
@@ -28,6 +29,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class RefundService {
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final CashierConfiguration configuration;
     private final RefundSourceService sources;
     private final RefundLedger ledger;
@@ -97,42 +99,45 @@ public class RefundService {
                                                             .toString();
                                             var fingerprint =
                                                     RefundRules.fingerprint(request.input());
-                                            return existing(project, id, fingerprint)
-                                                    .switchIfEmpty(
-                                                            Mono.defer(
-                                                                    () ->
-                                                                            configuration
-                                                                                    .resolve(
-                                                                                            project,
-                                                                                            request.input()
-                                                                                                    .fundingInput(),
-                                                                                            true)
-                                                                                    .flatMap(
-                                                                                            config ->
-                                                                                                    sources.load(
-                                                                                                                    project,
-                                                                                                                    request
-                                                                                                                            .input(),
-                                                                                                                    true)
-                                                                                                            .flatMap(
-                                                                                                                    rows ->
-                                                                                                                            existing(
-                                                                                                                                            project,
-                                                                                                                                            id,
-                                                                                                                                            fingerprint)
-                                                                                                                                    .switchIfEmpty(
-                                                                                                                                            Mono
-                                                                                                                                                    .defer(
-                                                                                                                                                            () ->
-                                                                                                                                                                    write(
-                                                                                                                                                                            project,
-                                                                                                                                                                            id,
-                                                                                                                                                                            fingerprint,
-                                                                                                                                                                            request,
-                                                                                                                                                                            date,
-                                                                                                                                                                            config,
-                                                                                                                                                                            rows,
-                                                                                                                                                                            auth)))))));
+                                            return periodGate.inOpenPeriod(
+                                                    project,
+                                                    LocalDateTime.parse(
+                                                                    request.input().getRefundedAt())
+                                                            .toLocalDate(),
+                                                    existing(project, id, fingerprint),
+                                                    () ->
+                                                            configuration
+                                                                    .resolve(
+                                                                            project,
+                                                                            request.input()
+                                                                                    .fundingInput(),
+                                                                            true)
+                                                                    .flatMap(
+                                                                            config ->
+                                                                                    sources.load(
+                                                                                                    project,
+                                                                                                    request
+                                                                                                            .input(),
+                                                                                                    true)
+                                                                                            .flatMap(
+                                                                                                    rows ->
+                                                                                                            existing(
+                                                                                                                            project,
+                                                                                                                            id,
+                                                                                                                            fingerprint)
+                                                                                                                    .switchIfEmpty(
+                                                                                                                            Mono
+                                                                                                                                    .defer(
+                                                                                                                                            () ->
+                                                                                                                                                    write(
+                                                                                                                                                            project,
+                                                                                                                                                            id,
+                                                                                                                                                            fingerprint,
+                                                                                                                                                            request,
+                                                                                                                                                            date,
+                                                                                                                                                            config,
+                                                                                                                                                            rows,
+                                                                                                                                                            auth))))));
                                         }))
                 .onErrorMap(this::duplicate)
                 .as(MonoTracer.create("/property/finance/refund/confirm"));

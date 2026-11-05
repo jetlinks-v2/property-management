@@ -97,6 +97,24 @@ class RefundPersistenceTest {
         assertEquals(new BigDecimal(expected), actual);
     }
 
+    @Autowired FinancialPeriodTestSupport periods;
+
+    @Test
+    void closedPeriodBlocksNewRefundButPreservesSuccessfulOriginalRequest() {
+        var bill = fixture.bill("period-refund");
+        var paid = collect(bill, "40.00");
+        var original = submission(input(paid.lines(), "10.00"));
+        var result = confirm(original);
+        var current = sources.findById(paid.lines().get(0).getId()).block(WAIT);
+        var next = submission(input(List.of(current), "10.00"));
+        periods.close(project, DATE).contextWrite(fixture.allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                refunds.confirm(project, next, DATE).contextWrite(fixture.allowed()));
+        assertEquals(result.refund().getId(), confirm(original).refund().getId());
+        assertEquals(1, count());
+        money("30.00", bills.findById(bill.getId()).block(WAIT).getPaidAmount());
+    }
+
     @Test
     void partialRefundRestoresDebtPreservesOriginalReceiptAndCanRefundAgainAfterRecollection() {
         var bill = fixture.bill("one");

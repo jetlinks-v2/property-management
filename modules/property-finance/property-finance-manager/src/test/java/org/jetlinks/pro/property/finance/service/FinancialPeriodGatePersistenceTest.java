@@ -54,7 +54,8 @@ class FinancialPeriodGatePersistenceTest extends CashierPersistenceTest {
     void businessDateCannotBeBypassedByTheCalculationDateAndRejectedWriteRollsBackInitialization() {
         var row = bill("actual-date");
         var request = submission(input(row, "10"));
-        var stale = new CashierService.Submission(request.requestId(), "0".repeat(64), request.input());
+        var stale =
+                new CashierService.Submission(request.requestId(), "0".repeat(64), request.input());
         rejects(cashier.collect(project, stale, DATE), 409);
         assertEquals(0, controlCount());
         closeTo(DATE).contextWrite(allowed()).block(WAIT);
@@ -146,6 +147,74 @@ class FinancialPeriodGatePersistenceTest extends CashierPersistenceTest {
         assertEquals(paid.payment().getId(), recovered.payment().getId());
         assertEquals(1, payments.createQuery().where("projectId", project).count().block(WAIT));
         assertEquals(1, controlCount());
+    }
+
+    @Test
+    void replayThatStartsBeforeCommitRecoversAfterWaitingForClosingTransaction() {
+        var row = bill("waiting-replay");
+        var request = submission(input(row, "10"));
+        var paidButNotCommitted = Sinks.<Void>one();
+        var replayMissedUncommittedPayment = Sinks.<Void>one();
+        var first =
+                transaction()
+                        .transactional(
+                                gate.lock(project)
+                                        .then(cashier.collect(project, request, DATE))
+                                        .flatMap(
+                                                paid ->
+                                                        Mono.fromRunnable(
+                                                                        paidButNotCommitted
+                                                                                ::tryEmitEmpty)
+                                                                .then(
+                                                                        replayMissedUncommittedPayment
+                                                                                .asMono())
+                                                                .then(
+                                                                        gate.lock(project)
+                                                                                .flatMap(
+                                                                                        control ->
+                                                                                                controls.createUpdate()
+                                                                                                        .set(
+                                                                                                                "closedThrough",
+                                                                                                                DATE
+                                                                                                                        .toString())
+                                                                                                        .where(
+                                                                                                                "id",
+                                                                                                                control
+                                                                                                                        .getId())
+                                                                                                        .execute()))
+                                                                .thenReturn(
+                                                                        paid.payment().getId())));
+        var replay =
+                payments.createQuery()
+                        .where("projectId", project)
+                        .fetchOne()
+                        .doOnSuccess(
+                                payment -> {
+                                    if (payment == null)
+                                        replayMissedUncommittedPayment.tryEmitEmpty();
+                                })
+                        .map(payment -> payment.getId());
+        var second =
+                paidButNotCommitted
+                        .asMono()
+                        .then(
+                                transaction()
+                                        .transactional(
+                                                gate.inOpenPeriod(
+                                                        project,
+                                                        DATE,
+                                                        replay,
+                                                        () ->
+                                                                Mono.error(
+                                                                        new AssertionError(
+                                                                                "A committed"
+                                                                                    + " original"
+                                                                                    + " request"
+                                                                                    + " must be"
+                                                                                    + " recovered")))));
+        var result = Mono.zip(first, second).contextWrite(allowed()).block(WAIT);
+        assertEquals(result.getT1(), result.getT2());
+        assertEquals(1, payments.createQuery().where("projectId", project).count().block(WAIT));
     }
 
     @Test

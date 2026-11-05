@@ -111,6 +111,52 @@ class FundsPersistenceTest {
         fixture.rejects(m, status);
     }
 
+    @Autowired FinancialPeriodTestSupport periods;
+
+    @Test
+    void closedPeriodBlocksEveryNewFundActionButPreservesOriginalTopup() {
+        var original = request(input("TOPUP", "100.00"));
+        var paid =
+                service.execute(project, original, DATE)
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT);
+        var requests = new ArrayList<FundsService.Submission>();
+        requests.add(request(input("TOPUP", "10.00")));
+        requests.add(request(debit(paid.account(), "REFUND", "10.00")));
+        var transfer = debit(paid.account(), "TRANSFER", "10.00");
+        transfer.setTargetSpaceId("other-room");
+        transfer.setTargetRelationshipId("link");
+        transfer.setTargetStandardId(setting.standardId);
+        transfer.setTargetType("ADVANCE");
+        requests.add(request(transfer));
+        var bill = fixture.bill("period-offset");
+        bills.createUpdate()
+                .set("subjectId", setting.subjectId)
+                .where("id", bill.getId())
+                .execute()
+                .block(WAIT);
+        var offset = debit(paid.account(), "OFFSET", "10.00");
+        offset.setItems(
+                List.of(
+                        new CashierInput.Item(
+                                bill.getId(), bill.getVersion(), new BigDecimal("10.00"))));
+        requests.add(request(offset));
+        periods.close(project, DATE).contextWrite(fixture.allowed()).block(WAIT);
+        for (var request : requests)
+            FinancialPeriodTestSupport.rejectsClosed(
+                    service.execute(project, request, DATE).contextWrite(fixture.allowed()));
+        assertEquals(
+                paid.entry().getId(),
+                service.execute(project, original, DATE)
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT)
+                        .entry()
+                        .getId());
+        assertEquals(1, entries.createQuery().where("projectId", project).count().block(WAIT));
+        money("100.00", accounts.findById(paid.account().getId()).block(WAIT).getBalance());
+        money("0.00", bills.findById(bill.getId()).block(WAIT).getPaidAmount());
+    }
+
     @Test
     void collectRefundAndTransferKeepImmutableCashAndBalance() {
         var a = run(input("TOPUP", "100.01")).account();

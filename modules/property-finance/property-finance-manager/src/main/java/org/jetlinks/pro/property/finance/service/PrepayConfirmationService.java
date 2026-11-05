@@ -32,6 +32,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class PrepayConfirmationService {
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final HouseArchiveSource archive;
     private final CashierConfiguration configuration;
     private final CashierService cashier;
@@ -60,16 +61,29 @@ public class PrepayConfirmationService {
                                             return quote(project, id, auth, false)
                                                     .flatMap(
                                                             row ->
-                                                                    resume(row, fingerprint)
-                                                                            .switchIfEmpty(
-                                                                                    Mono.defer(
-                                                                                            () ->
-                                                                                                    prepare(
-                                                                                                            row,
-                                                                                                            input,
-                                                                                                            date,
-                                                                                                            fingerprint,
-                                                                                                            auth))));
+                                                                    periodGate.inOpenPeriod(
+                                                                            project,
+                                                                            LocalDateTime.parse(
+                                                                                            input
+                                                                                                    .paidAt())
+                                                                                    .toLocalDate(),
+                                                                            quote(
+                                                                                            project,
+                                                                                            id,
+                                                                                            auth,
+                                                                                            false)
+                                                                                    .flatMap(
+                                                                                            current ->
+                                                                                                    resume(
+                                                                                                            current,
+                                                                                                            fingerprint)),
+                                                                            () ->
+                                                                                    prepare(
+                                                                                            row,
+                                                                                            input,
+                                                                                            date,
+                                                                                            fingerprint,
+                                                                                            auth)));
                                         }))
                 .onErrorMap(PrepayConfirmationService::duplicate)
                 .as(MonoTracer.create("/property/finance/prepay/confirm"));

@@ -126,6 +126,40 @@ class CarryForwardApplicationPersistenceTest {
         return bills.findById(bill.getId()).block(WAIT);
     }
 
+    @Autowired FinancialPeriodTestSupport periods;
+
+    @Test
+    void closedPeriodAlsoBlocksRemissionWithoutAFundAccount() {
+        input.setRemissionValue(new BigDecimal("200.00"));
+        plans.createUpdate()
+                .set("configJson", JSON.toJSONString(input))
+                .where("id", plan.getId())
+                .execute()
+                .block(WAIT);
+        periods.close(project, DATE).contextWrite(fixture.fixture.allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                service.apply(project, request(null), DATE)
+                        .contextWrite(fixture.fixture.allowed()));
+        money("0.00", currentBill().getFeeReductionAmount());
+        assertEquals(0, items.createQuery().where("planId", plan.getId()).count().block(WAIT));
+        assertEquals(0, remissions.createQuery().where("planId", plan.getId()).count().block(WAIT));
+    }
+
+    @Test
+    void completedCarryRecoversAfterClosingButNewRunCannotPost() {
+        var account = topup("30.00");
+        var request = request(account.getId());
+        var result = run(request);
+        periods.close(project, DATE).contextWrite(fixture.fixture.allowed()).block(WAIT);
+        assertEquals(result.getId(), run(request).getId());
+        FinancialPeriodTestSupport.rejectsClosed(
+                service.apply(project, request(account.getId()), DATE)
+                        .contextWrite(fixture.fixture.allowed()));
+        money("30.00", currentBill().getPaidAmount());
+        money("10.00", currentBill().getFeeReductionAmount());
+        assertEquals(1, items.createQuery().where("planId", plan.getId()).count().block(WAIT));
+    }
+
     @Test
     void partialCarryThenReplenishmentDoesNotApplyDiscountTwiceAndReplayDoesNotCollectAgain() {
         var a = topup("30.00");
