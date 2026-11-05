@@ -44,6 +44,12 @@ public class HandoverImportCatalog {
                     .orElse(category.getName());
         }
 
+        public Map<String, List<String>> options(String kind) {
+            var options = options();
+            if ("equipment".equals(kind)) options.remove("categoryName");
+            return options;
+        }
+
         public Map<String, List<String>> options() {
             Map<String, List<String>> result = new LinkedHashMap<>();
             result.put(

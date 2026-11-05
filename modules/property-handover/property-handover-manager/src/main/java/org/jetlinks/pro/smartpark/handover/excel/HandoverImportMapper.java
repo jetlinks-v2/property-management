@@ -3,6 +3,7 @@ package org.jetlinks.pro.smartpark.handover.excel;
 import org.jetlinks.pro.property.base.user.PropertyEmployeeInfo;
 import org.jetlinks.pro.smartpark.handover.api.ProblemRequest;
 import org.jetlinks.pro.smartpark.handover.entity.*;
+import org.jetlinks.pro.smartpark.handover.service.HandoverRules;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -27,7 +28,7 @@ public final class HandoverImportMapper {
             HandoverWorkbook.ImportRow input,
             HandoverImportCatalog.Catalog catalog) {
         Map<String, String> row = input.values();
-        String category =
+        String category = "equipment".equals(kind) ? null :
                 resolve(
                         row.get("categoryName"),
                         catalog.categories().stream()
@@ -85,7 +86,17 @@ public final class HandoverImportMapper {
                 var entity = new HandoverEquipmentEntity();
                 entity.setName(row.get("name"));
                 entity.setCode(row.get("code"));
-                entity.setCategoryId(category);
+                entity.setCategoryName(row.get("categoryName"));
+                entity.setControlArea(row.get("controlArea"));
+                entity.setMainParameters(row.get("mainParameters"));
+                entity.setSupplier(row.get("supplier"));
+                entity.setUnit(row.get("unit"));
+                if (HandoverRules.hasText(row.get("quantity"))) {
+                    try { entity.setQuantity(new BigDecimal(row.get("quantity"))); }
+                    catch (NumberFormatException error) { throw HandoverWorkbook.invalid(input.row(), "数量", "请输入有效非负数"); }
+                    if (entity.getQuantity().signum() < 0) throw HandoverWorkbook.invalid(input.row(), "数量", "数量不能小于0");
+                }
+                entity.setProductionDate(date(row.get("productionDate"), input.row(), "生产日期"));
                 entity.setSpecification(row.get("specification"));
                 entity.setManufacturer(row.get("manufacturer"));
                 entity.setBrand(row.get("brand"));

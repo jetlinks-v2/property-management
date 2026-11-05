@@ -20,6 +20,25 @@ import java.util.Map;
 
 class HandoverWorkbookTest {
     @Test
+    void equipmentCategoryIsFreeTextAndKnownFieldsRemainIndependent() {
+        var catalog = new HandoverImportCatalog.Catalog(List.of(), List.of(), List.of(), List.of());
+        var values = new java.util.HashMap<String,String>();
+        values.put("name", "消防水泵"); values.put("categoryName", "消防设备");
+        values.put("controlArea", "A组团"); values.put("mainParameters", "75kW 中文参数");
+        values.put("productionDate", "2025-03-01"); values.put("installationDate", "2025-04-01");
+        values.put("supplier", "设备供应公司"); values.put("quantity", "2.125");
+        var mapped = HandoverImportMapper.map("equipment", "project", null, null,
+                new HandoverWorkbook.ImportRow(2, values, List.of()), catalog);
+        var json = new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(mapped.value());
+        assertEquals("消防设备", json.path("categoryName").asText());
+        assertEquals("A组团", json.path("controlArea").asText());
+        assertEquals("75kW 中文参数", json.path("mainParameters").asText());
+        assertEquals("设备供应公司", json.path("supplier").asText());
+        assertTrue(json.path("productionDate").asLong() < json.path("installationDate").asLong());
+        assertEquals(2.125, json.path("quantity").asDouble());
+    }
+
+    @Test
     void templateHasEmptyDataRedRequiredExampleAndRealNamedDropdown() {
         byte[] bytes =
                 bytes(

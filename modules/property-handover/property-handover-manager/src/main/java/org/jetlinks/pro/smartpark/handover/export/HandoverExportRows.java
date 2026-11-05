@@ -28,7 +28,7 @@ public class HandoverExportRows {
     static final int PAGE_SIZE = 100;
     private static final Set<String> FILTERS =
             Set.of(
-                    "keyword",
+                    "keyword", "location", "modifyTimeFrom", "modifyTimeTo",
                     "status",
                     "auditStage",
                     "organizationId",

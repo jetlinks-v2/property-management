@@ -154,7 +154,10 @@ public class HandoverConfigurationService {
                             .then(files.validate(ledger.getFiles()));
         } else if (row instanceof HandoverEquipmentEntity entry) {
             HandoverRules.require(HandoverRules.hasText(entry.getName()), "name_required");
-            check = check.then(category(row.getProjectId(), entry.getCategoryId()));
+            HandoverRules.require(entry.getQuantity() == null || entry.getQuantity().signum() >= 0, "quantity_invalid");
+            if (entry.getProductionDate() != null) HandoverRules.require(entry.getProductionDate() >= 0, "date_invalid");
+            if (entry.getInstallationDate() != null) HandoverRules.require(entry.getInstallationDate() >= 0, "date_invalid");
+            // categoryId 仅保留迁移前的数据，不再把设备文本分类校验为问题分类。
         } else if (row instanceof HandoverRecordEntity record) {
             HandoverRules.require(
                     HandoverRules.STAGES.contains(record.getStage()), "stage_invalid");

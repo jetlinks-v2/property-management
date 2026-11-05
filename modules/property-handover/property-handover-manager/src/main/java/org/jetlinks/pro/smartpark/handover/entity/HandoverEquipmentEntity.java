@@ -35,6 +35,13 @@ public class HandoverEquipmentEntity extends HandoverEntity {
     @Column(length = 64)
     private String categoryId;
 
+    // 设备分类是旧业务自由文本，不能与项目问题分类共用 ID。
+    @Column(length = 128) private String categoryName;
+    @Column(length = 512) private String controlArea;
+    @Column(length = 2000) private String mainParameters;
+    @Column(length = 256) private String supplier;
+    @Column private Long productionDate;
+
     @Column(length = 512)
     private String specification;
 

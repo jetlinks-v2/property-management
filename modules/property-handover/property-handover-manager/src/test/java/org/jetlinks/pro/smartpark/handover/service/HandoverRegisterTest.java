@@ -20,6 +20,7 @@ class HandoverRegisterTest {
  @Autowired HandoverScope scope;
  @Autowired HandoverDirectory directory;
  @Autowired HandoverLedgerRepository ledgers;
+ @Autowired HandoverEquipmentRepository equipment;
  @Autowired HandoverResponsibilityRepository units;
  @BeforeEach void setup() {
   ledgers.createDelete().where("tenantId","tenant").execute().block(WAIT);
@@ -47,4 +48,18 @@ class HandoverRegisterTest {
   var wrong=new HandoverLedgerEntity();wrong.setProjectId("project");wrong.setDescription("越权单位");wrong.setOrganizationId("foreign");
   assertThrows(BusinessException.class,()->service.save(ledgers,wrong).contextWrite(access("tester",Set.of("project"))).block(WAIT));
  }
+ @Test void equipmentRoundTripPreservesTypedFieldsAndFilteredPaging() {
+  equipment.createDelete().where("tenantId","tenant").execute().block(WAIT);
+  var row=new HandoverEquipmentEntity();row.setProjectId("project");row.setName("消防泵");row.setCategoryName("消防设备");
+  row.setQuantity(new java.math.BigDecimal("2.125"));row.setLocation("地下1层");row.setProductionDate(100L);row.setInstallationDate(200L);
+  row.setControlArea("A组团");row.setSupplier("设备供应公司");row.setProperties(java.util.Map.of("extra", "原参数保留"));
+  var stored=service.save(equipment,row).contextWrite(access("tester",Set.of("project"))).block(WAIT);
+  var q=new HandoverQuery();q.setProjectId("project");q.setLocation("地下");q.setModifyTimeFrom(0L);
+  var page=service.query(equipment,q,"name").contextWrite(access("tester",Set.of("project"))).block(WAIT);
+  assertEquals(1,page.getTotal());assertEquals("消防设备",page.getData().get(0).getCategoryName());
+  assertEquals(0,new java.math.BigDecimal("2.125").compareTo(page.getData().get(0).getQuantity()));
+  assertEquals("原参数保留",page.getData().get(0).getProperties().get("extra"));
+  q.setLocation("三层");assertEquals(0,service.query(equipment,q,"name").contextWrite(access("tester",Set.of("project"))).block(WAIT).getTotal());
+ }
+
 }

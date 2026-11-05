@@ -19,6 +19,7 @@ public class HandoverQuery {
     private int pageIndex = 0;
     private int pageSize = 12;
     private String keyword;
+    private String location;
     private String source;
     private Integer status;
     private Integer auditStage;
@@ -48,6 +49,9 @@ public class HandoverQuery {
         if (inspectionTimeFrom != null)
             q.toQuery().and("inspectionTime", "gte", inspectionTimeFrom);
         if (inspectionTimeTo != null) q.toQuery().and("inspectionTime", "lte", inspectionTimeTo);
+        if (HandoverRules.hasText(location)) q.toQuery().like("location", "%" + location + "%");
+        if (modifyTimeFrom != null) q.toQuery().and("modifyTime", "gte", modifyTimeFrom);
+        if (modifyTimeTo != null) q.toQuery().and("modifyTime", "lte", modifyTimeTo);
         if (ids != null && !ids.isEmpty()) q.toQuery().in("id", ids);
         return q;
     }
