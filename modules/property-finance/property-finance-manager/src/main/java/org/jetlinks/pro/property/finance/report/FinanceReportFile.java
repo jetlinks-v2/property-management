@@ -9,7 +9,7 @@ import org.springframework.web.util.HtmlUtils;
 import java.io.*;
 import java.util.*;
 
-/** 两类财务报表共用文件排版；仅接受已授权快照，禁止Excel公式与PDF外部资源。 */
+/** 财务报表共用文件排版；仅接受已授权快照，禁止Excel公式与PDF外部资源。 */
 public final class FinanceReportFile {
     private FinanceReportFile() {}
 
@@ -79,11 +79,13 @@ public final class FinanceReportFile {
                             + " landscape;margin:12mm}body{font-family:'Noto Sans"
                             + " SC';font-size:9px;color:#262626}h1{font-size:18px}table{width:100%;border-collapse:collapse;table-layout:fixed;-fs-table-paginate:paginate}th,td{border:1px"
                             + " solid"
-                            + " #d9d9d9;padding:5px;word-wrap:break-word}th{background:#f5f5f5}thead{display:table-header-group}tr{page-break-inside:avoid}.money{text-align:right}.summary{font-weight:bold}</style></head><body><h1>");
+                            + " #d9d9d9;padding:5px;word-wrap:break-word}th{background:#f5f5f5}thead{display:table-header-group}tr{page-break-inside:avoid}.money{text-align:right;white-space:nowrap;word-wrap:normal}.summary{font-weight:bold}</style></head><body><h1>");
         html.append(escape(data.title()))
                 .append("</h1><p>")
                 .append(escape(data.scope()))
-                .append("</p><table><thead><tr>");
+                .append("</p><table>");
+        appendColumns(html, data);
+        html.append("<thead><tr>");
         for (String column : columns)
             html.append("<th>").append(escape(data.labels().get(column))).append("</th>");
         html.append("</tr></thead><tbody>");
@@ -107,6 +109,34 @@ public final class FinanceReportFile {
             renderer.run();
             return output.toByteArray();
         }
+    }
+
+    /** 金额列按实际十进制位数预留宽度，避免超长金额断行；其余文本仍允许折行。 */
+    private static void appendColumns(StringBuilder html, Data data) {
+        var weights = new LinkedHashMap<String, Integer>();
+        for (var column : data.columns()) {
+            int weight = "fullName".equals(column) ? 24 : 14;
+            if (data.money().contains(column)) {
+                int digits = data.summary().getOrDefault(column, "").length();
+                for (var row : data.rows())
+                    digits = Math.max(digits, row.getOrDefault(column, "").length());
+                weight = Math.max(20, digits + 4);
+            }
+            weights.put(column, weight);
+        }
+        int total = weights.values().stream().mapToInt(Integer::intValue).sum();
+        html.append("<colgroup>");
+        weights.values()
+                .forEach(
+                        weight ->
+                                html.append("<col style='width:")
+                                        .append(
+                                                String.format(
+                                                        Locale.ROOT,
+                                                        "%.4f",
+                                                        100.0 * weight / total))
+                                        .append("%'/>"));
+        html.append("</colgroup>");
     }
 
     private static void appendRow(
