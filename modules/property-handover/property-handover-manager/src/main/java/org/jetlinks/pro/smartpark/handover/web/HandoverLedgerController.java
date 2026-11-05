@@ -37,6 +37,13 @@ public class HandoverLedgerController {
         return service.save(repository, input);
     }
 
+    @PostMapping("/{id}/photos")
+    @SaveAction
+    public Mono<HandoverLedgerEntity> photos(@PathVariable String id,
+            @RequestBody org.jetlinks.pro.smartpark.handover.api.ActionRequest input) {
+        return service.supplementLedger(id, input);
+    }
+
     @DeleteMapping("/{id}")
     @DeleteAction
     public Mono<Void> delete(@PathVariable String id, @RequestParam Integer version) {

@@ -77,6 +77,7 @@ public class HandoverImportCatalog {
             result.put(
                     "initiatorName",
                     users.stream().map(PropertyEmployeeInfo::name).distinct().toList());
+            result.put("entryUserName", users.stream().map(PropertyEmployeeInfo::name).distinct().toList());
             result.put("inspectionType", List.of("承接查验", "管理权移交"));
             return result;
         }

@@ -32,6 +32,14 @@ public class HandoverLedgerEntity extends HandoverEntity {
 
     @Column(length = 64)
     private String categoryId;
+    @Column(length = 64) private String organizationId;
+    @Column(length = 128) private String organizationName;
+    @Column(length = 64) private String entryUserId;
+    @Column(length = 128) private String entryUserName;
+    @Column private Long entryTime;
+    @Column(length = 64) private String supplementUserId;
+    @Column(length = 128) private String supplementUserName;
+    @Column private Long supplementTime;
 
     @Column(length = 512)
     private String location;

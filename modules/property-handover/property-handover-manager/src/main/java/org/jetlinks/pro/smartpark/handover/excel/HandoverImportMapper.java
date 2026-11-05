@@ -70,6 +70,10 @@ public final class HandoverImportMapper {
                 var entity = new HandoverLedgerEntity();
                 entity.setTitle(row.get("title"));
                 entity.setCategoryId(category);
+                entity.setOrganizationId(resolve(row.get("organizationName"), catalog.organizations(),
+                        HandoverResponsibilityEntity::getName, HandoverResponsibilityEntity::getOrganizationId, input.row(), "责任单位"));
+                entity.setEntryUserId(resolve(row.get("entryUserName"), catalog.users(),
+                        PropertyEmployeeInfo::name, PropertyEmployeeInfo::id, input.row(), "录入人"));
                 entity.setLocation(row.get("location"));
                 entity.setDescription(row.get("description"));
                 entity.setProposedSolution(row.get("proposedSolution"));

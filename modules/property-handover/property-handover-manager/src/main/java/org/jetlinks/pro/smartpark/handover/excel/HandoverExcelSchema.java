@@ -108,8 +108,9 @@ public final class HandoverExcelSchema {
                             c("description", "说明", false, ""));
             case "ledger" ->
                     List.of(
-                            c("title", "问题标题", true, "公共区域渗漏"),
-                            c("categoryName", "资料分类", false, ""),
+                                                        c("categoryName", "问题分类", false, ""),
+                            c("organizationName", "责任单位", false, ""),
+                            c("entryUserName", "录入人", false, ""),
                             c("location", "位置", false, "1栋大堂"),
                             c("description", "问题描述", true, "请填写现场实际情况"),
                             c("proposedSolution", "建议方案", false, ""),

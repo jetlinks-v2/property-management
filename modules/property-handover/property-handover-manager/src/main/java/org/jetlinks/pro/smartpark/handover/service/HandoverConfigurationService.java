@@ -139,7 +139,16 @@ public class HandoverConfigurationService {
                                                                     "organization_duplicate"))
                                             .then());
         } else if (row instanceof HandoverLedgerEntity ledger) {
-            HandoverRules.require(HandoverRules.hasText(ledger.getTitle()), "title_required");
+            HandoverRules.require(HandoverRules.hasText(ledger.getDescription()), "description_required");
+            // 旧台账没有独立标题；兼容既有非空列，界面和导入均以问题描述为主体。
+            if (!HandoverRules.hasText(ledger.getTitle()))
+                ledger.setTitle(ledger.getDescription().substring(0, Math.min(256, ledger.getDescription().length())));
+            if (HandoverRules.hasText(ledger.getOrganizationId()))
+                check = check.then(responsibility(row.getProjectId(), ledger.getOrganizationId())
+                        .doOnNext(unit -> ledger.setOrganizationName(unit.getName())).then());
+            if (HandoverRules.hasText(ledger.getEntryUserId()))
+                check = check.then(directory.user(ledger.getEntryUserId())
+                        .doOnNext(user -> ledger.setEntryUserName(user.getName())).then());
             check =
                     check.then(category(row.getProjectId(), ledger.getCategoryId()))
                             .then(files.validate(ledger.getFiles()));
@@ -309,6 +318,13 @@ public class HandoverConfigurationService {
                                 input.setId(IDGenerator.MD5.generate());
                                 scope.initialize(input, c);
                                 categoryKey(input, c);
+                                if (input instanceof HandoverLedgerEntity ledger) {
+                                    ledger.setEntryTime(input.getCreateTime());
+                                    if (!HandoverRules.hasText(ledger.getEntryUserId())) {
+                                        ledger.setEntryUserId(c.userId()); ledger.setEntryUserName(c.userName());
+                                    }
+                                    ledger.setSupplementUserId(null); ledger.setSupplementUserName(null); ledger.setSupplementTime(null);
+                                }
                                 if (input instanceof HandoverItemEntity item)
                                     item.setConfirmed(false);
                                 return repository.insert(input).thenReturn(input);
@@ -343,6 +359,13 @@ public class HandoverConfigurationService {
                                                                     next.getSource()),
                                                             "source_invalid");
                                                 }
+                                                if (old instanceof HandoverLedgerEntity before && input instanceof HandoverLedgerEntity after) {
+                                                    after.setEntryTime(before.getEntryTime());
+                                                    after.setSupplementUserId(before.getSupplementUserId());
+                                                    after.setSupplementUserName(before.getSupplementUserName());
+                                                    after.setSupplementTime(before.getSupplementTime());
+                                                    after.setFiles(before.getFiles()); // 补图必须经过专用动作记录真实操作者。
+                                                }
                                                 input.setTenantId(old.getTenantId());
                                                 input.setApplicationId(old.getApplicationId());
                                                 input.setDeleted(false);
@@ -364,6 +387,25 @@ public class HandoverConfigurationService {
                                                         .thenReturn(input);
                                             });
                         });
+    }
+
+    /** 专用补图动作：版本、文件权限、项目权限与补录审计在一次事务中提交。 */
+    @Transactional
+    public Mono<HandoverLedgerEntity> supplementLedger(String id, org.jetlinks.pro.smartpark.handover.api.ActionRequest input) {
+        HandoverRules.require(input.getPhotos() != null && !input.getPhotos().isEmpty(), "photos_required");
+        return directory.employee().then(read(ledgers, id)).flatMap(row -> {
+            HandoverRules.conflict(Objects.equals(row.getVersion(), input.getVersion()));
+            HandoverRules.require(row.getFiles() == null || row.getFiles().isEmpty(), "ledger_photos_present");
+            return scope.project(row.getProjectId(), CrudAssetPermission.save).then(files.validate(input.getPhotos()))
+                    .then(scope.current()).flatMap(context -> {
+                        long now = System.currentTimeMillis();
+                        return ledgers.createUpdate().set("files", input.getPhotos())
+                                .set("supplementUserId", context.userId()).set("supplementUserName", context.userName())
+                                .set("supplementTime", now).set("modifyTime", now).set("version", row.getVersion() + 1)
+                                .where("id", id).and("version", row.getVersion()).and("deleted", false).execute()
+                                .doOnNext(n -> HandoverRules.conflict(n == 1)).then(read(ledgers, id));
+                    });
+        });
     }
 
     @Transactional
