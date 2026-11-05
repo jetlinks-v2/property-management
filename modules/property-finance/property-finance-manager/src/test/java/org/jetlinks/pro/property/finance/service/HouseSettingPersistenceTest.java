@@ -72,6 +72,8 @@ class HouseSettingPersistenceTest {
     @Autowired org.jetlinks.pro.property.finance.receivable.AdjustmentRules adjustmentRules;
     @Autowired ReactiveRepository<ReceivableLogEntity, String> receivableLogs;
     @Autowired FinanceScope financeScope;
+    @Autowired FinancialPeriodTestSupport financialPeriods;
+    @Autowired FinancialPeriodGate periodGate;
     @Autowired org.springframework.transaction.ReactiveTransactionManager transactionManager;
     @Autowired ReactiveRepository<BillingTaskEntity, String> taskRows;
     String project;
@@ -985,7 +987,7 @@ class HouseSettingPersistenceTest {
         ReactiveRepository<ReceivableLogEntity, String> failedLogs = mock(ReactiveRepository.class);
         when(failedLogs.insert(any(ReceivableLogEntity.class)))
                 .thenReturn(Mono.error(new IllegalStateException("audit unavailable")));
-        var failedService = new ReceivableService(financeScope, bills, failedLogs);
+        var failedService = new ReceivableService(financeScope, periodGate, bills, failedLogs);
         StepVerifier.create(
                         org.springframework.transaction.reactive.TransactionalOperator.create(
                                         transactionManager)
@@ -1221,7 +1223,8 @@ class HouseSettingPersistenceTest {
         when(failedLogs.insert(any(ReceivableLogEntity.class)))
                 .thenReturn(Mono.error(new IllegalStateException("audit unavailable")));
         var failedService =
-                new ReceivableAdjustmentService(financeScope, adjustmentRules, bills, failedLogs);
+                new ReceivableAdjustmentService(
+                        financeScope, periodGate, adjustmentRules, bills, failedLogs);
         StepVerifier.create(
                         org.springframework.transaction.reactive.TransactionalOperator.create(
                                         transactionManager)
@@ -1405,7 +1408,8 @@ class HouseSettingPersistenceTest {
         when(failedLogs.insert(any(ReceivableLogEntity.class)))
                 .thenReturn(Mono.error(new IllegalStateException("audit unavailable")));
         var service =
-                new ReceivableSplitService(financeScope, archive, splitRules, bills, failedLogs);
+                new ReceivableSplitService(
+                        financeScope, periodGate, archive, splitRules, bills, failedLogs);
         StepVerifier.create(
                         org.springframework.transaction.reactive.TransactionalOperator.create(
                                         transactionManager)
@@ -2158,6 +2162,239 @@ class HouseSettingPersistenceTest {
                     "-c",
                     "ALTER TABLE pm_fin_receivable_log DROP CONSTRAINT " + constraint);
         }
+    }
+
+    @Test
+    void closedPeriodRejectsAdjustmentWithoutChangingAmountsOrAudit() {
+        var bill = periodBill("room");
+        var input = periodAdjustment(bill);
+        var preview =
+                adjustments
+                        .preview(project, bill.getId(), input, DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        financialPeriods.close(project, DATE).contextWrite(allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                adjustments
+                        .submit(
+                                project,
+                                bill.getId(),
+                                new ReceivableAdjustmentService.SubmitInput(input, preview.token()),
+                                DATE)
+                        .contextWrite(allowed()));
+        var retained = bills.findById(bill.getId()).block(WAIT);
+        assertEquals(bill.getVersion(), retained.getVersion());
+        assertEquals(bill.getActualReceivableAmount(), retained.getActualReceivableAmount());
+        assertEquals(bill.getSnapshotJson(), retained.getSnapshotJson());
+        assertEquals(
+                0,
+                receivableLogs
+                        .createQuery()
+                        .where("receivableId", bill.getId())
+                        .count()
+                        .block(WAIT));
+    }
+
+    @Test
+    void closedPeriodRejectsSplitWithoutArchivingOrCreatingChildren() {
+        var bill = periodBill("room");
+        var input = periodSplit(bill);
+        var preview =
+                splits.preview(project, bill.getId(), input, DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        financialPeriods.close(project, DATE).contextWrite(allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                splits.submit(
+                                project,
+                                bill.getId(),
+                                new ReceivableSplitService.Submit(input, preview.token()),
+                                DATE)
+                        .contextWrite(allowed()));
+        assertFalse(bills.findById(bill.getId()).block(WAIT).getSplit());
+        assertEquals(bill.getVersion(), bills.findById(bill.getId()).block(WAIT).getVersion());
+        assertEquals(
+                1, bills.createQuery().where("settingId", bill.getSettingId()).count().block(WAIT));
+        assertEquals(
+                0,
+                receivableLogs
+                        .createQuery()
+                        .where("receivableId", bill.getId())
+                        .count()
+                        .block(WAIT));
+    }
+
+    @Test
+    void closedPeriodRejectsFreezeUnfreezeAndDeleteWithoutChangingVersionOrAudit() {
+        var operations = List.of("FREEZE", "UNFREEZE", "DELETE");
+        var sources =
+                operations.stream().map(operation -> periodBill("room-" + operation)).toList();
+        bills.createUpdate()
+                .set("frozen", true)
+                .where("id", sources.get(1).getId())
+                .execute()
+                .block(WAIT);
+        financialPeriods.close(project, LocalDate.now()).contextWrite(allowed()).block(WAIT);
+        for (int index = 0; index < operations.size(); index++) {
+            var operation = operations.get(index);
+            var bill = sources.get(index);
+            FinancialPeriodTestSupport.rejectsClosed(
+                    receivables
+                            .change(
+                                    project,
+                                    bill.getId(),
+                                    new ReceivableService.ChangeInput(bill.getVersion(), "期间保护"),
+                                    operation)
+                            .contextWrite(allowed()));
+            var retained = bills.findById(bill.getId()).block(WAIT);
+            assertEquals(bill.getVersion(), retained.getVersion());
+            assertFalse(retained.getDeleted());
+            assertEquals("UNFREEZE".equals(operation), retained.getFrozen());
+            assertEquals(
+                    0,
+                    receivableLogs
+                            .createQuery()
+                            .where("receivableId", bill.getId())
+                            .count()
+                            .block(WAIT));
+        }
+    }
+
+    @Test
+    void closedPeriodRejectsWholeBatchBeforeAnyDeleteOrAudit() {
+        var first = periodBill("room");
+        var second = periodBill("job");
+        var input =
+                new ReceivableBatchService.Input(
+                        List.of(
+                                new ReceivableBatchService.Item(first.getId(), first.getVersion()),
+                                new ReceivableBatchService.Item(
+                                        second.getId(), second.getVersion())),
+                        "误出账");
+        financialPeriods.close(project, LocalDate.now()).contextWrite(allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                batches.delete(project, input).contextWrite(allowed()));
+        for (var bill : List.of(first, second)) {
+            var retained = bills.findById(bill.getId()).block(WAIT);
+            assertFalse(retained.getDeleted());
+            assertEquals(bill.getVersion(), retained.getVersion());
+            assertEquals(
+                    0,
+                    receivableLogs
+                            .createQuery()
+                            .where("receivableId", bill.getId())
+                            .count()
+                            .block(WAIT));
+        }
+    }
+
+    @Test
+    void nextOpenDayAllowsUnclosedBillAdjustmentAndSplitButProtectsFinancialClosedSource() {
+        var bill = periodBill("room");
+        var other = periodBill("job");
+        financialPeriods.close(project, DATE).contextWrite(allowed()).block(WAIT);
+        var next = DATE.plusDays(1);
+        var input = periodAdjustment(bill);
+        var preview =
+                adjustments
+                        .preview(project, bill.getId(), input, next)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        adjustments
+                .submit(
+                        project,
+                        bill.getId(),
+                        new ReceivableAdjustmentService.SubmitInput(input, preview.token()),
+                        next)
+                .contextWrite(allowed())
+                .block(WAIT);
+        assertEquals(
+                new BigDecimal("10.00"),
+                bills.findById(bill.getId()).block(WAIT).getAdjustmentAmount());
+        var split = periodSplit(other);
+        var splitPreview =
+                splits.preview(project, other.getId(), split, next)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(
+                2,
+                splits.submit(
+                                project,
+                                other.getId(),
+                                new ReceivableSplitService.Submit(split, splitPreview.token()),
+                                next)
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .size());
+
+        var closed = bills.findById(bill.getId()).block(WAIT);
+        var closedInput = periodAdjustment(closed);
+        var closedPreview =
+                adjustments
+                        .preview(project, closed.getId(), closedInput, next)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var closedSplit = periodSplit(closed);
+        var closedSplitPreview =
+                splits.preview(project, closed.getId(), closedSplit, next)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        bills.createUpdate()
+                .set("financialClosed", true)
+                .where("id", closed.getId())
+                .execute()
+                .block(WAIT);
+        conflict(
+                adjustments.submit(
+                        project,
+                        closed.getId(),
+                        new ReceivableAdjustmentService.SubmitInput(
+                                closedInput, closedPreview.token()),
+                        next),
+                409);
+        conflict(
+                splits.submit(
+                        project,
+                        closed.getId(),
+                        new ReceivableSplitService.Submit(closedSplit, closedSplitPreview.token()),
+                        next),
+                409);
+        conflict(
+                receivables.change(
+                        project,
+                        closed.getId(),
+                        new ReceivableService.ChangeInput(closed.getVersion(), "已结原账"),
+                        "FREEZE"),
+                409);
+        assertEquals(closed.getVersion(), bills.findById(closed.getId()).block(WAIT).getVersion());
+    }
+
+    private ReceivableEntity periodBill(String space) {
+        var saved =
+                settings.create(project, input(space, "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        return bills.createQuery()
+                .where("settingId", saved.setting().getId())
+                .fetchOne()
+                .block(WAIT);
+    }
+
+    private org.jetlinks.pro.property.finance.receivable.AdjustmentInput periodAdjustment(
+            ReceivableEntity bill) {
+        var input = new org.jetlinks.pro.property.finance.receivable.AdjustmentInput();
+        input.setVersion(bill.getVersion());
+        input.setAdjustmentMode("DIRECT");
+        input.setDirectDirection("INCREASE");
+        input.setDirectAmount("10.00");
+        input.setReason("补充费用");
+        return input;
+    }
+
+    private org.jetlinks.pro.property.finance.receivable.SplitInput periodSplit(
+            ReceivableEntity bill) {
+        return new org.jetlinks.pro.property.finance.receivable.SplitInput(
+                bill.getVersion(), LocalDate.of(2024, 2, 12), 0, "link", "link", "按搬迁日期拆分");
     }
 
     private void conflict(Mono<?> action, int status) {

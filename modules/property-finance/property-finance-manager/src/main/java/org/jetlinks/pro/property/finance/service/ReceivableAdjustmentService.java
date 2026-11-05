@@ -27,6 +27,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class ReceivableAdjustmentService {
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final AdjustmentRules rules;
     private final ReactiveRepository<ReceivableEntity, String> bills;
     private final ReactiveRepository<ReceivableLogEntity, String> logs;
@@ -42,6 +43,8 @@ public class ReceivableAdjustmentService {
     public Mono<ReceivableView> submit(
             String project, String id, SubmitInput request, LocalDate today) {
         return scope.project(project, CrudAssetPermission.save)
+                // 按本次落账日锁期间，参考计算日不能绕过月结；必须早于原应收锁。
+                .then(periodGate.assertOpen(project, today))
                 .then(scope.authenticated())
                 .flatMap(
                         auth ->
@@ -76,6 +79,7 @@ public class ReceivableAdjustmentService {
     Mono<ReceivableView> reduceForCarry(
             String project, String id, AdjustmentInput input, LocalDate today) {
         return scope.project(project, CrudAssetPermission.save)
+                .then(periodGate.assertOpen(project, today))
                 .then(scope.authenticated())
                 .flatMap(
                         auth ->

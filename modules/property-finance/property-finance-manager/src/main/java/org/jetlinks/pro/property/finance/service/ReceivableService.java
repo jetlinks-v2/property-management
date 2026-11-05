@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.*;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.LocalDate;
 import java.util.*;
 
 /** 应收查询及状态维护，项目与空间双授权，历史客户和房屋以账单快照为准。 */
@@ -30,6 +31,7 @@ public class ReceivableService {
     private static final AssetType SPACE = AssetType.of("space");
     public static final int EXPORT_LIMIT = 10000;
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final ReactiveRepository<ReceivableEntity, String> bills;
     private final ReactiveRepository<ReceivableLogEntity, String> logs;
 
@@ -118,6 +120,8 @@ public class ReceivableService {
                         "DELETE".equals(operation)
                                 ? CrudAssetPermission.delete
                                 : CrudAssetPermission.save)
+                // 状态维护按本次操作日受期间保护，原账已结保护仍由 ReceivablePolicy 判断。
+                .then(periodGate.assertOpen(project, LocalDate.now()))
                 .then(scope.authenticated())
                 .flatMap(
                         auth ->

@@ -31,6 +31,7 @@ import java.util.*;
 public class ReceivableBatchService {
     private static final AssetType SPACE = AssetType.of("space");
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final ReceivableService service;
     private final ReactiveRepository<ReceivableEntity, String> bills;
 
@@ -60,7 +61,10 @@ public class ReceivableBatchService {
 
     @Transactional
     public Mono<Void> delete(String project, Input input) {
-        return selected(project, input, CrudAssetPermission.delete, true)
+        // 在整批锁账前取期间锁；内部单笔 change 沿同一事务重入，不能只保护内部入口。
+        return scope.project(project, CrudAssetPermission.delete)
+                .then(periodGate.assertOpen(project, LocalDate.now()))
+                .then(selected(project, input, CrudAssetPermission.delete, true))
                 .flatMap(
                         rows -> {
                             if (input.reason() == null

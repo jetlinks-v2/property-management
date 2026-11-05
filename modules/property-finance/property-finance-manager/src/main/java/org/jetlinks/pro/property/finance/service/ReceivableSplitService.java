@@ -31,6 +31,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class ReceivableSplitService {
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final HouseArchiveSource archive;
     private final SplitRules rules;
     private final ReactiveRepository<ReceivableEntity, String> bills;
@@ -83,6 +84,8 @@ public class ReceivableSplitService {
     public Mono<List<ReceivableView>> submit(
             String project, String id, Submit request, LocalDate today) {
         return scope.project(project, CrudAssetPermission.save)
+                // 先期间再基础空间及原账，避免拆分与月结获取反向锁。
+                .then(periodGate.assertOpen(project, today))
                 .then(scope.authenticated())
                 .flatMap(
                         auth ->
