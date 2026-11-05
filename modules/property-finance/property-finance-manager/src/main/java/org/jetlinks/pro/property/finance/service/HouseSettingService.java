@@ -31,6 +31,7 @@ import java.util.*;
 public class HouseSettingService {
     private static final AssetType SPACE = AssetType.of("space");
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final HouseArchiveSource archive;
     private final SubjectService subjects;
     private final ReactiveRepository<ProjectSubjectEntity, String> issued;
@@ -139,6 +140,7 @@ public class HouseSettingService {
     @Transactional
     public Mono<SaveResult> create(String project, SettingInput input, LocalDate date) {
         return scope.project(project, CrudAssetPermission.save)
+                .then(periodGate.assertOpen(project, date))
                 .then(scope.authenticated())
                 .flatMap(
                         auth ->
@@ -155,8 +157,12 @@ public class HouseSettingService {
         return Mono.defer(
                 () -> {
                     SettingRules.validate(input);
-                    return AssetsHolder.assertPermission(
-                                    SPACE, input.getSpaceId(), CrudAssetPermission.save)
+                    // 外层已持有期间锁；新配置不得在开放日回填已结期间的费用。
+                    return periodGate
+                            .assertOpen(project, LocalDate.parse(input.getEffectiveStartDate()))
+                            .then(
+                                    AssetsHolder.assertPermission(
+                                            SPACE, input.getSpaceId(), CrudAssetPermission.save))
                             .then(archive.context(project, input.getSpaceId(), true))
                             .flatMap(
                                     context ->
@@ -312,6 +318,7 @@ public class HouseSettingService {
     @Transactional
     public Mono<SaveResult> update(String project, String id, SettingInput input, LocalDate date) {
         return scope.project(project, CrudAssetPermission.save)
+                .then(periodGate.assertOpen(project, date))
                 .then(scope.authenticated())
                 .flatMap(
                         auth ->
@@ -393,6 +400,7 @@ public class HouseSettingService {
     @Transactional
     public Mono<Void> delete(String project, String id, Long version) {
         return scope.project(project, CrudAssetPermission.delete)
+                .then(periodGate.assertOpen(project, LocalDate.now()))
                 .then(scope.authenticated())
                 .flatMap(
                         auth ->
@@ -431,6 +439,7 @@ public class HouseSettingService {
     public Mono<SaveResult> nextVersion(
             String project, String id, SettingInput input, LocalDate date) {
         return scope.project(project, CrudAssetPermission.save)
+                .then(periodGate.assertOpen(project, date))
                 .then(scope.authenticated())
                 .flatMap(
                         auth ->
@@ -549,6 +558,7 @@ public class HouseSettingService {
     public Mono<List<SaveResult>> createBatch(
             String project, List<SettingInput> inputs, LocalDate date) {
         return scope.project(project, CrudAssetPermission.save)
+                .then(periodGate.assertOpen(project, date))
                 .then(scope.authenticated())
                 .flatMap(
                         auth ->
@@ -631,6 +641,7 @@ public class HouseSettingService {
     @Transactional
     public Mono<SettingView> stop(String project, String id, StopInput input, LocalDate date) {
         return scope.project(project, CrudAssetPermission.save)
+                .then(periodGate.assertOpen(project, date))
                 .then(scope.authenticated())
                 .flatMap(
                         auth ->
@@ -657,10 +668,14 @@ public class HouseSettingService {
                                                                 error(
                                                                         "setting_invalid_dates",
                                                                         400));
-                                                    return AssetsHolder.assertPermission(
-                                                                    SPACE,
-                                                                    old.getSpaceId(),
-                                                                    CrudAssetPermission.save)
+                                                    return periodGate
+                                                            .assertOpen(project, end)
+                                                            .then(
+                                                                    AssetsHolder.assertPermission(
+                                                                            SPACE,
+                                                                            old.getSpaceId(),
+                                                                            CrudAssetPermission
+                                                                                    .save))
                                                             .then(
                                                                     bills.createQuery()
                                                                             .where("settingId", id)

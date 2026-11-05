@@ -29,6 +29,7 @@ import java.util.*;
 public class ReceivableGenerationService {
     private static final AssetType SPACE = AssetType.of("space");
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final ReactiveRepository<HouseSettingEntity, String> settings;
     private final ReactiveRepository<ReceivableEntity, String> bills;
     private final NaturalBillingPeriodService periods;
@@ -38,6 +39,7 @@ public class ReceivableGenerationService {
     public Mono<GenerationResult> generate(
             String project, String settingId, LocalDate businessDate) {
         return scope.project(project, CrudAssetPermission.save)
+                .then(periodGate.assertOpen(project, businessDate))
                 .then(scope.authenticated())
                 .flatMap(
                         auth ->
@@ -57,8 +59,12 @@ public class ReceivableGenerationService {
     }
 
     private Mono<HouseSettingEntity> locked(String project, String id) {
+        return setting(project, id, true);
+    }
+
+    private Mono<HouseSettingEntity> setting(String project, String id, boolean lock) {
         var query = new QueryParamEntity();
-        query.setForUpdate(true);
+        query.setForUpdate(lock);
         return settings.createQuery()
                 .setParam(query)
                 .where("id", id)
@@ -68,35 +74,57 @@ public class ReceivableGenerationService {
                 .switchIfEmpty(Mono.error(error("setting_not_found", 404)));
     }
 
-    /** 调用者必须处于保存设置的事务，并已持有设置/项目科目锁；失败交由事务整批回滚。 */
+    /** 调用者必须先取得期间锁，再锁设置/项目科目；重入同一期间锁取得关闭边界，失败整批回滚。 */
     Mono<GenerationResult> generate(
             HouseSettingEntity setting, LocalDate date, Authentication auth) {
-        return generate(setting, date, auth, BillingTaskKind.ALL);
+        return periodGate
+                .lock(setting.getProjectId())
+                .flatMap(
+                        control ->
+                                periodGate
+                                        .assertOpen(control, date)
+                                        .then(
+                                                generate(
+                                                        setting,
+                                                        date,
+                                                        auth,
+                                                        BillingTaskKind.ALL,
+                                                        control)));
     }
 
     /** 仅后台任务内部调用：运行已授权保存的冻结设置，不接收HTTP来源或冒充某个操作员。 */
     @Transactional
     public Mono<GenerationResult> scheduled(
             String project, String settingId, LocalDate date, BillingTaskKind kind) {
-        return locked(project, settingId)
+        // 先只读核对持久归属，再期间→设置锁；不能先锁设置再等待期间锁。
+        return setting(project, settingId, false)
                 .flatMap(
-                        setting ->
-                                org.jetlinks.pro.tenant.holder.TenantHolder.currentId()
-                                        .defaultIfEmpty("")
-                                        .filter(
-                                                tenant ->
-                                                        Objects.equals(
-                                                                tenant, setting.getTenantId()))
-                                        .switchIfEmpty(
-                                                Mono.error(error("task_tenant_invalid", 409)))
-                                        .then(
-                                                Mono.defer(
-                                                        () ->
-                                                                generate(
-                                                                        setting,
-                                                                        date,
-                                                                        systemActor(),
-                                                                        kind))))
+                        initial ->
+                                periodGate
+                                        .lockForBillingTask(initial, systemActor())
+                                        .flatMap(
+                                                control ->
+                                                        periodGate
+                                                                .assertOpen(control, date)
+                                                                .then(locked(project, settingId))
+                                                                .flatMap(
+                                                                        locked -> {
+                                                                            if (!Objects.equals(
+                                                                                    initial
+                                                                                            .getTenantId(),
+                                                                                    locked
+                                                                                            .getTenantId()))
+                                                                                return Mono.error(
+                                                                                        error(
+                                                                                                "task_tenant_invalid",
+                                                                                                409));
+                                                                            return generate(
+                                                                                    locked,
+                                                                                    date,
+                                                                                    systemActor(),
+                                                                                    kind,
+                                                                                    control);
+                                                                        })))
                 .as(MonoTracer.create("/property/finance/receivable/scheduled"));
     }
 
@@ -110,7 +138,11 @@ public class ReceivableGenerationService {
     }
 
     private Mono<GenerationResult> generate(
-            HouseSettingEntity setting, LocalDate date, Authentication auth, BillingTaskKind kind) {
+            HouseSettingEntity setting,
+            LocalDate date,
+            Authentication auth,
+            BillingTaskKind kind,
+            FinancialPeriodControlEntity control) {
         return Mono.defer(
                 () -> {
                     if (date == null) return Mono.error(error("setting_invalid_dates", 400));
@@ -127,7 +159,8 @@ public class ReceivableGenerationService {
                             .concatMap(
                                     period ->
                                             generateOne(
-                                                    setting, period, standard, date, auth, kind))
+                                                    setting, period, standard, date, auth, kind,
+                                                    control))
                             .reduce(
                                     new GenerationResult(0, 0),
                                     (result, created) ->
@@ -143,7 +176,8 @@ public class ReceivableGenerationService {
             StandardEntity standard,
             LocalDate date,
             Authentication auth,
-            BillingTaskKind kind) {
+            BillingTaskKind kind,
+            FinancialPeriodControlEntity control) {
         var query = new QueryParamEntity();
         query.setForUpdate(true);
         return bills.createQuery()
@@ -168,8 +202,19 @@ public class ReceivableGenerationService {
                                     if (kind != BillingTaskKind.GENERATE
                                             && kind != BillingTaskKind.ALL) return Mono.empty();
                                     var row = newBill(setting, period, standard, auth);
-                                    calculation.calculate(row, standard, date, kind);
-                                    return bills.insert(row).thenReturn(true);
+                                    // 在新开放期执行也不能补写已结日期的缺失账；保留原身份的账走上方分支。
+                                    return periodGate
+                                            .assertOpen(
+                                                    control,
+                                                    LocalDate.parse(row.getCalcStartDate()))
+                                            .then(
+                                                    Mono.defer(
+                                                            () -> {
+                                                                calculation.calculate(
+                                                                        row, standard, date, kind);
+                                                                return bills.insert(row)
+                                                                        .thenReturn(true);
+                                                            }));
                                 }));
     }
 

@@ -14,6 +14,7 @@ import org.hswebframework.web.authorization.Authentication;
 import org.hswebframework.web.authorization.exception.UnAuthorizedException;
 import org.jetlinks.core.trace.MonoTracer;
 import org.jetlinks.pro.property.finance.entity.FinancialPeriodControlEntity;
+import org.jetlinks.pro.property.finance.entity.HouseSettingEntity;
 import org.jetlinks.pro.tenant.holder.TenantHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.NoTransactionException;
@@ -35,6 +36,33 @@ public class FinancialPeriodGate {
 
     /** 锁持有到外层响应式事务结束；禁止在授权查询或只读预览中调用。 */
     public Mono<FinancialPeriodControlEntity> lock(String project) {
+        return requireTransaction()
+                .then(
+                        Authentication.currentReactive()
+                                .switchIfEmpty(Mono.error(UnAuthorizedException.NoStackTrace::new)))
+                .flatMap(
+                        auth ->
+                                TenantHolder.currentId()
+                                        .defaultIfEmpty("")
+                                        .flatMap(tenant -> lock(project, tenant, auth)))
+                .as(MonoTracer.create("property.finance.period.lock"));
+    }
+
+    /** 仅出账任务使用已读取的持久设置取得期间锁，随后仍须锁设置并复核租户。actor 仅写审计， 不代表用户授权，也不放入认证上下文；普通入口仍必须使用要求登录的 lock。 */
+    Mono<FinancialPeriodControlEntity> lockForBillingTask(
+            HouseSettingEntity persistedSetting, Authentication actor) {
+        return requireTransaction()
+                .then(TenantHolder.currentId().defaultIfEmpty(""))
+                .flatMap(
+                        tenant -> {
+                            if (!tenant.equals(persistedSetting.getTenantId()))
+                                return Mono.error(error("task_tenant_invalid", 409));
+                            return lock(persistedSetting.getProjectId(), tenant, actor);
+                        })
+                .as(MonoTracer.create("property.finance.period.billing-task-lock"));
+    }
+
+    private Mono<Void> requireTransaction() {
         return TransactionSynchronizationManager.forCurrentTransaction()
                 .onErrorMap(
                         NoTransactionException.class,
@@ -43,16 +71,9 @@ public class FinancialPeriodGate {
                         transaction -> {
                             if (!transaction.isActualTransactionActive())
                                 return Mono.error(error("period_transaction_required", 500));
-                            return Authentication.currentReactive()
-                                    .switchIfEmpty(
-                                            Mono.error(UnAuthorizedException.NoStackTrace::new));
+                            return Mono.empty();
                         })
-                .flatMap(
-                        auth ->
-                                TenantHolder.currentId()
-                                        .defaultIfEmpty("")
-                                        .flatMap(tenant -> lock(project, tenant, auth)))
-                .as(MonoTracer.create("property.finance.period.lock"));
+                .then();
     }
 
     private Mono<FinancialPeriodControlEntity> lock(
@@ -125,7 +146,8 @@ public class FinancialPeriodGate {
                                                                                                                 mutation)))))));
     }
 
-    private Mono<Void> assertOpen(FinancialPeriodControlEntity control, LocalDate businessDate) {
+    Mono<Void> assertOpen(FinancialPeriodControlEntity control, LocalDate businessDate) {
+        if (businessDate == null) return Mono.error(error("period_date_required", 400));
         if (control.getClosedThrough() != null
                 && !businessDate.isAfter(LocalDate.parse(control.getClosedThrough())))
             return Mono.error(error("period_closed", 409));

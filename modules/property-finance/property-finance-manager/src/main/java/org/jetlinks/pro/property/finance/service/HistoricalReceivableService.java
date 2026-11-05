@@ -38,6 +38,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class HistoricalReceivableService {
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final HouseArchiveSource archive;
     private final ReactiveRepository<StandardEntity, String> standards;
     private final ReactiveRepository<SubjectEntity, String> subjects;
@@ -210,7 +211,7 @@ public class HistoricalReceivableService {
                 });
     }
 
-    /** 基础命令先取项目锁，随后锁科目与标准；全部匹配成功后才插入第一条账。 */
+    /** 先期间再基础项目、科目与标准；已结行或任意匹配失败时整表回滚，失败批次单独保留。 */
     private Mono<Void> apply(
             String project,
             ReceivableImportEntity record,
@@ -224,7 +225,14 @@ public class HistoricalReceivableService {
                                         .thenComparing(HistoricalWorkbook.Line::fullName))
                         .toList();
         var prepared =
-                houses(project, 0)
+                periodGate
+                        .lock(project)
+                        .flatMap(
+                                control ->
+                                        periodGate
+                                                .assertOpen(control, LocalDate.now())
+                                                .then(validatePeriods(control, lines)))
+                        .then(houses(project, 0))
                         .flatMapMany(
                                 all ->
                                         Flux.fromIterable(ordered)
@@ -261,6 +269,24 @@ public class HistoricalReceivableService {
                                         .execute())
                         .then();
         return TransactionalOperator.create(transactions).transactional(prepared);
+    }
+
+    private Mono<Void> validatePeriods(
+            FinancialPeriodControlEntity control, List<HistoricalWorkbook.Line> lines) {
+        return Flux.fromIterable(lines)
+                .concatMap(
+                        line ->
+                                periodGate
+                                        .assertOpen(control, line.start())
+                                        .onErrorMap(
+                                                org.hswebframework.web.exception.BusinessException
+                                                        .class,
+                                                ignored ->
+                                                        HistoricalWorkbook.rowError(
+                                                                line.row(),
+                                                                "计费开始日期",
+                                                                "period_closed")))
+                .then();
     }
 
     private Mono<ReceivableEntity> prepareLine(

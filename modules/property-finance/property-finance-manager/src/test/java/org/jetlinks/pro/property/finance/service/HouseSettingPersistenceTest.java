@@ -74,6 +74,7 @@ class HouseSettingPersistenceTest {
     @Autowired FinanceScope financeScope;
     @Autowired FinancialPeriodTestSupport financialPeriods;
     @Autowired FinancialPeriodGate periodGate;
+    @Autowired ReactiveRepository<FinancialPeriodControlEntity, String> financialControls;
     @Autowired org.springframework.transaction.ReactiveTransactionManager transactionManager;
     @Autowired ReactiveRepository<BillingTaskEntity, String> taskRows;
     String project;
@@ -1711,6 +1712,7 @@ class HouseSettingPersistenceTest {
         var service =
                 new HistoricalReceivableService(
                         financeScope,
+                        periodGate,
                         archive,
                         standards,
                         subjectRows,
@@ -2380,6 +2382,161 @@ class HouseSettingPersistenceTest {
                 .block(WAIT);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(
+            strings = {"CREATE", "UPDATE", "NEXT", "BATCH", "STOP", "DELETE"})
+    void closedPeriodRejectsEverySettingWriteBeforeConfigurationOrBillChanges(String operation) {
+        var saved =
+                settings.create(project, input("existing", "2024-03-01", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .setting();
+        financialPeriods
+                .close(project, "DELETE".equals(operation) ? LocalDate.now() : DATE)
+                .contextWrite(allowed())
+                .block(WAIT);
+        var input = input("existing", "2024-03-01", null);
+        if ("NEXT".equals(operation)) input.setEffectiveStartDate("2024-04-01");
+        input.setVersion(saved.getVersion());
+        Mono<?> action =
+                switch (operation) {
+                    case "CREATE" ->
+                            settings.create(project, input("new", "2024-03-01", null), DATE);
+                    case "UPDATE" -> settings.update(project, saved.getId(), input, DATE);
+                    case "NEXT" -> settings.nextVersion(project, saved.getId(), input, DATE);
+                    case "BATCH" ->
+                            settings.createBatch(
+                                    project, List.of(input("new", "2024-03-01", null)), DATE);
+                    case "STOP" ->
+                            settings.stop(
+                                    project,
+                                    saved.getId(),
+                                    new HouseSettingService.StopInput(
+                                            saved.getVersion(), "2024-03-31"),
+                                    DATE);
+                    case "DELETE" -> settings.delete(project, saved.getId(), saved.getVersion());
+                    default -> throw new AssertionError(operation);
+                };
+        FinancialPeriodTestSupport.rejectsClosed(action.contextWrite(allowed()));
+        var retained = rows.findById(saved.getId()).block(WAIT);
+        assertEquals(saved.getVersion(), retained.getVersion());
+        assertFalse(retained.getDeleted());
+        assertEquals("ACTIVE", retained.getStatus());
+        assertEquals(1, rows.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    @Test
+    void closedPeriodRejectsManualAndAnonymousScheduledGeneration() {
+        var bill = periodBill("room");
+        financialPeriods.close(project, DATE).contextWrite(allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                generation.generate(project, bill.getSettingId(), DATE).contextWrite(allowed()));
+        // 无登录的后台路径仍返回期间关闭，不能借接入门闩而变成要求操作员登录。
+        FinancialPeriodTestSupport.rejectsClosed(
+                generation.scheduled(project, bill.getSettingId(), DATE, BillingTaskKind.ALL));
+        assertEquals(bill.getVersion(), bills.findById(bill.getId()).block(WAIT).getVersion());
+        assertEquals(
+                1, bills.createQuery().where("settingId", bill.getSettingId()).count().block(WAIT));
+    }
+
+    @Test
+    void nextOpenDayCannotBackfillMissingClosedBillsOrBackdateNewSetting() {
+        var saved =
+                settings.create(
+                                project,
+                                input("future-job", "2024-01-01", null),
+                                LocalDate.of(2023, 12, 31))
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .setting();
+        financialPeriods
+                .close(project, LocalDate.of(2024, 2, 29))
+                .contextWrite(allowed())
+                .block(WAIT);
+        var next = LocalDate.of(2024, 3, 1);
+        FinancialPeriodTestSupport.rejectsClosed(
+                generation.generate(project, saved.getId(), next).contextWrite(allowed()));
+        FinancialPeriodTestSupport.rejectsClosed(
+                generation.scheduled(project, saved.getId(), next, BillingTaskKind.GENERATE));
+        FinancialPeriodTestSupport.rejectsClosed(
+                settings.create(project, input("new-room", "2024-02-10", null), next)
+                        .contextWrite(allowed()));
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(1, rows.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    @Test
+    void scheduledGenerationKeepsClosedBillAndCreatesNextOpenPeriodWithoutLogin() {
+        var saved =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .setting();
+        var bill = bills.createQuery().where("settingId", saved.getId()).fetchOne().block(WAIT);
+        bills.createUpdate()
+                .set("financialClosed", true)
+                .where("id", bill.getId())
+                .execute()
+                .block(WAIT);
+        financialPeriods
+                .close(project, LocalDate.of(2024, 2, 29))
+                .contextWrite(allowed())
+                .block(WAIT);
+        var result =
+                generation
+                        .scheduled(
+                                project,
+                                saved.getId(),
+                                LocalDate.of(2024, 3, 1),
+                                BillingTaskKind.ALL)
+                        .block(WAIT);
+        assertEquals(1, result.generated());
+        assertEquals(1, result.retained());
+        var retained = bills.findById(bill.getId()).block(WAIT);
+        assertEquals(bill.getVersion(), retained.getVersion());
+        assertEquals(bill.getActualReceivableAmount(), retained.getActualReceivableAmount());
+        assertEquals(bill.getCalculatedAsOfDate(), retained.getCalculatedAsOfDate());
+        assertEquals(2, bills.createQuery().where("settingId", saved.getId()).count().block(WAIT));
+    }
+
+    @Test
+    void historicalImportRejectsClosedRowWithLineNumberAndRollsBackEarlierOpenRow()
+            throws Exception {
+        mockHistoricalHouses();
+        byte[] bytes;
+        try (var book =
+                        new org.apache.poi.xssf.usermodel.XSSFWorkbook(
+                                new java.io.ByteArrayInputStream(historicalFile("100.00", true)));
+                var out = new java.io.ByteArrayOutputStream()) {
+            var first = book.getSheetAt(0).getRow(1);
+            first.getCell(5).setCellValue("2023-03-01");
+            first.getCell(6).setCellValue("2023-03-28");
+            first.getCell(7).setCellValue("2023-03");
+            book.write(out);
+            bytes = out.toByteArray();
+        }
+        financialPeriods
+                .close(project, LocalDate.of(2023, 2, 28))
+                .contextWrite(allowed())
+                .block(WAIT);
+        var record =
+                historical
+                        .importFile(project, historicalPart(bytes))
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals("FAILED", record.getStatus());
+        assertEquals(0, record.getSuccessCount());
+        assertTrue(record.getErrorMessage().contains("3"), record.getErrorMessage());
+        assertTrue(
+                record.getErrorMessage().contains("period_closed")
+                        || record.getErrorMessage().contains("已关闭"),
+                record.getErrorMessage());
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(
+                0, receivableLogs.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
     private org.jetlinks.pro.property.finance.receivable.AdjustmentInput periodAdjustment(
             ReceivableEntity bill) {
         var input = new org.jetlinks.pro.property.finance.receivable.AdjustmentInput();
@@ -2395,6 +2552,69 @@ class HouseSettingPersistenceTest {
             ReceivableEntity bill) {
         return new org.jetlinks.pro.property.finance.receivable.SplitInput(
                 bill.getVersion(), LocalDate.of(2024, 2, 12), 0, "link", "link", "按搬迁日期拆分");
+    }
+
+    @Test
+    void closingFirstSerializesAnonymousGenerationBeforeAnyBillLockOrWrite() {
+        var saved =
+                settings.create(project, input("job", "2024-02-10", null), LocalDate.of(2024, 2, 9))
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .setting();
+        var held = Sinks.<Void>one();
+        var started = Sinks.<Void>one();
+        var closing =
+                org.springframework.transaction.reactive.TransactionalOperator.create(
+                                transactionManager)
+                        .transactional(
+                                periodGate
+                                        .lock(project)
+                                        .then(Mono.fromRunnable(held::tryEmitEmpty))
+                                        .then(started.asMono())
+                                        .then(financialPeriods.close(project, DATE)))
+                        .thenReturn("CLOSED")
+                        .contextWrite(allowed());
+        var job =
+                held.asMono()
+                        .then(
+                                generation
+                                        .scheduled(
+                                                project, saved.getId(), DATE, BillingTaskKind.ALL)
+                                        .doOnSubscribe(ignored -> started.tryEmitEmpty()))
+                        .materialize();
+        var results = Mono.zip(closing, job).block(WAIT);
+        assertEquals("CLOSED", results.getT1());
+        assertTrue(results.getT2().isOnError());
+        var failure = results.getT2().getThrowable();
+        assertTrue(TaxItemPersistenceTest.status(failure, 409));
+        assertTrue(failure.getMessage().contains("period_closed"));
+        assertEquals(0, bills.createQuery().where("settingId", saved.getId()).count().block(WAIT));
+    }
+
+    @Test
+    void wrongTenantCannotUseAnonymousTaskToInitializeAnotherProjectsPeriod() {
+        var saved =
+                settings.create(project, input("job", "2024-02-10", null), LocalDate.of(2024, 2, 9))
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .setting();
+        var before =
+                financialControls.createQuery().where("projectId", project).count().block(WAIT);
+        StepVerifier.create(
+                        generation
+                                .scheduled(project, saved.getId(), DATE, BillingTaskKind.ALL)
+                                .contextWrite(
+                                        org.jetlinks.pro.tenant.holder.TenantHolder.makeCurrent(
+                                                "other")))
+                .expectErrorMatches(
+                        error ->
+                                TaxItemPersistenceTest.status(error, 409)
+                                        && error.getMessage().contains("task_tenant_invalid"))
+                .verify(WAIT);
+        assertEquals(
+                before,
+                financialControls.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(0, bills.createQuery().where("settingId", saved.getId()).count().block(WAIT));
     }
 
     private void conflict(Mono<?> action, int status) {
