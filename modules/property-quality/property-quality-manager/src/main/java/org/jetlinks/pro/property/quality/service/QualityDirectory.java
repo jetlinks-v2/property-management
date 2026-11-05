@@ -19,6 +19,9 @@ import org.jetlinks.pro.property.base.user.PropertyUserInfo;
 import org.jetlinks.pro.property.base.space.PropertySpaceInfo;
 import org.jetlinks.pro.tenant.holder.TenantHolder;
 import org.springframework.stereotype.Service;
+import org.jetlinks.sdk.server.SdkServices;
+import org.jetlinks.sdk.server.auth.DimensionUserBindInfo;
+import org.jetlinks.sdk.server.auth.cmd.GetDimensionUserBindCommand;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import java.util.List;
@@ -40,6 +43,24 @@ public class QualityDirectory {
         var command = new QueryPropertyUsersCommand(); command.setEmployeesOnly(true);
         return support().flatMapMany(s -> s.execute(command));
     }
+    /**
+     * 先由认证公开命令读取实际应用成员，再按批次与调用者有权查看的在职员工取交集。
+     * 成员关系只是必要条件，调用方仍逐人验证实时动作和项目/工单权限；不缓存权限快照。
+     * 空成员列表不得发送空 IDs 目录命令（空 IDs 在基础契约中表示全量目录）。
+     */
+    public Flux<PropertyUserInfo> employees(String applicationId) {
+        var command = new GetDimensionUserBindCommand()
+            .withDimension(BusinessApplicationDimension.TYPE, applicationId);
+        return support(SdkServices.authService).flatMapMany(s -> s.execute(command))
+            .filter(binding -> BusinessApplicationDimension.TYPE.equals(binding.getType())
+                && applicationId.equals(binding.getId()))
+            .flatMapIterable(DimensionUserBindInfo::getUserId)
+            .distinct().buffer(200).concatMap(ids -> {
+                var employees = new QueryPropertyUsersCommand();
+                employees.setEmployeesOnly(true); employees.setIds(ids);
+                return support().flatMapMany(s -> s.execute(employees));
+            });
+    }
     public Mono<PropertyUserInfo> user(String id) {
         var command = new QueryPropertyUsersCommand(); command.setIds(List.of(id));
         return support().flatMapMany(s -> s.execute(command)).next();
@@ -57,7 +78,10 @@ public class QualityDirectory {
             .switchIfEmpty(Mono.error(new BusinessException("error.quality.space_project_mismatch", 400)));
     }
     private Mono<org.jetlinks.core.command.CommandSupport> support() {
-        return CommandSupportManagerProviders.getCommandSupport(QueryPropertyUsersCommand.SERVICE_ID)
+        return support(QueryPropertyUsersCommand.SERVICE_ID);
+    }
+    protected Mono<org.jetlinks.core.command.CommandSupport> support(String serviceId) {
+        return CommandSupportManagerProviders.getCommandSupport(serviceId)
             .switchIfEmpty(Mono.error(new BusinessException("error.quality.directory_unavailable", 503)));
     }
 
