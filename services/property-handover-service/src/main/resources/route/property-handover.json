@@ -1,0 +1,1 @@
+[{"path":"/property/handover/**","authorize":true,"order":-20},{"path":"/v3/api-docs/smart-park-handover-service","authorize":true,"order":-10}]
