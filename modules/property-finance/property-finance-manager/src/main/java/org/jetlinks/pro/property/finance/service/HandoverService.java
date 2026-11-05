@@ -28,6 +28,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class HandoverService {
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final HandoverSources sources;
     private final HandoverRecords records;
     private final ReactiveRepository<HandoverEntity, String> batches;
@@ -104,64 +105,67 @@ public class HandoverService {
                                                                                 "CREATE",
                                                                                 request
                                                                                         .requestId());
-                                                                return replay(
+                                                                return periodGate.inOpenPeriod(
+                                                                        project,
+                                                                        LocalDate.parse(
+                                                                                input
+                                                                                        .closingDate()),
+                                                                        replay(
                                                                                 project,
                                                                                 id,
                                                                                 tenant,
-                                                                                fingerprint)
-                                                                        .switchIfEmpty(
-                                                                                Mono.defer(
-                                                                                        () ->
-                                                                                                sources.load(
-                                                                                                                project,
-                                                                                                                input
-                                                                                                                        .items(),
-                                                                                                                true,
-                                                                                                                CrudAssetPermission
-                                                                                                                        .save)
-                                                                                                        .flatMap(
-                                                                                                                rows ->
-                                                                                                                        replay(
-                                                                                                                                        project,
-                                                                                                                                        id,
-                                                                                                                                        tenant,
-                                                                                                                                        fingerprint)
-                                                                                                                                .switchIfEmpty(
-                                                                                                                                        Mono
-                                                                                                                                                .defer(
-                                                                                                                                                        () -> {
-                                                                                                                                                            var
-                                                                                                                                                                    quote =
-                                                                                                                                                                            preview(
-                                                                                                                                                                                    project,
-                                                                                                                                                                                    input,
-                                                                                                                                                                                    rows);
-                                                                                                                                                            if (!request.token()
-                                                                                                                                                                    .equals(
-                                                                                                                                                                            quote
-                                                                                                                                                                                    .token()))
-                                                                                                                                                                return Mono
-                                                                                                                                                                        .error(
-                                                                                                                                                                                error(
-                                                                                                                                                                                        "handover_stale",
-                                                                                                                                                                                        409));
-                                                                                                                                                            return claim(
-                                                                                                                                                                            project,
-                                                                                                                                                                            tenant,
-                                                                                                                                                                            id,
-                                                                                                                                                                            rows,
-                                                                                                                                                                            auth)
-                                                                                                                                                                    .then(
-                                                                                                                                                                            write(
-                                                                                                                                                                                    project,
-                                                                                                                                                                                    tenant,
-                                                                                                                                                                                    id,
-                                                                                                                                                                                    fingerprint,
-                                                                                                                                                                                    input,
-                                                                                                                                                                                    quote,
-                                                                                                                                                                                    now,
-                                                                                                                                                                                    auth));
-                                                                                                                                                        })))));
+                                                                                fingerprint),
+                                                                        () ->
+                                                                                sources.load(
+                                                                                                project,
+                                                                                                input
+                                                                                                        .items(),
+                                                                                                true,
+                                                                                                CrudAssetPermission
+                                                                                                        .save)
+                                                                                        .flatMap(
+                                                                                                rows ->
+                                                                                                        replay(
+                                                                                                                        project,
+                                                                                                                        id,
+                                                                                                                        tenant,
+                                                                                                                        fingerprint)
+                                                                                                                .switchIfEmpty(
+                                                                                                                        Mono
+                                                                                                                                .defer(
+                                                                                                                                        () -> {
+                                                                                                                                            var
+                                                                                                                                                    quote =
+                                                                                                                                                            preview(
+                                                                                                                                                                    project,
+                                                                                                                                                                    input,
+                                                                                                                                                                    rows);
+                                                                                                                                            if (!request.token()
+                                                                                                                                                    .equals(
+                                                                                                                                                            quote
+                                                                                                                                                                    .token()))
+                                                                                                                                                return Mono
+                                                                                                                                                        .error(
+                                                                                                                                                                error(
+                                                                                                                                                                        "handover_stale",
+                                                                                                                                                                        409));
+                                                                                                                                            return claim(
+                                                                                                                                                            project,
+                                                                                                                                                            tenant,
+                                                                                                                                                            id,
+                                                                                                                                                            rows,
+                                                                                                                                                            auth)
+                                                                                                                                                    .then(
+                                                                                                                                                            write(
+                                                                                                                                                                    project,
+                                                                                                                                                                    tenant,
+                                                                                                                                                                    id,
+                                                                                                                                                                    fingerprint,
+                                                                                                                                                                    input,
+                                                                                                                                                                    quote,
+                                                                                                                                                                    now,
+                                                                                                                                                                    auth));
+                                                                                                                                        }))));
                                                             });
                                         }))
                 .onErrorMap(HandoverService::duplicate)
@@ -314,91 +318,92 @@ public class HandoverService {
                                                                                 "HANDOVER",
                                                                                 action,
                                                                                 input.requestId());
-                                                                return replayAction(
+                                                                return periodGate.inOpenPeriod(
+                                                                        project,
+                                                                        now.toLocalDate(),
+                                                                        replayAction(
                                                                                 project,
                                                                                 id,
                                                                                 key,
                                                                                 tenant,
-                                                                                fingerprint)
-                                                                        .switchIfEmpty(
-                                                                                Mono.defer(
-                                                                                        () ->
-                                                                                                records.require(
-                                                                                                                project,
-                                                                                                                id,
-                                                                                                                tenant,
-                                                                                                                false)
-                                                                                                        .flatMap(
-                                                                                                                row ->
-                                                                                                                        records
-                                                                                                                                .detail(
-                                                                                                                                        row,
-                                                                                                                                        CrudAssetPermission
-                                                                                                                                                .save))
-                                                                                                        .flatMap(
-                                                                                                                d -> {
-                                                                                                                    var
-                                                                                                                            items =
-                                                                                                                                    d
-                                                                                                                                            .lines()
-                                                                                                                                            .stream()
-                                                                                                                                            .map(
-                                                                                                                                                    l ->
-                                                                                                                                                            new HandoverSources
-                                                                                                                                                                    .Item(
-                                                                                                                                                                    l
-                                                                                                                                                                            .getSourceType(),
-                                                                                                                                                                    l
-                                                                                                                                                                            .getSourceId(),
-                                                                                                                                                                    0L))
-                                                                                                                                            .distinct()
-                                                                                                                                            .sorted(
-                                                                                                                                                    Comparator
-                                                                                                                                                            .comparing(
-                                                                                                                                                                    HandoverSources
-                                                                                                                                                                                    .Item
-                                                                                                                                                                            ::type)
-                                                                                                                                                            .thenComparing(
-                                                                                                                                                                    HandoverSources
-                                                                                                                                                                                    .Item
-                                                                                                                                                                            ::id))
-                                                                                                                                            .toList();
-                                                                                                                    // 与创建相同的来源锁序；来源锁之后再锁批次，禁止取消/再交账出现反向锁序。
-                                                                                                                    return sources.load(
-                                                                                                                                    project,
-                                                                                                                                    items,
-                                                                                                                                    true,
-                                                                                                                                    CrudAssetPermission
-                                                                                                                                            .save)
-                                                                                                                            .flatMap(
-                                                                                                                                    rows ->
-                                                                                                                                            records.require(
-                                                                                                                                                            project,
-                                                                                                                                                            id,
-                                                                                                                                                            tenant,
-                                                                                                                                                            true)
-                                                                                                                                                    .flatMap(
-                                                                                                                                                            locked ->
-                                                                                                                                                                    replayAction(
-                                                                                                                                                                                    project,
-                                                                                                                                                                                    id,
-                                                                                                                                                                                    key,
-                                                                                                                                                                                    tenant,
-                                                                                                                                                                                    fingerprint)
-                                                                                                                                                                            .switchIfEmpty(
-                                                                                                                                                                                    Mono
-                                                                                                                                                                                            .defer(
-                                                                                                                                                                                                    () ->
-                                                                                                                                                                                                            transition(
-                                                                                                                                                                                                                    locked,
-                                                                                                                                                                                                                    rows,
-                                                                                                                                                                                                                    key,
-                                                                                                                                                                                                                    action,
-                                                                                                                                                                                                                    input,
-                                                                                                                                                                                                                    fingerprint,
-                                                                                                                                                                                                                    now,
-                                                                                                                                                                                                                    auth)))));
-                                                                                                                })));
+                                                                                fingerprint),
+                                                                        () ->
+                                                                                records.require(
+                                                                                                project,
+                                                                                                id,
+                                                                                                tenant,
+                                                                                                false)
+                                                                                        .flatMap(
+                                                                                                row ->
+                                                                                                        records
+                                                                                                                .detail(
+                                                                                                                        row,
+                                                                                                                        CrudAssetPermission
+                                                                                                                                .save))
+                                                                                        .flatMap(
+                                                                                                d -> {
+                                                                                                    var
+                                                                                                            items =
+                                                                                                                    d
+                                                                                                                            .lines()
+                                                                                                                            .stream()
+                                                                                                                            .map(
+                                                                                                                                    l ->
+                                                                                                                                            new HandoverSources
+                                                                                                                                                    .Item(
+                                                                                                                                                    l
+                                                                                                                                                            .getSourceType(),
+                                                                                                                                                    l
+                                                                                                                                                            .getSourceId(),
+                                                                                                                                                    0L))
+                                                                                                                            .distinct()
+                                                                                                                            .sorted(
+                                                                                                                                    Comparator
+                                                                                                                                            .comparing(
+                                                                                                                                                    HandoverSources
+                                                                                                                                                                    .Item
+                                                                                                                                                            ::type)
+                                                                                                                                            .thenComparing(
+                                                                                                                                                    HandoverSources
+                                                                                                                                                                    .Item
+                                                                                                                                                            ::id))
+                                                                                                                            .toList();
+                                                                                                    // 与创建相同的来源锁序；来源锁之后再锁批次，禁止取消/再交账出现反向锁序。
+                                                                                                    return sources.load(
+                                                                                                                    project,
+                                                                                                                    items,
+                                                                                                                    true,
+                                                                                                                    CrudAssetPermission
+                                                                                                                            .save)
+                                                                                                            .flatMap(
+                                                                                                                    rows ->
+                                                                                                                            records.require(
+                                                                                                                                            project,
+                                                                                                                                            id,
+                                                                                                                                            tenant,
+                                                                                                                                            true)
+                                                                                                                                    .flatMap(
+                                                                                                                                            locked ->
+                                                                                                                                                    replayAction(
+                                                                                                                                                                    project,
+                                                                                                                                                                    id,
+                                                                                                                                                                    key,
+                                                                                                                                                                    tenant,
+                                                                                                                                                                    fingerprint)
+                                                                                                                                                            .switchIfEmpty(
+                                                                                                                                                                    Mono
+                                                                                                                                                                            .defer(
+                                                                                                                                                                                    () ->
+                                                                                                                                                                                            transition(
+                                                                                                                                                                                                    locked,
+                                                                                                                                                                                                    rows,
+                                                                                                                                                                                                    key,
+                                                                                                                                                                                                    action,
+                                                                                                                                                                                                    input,
+                                                                                                                                                                                                    fingerprint,
+                                                                                                                                                                                                    now,
+                                                                                                                                                                                                    auth)))));
+                                                                                                }));
                                                             });
                                         }))
                 .onErrorMap(HandoverService::duplicate)
@@ -429,7 +434,11 @@ public class HandoverService {
                         : "PENDING".equals(before)))
             return Mono.error(error("handover_state_conflict", 409));
         var release = Set.of("REJECT", "CANCEL").contains(action);
-        Mono<Void> guard = release ? checkReceipts(row, sourceRows) : Mono.empty();
+        // 批次所属日期已结后，即使操作日进入下一账期，也不能改动原交账审核事实。
+        Mono<Void> guard =
+                periodGate
+                        .assertOpen(row.getProjectId(), LocalDate.parse(row.getClosingDate()))
+                        .then(release ? checkReceipts(row, sourceRows) : Mono.empty());
         return guard.then(release ? release(row, sourceRows, auth) : Mono.empty())
                 .then(
                         Mono.defer(

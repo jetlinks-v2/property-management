@@ -72,6 +72,66 @@ class HandoverPersistenceTest extends CashierPersistenceTest {
                 .block(WAIT);
     }
 
+    @Autowired FinancialPeriodTestSupport periods;
+
+    @Test
+    void closingRejectsNewHandoverByBusinessDateButRestoresOriginalCreation() {
+        var original = request(handoverInput(paid("period-original", "10")));
+        var pending = request(handoverInput(paid("period-next", "20")));
+        var saved = confirm(original);
+        periods.close(project, DATE).contextWrite(allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                handover.confirm(project, pending, NOW.plusDays(1)).contextWrite(allowed()));
+        assertEquals(saved.batch().getId(), confirm(original).batch().getId());
+        assertEquals(1, handovers.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(1, claims.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(1, handoverLogs.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    @Test
+    void closedPendingBatchCannotBeChangedEvenOnTheNextOpenDay() {
+        var saved = confirm(request(handoverInput(paid("period-pending", "10"))));
+        periods.close(project, DATE).contextWrite(allowed()).block(WAIT);
+        for (var name : List.of("APPROVE", "REJECT", "CANCEL"))
+            FinancialPeriodTestSupport.rejectsClosed(
+                    handover.action(
+                                    project,
+                                    saved.batch().getId(),
+                                    name,
+                                    action(saved.batch()),
+                                    NOW.plusDays(1))
+                            .contextWrite(allowed()));
+        assertEquals("PENDING", handovers.findById(saved.batch().getId()).block(WAIT).getStatus());
+        assertEquals(1, claims.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(1, handoverLogs.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    @Test
+    void closingBlocksUnapprovalButRestoresAnAlreadySuccessfulApproval() {
+        var saved = confirm(request(handoverInput(paid("period-approved", "10"))));
+        var request = action(saved.batch());
+        var approved =
+                handover.action(project, saved.batch().getId(), "APPROVE", request, NOW)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        periods.close(project, DATE).contextWrite(allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                handover.action(
+                                project,
+                                saved.batch().getId(),
+                                "UNAPPROVE",
+                                action(approved.batch()),
+                                NOW.plusDays(1))
+                        .contextWrite(allowed()));
+        var recovered =
+                handover.action(project, saved.batch().getId(), "APPROVE", request, NOW.plusDays(1))
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(approved.batch().getVersion(), recovered.batch().getVersion());
+        assertEquals("APPROVED", recovered.batch().getStatus());
+        assertEquals(2, handoverLogs.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
     @Test
     void previewIsReadOnlyAndSuccessfulRequestRecoversWithoutWritingAnotherPayment() {
         var payment = paid("one", "12.34");
