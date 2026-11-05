@@ -18,6 +18,8 @@
 
 后端独立启动、环境配置与切换要求见 `../../modules/property-repair/README.md`。
 
+PC 与智能巡更统一采用 Cloud 运行端集成方案：在 `saas-runtime-ui/property/2.20-dev` 保留 `modules/report-repair-ui` 和巡更模块，执行宿主 `pnpm build`，发布完整 `dist/`。报修应用实例的 `configuration.customDomain` 留空，从 Cloud 项目应用卡片进入；保留 `navigationMode: tree`、原菜单、角色与资产授权。前端仓库仍独立维护，更新后需同步宿主子模块版本并重新发布 Cloud 运行端。迁移已有独立 PC 时先备份应用配置，清空其访问域名并验收登录、工单和系统管理，再停用旧 PC 站点及其自动重启；不要停止报修后端、基础服务或员工 H5。`start-property-suite.sh start repair` 只启动报修后端和 H5，PC 由公共前端承载。
+
 设备关联已随菜单与模板导出：发起按钮增加 `device-instance/query`，设备资产支持所在组织及下级或租户策略。应用角色需要保存对应设备读取范围；不需要设备编辑权限。Cloud 中还须将设备分配给业务项目组织或其下级组织，并在末级分类开启“关联物联网设备”。服务端始终追加当前业务项目组织范围，角色拥有全部设备读取权限也不能跨业务项目选择设备。
 
 
@@ -28,3 +30,7 @@
 个人工单提示音随 `report-repair-ui` 代码与 `assets/dingdingding.wav` 一同构建；通过布局扩展注册，无需新增菜单或角色授权。只有当前应用具备报事记录菜单时才显示，默认关闭。个人设置使用 Cloud 的 `GET/PATCH /user/settings/report-repair/new-order-sound`，不需要修改人员表或重启报修后端。开发端首次更新模块入口后完整刷新页面。
 
 独立员工 H5 位于 `jetlinks-v2/report-saas-ui` 仓库 `2.20` 分支的 `employee-h5/`，在该目录执行 `npm ci`、`npm run build` 和 `docker compose -f compose.yml up -d --build`，入口为 9300。它复用上述报修应用及原有角色、菜单权限和数据范围，无需复制菜单或业务数据；部署前配置 `public/config.json` 的 Cloud 项目编码与应用 ID。
+
+菜单名称、说明和按钮在 `menus.json` 与 `template-grant.json` 中同步提供 `i18nMessages` 的 `zh_CN`、`en_US` 与 `en` 资源，沿用平台菜单国际化机制。前端同时保留既有中文 `i18nName` 的翻译入口，已有环境切换语言无需变更菜单 ID、授权或订阅范围。
+
+已有环境还需增量同步菜单翻译：先备份当前菜单定义，按相同菜单 ID 合并 `i18nName`、`i18nDescribe`、`i18nMessages`；按钮按原 ID 合并翻译字段，保留其他字段及未识别按钮。用 `PATCH /menu` 保存合并后的现有定义，不直接用整份模板覆盖运行配置。顶部二级导航依赖接口返回的本地化菜单名称，仅更新前端语言包会留下旧中文标签；更新后以英文请求验证 `/menu/user-own/tree` 返回英文 `i18nName`，再从项目卡片重新打开应用。菜单 ID、路由、权限、资产策略、角色及订阅保持原样。

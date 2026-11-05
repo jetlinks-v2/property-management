@@ -20,7 +20,7 @@
 
 ## 前端
 
-业务前端仓库为 [report-saas-ui](https://github.com/jetlinks-v2/report-saas-ui)，分支 `2.20`，PC 模块由 `saas-runtime-ui` 的 `property/2.20-dev` 分支以 `modules/report-repair-ui` 子模块接入。模块通过应用模板的 `componentCode` 注册报修页面，`baseMenu.json` 提供系统管理五个页面。组织配置、用户管理、空间管理、客户管理和字典配置独立复制到本前端的 `system-management` 目录，访问基础模块 `/property/**`，不引用其他业务前端的私有实现。既有环境应将这些菜单同步到模板、服务套餐、订阅快照和应用角色，并隐藏旧公共资料菜单；保留原资产范围。
+业务前端仓库为 [report-saas-ui](https://github.com/jetlinks-v2/report-saas-ui)，分支 `2.20`，PC 模块由 `saas-runtime-ui` 的 `property/2.20-dev` 分支以 `modules/report-repair-ui` 子模块接入。PC 与巡更一起构建并部署到 Cloud 运行端，应用实例 `configuration.customDomain` 留空，无需独立 PC 站点；员工 H5 仍单独发布。模块通过应用模板的 `componentCode` 注册报修页面，`baseMenu.json` 提供系统管理五个页面。组织配置、用户管理、空间管理、客户管理和字典配置独立复制到本前端的 `system-management` 目录，访问基础模块 `/property/**`，不引用其他业务前端的私有实现。既有环境应将这些菜单同步到模板、服务套餐、订阅快照和应用角色，并隐藏旧公共资料菜单；保留原资产范围。
 
 员工 H5 在业务前端仓库的 `employee-h5/` 独立构建，复用同一网关、应用、工单及权限；部署配置与构建命令见其 README。后端仓库只保留后端模块和应用模板。
 
@@ -29,3 +29,5 @@
 迁入的领域测试覆盖流程、配置、动作表单、权限、二维码和导出等规则；报修服务测试覆盖组件扫描、路由与资产配置及独立装配。构建与测试不能替代目标环境的网关服务发现、登录、模板订阅授权和真实业务联调。
 
 保留原迁移边界：业主独立入口、外部系统联动、完整旧接口分支及数据库 20 万条导出负载仍需后续验收。
+
+报修服务的界面异常与通知资源位于 `property-repair-manager/src/main/resources/i18n/smart-park-repair/`，中文与英文分别维护在 `messages_zh.properties`、`messages_en.properties`，沿用平台请求语言解析。公开二维码表单也发送 `Accept-Language`，不发送登录令牌、租户或应用认证头。菜单与按钮的中英文元数据位于 `deploy/repair`。
