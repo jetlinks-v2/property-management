@@ -186,7 +186,7 @@ public class AccountingCalendarService {
                 .thenReturn(List.copyOf(rows));
     }
 
-    private Mono<List<AccountingPeriodEntity>> rows(
+    Mono<List<AccountingPeriodEntity>> rows(
             String project, String tenant, int year, boolean includeDeleted) {
         var param = new QueryParamEntity();
         param.toQuery().orderByAsc("accountMonth");
