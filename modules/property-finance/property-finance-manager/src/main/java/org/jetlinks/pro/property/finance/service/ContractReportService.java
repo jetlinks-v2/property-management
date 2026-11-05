@@ -9,6 +9,7 @@ import org.hswebframework.web.api.crud.entity.*;
 import org.jetlinks.core.trace.MonoTracer;
 import org.jetlinks.pro.assets.*;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
+import org.jetlinks.pro.property.base.organization.PropertyProjectInfo;
 import org.jetlinks.pro.property.finance.calculation.ContractMonthAllocation;
 import org.jetlinks.pro.property.finance.entity.*;
 import org.jetlinks.pro.property.finance.report.*;
@@ -65,7 +66,10 @@ public class ContractReportService {
                                     .map(
                                             snapshot ->
                                                     detailPage(
-                                                            input, snapshot, contractId, metric));
+                                                            input,
+                                                            snapshot.rows(),
+                                                            contractId,
+                                                            metric));
                         })
                 .as(MonoTracer.create("/property/finance/reports/contracts/details"));
     }
@@ -85,25 +89,38 @@ public class ContractReportService {
         return page(rows, input.getPageIndex(), input.getPageSize());
     }
 
-    private Mono<List<Computed>> load(ContractReportInput input, String action) {
+    private Mono<Snapshot> load(ContractReportInput input, String action) {
         return Mono.defer(
                 () -> {
                     if (input == null) return Mono.error(error("report_query_invalid", 400));
                     var month = input.validate();
                     return authorize(input.getProjectId(), action)
-                            .then(TenantHolder.currentId().defaultIfEmpty(""))
-                            .flatMap(tenant -> selectedContracts(input, tenant))
-                            .flatMap(selected -> computeSelected(input, month, selected));
+                            .flatMap(
+                                    project ->
+                                            TenantHolder.currentId()
+                                                    .defaultIfEmpty("")
+                                                    .flatMap(
+                                                            tenant ->
+                                                                    selectedContracts(
+                                                                            input, tenant))
+                                                    .flatMap(
+                                                            selected ->
+                                                                    computeSelected(
+                                                                            input, month, selected))
+                                                    .map(
+                                                            rows ->
+                                                                    new Snapshot(
+                                                                            project.name(), rows)));
                 });
     }
 
-    private Mono<Void> authorize(String project, String action) {
+    private Mono<PropertyProjectInfo> authorize(String project, String action) {
         return scope.authenticated()
                 .flatMap(
                         auth -> {
                             if (!auth.hasPermission(RESOURCE, action))
                                 return Mono.error(error("permission_denied", 403));
-                            return scope.project(project, CrudAssetPermission.read).then();
+                            return scope.project(project, CrudAssetPermission.read);
                         });
     }
 
@@ -200,7 +217,7 @@ public class ContractReportService {
             Amounts amounts;
             try {
                 amounts =
-                        Amounts.of(
+                        amounts(
                                 allocation.statement(
                                         b.getContractReceivableAmount(),
                                         LocalDate.parse(b.getCalcStartDate()),
@@ -230,11 +247,13 @@ public class ContractReportService {
     }
 
     private static ContractReportResult result(
-            ContractReportInput i, List<Computed> snapshot, boolean export) {
+            ContractReportInput i, Snapshot snapshot, boolean export) {
         var summary =
-                snapshot.stream().map(Computed::amounts).reduce(Amounts.zero(), Amounts::plus);
+                snapshot.rows().stream()
+                        .map(Computed::amounts)
+                        .reduce(Amounts.zero(), Amounts::plus);
         var rows =
-                snapshot.stream()
+                snapshot.rows().stream()
                         .map(
                                 s -> {
                                     var c = s.contract();
@@ -253,6 +272,7 @@ public class ContractReportService {
                         .toList();
         return new ContractReportResult(
                 i.getProjectId(),
+                snapshot.projectName(),
                 i.getMonth(),
                 summary,
                 page(rows, export ? 0 : i.getPageIndex(), export ? LIMIT : i.getPageSize()));
@@ -271,6 +291,16 @@ public class ContractReportService {
                 b.paid().opening().toPlainString(),
                 b.paid().closing().toPlainString(),
                 b.amounts().value(metric));
+    }
+
+    private static Amounts amounts(ContractMonthAllocation.Amounts a) {
+        return new Amounts(
+                a.openingReceivable().toPlainString(),
+                a.openingAdvance().toPlainString(),
+                a.currentReceivable().toPlainString(),
+                a.currentNetReceived().toPlainString(),
+                a.closingReceivable().toPlainString(),
+                a.closingAdvance().toPlainString());
     }
 
     private static QueryParamEntity bounded() {
@@ -298,4 +328,6 @@ public class ContractReportService {
 
     private record Computed(
             ContractMirrorEntity contract, List<ComputedBill> bills, Amounts amounts) {}
+
+    private record Snapshot(String projectName, List<Computed> rows) {}
 }

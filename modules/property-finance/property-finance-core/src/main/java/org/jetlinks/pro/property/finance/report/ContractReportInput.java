@@ -1,16 +1,16 @@
 package org.jetlinks.pro.property.finance.report;
 
-import static org.jetlinks.pro.property.finance.service.FinanceScope.error;
-
 import lombok.Getter;
 import lombok.Setter;
+
+import org.hswebframework.web.exception.BusinessException;
 
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 
-/** 合同月报固定筛选；不接受通用查询条件、任意排序或关闭分页。 */
+/** 合同月报固定筛选；不接受通用查询条件、任意排序或关闭分页。 @since 2.20.0 */
 @Getter
 @Setter
 public class ContractReportInput {
@@ -58,5 +58,9 @@ public class ContractReportInput {
                 || ids.size() > 1000
                 || ids.stream().anyMatch(id -> id == null || id.isBlank() || id.length() > 64))
             throw error("report_query_invalid", 400);
+    }
+
+    private static BusinessException error(String key, int status) {
+        return new BusinessException.NoStackTrace("error.property_finance_" + key, status);
     }
 }

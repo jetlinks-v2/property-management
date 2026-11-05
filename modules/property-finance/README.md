@@ -390,3 +390,7 @@ Excel/PDF最多10000条明细或分组行，超限拒绝无截断；沿用 `Fina
 净核销从成功收款主单及核销行，减成功退款主单及退款行，按各自实际业务日期累计到两个截止日；预收、押金冲抵及其退回余额均只计算一次，不另加资金账户或资金流水。孤儿、跨项目或房屋不一致、失败主单、无效日期、超原核销退款等损坏来源明确拒绝，不以过滤坏行生成貌似正确的合计。下钻保留负数净实收，全部非零账单明细相加与对应合同指标一致。
 
 服务直接校验 `property-finance-report-contract:query/export` 及项目读取权限；合同先注入空间读取范围，参与的每套历史账单房屋均再次校验，任一无权则拒绝整份合计。单次参与合同和账单分别最多10000条，超过明确拒绝，分页只作用于最终结果，不截断合计来源；不加载账单内部计算JSON。查询不修改应收、资金或会计目录，链路使用 `MonoTracer`，不增加后台任务。聚合SQL针对当前PostgreSQL环境验证，其他数据库及生产规模的性能需单独验收。
+
+HTTP入口为 `POST /property/finance/reports/contracts/_query`、`POST /property/finance/reports/contracts/{contractId}/{metric}/_details` 和 `POST /property/finance/reports/contracts/_export/{format}`。前两者使用 `query` 权限，文件使用独立 `export` 权限；`format` 仅允许 `excel`、`pdf`。请求使用 `ContractReportInput` 的 `projectId/month/keyword/startDate/endDate/spaceIds/subjectIds/pageIndex/pageSize`，月份为 `yyyy-MM`，履约日期为 `yyyy-MM-dd`；分页默认0、12，最多200。下钻 `metric` 为六项金额的公开字段名，负数净实收仍返回。返回项目名称及精确金额字符串，不提供通用修改或删除入口。
+
+跨模块消费者依赖 `property-finance-core` 中的请求、结果及 `QueryFinanceContractReportCommand`、`QueryFinanceContractReportDetailsCommand`，通过命令服务 `propertyService:finance-contract-report` 查询，不能引用 manager 内部服务或表。命令和HTTP共用同一权限与事务入口，不接受后台特权身份。Excel与PDF使用完整筛选范围数据和合计，包含项目名称及统计月份；金额保持文本精度，用户文本不执行公式或HTML，PDF禁止访问外部资源。文件排版在只读数据事务结束后的 `boundedElastic` 上执行，不长时间占用数据库事务。

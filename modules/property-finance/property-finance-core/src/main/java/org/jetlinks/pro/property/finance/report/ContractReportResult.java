@@ -1,16 +1,18 @@
 package org.jetlinks.pro.property.finance.report;
 
-import static org.jetlinks.pro.property.finance.service.FinanceScope.error;
-
 import org.hswebframework.web.api.crud.entity.PagerResult;
-import org.jetlinks.pro.property.finance.calculation.ContractMonthAllocation;
+import org.hswebframework.web.exception.BusinessException;
 
 import java.math.BigDecimal;
 import java.util.Set;
 
-/** 金额均以精确十进制文本输出；不暴露镜像原载荷或账单内部计算JSON。 */
+/** 金额均以精确十进制文本输出；不暴露镜像原载荷或账单内部计算JSON。 @since 2.20.0 */
 public record ContractReportResult(
-        String projectId, String month, Amounts summary, PagerResult<Row> page) {
+        String projectId,
+        String projectName,
+        String month,
+        Amounts summary,
+        PagerResult<Row> page) {
     public record Row(
             String id,
             String code,
@@ -55,16 +57,6 @@ public record ContractReportResult(
             return new Amounts("0.00", "0.00", "0.00", "0.00", "0.00", "0.00");
         }
 
-        public static Amounts of(ContractMonthAllocation.Amounts a) {
-            return new Amounts(
-                    a.openingReceivable().toPlainString(),
-                    a.openingAdvance().toPlainString(),
-                    a.currentReceivable().toPlainString(),
-                    a.currentNetReceived().toPlainString(),
-                    a.closingReceivable().toPlainString(),
-                    a.closingAdvance().toPlainString());
-        }
-
         public Amounts plus(Amounts b) {
             return new Amounts(
                     add(openingReceivable, b.openingReceivable),
@@ -90,6 +82,10 @@ public record ContractReportResult(
                 case "closingAdvance" -> closingAdvance;
                 default -> throw error("report_query_invalid", 400);
             };
+        }
+
+        private static BusinessException error(String key, int status) {
+            return new BusinessException.NoStackTrace("error.property_finance_" + key, status);
         }
     }
 }
