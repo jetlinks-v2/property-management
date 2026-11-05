@@ -35,7 +35,7 @@ public class PaymentLedger {
         return persist(payment, originals, result, configuration, auth, false);
     }
 
-    /** 仅预缴确认可带入已验证的逐期优惠；普通收款不接受前端减免字段。 */
+    /** 预缴确认带入已验证的逐期优惠；柜台减免也必须经纯规则校验后落账。 */
     Mono<List<PaymentAllocationEntity>> persistPrepay(
             PaymentEntity payment,
             List<ReceivableEntity> originals,
@@ -67,7 +67,7 @@ public class PaymentLedger {
                                                             bills.createUpdate(),
                                                             auth,
                                                             original.getVersion());
-                                            if (prepay)
+                                            if (prepay || !Objects.equals(original.getFeeReductionAmount(), row.getFeeReductionAmount()))
                                                 update.set(
                                                         "feeReductionAmount",
                                                         row.getFeeReductionAmount());
@@ -147,6 +147,8 @@ public class PaymentLedger {
                                                                         log.setAfterJson(
                                                                                 JSON.toJSONString(
                                                                                         row));
+                                                                        if (!prepay && payment.getSourceSnapshotJson() != null)
+                                                                            log.setDetailJson(payment.getSourceSnapshotJson());
                                                                         return logs.insert(log);
                                                                     }));
                                         }))

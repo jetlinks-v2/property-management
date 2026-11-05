@@ -30,6 +30,14 @@ public class PaymentRules {
 
     public Result prepare(List<ReceivableEntity> originals, CashierInput input, LocalDate date) {
         validate(input, date);
+        for (var row : originals) {
+            if (!"APPROVED".equals(row.getReviewState()))
+                throw error("cashier_review_required", 409);
+            var company = SettingRules.standard(row.getSnapshotJson()).getCompanyId();
+            // 旧历史账单无公司快照时沿用项目公司配置；已有快照绝不可任意换公司收款。
+            if (company != null && !company.isBlank() && !company.equals(input.getCompanyId()))
+                throw error("cashier_company_mismatch", 409);
+        }
         return calculate(originals, input, date);
     }
 
@@ -37,6 +45,7 @@ public class PaymentRules {
     public Result prepareBalance(
             List<ReceivableEntity> originals, CashierInput input, LocalDate date) {
         validate(input, date, Set.of("ADVANCE", "DEPOSIT"));
+        if (input.getReduction() != null) throw error("cashier_reduction_invalid", 400);
         return calculate(originals, input, date);
     }
 
@@ -66,12 +75,21 @@ public class PaymentRules {
                         SettingRules.standard(row.getSnapshotJson()),
                         date,
                         BillingTaskKind.ALL);
-            var amount = money(item.amount());
+            rows.add(row);
+        }
+        var reductions = CashierReductionRules.allocate(rows, input.getReduction());
+        for (int index = 0; index < rows.size(); index++) {
+            var row = rows.get(index);
+            var discount = reductions.get(index);
+            row.setFeeReductionAmount(row.getFeeReductionAmount().add(discount));
+            row.setActualReceivableAmount(row.getActualReceivableAmount().subtract(discount));
+            row.setArrears(row.getArrears().subtract(discount));
+            var amount = itemMoney(input.getItems().get(index).amount(), input);
+            if (amount.signum() == 0 && discount.signum() == 0) throw error("cashier_invalid", 400);
             if (amount.compareTo(row.getArrears()) > 0) throw error("cashier_exceeds_balance", 409);
             row.setPaidAmount(row.getPaidAmount().add(amount));
             row.setArrears(row.getActualReceivableAmount().subtract(row.getPaidAmount()));
             row.setPaidDate(LocalDateTime.parse(input.getPaidAt()).toLocalDate().toString());
-            rows.add(row);
             total = total.add(amount);
         }
         money(total);
@@ -97,6 +115,7 @@ public class PaymentRules {
         validateFunding(input, date, methods);
         if (input.getItems() == null || input.getItems().isEmpty() || input.getItems().size() > 100)
             throw error("cashier_invalid", 400);
+        CashierReductionRules.validate(input.getReduction());
         var ids = new HashSet<String>();
         for (var item : input.getItems()) {
             if (item == null
@@ -105,7 +124,7 @@ public class PaymentRules {
                     || item.version() == null
                     || item.version() < 0
                     || !ids.add(item.id())) throw error("cashier_invalid", 400);
-            money(item.amount());
+            itemMoney(item.amount(), input);
         }
     }
 
@@ -169,7 +188,7 @@ public class PaymentRules {
         int tenderIndex = 0;
         var remaining = money(input.getTenders().get(0).amount());
         for (var item : input.getItems()) {
-            var unpaid = money(item.amount());
+            var unpaid = itemMoney(item.amount(), input);
             while (unpaid.signum() > 0) {
                 var tender = input.getTenders().get(tenderIndex);
                 var amount = unpaid.min(remaining);
@@ -206,7 +225,7 @@ public class PaymentRules {
                                         List.of(
                                                 item.id(),
                                                 item.version(),
-                                                money(item.amount()).toPlainString()))
+                                                itemMoney(item.amount(), input).toPlainString()))
                         .toList();
         var tenders =
                 input.getTenders().stream()
@@ -217,17 +236,26 @@ public class PaymentRules {
                                                 Objects.toString(tender.recordedId(), ""),
                                                 money(tender.amount()).toPlainString()))
                         .toList();
-        return JSON.toJSONString(
-                List.of(
-                        input.getCompanyId(),
-                        input.getPayerName().trim(),
-                        Objects.toString(input.getPayerRelationshipId(), ""),
-                        input.getPaidAt(),
-                        Objects.toString(input.getRemark(), ""),
-                        Objects.toString(input.getAttachmentName(), ""),
-                        Objects.toString(input.getAttachmentFileId(), ""),
-                        items,
-                        tenders));
+        var fields =
+                new ArrayList<Object>(
+                        List.of(
+                                input.getCompanyId(),
+                                input.getPayerName().trim(),
+                                Objects.toString(input.getPayerRelationshipId(), ""),
+                                input.getPaidAt(),
+                                Objects.toString(input.getRemark(), ""),
+                                Objects.toString(input.getAttachmentName(), ""),
+                                Objects.toString(input.getAttachmentFileId(), ""),
+                                items,
+                                tenders));
+        // 已保存的普通收款恢复请求保持原指纹，仅有减免时扩展契约。
+        if (input.getReduction() != null)
+            fields.add(
+                    List.of(
+                            input.getReduction().mode(),
+                            input.getReduction().value().toPlainString(),
+                            input.getReduction().reason().trim()));
+        return JSON.toJSONString(fields);
     }
 
     private static String hash(String value) {
@@ -239,6 +267,14 @@ public class PaymentRules {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    private static BigDecimal itemMoney(BigDecimal value, CashierInput input) {
+        if (input.getReduction() != null
+                && value != null
+                && value.signum() == 0
+                && value.scale() <= 2) return BigDecimal.ZERO.setScale(2);
+        return money(value);
     }
 
     private static BigDecimal money(BigDecimal value) {

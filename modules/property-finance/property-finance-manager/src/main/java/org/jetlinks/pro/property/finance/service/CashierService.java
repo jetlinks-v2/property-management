@@ -256,6 +256,11 @@ public class CashierService {
         payment.setRemark(input.getRemark());
         payment.setAttachmentName(input.getAttachmentName());
         payment.setAttachmentFileId(input.getAttachmentFileId());
+        if (input.getReduction() != null) {
+            var reduction = input.getReduction();
+            payment.setSourceSnapshotJson(JSON.toJSONString(Map.of("reduction", Map.of(
+                    "mode", reduction.mode(), "value", reduction.value(), "reason", reduction.reason()))));
+        }
         return ledger.persist(payment, rows, result, config, auth)
                 .map(lines -> new Detail(payment, lines, snapshot(payment)));
     }
@@ -488,7 +493,8 @@ public class CashierService {
             List<Allocation> allocations) {}
 
     static Map<String, Object> snapshot(PaymentEntity payment) {
-        return "TEMPORARY".equals(payment.getSourceType())
+        return payment.getSourceSnapshotJson() != null
+                        && Set.of("TEMPORARY", "RECEIVABLE").contains(payment.getSourceType())
                 ? JSON.parseObject(payment.getSourceSnapshotJson())
                 : Map.of();
     }

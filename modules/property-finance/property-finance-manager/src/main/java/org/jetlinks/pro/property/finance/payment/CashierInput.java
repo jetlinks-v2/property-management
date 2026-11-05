@@ -19,6 +19,10 @@ public class CashierInput {
     private String attachmentFileId;
     private List<Item> items;
     private List<Tender> tenders;
+    private Reduction reduction;
+
+    /** 柜台当次本金减免，后端独立分配并与收款同事务落账。 */
+    public record Reduction(String mode, BigDecimal value, String reason) {}
 
     public record Item(String id, Long version, BigDecimal amount) {}
 

@@ -5,10 +5,12 @@ import lombok.RequiredArgsConstructor;
 import org.hswebframework.web.api.crud.entity.*;
 import org.hswebframework.web.authorization.annotation.*;
 import org.jetlinks.pro.property.finance.payment.CashierInput;
+import org.jetlinks.pro.property.finance.receivable.ReceivableView;
 import org.jetlinks.pro.property.finance.service.BillingJobProperties;
 import org.jetlinks.pro.property.finance.service.CashierConfiguration;
 import org.jetlinks.pro.property.finance.service.CashierService;
 import org.jetlinks.pro.property.finance.service.PaymentRecordService;
+import org.jetlinks.pro.property.finance.service.ReceivableService;
 import org.springframework.web.bind.annotation.*;
 
 import reactor.core.publisher.Mono;
@@ -26,7 +28,17 @@ import java.util.List;
 public class CashierController {
     private final CashierService service;
     private final PaymentRecordService records;
+    private final ReceivableService receivables;
     private final BillingJobProperties billingProperties;
+
+    /** 收银查询固定只显示已审核欠费，沿用项目与空间资产授权。 */
+    @PostMapping("/bills/_query")
+    @ResourceAction(id = "collect", name = "收款")
+    public Mono<PagerResult<ReceivableView>> bills(
+            @PathVariable String projectId, @RequestBody QueryParamEntity query) {
+        query.toNestQuery(nested -> nested.and("reviewState", "APPROVED").gt("arrears", 0));
+        return receivables.query(projectId, query);
+    }
 
     @GetMapping("/_options")
     @ResourceAction(id = "collect", name = "收款")

@@ -28,6 +28,7 @@ public class ReceivableView extends ReceivableEntity {
     private java.util.List<String> customerNames;
     private java.util.List<String> customerIds;
     private String projectName;
+    private String companyId;
     private String payStatus;
     private String collectionStatus;
     private Long collectionDays;
@@ -100,9 +101,10 @@ public class ReceivableView extends ReceivableEntity {
         if (row.getSnapshotJson() == null || row.getSnapshotJson().isBlank()) return;
         var frozen = JSON.parseObject(row.getSnapshotJson());
         setTaskName(frozen.getString("taskName"));
+        var standard = frozen.getJSONObject("standard");
+        if (standard != null) setCompanyId(standard.getString("companyId"));
         // 历史导入未提供单价/用量，不能拿导入时的当前标准冒充历史计费依据。
         if ("HISTORICAL_IMPORT".equals(row.getSourceType())) return;
-        var standard = frozen.getJSONObject("standard");
         if (standard != null) setPrice(standard.getBigDecimal("price"));
         var values = frozen.getJSONObject("values");
         if (values != null)

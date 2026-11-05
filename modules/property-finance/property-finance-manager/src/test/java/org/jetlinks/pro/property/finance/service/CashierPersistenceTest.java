@@ -36,6 +36,7 @@ class CashierPersistenceTest {
     }
 
     @Autowired CashierService cashier;
+    @Autowired ReceivableService receivables;
     @Autowired CashierConfiguration configuration;
     @Autowired HouseArchiveSource archive;
     @Autowired ReactiveRepository<ReceivableEntity, String> bills;
@@ -113,6 +114,7 @@ class CashierPersistenceTest {
         row.setCalculatedAsOfDate(DATE.toString());
         row.setPeriodStatus("CLOSED");
         row.setMoneyScale(2);
+        row.setReviewState("APPROVED");
         row.setFrozen(false);
         row.setPaymentLocked(false);
         row.setBankCollectionLocked(false);
@@ -444,7 +446,7 @@ class CashierPersistenceTest {
         input.setPaidAt(LocalDate.now() + "T10:00:00");
         var controller =
                 new org.jetlinks.pro.property.finance.web.CashierController(
-                        cashier, records, new BillingJobProperties());
+                        cashier, records, receivables, new BillingJobProperties());
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(
                                 controller)
@@ -665,6 +667,41 @@ class CashierPersistenceTest {
         assertEquals(
                 "100.00", bills.findById(row.getId()).block(WAIT).getPaidAmount().toPlainString());
         assertEquals("0.00", bills.findById(row.getId()).block(WAIT).getArrears().toPlainString());
+    }
+
+    @Test
+    void reductionAndCollectionCommitTogetherAndRetryDoesNotReduceTwice() {
+        var row = bill("reduction");
+        var input = input(row, "90.00");
+        input.setReduction(new CashierInput.Reduction("AMOUNT", new BigDecimal("10.00"), "当次优惠"));
+        var request = submission(input);
+        assertEquals(0, bills.findById(row.getId()).block(WAIT).getFeeReductionAmount().signum());
+        var result = cashier.collect(project, request, DATE).contextWrite(allowed()).block(WAIT);
+        var stored = bills.findById(row.getId()).block(WAIT);
+        assertEquals(new BigDecimal("10.00"), stored.getFeeReductionAmount());
+        assertEquals(new BigDecimal("90.00"), stored.getPaidAmount());
+        assertEquals(0, stored.getArrears().signum());
+        assertEquals("当次优惠", ((Map<?, ?>) result.snapshot().get("reduction")).get("reason"));
+        assertEquals(result.payment().getId(), cashier.collect(project, request, DATE).contextWrite(allowed()).block(WAIT).payment().getId());
+        assertEquals(1, logs.createQuery().where("receivableId", row.getId()).count().block(WAIT));
+        var log = logs.createQuery().where("receivableId", row.getId()).fetchOne().block(WAIT);
+        assertTrue(log.getDetailJson().contains("当次优惠"));
+    }
+
+    @Test
+    void cashierQueryCannotUseOrToIncludeUnapprovedOrOtherProjectBills() {
+        var approved = bill("approved");
+        var pending = bill("pending");
+        bills.createUpdate().set("reviewState", "PENDING").where("id", pending.getId()).execute().block(WAIT);
+        var foreign = bill("foreign");
+        bills.createUpdate().set("projectId", "other-project").where("id", foreign.getId()).execute().block(WAIT);
+        var query = new org.hswebframework.web.api.crud.entity.QueryParamEntity();
+        query.toQuery().is("id", approved.getId()).or().is("id", pending.getId()).or().is("id", foreign.getId());
+        var controller = new org.jetlinks.pro.property.finance.web.CashierController(
+                cashier, records, receivables, new BillingJobProperties());
+        var result = controller.bills(project, query).contextWrite(allowed()).block(WAIT);
+        assertEquals(List.of(approved.getId()), result.getData().stream().map(ReceivableEntity::getId).toList());
+        rejects(cashier.preview(project, input(pending, "1.00"), DATE), 409);
     }
 
     @Configuration
