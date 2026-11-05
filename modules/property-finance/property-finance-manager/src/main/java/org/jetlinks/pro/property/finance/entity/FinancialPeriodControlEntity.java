@@ -22,4 +22,7 @@ public class FinancialPeriodControlEntity extends FinanceEntity {
 
     @Column(length = 10)
     private String closedThrough;
+
+    /** 历史空值与未配置均不强制应收审核；不影响交账必须审核的独立约束。 */
+    @Column private Boolean requireReceivableReview = false;
 }

@@ -50,4 +50,17 @@ public class AccountingPeriodEntity extends FinanceEntity {
 
     @Column(length = 16, nullable = false)
     private String status;
+
+    /** 当前有效关闭批次；反结清空，历史操作及来源快照仍保留。 */
+    @Column(length = 64)
+    private String closingOperationId;
+
+    @Column(length = 10)
+    private String closedOn;
+
+    @Column(length = 64)
+    private String closedBy;
+
+    @Column(length = 128)
+    private String closedName;
 }
