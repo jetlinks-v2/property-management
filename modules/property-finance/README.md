@@ -324,3 +324,17 @@ property:
 ```
 
 运维 MBean `org.jetlinks:type=PropertyManagement,name=MonthClosingJob` 提供运行状态、成功/失败/跳过次数、最后成功/失败时间和安全错误码。保存、执行及扫描复用 `MonoTracer`，不记录授权载荷和个人资料。完整金额及冻结来源仍从既有月结历史按整期原资产范围授权读取，自动记录仅提供不含金额的执行摘要。
+
+## 应收统计
+
+报表只读接口位于 `/property/finance/reports/receivables`，资源权限 `property-finance-report-receivable`：`POST /_query` 使用 `query`，`POST /_export/excel` 和 `POST /_export/pdf` 使用 `export`。打印复用后端生成的 PDF。接口不会刷新计费、初始化账期或修改账务。
+
+请求使用专用 `ReceivableReportInput`，必选 `projectIds`（1–100个）；可按 `spaceIds`、`subjectIds`、`customerName`、`fullName`、`receivableNo`、`dueDateStart/End`、`collectionStatus` 筛选。日期明确为到期日，计费起止与计算截至日另行展示。收款状态为 `UNPAID/PARTIAL/PAID`。`groupBy` 选择 `DETAIL/PROJECT/SUBJECT`，`pageIndex` 从0开始，`pageSize` 为1–200。响应包含同一筛选范围的 `summary` 和服务端分页 `page`；汇总不因翻页改变。
+
+沿用旧报表的已审核范围：仅计入 `APPROVED`、未逻辑删除且不是拆分父账的账单。冻结及财务已结的有效账单仍计入。历史客户、房屋、科目名称取账单快照，科目汇总按科目ID及名称快照分组，名称变化不会静默改写历史行。跨项目查询先逐项目验证基础有效性及组织资产读取权限，任一失败即拒绝整笔查询；所有明细、汇总、分组计数与文件在 SQL 聚合前注入空间 `read` 权限，不在分页后过滤或先汇总后屏蔽。项目名称通过基础模块公开命令获取，不访问基础模块内部表。
+
+金额使用已保存的正式财务事实：净应收取 `actualReceivableAmount`，已收取 `paidAmount`，未收取 `arrears`。减免为本金减免加实际生效的逾期减免（不超过已计提逾期费用），减免前应收为净应收加减免；不会从净应收再次扣减。收缴率为已收÷净应收×100，保留2位四舍五入，净应收为0时返回0。所有金额和比率通过十进制定点转精确文本返回，浏览器不计算正式金额。
+
+分页、汇总与分组使用数据库查询；单次响应的摘要、总数和记录在同一只读 `REPEATABLE_READ` 事务中依次读取，避免并发收退款造成同一响应相互矛盾。官方 `nativeQuery` 生成含权限与绑定参数的来源 SQL，外层仅使用固定表达式及标准 SQL 聚合和分页；当前持久化行为在 PostgreSQL16 验证，切换其他数据库须验证驱动隔离级别及平台 SQL 映射。代表性项目规模的查询计划、并发和完整网关授权链仍须在部署验收环境验证。
+
+Excel/PDF 导出复用当前筛选及分组，最多10000条明细或分组行，超限明确拒绝，不能截断后当作完整报表。全量数据有界读取，结束数据库事务后在 `boundedElastic` 渲染文件。Excel 金额与用户文本均写文本单元格以保留精度、防止公式执行；PDF 使用内置授权中文字体、转义文本、禁止外部资源访问并重复跨页表头。查询与导出有 `MonoTracer`，不新增常驻任务或 MBean。
