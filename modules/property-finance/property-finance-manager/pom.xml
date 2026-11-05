@@ -62,5 +62,9 @@
             <groupId>org.hswebframework.web</groupId>
             <artifactId>hsweb-commons-crud</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.r2dbc</groupId>
+            <artifactId>r2dbc-spi</artifactId>
+        </dependency>
     </dependencies>
 </project>
