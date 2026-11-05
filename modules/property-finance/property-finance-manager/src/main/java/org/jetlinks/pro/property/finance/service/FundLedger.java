@@ -58,6 +58,8 @@ public class FundLedger {
         if ("RETURN_OFFSET".equals(input.getAction()) || "TO_ADVANCE".equals(input.getAction()))
             entry.setRefundId(transaction);
         entry.setOccurredAt(input.getOccurredAt());
+        entry.setCalcStartDate(input.getStartDate());
+        entry.setCalcEndDate(input.getEndDate());
         entry.setPayerName(input.getPayerName());
         entry.setMethod(method);
         entry.setMethodText(methodText);

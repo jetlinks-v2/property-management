@@ -198,6 +198,8 @@ public class FundRevokeService {
         input.setCompanyId(original.getCompanyId());
         input.setAmount(original.getAmount());
         input.setOccurredAt(r.input().occurredAt());
+        input.setStartDate(original.getCalcStartDate());
+        input.setEndDate(original.getCalcEndDate());
         input.setReason(r.input().reason().trim());
         input.setPayerName(original.getPayerName());
         input.setMethod(original.getMethod());

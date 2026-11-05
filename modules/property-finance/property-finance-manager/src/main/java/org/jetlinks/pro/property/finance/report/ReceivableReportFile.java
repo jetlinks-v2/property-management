@@ -1,15 +1,8 @@
 package org.jetlinks.pro.property.finance.report;
 
-
-import com.openhtmltopdf.outputdevice.helper.ExternalResourceControlPriority;
-import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
-
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.hswebframework.web.i18n.LocaleUtils;
 import org.springframework.stereotype.Component;
-import org.springframework.web.util.HtmlUtils;
 
-import java.io.*;
 import java.util.*;
 
 /** 只渲染已经授权的报表快照；Excel文本防公式执行，PDF不允许读取外部资源。 */
@@ -50,7 +43,7 @@ public class ReceivableReportFile {
                     Map.entry(
                             "scope",
                             "Approved, active, unsplit bills only. Amounts use the saved"
-                                + " calculation date."),
+                                    + " calculation date."),
                     Map.entry("projectName", "Project"),
                     Map.entry("subjectName", "Charge subject"),
                     Map.entry("fullName", "Space"),
@@ -71,101 +64,19 @@ public class ReceivableReportFile {
 
     public byte[] write(ReceivableReportResult result, String format, Locale locale) {
         var columns = columns(result.groupBy());
-        try {
-            return "excel".equals(format)
-                    ? excel(result, columns, locale)
-                    : pdf(result, columns, locale);
-        } catch (Exception failure) {
-            throw new org.hswebframework.web.exception.BusinessException(
-                    "error.property_finance_report_export_failed", 500, failure);
-        }
-    }
-
-    private byte[] excel(ReceivableReportResult result, List<String> columns, Locale locale)
-            throws IOException {
-        try (var book = new XSSFWorkbook();
-                var output = new ByteArrayOutputStream()) {
-            var sheet = book.createSheet(label("title", locale));
-            var header = sheet.createRow(0);
-            var style = book.createCellStyle();
-            var font = book.createFont();
-            font.setBold(true);
-            style.setFont(font);
-            for (int n = 0; n < columns.size(); n++) {
-                var cell = header.createCell(n);
-                cell.setCellValue(label(columns.get(n), locale));
-                cell.setCellStyle(style);
-                sheet.setColumnWidth(n, ("fullName".equals(columns.get(n)) ? 48 : 24) * 256);
-            }
-            int index = 1;
-            for (var row : result.page().getData()) {
-                var target = sheet.createRow(index++);
-                var values = values(row);
-                for (int n = 0; n < columns.size(); n++)
-                    target.createCell(n).setCellValue(values.getOrDefault(columns.get(n), ""));
-            }
-            var footer = sheet.createRow(index++);
-            footer.createCell(0).setCellValue(label("summary", locale));
-            var amounts = amounts(result.summary());
-            for (int n = 0; n < columns.size(); n++)
-                if (amounts.containsKey(columns.get(n)))
-                    footer.createCell(n).setCellValue(amounts.get(columns.get(n)));
-            sheet.createRow(index).createCell(0).setCellValue(label("scope", locale));
-            sheet.createFreezePane(0, 1);
-            sheet.setAutoFilter(
-                    new org.apache.poi.ss.util.CellRangeAddress(
-                            0, result.page().getData().size(), 0, columns.size() - 1));
-            book.write(output);
-            return output.toByteArray();
-        }
-    }
-
-    private byte[] pdf(ReceivableReportResult result, List<String> columns, Locale locale)
-            throws IOException {
-        StringBuilder html =
-                new StringBuilder(
-                        "<html><head><meta charset='UTF-8'/><style>@page{size:A3"
-                            + " landscape;margin:12mm}body{font-family:'Noto Sans"
-                            + " SC';font-size:9px;color:#262626}h1{font-size:18px}table{width:100%;border-collapse:collapse;table-layout:fixed;-fs-table-paginate:paginate}th,td{border:1px"
-                            + " solid"
-                            + " #d9d9d9;padding:5px;word-wrap:break-word}th{background:#f5f5f5}thead{display:table-header-group}tr{page-break-inside:avoid}.money{text-align:right}.summary{font-weight:bold}</style></head><body><h1>");
-        html.append(escape(label("title", locale)))
-                .append("</h1><p>")
-                .append(escape(label("scope", locale)))
-                .append("</p><table><thead><tr>");
-        for (String column : columns)
-            html.append("<th>").append(escape(label(column, locale))).append("</th>");
-        html.append("</tr></thead><tbody>");
-        for (var row : result.page().getData()) appendRow(html, columns, values(row), false);
-        var totals = new HashMap<>(amounts(result.summary()));
-        totals.put(columns.get(0), label("summary", locale));
-        appendRow(html, columns, totals, true);
-        html.append("</tbody></table></body></html>");
-        try (var output = new ByteArrayOutputStream()) {
-            var renderer = new PdfRendererBuilder();
-            renderer.useFastMode();
-            renderer.useFont(
-                    () ->
-                            ReceivableReportFile.class.getResourceAsStream(
-                                    "/receipt-templates/fonts/PropertyReceiptSC-Regular.ttf"),
-                    "Noto Sans SC");
-            renderer.useExternalResourceAccessControl(
-                    (uri, type) -> false, ExternalResourceControlPriority.RUN_BEFORE_RESOLVING_URI);
-            renderer.withHtmlContent(html.toString(), null);
-            renderer.toStream(output);
-            renderer.run();
-            return output.toByteArray();
-        }
-    }
-
-    private static void appendRow(
-            StringBuilder html, List<String> columns, Map<String, String> values, boolean summary) {
-        html.append(summary ? "<tr class='summary'>" : "<tr>");
-        for (String c : columns)
-            html.append(MONEY.contains(c) ? "<td class='money'>" : "<td>")
-                    .append(escape(values.getOrDefault(c, "")))
-                    .append("</td>");
-        html.append("</tr>");
+        var labels = new LinkedHashMap<String, String>();
+        columns.forEach(c -> labels.put(c, label(c, locale)));
+        return FinanceReportFile.write(
+                new FinanceReportFile.Data(
+                        label("title", locale),
+                        label("scope", locale),
+                        label("summary", locale),
+                        columns,
+                        labels,
+                        Set.copyOf(MONEY),
+                        result.page().getData().stream().map(ReceivableReportFile::values).toList(),
+                        amounts(result.summary())),
+                format);
     }
 
     private static List<String> columns(String group) {
@@ -225,9 +136,5 @@ public class ReceivableReportFile {
                 "message.finance.report.receivable." + key,
                 locale,
                 ("zh".equals(locale.getLanguage()) ? ZH : EN).get(key));
-    }
-
-    private static String escape(String text) {
-        return HtmlUtils.htmlEscape(text);
     }
 }

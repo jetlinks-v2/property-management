@@ -72,6 +72,13 @@ public class FundEntryEntity extends FinanceEntity {
     @Column(length = 30, nullable = false)
     private String occurredAt;
 
+    /** 资金发生时冻结的费用期间，供报表直接聚合；未提供期间时保持空值。 */
+    @Column(length = 10)
+    private String calcStartDate;
+
+    @Column(length = 10)
+    private String calcEndDate;
+
     @Column(length = 128, nullable = false)
     private String payerName;
 

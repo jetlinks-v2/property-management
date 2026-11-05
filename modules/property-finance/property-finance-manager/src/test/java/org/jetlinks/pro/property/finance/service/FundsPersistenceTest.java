@@ -111,6 +111,21 @@ class FundsPersistenceTest {
         fixture.rejects(m, status);
     }
 
+    @Test
+    void topupFreezesOptionalBillingDatesForReportingWithoutChangingAmount() {
+        var input = input("TOPUP", "20.01");
+        input.setStartDate("2024-02-01");
+        input.setEndDate("2024-02-29");
+        var result = run(input);
+        var saved = entries.findById(result.entry().getId()).block(WAIT);
+        assertEquals("2024-02-01", saved.getCalcStartDate());
+        assertEquals("2024-02-29", saved.getCalcEndDate());
+        money("20.01", saved.getCashAmount());
+        assertEquals(
+                "2024-02-01",
+                com.alibaba.fastjson.JSON.parseArray(saved.getInputSnapshotJson()).getString(17));
+    }
+
     @Autowired FinancialPeriodTestSupport periods;
 
     @Test

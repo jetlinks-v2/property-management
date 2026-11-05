@@ -94,6 +94,21 @@ class FundRevokePersistenceTest {
         return credits.findById(entry).block(WAIT);
     }
 
+    @Test
+    void reversalRetainsOriginalBillingPeriodForSignedCashReporting() {
+        var dated = fixture.input("TOPUP", "20.01");
+        dated.setStartDate("2024-02-01");
+        dated.setEndDate("2024-02-29");
+        var created = fixture.run(dated);
+        accountId = created.account().getId();
+        entryId = created.entry().getId();
+        var reversal = confirm(request(input()));
+        var saved = entries.findById(reversal.entry().getId()).block(WAIT);
+        assertEquals("2024-02-01", saved.getCalcStartDate());
+        assertEquals("2024-02-29", saved.getCalcEndDate());
+        money("-20.01", saved.getCashAmount());
+    }
+
     @Autowired FinancialPeriodTestSupport periods;
 
     @Test
