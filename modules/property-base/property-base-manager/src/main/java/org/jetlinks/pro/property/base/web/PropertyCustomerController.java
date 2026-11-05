@@ -4,6 +4,10 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import lombok.RequiredArgsConstructor;
+import org.jetlinks.pro.property.base.command.PropertyHouseholdCommandSupport;
+import org.jetlinks.pro.property.base.command.QueryPropertyHouseholdsCommand;
+import org.jetlinks.pro.property.base.house.PropertyHouseholdInfo;
+import reactor.core.publisher.Flux;
 
 import org.hswebframework.web.api.crud.entity.PagerResult;
 import org.hswebframework.web.api.crud.entity.QueryParamEntity;
@@ -33,6 +37,19 @@ import reactor.core.publisher.Mono;
 public class PropertyCustomerController {
     private final PropertyCustomerService customers;
     private final ArchiveExcelService excel;
+    private final PropertyHouseholdCommandSupport households;
+
+    /** 双向只读关系查询与业务RPC共用权限、历史及逻辑删除过滤。 */
+    @GetMapping("/{id}/houses")
+    @ResourceAction(id = "query", name = "查询")
+    public Flux<PropertyHouseholdInfo> houses(
+            @RequestParam String projectId, @PathVariable String id) {
+        var command = new QueryPropertyHouseholdsCommand();
+        command.setProjectId(projectId);
+        command.setCustomerId(id);
+        return households.query(command);
+    }
+
 
     @PostMapping("/_query")
     @ResourceAction(id = "query", name = "查询")

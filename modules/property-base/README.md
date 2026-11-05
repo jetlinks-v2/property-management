@@ -8,7 +8,7 @@
 
 `property-base-manager` 承载本领域 Controller、Service、Entity、Repository、权限及国际化，由独立的 `property-base-service` 装配。从仓库根目录执行 `mvn -pl :property-base-service -am verify`，只构建基础系统及其依赖。
 
-`property-base-core` 提供公共 DTO、组织类型枚举、组织树及基础目录查询命令，不依赖 manager，不包含数据库实体或 CRUD。基础服务必须独立运行；报修、巡更等业务服务按需运行，读取基础数据时只依赖 core 并执行公开命令，不装配本 manager。各应用的系统管理页面经网关调用同一套 `/property/**`，共享同一份基础数据。
+`property-base-core` 提供公共 DTO、组织类型枚举、组织树及基础目录查询命令，不依赖 manager，不包含数据库实体或 CRUD。基础服务必须独立运行；报修、巡更等业务服务按需运行，读取基础数据时只依赖 core 并执行公开命令，不装配本 manager。各应用统一加载前端公共模块 `property-base-ui`，由该模块唯一提供组织、用户、空间、客户和字典菜单及页面，经网关调用同一套 `/property/**`。收费、巡更和装修不再维护基础页面副本。已初始化的旧业务基础菜单需按应用清理，并给原角色授权公共 `charging/*` 菜单，不能全量重建其他系统菜单。
 
 ## 员工公开命令
 
@@ -126,3 +126,9 @@ return CommandSupportManagerProviders
 列表使用标准 `QueryParamEntity`，支持白名单字段、嵌套条件、排序和分页；未知字段或操作明确拒绝，不静默忽略。导出使用同一权限和筛选，返回全部匹配记录，上限 10000；不能把当前页当完整导出。模板、导入、导出均由后端提供。模板为 `GET /property/{house|customer}/template.xlsx?projectId=`，客户另必传 `customerType=person/company`，复用 import 权限，按项目返回中文填写表、真实空间和字典/用户参考；填写页不预填空间路径，路径下拉保留本项目空间，客户仅可选已完善资料的空间；单独提供一条填写示例，示例不参与导入，必填表头标红。空间资料全部已完善仍可下载空填写表。`POST _import` 为 multipart，字段 `file`，仅 xls/xlsx、10MB，建议单次不超过1000条，后端不设置导入条数上限；`POST _export` 接收同列表 QueryParam，返回 XLSX 文件流。前端不解析 Excel 或提交 JSON 行数组。
 
 输出复用 JetLinks `ExcelUtils` 及其 `WorkbookOption`；读取使用配套 POI 保留真实物理行号，只处理第一张数据表，拒绝公式、重复表头、空行和非文本标识。不使用默认导入器的分批写入或失败后逐行重试。文件全部解析、字典转换、字段/权限/现有数据/批内重复及共用资料一致性预检通过后，才订阅一个响应式事务中的全部写入；预检失败零写入，并发持久化失败整批回滚。错误响应含真实 Excel 行号和业务原因；前端仅消息提示，文件接口的 JSON 错误不能保存为 Excel。房屋导入只补尚未完善的末端；客户按姓名和联系电话唯一匹配来源账号，再按稳定 `userId` 复用可管理的主档，不覆盖既有资料。个人、企业各8列，不填写家庭或开始时间；个人填写客户性质，企业无性质列。
+
+## 客户房屋双向查询
+
+`GET /property/customer/{id}/houses?projectId=...` 查询客户当前有效且有权读取的房屋；`GET /property/house/{spaceId}/customers?projectId=...` 查询房屋当前客户及其关系性质。响应为 `PropertyHouseholdInfo` 列表，包含客户、房屋、房屋类型、账号及关系 ID/性质，业主资格由业务按 `nature` 明确判定，不能将所有客户视为业主。排除未开始、已结束、已逻辑删除关系以及已删除客户/房屋，空查询返回空列表。分别要求 `property-customer:query` 与 `property-house:query`；项目与空间均沿用调用者 AssetsHolder 权限。
+
+跨服务调用使用 core 的 `QueryPropertyHouseholdsCommand`，服务 ID 为 `propertyService:household`；`projectId` 必填，`spaceId`、`customerId` 可选，同时指定取交集，`mine=true` 仅匹配认证账号的 `userId`。命令参数进入正式负载，错误原样传播，不跨库或按手机号猜测关系。查询复用平台 HTTP/命令链路追踪，无新增后台任务或常驻状态。

@@ -33,8 +33,8 @@ class ArchiveExcelControllerTest {
             new ArchiveExcelService(scope, houses, customers, users, dictionary);
     final WebTestClient client =
             WebTestClient.bindToController(
-                            new PropertyHouseController(houses, excel),
-                            new PropertyCustomerController(customers, excel))
+                            new PropertyHouseController(houses, excel, null),
+                            new PropertyCustomerController(customers, excel, null))
                     .build();
 
     @BeforeEach
