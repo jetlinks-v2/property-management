@@ -300,9 +300,11 @@ class HandoverPersistenceTest {
                 problems.createQuery().count().block(WAIT));
     }
 
-    @Test
-    void contractorRectificationMustPassInitialThenFinalReviewAndKeepsAuditActors() {
-        problems.insert(row("cycle", "external-a", 0, 0)).block(WAIT);
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"SITE_INSPECTION","PHYSICAL_HANDOVER","QUALITY_ACCEPTANCE"})
+    void contractorRectificationMustPassInitialThenFinalReviewAndKeepsAuditActors(String source) {
+        var cycle = row("cycle", "external-a", 0, 0);cycle.setSource(source);
+        problems.insert(cycle).block(WAIT);
         var selected = new HandoverResponsibilityEntity();
         base(selected, "unit-a");
         selected.setOrganizationId("external-a");

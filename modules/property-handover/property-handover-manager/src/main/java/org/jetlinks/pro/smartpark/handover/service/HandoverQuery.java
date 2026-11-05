@@ -27,6 +27,7 @@ public class HandoverQuery {
     private String categoryId;
     private String itemId;
     private String stage;
+    private String stageStatus;
     private String view;
     private Long inspectionTimeFrom;
     private Long inspectionTimeTo;

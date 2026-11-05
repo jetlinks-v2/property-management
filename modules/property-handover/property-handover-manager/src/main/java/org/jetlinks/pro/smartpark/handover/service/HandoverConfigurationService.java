@@ -162,14 +162,17 @@ public class HandoverConfigurationService {
             HandoverRules.require(
                     HandoverRules.STAGES.contains(record.getStage()), "stage_invalid");
             HandoverRules.require(HandoverRules.hasText(record.getTitle()), "title_required");
+            validateRecord(record);
             check = check.then(processes.assertAvailable(row.getProjectId(), record.getStage()));
             check =
-                    check.then(materialCategories.selectable(record.getCategoryId()))
+                    check.then("disclosure".equals(record.getStage()) ? Mono.empty() : materialCategories.selectable(record.getCategoryId()))
                             .then(files.validate(record.getFiles()));
             List<String> persons =
                     record.getPersonIds() == null ? List.of() : record.getPersonIds();
             HandoverRules.require(persons.size() <= 200, "user_limit");
             check = check.thenMany(Flux.fromIterable(persons).concatMap(directory::user)).then();
+            if ("disclosure".equals(record.getStage())) check = check.then(directory.user(record.getProperties().get("receiverId"))
+                .doOnNext(user -> record.getProperties().put("receiverName", user.getName())).then());
         } else if (row instanceof HandoverItemEntity item) {
             HandoverRules.require(
                     java.util.Set.of("PHYSICAL_HANDOVER", "QUALITY_ACCEPTANCE", "MATERIAL_TRANSFER")
@@ -186,7 +189,7 @@ public class HandoverConfigurationService {
     private Mono<Void> stageWrite(HandoverEntity row) {
         if (row instanceof HandoverRecordEntity record)
             return processes.writeStage(row.getProjectId(), record.getStage())
-                    .then(materialCategories.reserveForRecord(record.getCategoryId()));
+                    .then("disclosure".equals(record.getStage()) ? Mono.empty() : materialCategories.reserveForRecord(record.getCategoryId()));
         if (row instanceof HandoverItemEntity item)
             return processes.writeStage(row.getProjectId(), stage(item.getSource()));
         return Mono.empty();
@@ -389,7 +392,9 @@ public class HandoverConfigurationService {
                                                                 n -> HandoverRules.conflict(n == 1))
                                                         .thenReturn(input);
                                             });
-                        });
+                        }).flatMap(saved -> saved instanceof HandoverRecordEntity record
+                            ? processes.recordOperation(saved.getProjectId(), record.getStage(), "save", record.getTitle()).thenReturn(saved)
+                            : Mono.just(saved));
     }
 
     /** 专用补图动作：版本、文件权限、项目权限与补录审计在一次事务中提交。 */
@@ -508,6 +513,7 @@ public class HandoverConfigurationService {
                             HandoverRules.require(
                                     !Boolean.TRUE.equals(item.getConfirmed()), "item_confirmed");
                             return scope.project(item.getProjectId(), CrudAssetPermission.save)
+                                    .then(processes.writeStage(item.getProjectId(), stage(item.getSource())))
                                     .then(
                                             problems.createQuery()
                                                     .where("itemId", id)
@@ -529,6 +535,7 @@ public class HandoverConfigurationService {
                                                     .and("deleted", false)
                                                     .execute())
                                     .doOnNext(n -> HandoverRules.conflict(n == 1))
+                                    .then(processes.recordOperation(item.getProjectId(), stage(item.getSource()), "confirm", item.getName()))
                                     .then(
                                             Mono.fromSupplier(
                                                     () -> {
@@ -538,4 +545,46 @@ public class HandoverConfigurationService {
                                                     }));
                         });
     }
+    private static void validateRecord(HandoverRecordEntity record) {
+        var values = record.getProperties() == null ? java.util.Map.<String,String>of() : record.getProperties();
+        List<String> required = switch (record.getStage()) {
+            case "kickoff" -> List.of("meetingLocation", "meetingStartTime", "meetingEndTime");
+            case "material" -> List.of("submitLocation", "submitUserName", "submitUserPhone", "receiveUserName", "receiveUserPhone", "materialComplete");
+            case "disclosure" -> List.of("disclosureCategory", "disclosureUserName", "receiverId");
+            default -> List.of();
+        };
+        for (String key : required) HandoverRules.require(HandoverRules.hasText(values.get(key)), "record_fields_required");
+        if ("kickoff".equals(record.getStage())) {
+            try {
+                long start = Long.parseLong(values.get("meetingStartTime"));
+                long end = Long.parseLong(values.get("meetingEndTime"));
+                HandoverRules.require(start >= 0 && end >= start, "meeting_time_invalid");
+            } catch (NumberFormatException error) {
+                throw new org.hswebframework.web.exception.BusinessException("error.handover.meeting_time_invalid", 400);
+            }
+        }
+        if (java.util.Set.of("material", "disclosure").contains(record.getStage()))
+            HandoverRules.require(record.getTime() != null && record.getTime() >= 0, "date_invalid");
+        if ("material".equals(record.getStage())) HandoverRules.require(java.util.Set.of("0", "1").contains(values.get("materialComplete")), "request_invalid");
+        if ("disclosure".equals(record.getStage())) record.setCategoryId(null);
+    }
+
+    /** 完整预检后写入；最终 CAS 冲突也回滚整批确认和节点日志。 */
+    @Transactional
+    public Mono<List<HandoverItemEntity>> confirmBatch(org.jetlinks.pro.smartpark.handover.api.BatchConfirmRequest input) {
+        HandoverRules.require("MATERIAL_TRANSFER".equals(input.getSource()), "source_invalid");
+        var selected = input.getItems();
+        HandoverRules.require(selected != null && !selected.isEmpty() && selected.size() <= 200, "request_invalid");
+        HandoverRules.require(selected.stream().map(org.jetlinks.pro.smartpark.handover.api.BatchConfirmRequest.Item::getId).distinct().count() == selected.size(), "request_invalid");
+        return directory.employee().then(scope.project(input.getProjectId(), CrudAssetPermission.save))
+            .thenMany(Flux.fromIterable(selected).concatMap(entry -> read(items, entry.getId()).doOnNext(row -> {
+                HandoverRules.require(Objects.equals(input.getProjectId(), row.getProjectId()) && input.getSource().equals(row.getSource()), "request_invalid");
+                HandoverRules.conflict(Objects.equals(entry.getVersion(), row.getVersion()));
+                HandoverRules.require(!Boolean.TRUE.equals(row.getConfirmed()), "item_confirmed");
+            }).flatMap(row -> problems.createQuery().where("itemId",row.getId()).and("deleted",false).and("status","not",3).count()
+               .doOnNext(n -> HandoverRules.require(n == 0,"item_open_problems")).thenReturn(row))))
+            .collectList().flatMapMany(rows -> Flux.fromIterable(rows).concatMap(row -> confirm(row.getId(), row.getVersion())))
+            .collectList();
+    }
+
 }

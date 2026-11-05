@@ -44,6 +44,12 @@ public class HandoverItemController {
         return service.delete(repository, id, version);
     }
 
+    @PostMapping("/_confirm")
+    @SaveAction
+    public Mono<java.util.List<HandoverItemEntity>> confirmBatch(@RequestBody org.jetlinks.pro.smartpark.handover.api.BatchConfirmRequest body) {
+        return service.confirmBatch(body);
+    }
+
     @PostMapping("/{id}/confirm")
     @SaveAction
     public Mono<HandoverItemEntity> confirm(

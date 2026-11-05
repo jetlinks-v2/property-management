@@ -23,5 +23,6 @@ public class HandoverStageLogEntity extends HandoverEntity {
     @Column(length = 128)
     private String operatorName;
 
+    @Column(length = 2000) private String description;
     @Column private Long time;
 }

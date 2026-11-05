@@ -25,6 +25,12 @@ public class HandoverProcessController {
         return service.query(input);
     }
 
+    @GetMapping("/history")
+    @QueryAction
+    public Mono<PagerResult<org.jetlinks.pro.smartpark.handover.entity.HandoverStageLogEntity>> history(HandoverQuery input) {
+        return service.history(input);
+    }
+
     @GetMapping
     @QueryAction
     public Mono<HandoverProcessEntity> get(@RequestParam String projectId) {

@@ -75,20 +75,12 @@ public class HandoverProcessService {
     public Mono<PagerResult<HandoverProcessEntity>> query(HandoverQuery input) {
         int size = Math.max(1, Math.min(200, input.getPageSize()));
         int page = Math.max(0, input.getPageIndex());
-        // 公共目录已完成资产筛选。仅对项目目录分页，不把问题跨来源分页退化为内存合并。
-        var projects = directory.projects().filter(p -> matches(p, input));
-        return projects.index()
-                .skip((long) page * size)
-                .take(size)
-                .concatMap(tuple -> get(tuple.getT2().getId()))
-                .collectList()
-                .zipWith(directory.projects().filter(p -> matches(p, input)).count())
-                .map(
-                        result ->
-                                PagerResult.of(
-                                        result.getT2().intValue(),
-                                        result.getT1(),
-                                        input.parameter("name")));
+        HandoverRules.require(!HandoverRules.hasText(input.getStage()) || HandoverRules.STAGES.contains(input.getStage()), "stage_invalid");
+        // 只在已授权的项目目录上加载进度；节点筛选先于分页，不能过滤已分页结果。
+        return directory.projects().filter(p -> matches(p, input)).concatMap(p -> get(p.getId()))
+            .filter(p -> !HandoverRules.hasText(input.getStage()) || !HandoverRules.hasText(input.getStageStatus())
+                || input.getStageStatus().equals(state(p, input.getStage()).getStatus()))
+            .collectList().map(rows -> PagerResult.of(rows.size(), rows.stream().skip((long)page*size).limit(size).toList(), input.parameter("name")));
     }
 
     private static boolean matches(PropertyOrganizationInfo project, HandoverQuery input) {
@@ -241,6 +233,18 @@ public class HandoverProcessService {
         log.setOperatorName(context.userName());
         log.setTime(System.currentTimeMillis());
         return log;
+    }
+
+    public Mono<PagerResult<HandoverStageLogEntity>> history(HandoverQuery input) {
+        return scope.current().flatMap(c -> scope.query(input.parameter("description"), c, input.getProjectId()))
+            .flatMap(logs::queryPager);
+    }
+
+    public Mono<Void> recordOperation(String projectId, String stage, String action, String description) {
+        return scope.current().flatMap(c -> get(projectId).flatMap(p -> {
+            var log = stageLog(p, stage, action, c); log.setDescription(description);
+            return logs.insert(log).then();
+        }));
     }
 
     private QueryParamEntity projectQuery(HandoverProcessEntity process) {
