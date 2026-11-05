@@ -450,6 +450,15 @@ public class MonthClosingSources {
     }
 
     Mono<List<Member>> restore(String project, String tenant, String operation, int expected) {
+        return restore(project, tenant, operation, expected, CrudAssetPermission.save);
+    }
+
+    Mono<List<Member>> restore(
+            String project,
+            String tenant,
+            String operation,
+            int expected,
+            CrudAssetPermission permission) {
         return members.createQuery()
                 .setParam(limit())
                 .where("projectId", project)
@@ -500,7 +509,8 @@ public class MonthClosingSources {
                                     .sort(
                                             Comparator.comparing(Member::type)
                                                     .thenComparing(Member::id))
-                                    .concatMap(m -> permission(m.spaces()).thenReturn(m))
+                                    .concatMap(
+                                            m -> permission(m.spaces(), permission).thenReturn(m))
                                     .collectList();
                         });
     }
@@ -587,14 +597,16 @@ public class MonthClosingSources {
     }
 
     private Mono<Void> permission(List<String> spaces) {
+        return permission(spaces, CrudAssetPermission.save);
+    }
+
+    private Mono<Void> permission(List<String> spaces, CrudAssetPermission permission) {
         if (spaces.isEmpty() || spaces.stream().anyMatch(s -> s == null || s.isBlank()))
             return Mono.error(error("month_closing_source_invalid", 409));
         // 批量资产沿 HandoverSources/DocumentStore 的 holder 集合接口，不把整个 List 当单个资产ID。
         return AssetsHolder.currentReactive()
                 .switchIfEmpty(Mono.error(error("permission_denied", 403)))
-                .flatMap(
-                        holder ->
-                                holder.assertPermission("space", spaces, CrudAssetPermission.save));
+                .flatMap(holder -> holder.assertPermission("space", spaces, permission));
     }
 
     private static <T> List<T> bounded(List<T> rows) {

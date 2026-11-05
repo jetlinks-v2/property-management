@@ -23,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.*;
 
@@ -313,24 +312,8 @@ public class ReceivableReviewService {
     }
 
     private void assertAllowed(ReceivableEntity row, String action) {
-        var state = row.getReviewState() == null ? "PENDING" : row.getReviewState();
-        if (Boolean.TRUE.equals(row.getFinancialClosed())
-                || Boolean.TRUE.equals(row.getSplit())
-                || Boolean.TRUE.equals(row.getFrozen())
-                || Boolean.TRUE.equals(row.getDiscountLocked())
-                || Boolean.TRUE.equals(row.getBankCollectionLocked())
-                || Boolean.TRUE.equals(row.getPaymentLocked())
-                || positive(row.getInvoiceOccupiedAmount())
-                || positive(row.getPaymentOccupiedAmount())
-                || positive(row.getPaidAmount())
-                        && (!positive(row.getArrears()) || "UNAPPROVE".equals(action))
-                || ("UNAPPROVE".equals(action)
-                        ? !Set.of("APPROVED", "REJECTED").contains(state)
-                        : !"PENDING".equals(state))) throw error("receivable_review_denied", 409);
-    }
-
-    private boolean positive(BigDecimal amount) {
-        return amount != null && amount.signum() > 0;
+        if (!org.jetlinks.pro.property.finance.receivable.ReceivablePolicy.reviewAllowed(row)
+                .contains(action)) throw error("receivable_review_denied", 409);
     }
 
     private Input normalize(Input input, LocalDate date) {

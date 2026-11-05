@@ -35,6 +35,16 @@ public final class ReceivablePolicy {
         if (!allowed(row).contains(operation)) throw error("receivable_operation_denied", 409);
     }
 
+    /** 按钮审核与金额操作独立，前端能力与提交校验共用此规则；历史空状态按未审核。 */
+    public static Set<String> reviewAllowed(ReceivableEntity row) {
+        if (blocked(row) || Boolean.TRUE.equals(row.getFrozen())) return Set.of();
+        var state = row.getReviewState() == null ? "PENDING" : row.getReviewState();
+        if ("PENDING".equals(state)) return Set.of("APPROVE", "REJECT");
+        if (Set.of("APPROVED", "REJECTED").contains(state) && !positive(row.getPaidAmount()))
+            return Set.of("UNAPPROVE");
+        return Set.of();
+    }
+
     /** 结转可减免部分已收后的剩余欠费，不能改写已收事实；其他财务保护与普通调整相同。 */
     public static void assertCarryReductionAllowed(ReceivableEntity row) {
         if (blocked(row)

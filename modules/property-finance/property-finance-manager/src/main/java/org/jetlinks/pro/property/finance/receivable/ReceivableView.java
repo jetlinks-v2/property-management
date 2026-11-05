@@ -51,6 +51,7 @@ public class ReceivableView extends ReceivableEntity {
         var operations = new java.util.LinkedHashSet<>(ReceivablePolicy.allowed(row));
         operations.retainAll(
                 Set.of("DETAIL", "LOG", "FREEZE", "UNFREEZE", "DELETE", "ADJUST", "SPLIT"));
+        operations.addAll(ReceivablePolicy.reviewAllowed(row));
         view.setAllowedOperations(operations);
         if (detail) {
             var setting = new HouseSettingEntity();
