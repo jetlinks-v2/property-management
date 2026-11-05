@@ -61,6 +61,15 @@ public class PropertyCustomerController {
         return customers.create(projectId, request);
     }
 
+    /** 先保存已有客户账号的主档，联系电话和房屋关系可在之后补齐。 */
+    @PostMapping("/_draft")
+    @ResourceAction(id = "save", name = "保存")
+    @Operation(summary = "创建待完善或待绑定的客户档案")
+    public Mono<CustomerView> createDraft(
+            @RequestParam String projectId, @RequestBody CustomerRequests.Profile request) {
+        return customers.createDraft(projectId, request);
+    }
+
     @PutMapping("/{id}")
     @ResourceAction(id = "save", name = "保存")
     @Operation(summary = "版本校验后更新本地客户资料")

@@ -64,15 +64,17 @@ class OrganizationPersistenceTest {
 
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) {
-        POSTGRES.start();
+        // 允许 CI 指定独立测试库；未指定时仍由 Testcontainers 创建隔离数据库。
+        String testUrl = System.getProperty("test.postgres.url");
+        if (testUrl == null) POSTGRES.start();
         registry.add(
                 "spring.r2dbc.url",
-                () ->
-                        "r2dbc:postgresql://127.0.0.1:"
+                () -> testUrl != null ? testUrl :
+                        "r2dbc:postgresql://" + POSTGRES.getHost() + ":"
                                 + POSTGRES.getMappedPort(5432)
                                 + "/organization_test");
-        registry.add("spring.r2dbc.username", () -> "postgres");
-        registry.add("spring.r2dbc.password", () -> "test-password");
+        registry.add("spring.r2dbc.username", () -> System.getProperty("test.postgres.username", "postgres"));
+        registry.add("spring.r2dbc.password", () -> System.getProperty("test.postgres.password", "test-password"));
         registry.add("easyorm.dialect", () -> "postgres");
         registry.add("easyorm.default-schema", () -> "public");
     }

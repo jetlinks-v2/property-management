@@ -1,0 +1,3 @@
+logging:
+  level:
+    org.jetlinks.pro.property.facility: debug

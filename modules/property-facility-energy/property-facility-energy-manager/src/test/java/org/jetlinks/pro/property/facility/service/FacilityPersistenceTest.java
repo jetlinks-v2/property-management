@@ -1,0 +1,1521 @@
+package org.jetlinks.pro.property.facility.service;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+import java.time.Duration;
+import java.util.*;
+import java.util.function.Function;
+import org.hswebframework.web.api.crud.entity.QueryParamEntity;
+import org.hswebframework.web.crud.annotation.EnableEasyormRepository;
+import org.hswebframework.web.crud.configuration.*;
+import org.hswebframework.web.exception.BusinessException;
+import org.jetlinks.pro.property.base.user.PropertyUserInfo;
+import org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo;
+import org.jetlinks.pro.property.facility.entity.*;
+import org.jetlinks.pro.property.facility.model.*;
+import org.junit.jupiter.api.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.SpringBootConfiguration;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
+import org.springframework.boot.autoconfigure.r2dbc.*;
+import org.springframework.boot.autoconfigure.transaction.TransactionAutoConfiguration;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.*;
+import org.springframework.test.context.*;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.testcontainers.containers.GenericContainer;
+import reactor.core.publisher.*;
+import reactor.test.StepVerifier;
+
+/** PostgreSQL真实持久化、事务和CAS；此类隔离资产授权，授权本身由FacilityScopeTest覆盖。 */
+@SpringBootTest(
+  classes = FacilityPersistenceTest.Config.class,
+  webEnvironment = SpringBootTest.WebEnvironment.NONE
+)
+class FacilityPersistenceTest {
+
+  static final GenericContainer<?> DB = new GenericContainer<>(
+    "postgres:16-alpine"
+  )
+    .withEnv("POSTGRES_PASSWORD", "test-password")
+    .withEnv("POSTGRES_DB", "facility_test")
+    .withExposedPorts(5432);
+
+  @DynamicPropertySource
+  static void database(DynamicPropertyRegistry r) {
+    DB.start();
+    r.add(
+      "spring.r2dbc.url",
+      () ->
+        "r2dbc:postgresql://127.0.0.1:" +
+        DB.getMappedPort(5432) +
+        "/facility_test"
+    );
+    r.add("spring.r2dbc.username", () -> "postgres");
+    r.add("spring.r2dbc.password", () -> "test-password");
+    r.add("easyorm.dialect", () -> "postgres");
+    r.add("easyorm.default-schema", () -> "public");
+  }
+
+  @Autowired
+  TaskStore store;
+
+  @Autowired
+  FaultStore faults;
+
+  @Autowired
+  ProcessStore logs;
+
+  @Autowired
+  JobStore jobs;
+
+  @Autowired
+  FacilityQueries queries;
+
+  @Autowired
+  FacilityTasks manager;
+
+  @org.springframework.boot.test.mock.mockito.SpyBean
+  FacilityRecords records;
+
+  @Autowired
+  FacilityScope scope;
+
+  @Autowired
+  FacilityDirectory directory;
+
+  @Autowired
+  FacilityFiles files;
+
+  @BeforeEach
+  void resetData() {
+    store.createDelete().where("id", "test").execute().block();
+    faults
+      .createDelete()
+      .where("id", FacilityRecords.stableId("test", "inspection-fault"))
+      .execute()
+      .block();
+    logs.createDelete().where("targetId", "test").execute().block();
+    reset(scope, directory, files, notifier);
+    when(notifier.enqueue(any(), any(), any())).thenReturn(Mono.empty());
+    when(notifier.enqueueTarget(any(), any(), any())).thenReturn(Mono.empty());
+    when(
+      directory.employeeRole(anyString(), anyString(), anyBoolean())
+    ).thenReturn(Mono.empty());
+    when(scope.current()).thenReturn(
+      Mono.deferContextual(c -> Mono.just(c.get(FacilityContext.class)))
+    );
+    when(scope.applicationQuery(any())).thenAnswer(call -> {
+      QueryParamEntity query = call.getArgument(0);
+      return scope.current().map(context -> FacilityScope.applicationQuery(query, context));
+    });
+    when(scope.assertRecord(any(), any(), any(), any())).thenReturn(
+      Mono.empty()
+    );
+    when(directory.employee(anyString())).thenReturn(
+      Mono.just(new PropertyUserInfo())
+    );
+    when(files.validate(anyCollection(), anyString())).thenReturn(Mono.empty());
+    when(scope.query(any(), any(), anyString())).thenAnswer(call ->
+      Mono.just(call.getArgument(0))
+    );
+  }
+
+  <T> Mono<T> as(String user, Mono<T> work) {
+    return work.contextWrite(c ->
+      c.put(
+        FacilityContext.class,
+        new FacilityContext("tenant", "app", user, user)
+      )
+    );
+  }
+
+  TaskEntity task(String mode) {
+    var row = FacilityScope.initialize(
+      new TaskEntity(),
+      new FacilityContext("tenant", "app", "admin", "管理员")
+    );
+    row.setId("test");
+    row.setProjectId("p");
+    row.setOrganizationId("p");
+    row.setDeviceId("device");
+    row.setName("水泵巡检");
+    row.setDeviceName("泵1");
+    row.setKind("inspection");
+    row.setMode(mode);
+    row.setExternalOrganizationId("external-org");
+    row.setState("open");
+    row.setReviewerId("reviewer");
+    row.setFollowUserId("follower");
+    row.setDeadline(System.currentTimeMillis() + 100000);
+    var check = new CheckItem();
+    check.setId("check");
+    check.setName("状态");
+    check.setKind("boolean");
+    check.setRequired(true);
+    row.setStandardSnapshot(List.of(check));
+    store.insert(row).block();
+    return row;
+  }
+
+  TaskCommand command(long version) {
+    var c = new TaskCommand();
+    c.setVersion(version);
+    return c;
+  }
+
+  TaskCommand submit(long version, String key) {
+    var c = command(version);
+    c.setSubmissionId(key);
+    var r = new CheckResult();
+    r.setItemId("check");
+    r.setValue("true");
+    r.setAbnormal(false);
+    r.setAttachments(List.of());
+    c.setResults(List.of(r));
+    return c;
+  }
+
+  private static final List<String> PROJECT_QUERY_IDS = java.util.stream.IntStream.range(0, 7)
+    .mapToObj(i -> "project-query-" + i).toList();
+
+  private void projectQueryFixtures() {
+    jobs.createDelete().in("id", PROJECT_QUERY_IDS).execute().block();
+    logs.createDelete().in("id", PROJECT_QUERY_IDS).execute().block();
+    for (int i = 0; i < PROJECT_QUERY_IDS.size(); i++) {
+      var context = new FacilityContext(i == 4 ? "other-tenant" : "tenant",
+        i == 5 ? "other-app" : "app", "admin", "管理员");
+      String project = i == 2 ? "p-b" : i == 3 ? "p-hidden" : "p-a";
+      var job = FacilityScope.initialize(new JobEntity(), context);
+      job.setId(PROJECT_QUERY_IDS.get(i));
+      job.setProjectId(project);
+      job.setKind(job.getId());
+      job.setDeleted(i == 6);
+      jobs.insert(job).block();
+      var log = FacilityScope.initialize(new ProcessEntity(), context);
+      log.setId(job.getId());
+      log.setProjectId(project);
+      log.setTargetId("project-query");
+      log.setDeleted(i == 6);
+      logs.insert(log).block();
+    }
+  }
+
+  private PropertyOrganizationInfo project(String id) {
+    var project = new PropertyOrganizationInfo();
+    project.setId(id);
+    return project;
+  }
+
+  private QueryParamEntity projectQuery() {
+    return QueryParamEntity.newQuery().in("id", PROJECT_QUERY_IDS).orderByAsc("id").getParam();
+  }
+
+  @Test
+  void remoteAuthorizedProjectsIntersectLocalTenantApplicationAndDeletedBeforePaging() {
+    projectQueryFixtures();
+    when(directory.projects()).thenReturn(Flux.just(project("p-a"), project("p-b"), project("p-a")));
+    var query = projectQuery();
+    query.setPageSize(1);
+    query.setPageIndex(1);
+    var jobPage = as("admin", queries.projects(jobs, query)).block();
+    var logPage = as("admin", queries.projects(logs, query)).block();
+    assertEquals(3, jobPage.getTotal());
+    assertEquals(3, logPage.getTotal());
+    assertEquals(List.of("project-query-1"), jobPage.getData().stream().map(JobEntity::getId).toList());
+    assertEquals(List.of("project-query-1"), logPage.getData().stream().map(ProcessEntity::getId).toList());
+    // Caller-supplied filters remain unmodified and cannot widen the trusted directory result.
+    when(directory.projects()).thenReturn(Flux.just(project("p-b")));
+    var limited = as("admin", queries.projects(jobs, projectQuery())).block();
+    assertEquals(1, limited.getTotal());
+    assertEquals("project-query-2", limited.getData().get(0).getId());
+    var hidden = QueryParamEntity.newQuery().where("id", "project-query-3").getParam();
+    assertEquals(0, as("admin", queries.projects(logs, hidden)).block().getTotal());
+  }
+
+  @Test
+  void callerOrConditionsCannotEscapeProjectQueryScope() {
+    projectQueryFixtures();
+    when(directory.projects()).thenReturn(Flux.just(project("p-a")));
+    var query = QueryParamEntity.newQuery().in("id", PROJECT_QUERY_IDS)
+      .or("tenantId", "other-tenant").or("applicationId", "other-app")
+      .or("deleted", true).getParam();
+    var page = as("admin", queries.projects(logs, query)).block();
+    assertEquals(2, page.getTotal());
+    assertEquals(Set.of("project-query-0", "project-query-1"),
+      new HashSet<>(page.getData().stream().map(ProcessEntity::getId).toList()));
+  }
+
+  @Test
+  void emptyProjectAuthorizationReturnsNoJobsOrOperations() {
+    projectQueryFixtures();
+    when(directory.projects()).thenReturn(Flux.empty());
+    assertEquals(0, as("admin", queries.projects(jobs, projectQuery())).block().getTotal());
+    assertTrue(as("admin", queries.projects(logs, projectQuery())).block().getData().isEmpty());
+  }
+
+  @Test
+  void directoryFailureDoesNotFallBackToApplicationWideRecords() {
+    projectQueryFixtures();
+    when(directory.projects()).thenReturn(Flux.error(new IllegalStateException("directory unavailable")));
+    StepVerifier.create(as("admin", queries.projects(jobs, projectQuery())))
+      .expectErrorMessage("directory unavailable").verify();
+    StepVerifier.create(as("admin", queries.projects(logs, projectQuery())))
+      .expectErrorMessage("directory unavailable").verify();
+  }
+
+  @Test
+  void concurrentClaimHasExactlyOneWinner() {
+    task("single");
+    var result = Flux.merge(
+      as("worker-a", manager.action("test", "claim", command(0)))
+        .map(v -> "success")
+        .onErrorReturn("conflict"),
+      as("worker-b", manager.action("test", "claim", command(0)))
+        .map(v -> "success")
+        .onErrorReturn("conflict")
+    )
+      .collectList()
+      .block(Duration.ofSeconds(10));
+    assertEquals(1, result.stream().filter("success"::equals).count());
+    assertEquals(1, result.stream().filter("conflict"::equals).count());
+    assertEquals("claimed", store.findById("test").block().getState());
+    assertEquals(1L, store.findById("test").block().getVersion());
+  }
+
+  @Test
+  void singleTaskReplayAndAuditDoNotDuplicate() {
+    task("single");
+    as("worker", manager.action("test", "claim", command(0))).block();
+    as(
+      "worker",
+      manager.action("test", "submit", submit(1, "offline-key"))
+    ).block();
+    var replay = as(
+      "worker",
+      manager.action("test", "submit", submit(1, "offline-key"))
+    ).block();
+    assertEquals("review", replay.getState());
+    assertEquals(2L, replay.getVersion());
+    assertEquals(
+      2,
+      logs.createQuery().where("targetId", "test").count().block()
+    );
+    var done = as(
+      "reviewer",
+      manager.action("test", "approve", command(2))
+    ).block();
+    assertEquals("completed", done.getState());
+    assertNotNull(done.getCompletedTime());
+  }
+
+  @Test
+  void doubleTaskRequiresInternalFollowBeforeReview() {
+    task("double");
+    as("external", manager.action("test", "claim", command(0))).block();
+    var external = as(
+      "external",
+      manager.action("test", "submit", submit(1, "external-key"))
+    ).block();
+    assertEquals("external-submitted", external.getState());
+    StepVerifier.create(
+      as("reviewer", manager.action("test", "approve", command(2)))
+    )
+      .expectError(BusinessException.class)
+      .verify();
+    StepVerifier.create(
+      as("intruder", manager.action("test", "follow", submit(2, "follow-key")))
+    )
+      .expectError(BusinessException.class)
+      .verify();
+    var follow = as(
+      "follower",
+      manager.action("test", "follow", submit(2, "follow-key"))
+    ).block();
+    assertEquals("review", follow.getState());
+    assertEquals(1, follow.getResults().size());
+    assertEquals(1, follow.getFollowResults().size());
+    assertEquals(
+      "completed",
+      as("reviewer", manager.action("test", "approve", command(3)))
+        .block()
+        .getState()
+    );
+  }
+
+  @Test
+  void offlineSubmitAfterTransferFailsAndPreservesServerAssignee() {
+    task("single");
+    as("worker", manager.action("test", "claim", command(0))).block();
+    var transfer = command(1);
+    transfer.setUserId("next");
+    as("dispatcher", manager.action("test", "transfer", transfer)).block();
+    StepVerifier.create(
+      as("worker", manager.action("test", "submit", submit(1, "offline-key")))
+    )
+      .expectError(BusinessException.class)
+      .verify();
+    var row = store.findById("test").block();
+    assertEquals("next", row.getAssigneeId());
+    assertEquals("claimed", row.getState());
+    assertNull(row.getSubmissionId());
+  }
+
+  @Autowired
+  BindingStore bindings;
+
+  @Autowired
+  DeviceStore devices;
+
+  @Autowired
+  MappingStore mappings;
+
+  @Autowired
+  ReadingStore readings;
+
+  @Autowired
+  NotificationStore notifications;
+
+  @Autowired
+  FacilityOwner owner;
+
+  @Autowired
+  AlertStore alerts;
+
+  @Autowired
+  FacilityAlertWriter alertWriter;
+
+  @Autowired
+  FacilityNotifications notifier;
+
+  @Test
+  void ownersOnlyReadOwnBindingIntervalWithoutDevicePermissions() {
+    var device = FacilityScope.initialize(
+      new DeviceEntity(),
+      new FacilityContext("tenant", "app", "staff", "Staff")
+    );
+    device.setId("owner-device");
+    device.setProjectId("p");
+    device.setName("住宅水表");
+    devices.save(device).block();
+    var mapping = FacilityScope.initialize(
+      new MappingEntity(),
+      new FacilityContext("tenant", "app", "staff", "Staff")
+    );
+    mapping.setId("owner-mapping");
+    mapping.setDeviceId(device.getId());
+    mapping.setProjectId("p");
+    mapping.setEnergyType("water");
+    mapping.setStaleAfterSeconds(100L);
+    var metric = new MetricMapping();
+    metric.setPropertyId("water");
+    metric.setKind("counter");
+    metric.setUnit("m³");
+    metric.setName("用水量");
+    mapping.setMetrics(List.of(metric));
+    mappings.save(mapping).block();
+    for (int i = 1; i <= 3; i++) {
+      var row = FacilityScope.initialize(
+        new ReadingEntity(),
+        new FacilityContext("tenant", "app", "staff", "Staff")
+      );
+      row.setId("owner-reading-" + i);
+      row.setDeviceId(device.getId());
+      row.setProjectId("p");
+      row.setPropertyId("water");
+      row.setMetricKind("counter");
+      row.setUnit("m³");
+      row.setStatus("accepted");
+      row.setValue(java.math.BigDecimal.valueOf(i * 10));
+      row.setObservedTime(i * 1000L);
+      row.setMappingVersion(0L);
+      row.setMeterEpoch(0L);
+      readings.save(row).block();
+    }
+    for (String user : List.of("alice", "bob")) {
+      var binding = FacilityScope.initialize(
+        new BindingEntity(),
+        new FacilityContext("tenant", "app", "staff", "Staff")
+      );
+      binding.setId("owner-binding-" + user);
+      binding.setDeviceId(device.getId());
+      binding.setProjectId("p");
+      binding.setUserId(user);
+      binding.setStartTime(user.equals("alice") ? 1000L : 2000L);
+      binding.setEndTime(user.equals("alice") ? 2000L : null);
+      bindings.save(binding).block();
+    }
+    StepVerifier.create(as("bob", owner.binding("owner-binding-alice")))
+      .expectError(
+        org.hswebframework.web.authorization.exception.AccessDenyException.class
+      )
+      .verify();
+    var detail = as("bob", owner.detail("owner-binding-bob", 0, 4000)).block();
+    var views = (List<Map<String, Object>>) detail.get("metrics");
+    var samples = (List<Map<String, Object>>) views.get(0).get("readings");
+    assertEquals(
+      List.of(2000L, 3000L),
+      samples
+        .stream()
+        .map(row -> row.get("time"))
+        .toList()
+    );
+    assertFalse(detail.containsKey("customerName"));
+    var old = as("alice", owner.detail("owner-binding-alice", 0, 4000)).block();
+    var oldMetrics = (List<Map<String, Object>>) old.get("metrics");
+    assertEquals(1, ((List<?>) oldMetrics.get(0).get("readings")).size());
+  }
+
+  @Test
+  void alertEpisodeEscalationRecoveryAndOutboxAreAtomic() {
+    String id = FacilityRecords.stableId("alert-rule", "alert-device");
+    alerts.createDelete().where("id", id).execute().block();
+    reset(notifier);
+    when(notifier.enqueue(any(), any(), any())).thenReturn(Mono.empty());
+    var rule = FacilityScope.initialize(
+      new RuleEntity(),
+      new FacilityContext("tenant", "app", "staff", "Staff")
+    );
+    rule.setId("alert-rule");
+    rule.setName("日用量");
+    rule.setRuleType("usage");
+    rule.setThreshold(new java.math.BigDecimal("100"));
+    rule.setNearRatio(new java.math.BigDecimal("0.8"));
+    rule.setRepeatHours(24);
+    var device = FacilityScope.initialize(
+      new DeviceEntity(),
+      new FacilityContext("tenant", "app", "staff", "Staff")
+    );
+    device.setId("alert-device");
+    device.setProjectId("p");
+    as(
+      "staff",
+      alertWriter.record(
+        rule,
+        device,
+        new java.math.BigDecimal("80"),
+        "kWh",
+        1000,
+        "day"
+      )
+    ).block();
+    as(
+      "staff",
+      alertWriter.record(
+        rule,
+        device,
+        new java.math.BigDecimal("85"),
+        "kWh",
+        2000,
+        "day"
+      )
+    ).block();
+    assertEquals(1, alerts.findById(id).block().getNotificationSequence());
+    as(
+      "staff",
+      alertWriter.record(
+        rule,
+        device,
+        new java.math.BigDecimal("110"),
+        "kWh",
+        3000,
+        "day"
+      )
+    ).block();
+    assertEquals(2, alerts.findById(id).block().getNotificationSequence());
+    as(
+      "staff",
+      alertWriter.record(
+        rule,
+        device,
+        new java.math.BigDecimal("60"),
+        "kWh",
+        4000,
+        "day"
+      )
+    ).block();
+    assertEquals("recovered", alerts.findById(id).block().getState());
+    as(
+      "staff",
+      alertWriter.record(
+        rule,
+        device,
+        new java.math.BigDecimal("90"),
+        "kWh",
+        5000,
+        "day"
+      )
+    ).block();
+    assertEquals(3, alerts.findById(id).block().getNotificationSequence());
+    verify(notifier, times(3)).enqueue(any(), any(), any());
+    when(notifier.enqueue(any(), any(), any())).thenReturn(
+      Mono.error(new IllegalStateException("outbox unavailable"))
+    );
+    StepVerifier.create(
+      as(
+        "staff",
+        alertWriter.record(
+          rule,
+          device,
+          new java.math.BigDecimal("120"),
+          "kWh",
+          6000,
+          "day"
+        )
+      )
+    )
+      .expectError(IllegalStateException.class)
+      .verify();
+    assertEquals(3, alerts.findById(id).block().getNotificationSequence());
+    assertEquals("near", alerts.findById(id).block().getLevel());
+  }
+
+  @Test
+  void signedReceiptRequiresMatchingProviderRecipientAndAcceptedMessage() {
+    var row = FacilityScope.initialize(
+      new NotificationEntity(),
+      new FacilityContext("tenant", "app", "staff", "Staff")
+    );
+    row.setId("receipt-test");
+    row.setState("submitted");
+    row.setNotifierId("notifier");
+    row.setProviderMessageId("message");
+    row.setTelephone("13800000000");
+    row.setChannel("sms");
+    notifications.save(row).block();
+    String secret = "0123456789abcdef0123456789abcdef";
+    var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+    var controller =
+      new org.jetlinks.pro.property.facility.web.FacilityReceiptController(
+        notifications,
+        mapper,
+        secret
+      );
+    long time = System.currentTimeMillis();
+    String body =
+      "{\"notificationId\":\"receipt-test\",\"notifierId\":\"notifier\",\"sendId\":\"message\",\"receiver\":\"13800000000\",\"delivered\":true}";
+    StepVerifier.create(controller.receipt(time, "00", body))
+      .expectError(BusinessException.class)
+      .verify();
+    assertEquals(
+      "submitted",
+      notifications.findById(row.getId()).block().getState()
+    );
+    controller.receipt(time, signature(secret, time, body), body).block();
+    assertEquals(
+      "delivered",
+      notifications.findById(row.getId()).block().getState()
+    );
+    assertNotNull(
+      notifications.findById(row.getId()).block().getDeliveredTime()
+    );
+  }
+
+  private String signature(String secret, long timestamp, String body) {
+    try {
+      var mac = javax.crypto.Mac.getInstance("HmacSHA256");
+      mac.init(
+        new javax.crypto.spec.SecretKeySpec(
+          secret.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+          "HmacSHA256"
+        )
+      );
+      return java.util.HexFormat.of().formatHex(
+        mac.doFinal(
+          (timestamp + "\n" + body).getBytes(
+            java.nio.charset.StandardCharsets.UTF_8
+          )
+        )
+      );
+    } catch (Exception e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  @Autowired
+  FacilityDevices deviceManager;
+
+  @Autowired
+  FacilityBindings bindingManager;
+
+  @Test
+  void movingProjectEndsBindingsPausesMappingsAndKeepsHistory() {
+    var c = new FacilityContext("tenant", "app", "admin", "Admin");
+    var device = FacilityScope.initialize(new DeviceEntity(), c);
+    device.setId("moving-device");
+    device.setProjectId("old-project");
+    device.setOrganizationId("old-project");
+    device.setCandidateProjectIds(List.of("new-project"));
+    device.setPendingProjectId("new-project");
+    device.setSyncState("pending-project");
+    device.setSpaceId("old-house");
+    device.setResponsibleUserId("old-worker");
+    device.setInspectionEnabled(true);
+    device.setMaintenanceEnabled(true);
+    device.setEnergyEnabled(true);
+    devices.save(device).block();
+    var binding = FacilityScope.initialize(new BindingEntity(), c);
+    binding.setId("moving-binding");
+    binding.setProjectId("old-project");
+    binding.setDeviceId(device.getId());
+    binding.setStartTime(1L);
+    binding.setUserId("old-owner");
+    bindings.save(binding).block();
+    var mapping = FacilityScope.initialize(new MappingEntity(), c);
+    mapping.setId("moving-mapping");
+    mapping.setProjectId("old-project");
+    mapping.setDeviceId(device.getId());
+    mapping.setEnabled(true);
+    mappings.save(mapping).block();
+    var project =
+      new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo();
+    project.setId("new-project");
+    project.setName("New project");
+    when(directory.project("new-project")).thenReturn(Mono.just(project));
+    doReturn(Mono.empty())
+      .when(records)
+      .assertProject(eq("new-project"), any());
+    as(
+      "admin",
+      deviceManager.confirmProject(device.getId(), "new-project", 0)
+    ).block();
+    var saved = devices.findById(device.getId()).block();
+    assertEquals("new-project", saved.getProjectId());
+    assertEquals("active", saved.getSyncState());
+    assertNull(saved.getSpaceId());
+    assertNull(saved.getPendingProjectId());
+    assertNull(saved.getResponsibleUserId());
+    assertFalse(saved.getInspectionEnabled());
+    assertFalse(saved.getMaintenanceEnabled());
+    assertFalse(saved.getEnergyEnabled());
+    assertNotNull(bindings.findById(binding.getId()).block().getEndTime());
+    assertEquals(
+      "old-project",
+      bindings.findById(binding.getId()).block().getProjectId()
+    );
+    assertFalse(mappings.findById(mapping.getId()).block().getEnabled());
+    assertEquals(
+      "old-project",
+      mappings.findById(mapping.getId()).block().getProjectId()
+    );
+    assertTrue(
+      as("admin", bindingManager.history(device.getId()).collectList())
+        .block()
+        .isEmpty()
+    );
+  }
+
+  @Test
+  void confirmingSameProjectPreservesInstallationAndBinding() {
+    var c = new FacilityContext("tenant", "app", "admin", "Admin");
+    var device = FacilityScope.initialize(new DeviceEntity(), c);
+    device.setId("same-project-device");
+    device.setProjectId("p");
+    device.setSpaceId("house");
+    device.setCandidateProjectIds(List.of("p", "q"));
+    device.setEnergyEnabled(true);
+    devices.save(device).block();
+    var project =
+      new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo();
+    project.setId("p");
+    when(directory.project("p")).thenReturn(Mono.just(project));
+    doReturn(Mono.empty()).when(records).assertProject(eq("p"), any());
+    as("admin", deviceManager.confirmProject(device.getId(), "p", 0)).block();
+    var saved = devices.findById(device.getId()).block();
+    assertEquals("house", saved.getSpaceId());
+    assertTrue(saved.getEnergyEnabled());
+  }
+
+  @Test
+  void projectConfirmationCannotReactivateCloudDeactivatedDevice() {
+    for (String projectId : List.of("p", "q")) {
+      var device = FacilityScope.initialize(new DeviceEntity(),
+        new FacilityContext("tenant", "app", "admin", "Admin"));
+      device.setId("inactive-confirm-" + projectId);
+      device.setProjectId("p");
+      device.setOrganizationId("p");
+      device.setSourceState("notActive");
+      device.setSyncState("inactive");
+      device.setCandidateProjectIds(List.of("p", "q"));
+      device.setEnergyEnabled(true);
+      devices.save(device).block();
+      when(directory.project(projectId)).thenReturn(Mono.just(project(projectId)));
+      doReturn(Mono.empty()).when(records).assertProject(eq(projectId), any());
+      var confirmed = as("admin", deviceManager.confirmProject(device.getId(), projectId, 0)).block();
+      assertEquals(projectId, confirmed.getProjectId());
+      assertEquals("inactive", confirmed.getSyncState());
+      assertEquals("inactive", devices.findById(device.getId()).block().getSyncState());
+      assertThrows(BusinessException.class, () -> FacilityDevices.requireActive(confirmed));
+    }
+  }
+
+  @Test
+  void rejectedTaskClearsOldSubmissionKeysInDatabase() {
+    task("single");
+    as("worker", manager.action("test", "claim", command(0))).block();
+    as(
+      "worker",
+      manager.action("test", "submit", submit(1, "original-submission"))
+    ).block();
+    var reject = command(2);
+    reject.setComment("请补充检查");
+    as("reviewer", manager.action("test", "reject", reject)).block();
+    var saved = store.findById("test").block();
+    assertEquals("rectify", saved.getState());
+    assertNull(saved.getSubmissionId());
+    assertEquals(
+      "review",
+      as(
+        "worker",
+        manager.action("test", "submit", submit(3, "corrected-submission"))
+      )
+        .block()
+        .getState()
+    );
+  }
+
+  @Test
+  void extensionImportUsesCloudIdentityAndRollsBackOnStaleRow() {
+    var c = new FacilityContext("tenant", "app", "admin", "Admin");
+    for (String cloudId : List.of("import-one", "import-two")) {
+      var row = FacilityScope.initialize(new DeviceEntity(), c);
+      row.setId(FacilityRecords.stableId("tenant", "app", cloudId));
+      row.setCloudDeviceId(cloudId);
+      row.setProjectId("p");
+      row.setName("Original");
+      row.setManufacturer("Original manufacturer");
+      row.setEnergyEnabled(true);
+      devices.save(row).block();
+    }
+    var first = new FacilityDevices.ExtensionImport(
+      "import-one",
+      0L,
+      Map.of("manufacturer", "Changed")
+    );
+    var stale = new FacilityDevices.ExtensionImport(
+      "import-two",
+      99L,
+      Map.of("manufacturer", "Must not apply")
+    );
+    StepVerifier.create(
+      as("admin", deviceManager.importExtensions(List.of(first, stale)))
+    )
+      .expectError(BusinessException.class)
+      .verify();
+    var id = FacilityRecords.stableId("tenant", "app", "import-one");
+    assertEquals(
+      "Original manufacturer",
+      devices.findById(id).block().getManufacturer()
+    );
+    as("admin", deviceManager.importExtensions(List.of(first))).block();
+    var saved = devices.findById(id).block();
+    assertEquals("Changed", saved.getManufacturer());
+    assertEquals("Original", saved.getName());
+    assertTrue(saved.getEnergyEnabled());
+    assertEquals("import-one", saved.getCloudDeviceId());
+  }
+
+  @Test
+  void extensionImportRejectsSourceFieldsAndUnlinkedDevices() {
+    StepVerifier.create(
+      as(
+        "admin",
+        deviceManager.importExtensions(
+          List.of(
+            new FacilityDevices.ExtensionImport(
+              "unknown",
+              0L,
+              Map.of("projectId", "other")
+            )
+          )
+        )
+      )
+    )
+      .expectError(BusinessException.class)
+      .verify();
+    StepVerifier.create(
+      as(
+        "admin",
+        deviceManager.importExtensions(
+          List.of(
+            new FacilityDevices.ExtensionImport(
+              "unknown",
+              0L,
+              Map.of("manufacturer", "Factory")
+            )
+          )
+        )
+      )
+    )
+      .expectError(org.hswebframework.web.exception.NotFoundException.class)
+      .verify();
+  }
+
+  @Autowired
+  FacilityReports reportsService;
+
+  @Autowired
+  EnergyTargetStore targets;
+
+  @Test
+  void energyReportSelectsOneUsageMetricAndUsesPlanUnits() {
+    var c = new FacilityContext("tenant", "app", "admin", "Admin");
+    long from = java.time.LocalDate.of(2023, 1, 1)
+      .atStartOfDay(java.time.ZoneId.of("Asia/Shanghai"))
+      .toInstant()
+      .toEpochMilli();
+    long to = java.time.LocalDate.of(2023, 2, 1)
+      .atStartOfDay(java.time.ZoneId.of("Asia/Shanghai"))
+      .toInstant()
+      .toEpochMilli();
+    var mapping = FacilityScope.initialize(new MappingEntity(), c);
+    mapping.setId("report-mapping");
+    mapping.setDeviceId("report-device");
+    mapping.setProjectId("report-project");
+    mapping.setName("Main water");
+    mapping.setEnergyType("water");
+    mapping.setMeterLevel("master");
+    mapping.setUsagePropertyId("total");
+    mapping.setStaleAfterSeconds(4000000L);
+    var total = new MetricMapping();
+    total.setPropertyId("total");
+    total.setKind("counter");
+    total.setUnit("m³");
+    var secondary = new MetricMapping();
+    secondary.setPropertyId("secondary");
+    secondary.setKind("counter");
+    secondary.setUnit("m³");
+    mapping.setMetrics(List.of(total, secondary));
+    mappings.save(mapping).block();
+    for (String property : List.of("total", "secondary"))
+      for (int index = 0; index < 2; index++) {
+        var reading = FacilityScope.initialize(new ReadingEntity(), c);
+        reading.setId("report-" + property + index);
+        reading.setDeviceId("report-device");
+        reading.setProjectId("report-project");
+        reading.setPropertyId(property);
+        reading.setMetricKind("counter");
+        reading.setStatus("accepted");
+        reading.setUnit("m³");
+        reading.setValue(
+          java.math.BigDecimal.valueOf(
+            (property.equals("total") ? 30 : 1000) * index
+          )
+        );
+        reading.setObservedTime(index == 0 ? from : to);
+        reading.setMappingVersion(0L);
+        reading.setMeterEpoch(0L);
+        readings.save(reading).block();
+      }
+    var data = as(
+      "admin",
+      reportsService.energy("report-project", from, to, "master")
+    ).block();
+    assertEquals(1, data.size());
+    assertEquals("total", data.get(0).get("propertyId"));
+    var usage = (EnergyMath.Usage) data.get(0).get("usage");
+    assertEquals(0, new java.math.BigDecimal("30").compareTo(usage.value()));
+    assertTrue(usage.complete());
+    var target = FacilityScope.initialize(new EnergyTargetEntity(), c);
+    target.setId("report-target");
+    target.setProjectId("report-project");
+    target.setYear(2023);
+    target.setMonth(1);
+    target.setEnergyType("water");
+    target.setTargetUsage(new java.math.BigDecimal("20"));
+    targets.save(target).block();
+    var execution = as(
+      "admin",
+      reportsService.targetExecution("report-project", 2023, 1)
+    ).block();
+    assertEquals(1, execution.size());
+    assertEquals("m³", execution.get(0).get("unit"));
+    assertEquals(true, execution.get(0).get("exceeded"));
+    assertEquals(true, execution.get(0).get("complete"));
+    assertEquals(
+      0,
+      new java.math.BigDecimal("30").compareTo(
+        (java.math.BigDecimal) execution.get(0).get("actual")
+      )
+    );
+  }
+
+  @Test
+  void operationRatesExcludeCancelledTasksAndIncludeLateCompletions() {
+    var c = new FacilityContext("tenant", "app", "admin", "Admin");
+    for (String state : List.of("completed", "cancelled")) {
+      var row = FacilityScope.initialize(new TaskEntity(), c);
+      row.setId("rate-" + state);
+      row.setProjectId("rate-project");
+      row.setKind("inspection");
+      row.setScheduledTime(2000L);
+      row.setDeadline(2100L);
+      row.setState(state);
+      if ("completed".equals(state)) row.setCompletedTime(2200L);
+      store.save(row).block();
+    }
+    var result = as(
+      "admin",
+      reportsService.operations("rate-project", 1000, 3000)
+    ).block();
+    var taskRows = (List<Map<String, Object>>) result.get("tasks");
+    var inspection = taskRows.get(0);
+    assertEquals(1, inspection.get("total"));
+    assertEquals(1L, inspection.get("completed"));
+    assertEquals(1L, inspection.get("overdue"));
+    assertEquals(
+      new java.math.BigDecimal("100.00"),
+      inspection.get("completionRate")
+    );
+  }
+
+  @Autowired
+  FacilityAlerts ruleManager;
+
+  @Autowired
+  RuleStore ruleStore;
+
+  RuleEntity alertFixture(String prefix, String type, String kind) {
+    var c = new FacilityContext("tenant", "app", "staff", "Staff");
+    var device = FacilityScope.initialize(new DeviceEntity(), c);
+    device.setId(prefix + "-device");
+    device.setCloudDeviceId(prefix);
+    device.setProjectId(prefix + "-project");
+    device.setSyncState("active");
+    device.setEnergyEnabled(true);
+    devices.save(device).block();
+    var mapping = FacilityScope.initialize(new MappingEntity(), c);
+    mapping.setId(prefix + "-mapping");
+    mapping.setDeviceId(device.getId());
+    mapping.setProjectId(device.getProjectId());
+    mapping.setEnergyType("gas");
+    mapping.setEnabled(true);
+    mapping.setStaleAfterSeconds(60L);
+    mapping.setMeterLevel("master");
+    var metric = new MetricMapping();
+    metric.setPropertyId("value");
+    metric.setKind(kind);
+    metric.setUnit("m³");
+    mapping.setUsagePropertyId("value");
+    mapping.setMetrics(List.of(metric));
+    mappings.save(mapping).block();
+    var rule = FacilityScope.initialize(new RuleEntity(), c);
+    rule.setId(prefix + "-rule");
+    rule.setProjectId(device.getProjectId());
+    rule.setName(prefix);
+    rule.setRuleType(type);
+    rule.setEnergyType("gas");
+    rule.setPropertyId("value");
+    rule.setThreshold(java.math.BigDecimal.ONE);
+    rule.setStaleAfterSeconds(60L);
+    rule.setRepeatHours(24);
+    rule.setEnabled(true);
+    ruleStore.save(rule).block();
+    return rule;
+  }
+
+  void sample(
+    RuleEntity rule,
+    String id,
+    long time,
+    String value,
+    String text,
+    String status,
+    String kind
+  ) {
+    var row = FacilityScope.initialize(
+      new ReadingEntity(),
+      new FacilityContext("tenant", "app", "staff", "Staff")
+    );
+    row.setId(id);
+    row.setProjectId(rule.getProjectId());
+    row.setDeviceId(rule.getName() + "-device");
+    row.setPropertyId("value");
+    row.setObservedTime(time);
+    row.setValue(value == null ? null : new java.math.BigDecimal(value));
+    row.setTextValue(text);
+    row.setStatus(status);
+    row.setMetricKind(kind);
+    row.setMeterEpoch(0L);
+    row.setMappingVersion(0L);
+    readings.save(row).block();
+  }
+
+  @Test
+  void dueSoonRulesOnlyCountCurrentProjectActiveTasks() {
+    var rule = alertFixture("soon", "dueSoon", "counter");
+    for (String project : List.of(rule.getProjectId(), "previous-project")) {
+      var task = FacilityScope.initialize(
+        new TaskEntity(),
+        new FacilityContext("tenant", "app", "staff", "Staff")
+      );
+      task.setId("soon-task-" + project);
+      task.setDeviceId("soon-device");
+      task.setProjectId(project);
+      task.setState("claimed");
+      task.setDeadline(System.currentTimeMillis() + 30000);
+      store.save(task).block();
+    }
+    as("staff", ruleManager.evaluate(rule)).block();
+    var alert = alerts
+      .findById(FacilityRecords.stableId(rule.getId(), "soon-device"))
+      .block();
+    assertNotNull(alert);
+    assertEquals(0, java.math.BigDecimal.ONE.compareTo(alert.getValue()));
+    verify(notifier, times(1)).enqueue(any(), any(), any());
+  }
+
+  @Test
+  void invalidAndRollbackReadingsProduceOneMergedAnomalyAlert() {
+    var rule = alertFixture("anomaly", "reading-anomaly", "counter");
+    long now = System.currentTimeMillis();
+    sample(rule, "anomaly-a", now - 30000, "100", null, "accepted", "counter");
+    sample(rule, "anomaly-b", now - 20000, "10", null, "accepted", "counter");
+    sample(rule, "anomaly-c", now - 10000, null, "bad", "invalid", "counter");
+    as("staff", ruleManager.evaluate(rule)).block();
+    as("staff", ruleManager.evaluate(rule)).block();
+    var alert = alerts
+      .findById(FacilityRecords.stableId(rule.getId(), "anomaly-device"))
+      .block();
+    assertNotNull(alert);
+    assertEquals(0, new java.math.BigDecimal("2").compareTo(alert.getValue()));
+    verify(notifier, times(1)).enqueue(any(), any(), any());
+  }
+
+  @Test
+  void stateRulesRecoverAndStaleBalancesNeverTriggerPaymentReminder() {
+    var state = alertFixture("valve", "state", "state");
+    state.setStateValue("fault");
+    long now = System.currentTimeMillis();
+    sample(state, "valve-a", now - 10000, null, "fault", "accepted", "state");
+    as("staff", ruleManager.evaluate(state)).block();
+    String id = FacilityRecords.stableId(state.getId(), "valve-device");
+    assertEquals("open", alerts.findById(id).block().getState());
+    sample(state, "valve-b", now - 5000, null, "normal", "accepted", "state");
+    as("staff", ruleManager.evaluate(state)).block();
+    assertEquals("recovered", alerts.findById(id).block().getState());
+    var balance = alertFixture("stale-balance", "balance", "balance");
+    sample(
+      balance,
+      "stale-balance-a",
+      now - 120000,
+      "0",
+      null,
+      "accepted",
+      "balance"
+    );
+    as("staff", ruleManager.evaluate(balance)).block();
+    assertNull(
+      alerts
+        .findById(
+          FacilityRecords.stableId(balance.getId(), "stale-balance-device")
+        )
+        .block()
+    );
+    verify(notifier, times(1)).enqueue(any(), any(), any());
+  }
+
+  @Test
+  void externalWorkCannotBeClaimedByAnEmployeeOutsideTheExternalOrganization() {
+    task("double");
+    when(directory.employeeRole("outsider", "external-org", true)).thenReturn(
+      Mono.error(new BusinessException("role", 400))
+    );
+    StepVerifier.create(
+      as("outsider", manager.action("test", "claim", command(0)))
+    )
+      .expectError(BusinessException.class)
+      .verify();
+    assertEquals("open", store.findById("test").block().getState());
+    as("external", manager.action("test", "claim", command(0))).block();
+    assertEquals("external", store.findById("test").block().getAssigneeId());
+  }
+
+  @Test
+  void planExceedanceCreatesProjectEventAndEmployeeOutboxOnly() {
+    var rule = alertFixture("plan-event", "plan", "increment");
+    rule.setThreshold(new java.math.BigDecimal("100"));
+    rule.setNotifyUserId("manager");
+    ruleStore.save(rule).block();
+    var date = java.time.ZonedDateTime.now(
+      java.time.ZoneId.of("Asia/Shanghai")
+    );
+    var target = FacilityScope.initialize(
+      new EnergyTargetEntity(),
+      new FacilityContext("tenant", "app", "staff", "Staff")
+    );
+    target.setId("plan-event-target");
+    target.setProjectId(rule.getProjectId());
+    target.setEnergyType("gas");
+    target.setYear(date.getYear());
+    target.setMonth(date.getMonthValue());
+    target.setTargetUsage(new java.math.BigDecimal("10"));
+    targets.save(target).block();
+    sample(
+      rule,
+      "plan-event-a",
+      System.currentTimeMillis() - 1000,
+      "12",
+      null,
+      "accepted",
+      "increment"
+    );
+    as("staff", ruleManager.evaluate(rule)).block();
+    as("staff", ruleManager.evaluate(rule)).block();
+    var alert = alerts
+      .findById(FacilityRecords.stableId(rule.getId(), target.getId()))
+      .block();
+    assertNotNull(alert);
+    assertNull(alert.getDeviceId());
+    assertEquals(target.getId(), alert.getTargetId());
+    assertEquals(
+      0,
+      new java.math.BigDecimal("120").compareTo(alert.getValue())
+    );
+    verify(notifier, times(1)).enqueueTarget(any(), any(), any());
+    verify(notifier, never()).enqueue(any(), any(), any());
+  }
+
+  @Autowired
+  FacilityReadings readingManager;
+
+  @Test
+  void oldBackfillCannotWinDedupeAfterMappingEditOrDisable() {
+    String prefix = "mapping-backfill-version";
+    alertFixture(prefix, "usage", "counter");
+    var stale = mappings.findById(prefix + "-mapping").block();
+    var oldMetric = stale.getMetrics().get(0);
+    oldMetric.setMultiplier(new java.math.BigDecimal("2"));
+    mappings.save(stale).block();
+
+    var current = mappings.findById(stale.getId()).block();
+    var newMetric = new MetricMapping();
+    newMetric.setPropertyId("value");
+    newMetric.setKind("increment");
+    newMetric.setUnit("m³");
+    newMetric.setMultiplier(new java.math.BigDecimal("3"));
+    current.setMetrics(List.of(newMetric));
+    current.setVersion(stale.getVersion() + 1);
+    mappings.save(current).block();
+
+    var sample = new org.jetlinks.sdk.server.device.DeviceProperty();
+    sample.setDeviceId(prefix);
+    sample.setProperty("value");
+    sample.setValue(10);
+    sample.setTimestamp(1000L);
+    StepVerifier.create(as("staff", readingManager.ingest(stale, oldMetric, sample)))
+      .verifyComplete();
+    var accepted = as("staff", readingManager.ingest(current, newMetric, sample)).block();
+    assertNotNull(accepted);
+    assertEquals("increment", accepted.getMetricKind());
+    assertEquals(0, new java.math.BigDecimal("30").compareTo(accepted.getValue()));
+    assertEquals(current.getVersion(), accepted.getMappingVersion());
+    var duplicate = as("staff", readingManager.ingest(current, newMetric, sample)).block();
+    assertEquals(accepted.getId(), duplicate.getId());
+
+    mappings.createUpdate().set("enabled", false).where("id", current.getId()).execute().block();
+    sample.setTimestamp(2000L);
+    StepVerifier.create(as("staff", readingManager.ingest(current, newMetric, sample)))
+      .verifyComplete();
+    assertEquals(1, readings.createQuery().where("mappingId", current.getId()).count().block());
+    assertEquals(current.getVersion(), mappings.findById(current.getId()).block().getVersion());
+  }
+
+  private FacilityNotifications notificationDispatcher(String deviceId) {
+    var execution = mock(FacilityExecution.class);
+    when(execution.asOwner(any(), any())).thenAnswer(call -> {
+      NotificationEntity row = call.getArgument(0);
+      if (!deviceId.equals(row.getDeviceId())) return Mono.empty();
+      java.util.function.Supplier<Mono<Void>> work = call.getArgument(1);
+      return as("staff", Mono.defer(work));
+    });
+    return spy(new FacilityNotifications(
+      deviceManager, targets, alerts, readingManager, directory, records,
+      notifications, bindings, bindingManager, devices, ruleStore, execution
+    ));
+  }
+
+  private NotificationEntity pendingEmployeeNotice(String prefix, FacilityNotifications dispatcher) {
+    var rule = ruleStore.findById(prefix + "-rule").block();
+    var device = devices.findById(prefix + "-device").block();
+    device.setResponsibleUserId("employee");
+    devices.save(device).block();
+    var alert = FacilityScope.initialize(new AlertEntity(),
+      new FacilityContext("tenant", "app", "staff", "Staff"));
+    alert.setId(prefix + "-alert");
+    alert.setProjectId(device.getProjectId());
+    alert.setDeviceId(device.getId());
+    alert.setRuleId(rule.getId());
+    alert.setState("open");
+    alert.setNotificationSequence(1);
+    alerts.save(alert).block();
+    dispatcher.enqueue(alert, rule, device).block();
+    return notifications.createQuery().where("deviceId", device.getId()).fetchOne().block();
+  }
+
+  @Test
+  void providerPermissionRejectionRemainsRetryableAndSuccessfulRetryClearsReason() {
+    alertFixture("delivery-denied", "instant", "instant");
+    var dispatcher = notificationDispatcher("delivery-denied-device");
+    var notice = pendingEmployeeNotice("delivery-denied", dispatcher);
+    doReturn(Mono.error(new org.hswebframework.web.authorization.exception.AccessDenyException()))
+      .when(dispatcher).sendInside(any());
+    dispatcher.poll().block();
+    var failed = notifications.findById(notice.getId()).block();
+    assertEquals("failed", failed.getState());
+    assertEquals("delivery_permission_denied", failed.getFailureReason());
+    assertEquals(1, failed.getAttempts());
+    dispatcher.poll().block();
+    verify(dispatcher, times(1)).sendInside(any());
+
+    doReturn(Mono.empty()).when(dispatcher).sendInside(any());
+    as("staff", dispatcher.retry(notice.getId())).block();
+    dispatcher.poll().block();
+    var sent = notifications.findById(notice.getId()).block();
+    assertEquals("sent", sent.getState());
+    assertNull(sent.getFailureReason());
+    assertEquals(1, sent.getAttempts());
+    dispatcher.poll().block();
+    verify(dispatcher, times(2)).sendInside(any());
+  }
+
+  @Test
+  void obsoleteEmployeeRecipientCancelsBeforeDispatchWithReason() {
+    alertFixture("recipient-cancelled", "instant", "instant");
+    var dispatcher = notificationDispatcher("recipient-cancelled-device");
+    var notice = pendingEmployeeNotice("recipient-cancelled", dispatcher);
+    devices.createUpdate().set("responsibleUserId", "new-employee")
+      .where("id", notice.getDeviceId()).execute().block();
+    dispatcher.poll().block();
+    var cancelled = notifications.findById(notice.getId()).block();
+    assertEquals("cancelled", cancelled.getState());
+    assertEquals("eligibility_permission_denied", cancelled.getFailureReason());
+    assertEquals(0, cancelled.getAttempts());
+    verify(dispatcher, never()).sendInside(any());
+  }
+
+  @Test
+  void delayedBalanceNotificationRechecksFreshnessRecoveryAndRecipient() {
+    var rule = alertFixture("delayed", "balance", "balance");
+    var device = devices.findById("delayed-device").block();
+    device.setResponsibleUserId("employee");
+    devices.save(device).block();
+    as(
+      "staff",
+      alertWriter.record(
+        rule,
+        device,
+        java.math.BigDecimal.ZERO,
+        "m³",
+        System.currentTimeMillis(),
+        "current"
+      )
+    ).block();
+    var alert = alerts
+      .findById(FacilityRecords.stableId(rule.getId(), device.getId()))
+      .block();
+    var row = FacilityScope.initialize(
+      new NotificationEntity(),
+      new FacilityContext("tenant", "app", "staff", "Staff")
+    );
+    row.setId("delayed-notification");
+    row.setProjectId(device.getProjectId());
+    row.setDeviceId(device.getId());
+    row.setEventId(alert.getId());
+    row.setSequence(alert.getNotificationSequence());
+    row.setUserId("employee");
+    row.setRecipientKey("employee");
+    row.setChannel("inside");
+    row.setState("failed");
+    row.setAttempts(1);
+    row.setNextAttemptTime(0L);
+    notifications.save(row).block();
+    var realNotifier = new FacilityNotifications(
+      deviceManager,
+      targets,
+      alerts,
+      readingManager,
+      directory,
+      records,
+      notifications,
+      bindings,
+      bindingManager,
+      devices,
+      ruleStore,
+      mock(FacilityExecution.class)
+    );
+    sample(
+      rule,
+      "delayed-stale",
+      System.currentTimeMillis() - 120000,
+      "0",
+      null,
+      "accepted",
+      "balance"
+    );
+    StepVerifier.create(as("staff", realNotifier.retry(row.getId())))
+      .expectError(
+        org.hswebframework.web.authorization.exception.AccessDenyException.class
+      )
+      .verify();
+    assertEquals(
+      "failed",
+      notifications.findById(row.getId()).block().getState()
+    );
+    sample(
+      rule,
+      "delayed-fresh",
+      System.currentTimeMillis() - 1000,
+      "0",
+      null,
+      "accepted",
+      "balance"
+    );
+    as("staff", realNotifier.retry(row.getId())).block();
+    assertEquals(
+      "pending",
+      notifications.findById(row.getId()).block().getState()
+    );
+    devices
+      .createUpdate()
+      .set("responsibleUserId", "new-employee")
+      .where("id", device.getId())
+      .execute()
+      .block();
+    StepVerifier.create(as("staff", realNotifier.retry(row.getId())))
+      .expectError(
+        org.hswebframework.web.authorization.exception.AccessDenyException.class
+      )
+      .verify();
+    devices
+      .createUpdate()
+      .set("responsibleUserId", "employee")
+      .where("id", device.getId())
+      .execute()
+      .block();
+    alerts
+      .createUpdate()
+      .set("state", "recovered")
+      .where("id", alert.getId())
+      .execute()
+      .block();
+    StepVerifier.create(as("staff", realNotifier.retry(row.getId())))
+      .expectError(
+        org.hswebframework.web.authorization.exception.AccessDenyException.class
+      )
+      .verify();
+  }
+
+  @Test
+  void clearedRuleDeviceAndOptionalThresholdArePersistedAsNull() {
+    var rule = alertFixture("clear-rule", "usage", "counter");
+    rule.setDeviceId("clear-rule-device");
+    rule.setPeriod("day");
+    rule.setCriticalThreshold(new java.math.BigDecimal("5"));
+    ruleStore.save(rule).block();
+    var project =
+      new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo();
+    project.setId(rule.getProjectId());
+    when(directory.project(rule.getProjectId())).thenReturn(Mono.just(project));
+    doReturn(Mono.empty())
+      .when(records)
+      .assertProject(eq(rule.getProjectId()), any());
+    rule.setDeviceId(null);
+    rule.setCriticalThreshold(null);
+    as("staff", ruleManager.save(rule)).block();
+    var saved = ruleStore.findById(rule.getId()).block();
+    assertNull(saved.getDeviceId());
+    assertNull(saved.getCriticalThreshold());
+    assertEquals("day", saved.getPeriod());
+  }
+
+  @Test
+  void clearedDeviceAssignmentAndNumericExtensionDoNotKeepPreviousValues() {
+    var rule = alertFixture("clear-device", "usage", "counter");
+    var device = devices.findById("clear-device-device").block();
+    device.setResponsibleUserId("old-employee");
+    device.setPower(java.math.BigDecimal.TEN);
+    devices.save(device).block();
+    device.setResponsibleUserId(null);
+    device.setPower(null);
+    as("staff", deviceManager.update(device.getId(), device)).block();
+    var saved = devices.findById(device.getId()).block();
+    assertNull(saved.getResponsibleUserId());
+    assertNull(saved.getPower());
+    assertEquals(device.getCloudDeviceId(), saved.getCloudDeviceId());
+    assertTrue(saved.getEnergyEnabled());
+  }
+
+  @SpringBootConfiguration
+  @EnableTransactionManagement(proxyTargetClass = true)
+  @EnableEasyormRepository("org.jetlinks.pro.property.facility.entity")
+  @Import({
+    TaskStore.class,
+    FaultStore.class,
+    ProcessStore.class,
+    JobStore.class,
+    FacilityQueries.class,
+    FacilityRecords.class,
+    FacilityTasks.class,
+    BindingStore.class,
+    DeviceStore.class,
+    MappingStore.class,
+    ReadingStore.class,
+    NotificationStore.class,
+    AlertStore.class,
+    FacilityOwner.class,
+    FacilityAlertWriter.class,
+    FacilityDevices.class,
+    FacilityBindings.class,
+    FacilityReports.class,
+    FacilityReadings.class,
+    FacilityMappings.class,
+    ReplacementStore.class,
+    EnergyTargetStore.class,
+    RuleStore.class,
+    GroupStore.class,
+    FacilityAlerts.class,
+  })
+  @ImportAutoConfiguration({
+    EasyormConfiguration.class,
+    R2dbcSqlExecutorConfiguration.class,
+    R2dbcAutoConfiguration.class,
+    R2dbcTransactionManagerAutoConfiguration.class,
+    TransactionAutoConfiguration.class,
+    EntityFactoryConfiguration.class,
+  })
+  static class Config {
+
+    @Bean
+    FacilityCloud cloud() {
+      return mock(FacilityCloud.class);
+    }
+
+    @Bean
+    com.fasterxml.jackson.databind.ObjectMapper mapper() {
+      return new com.fasterxml.jackson.databind.ObjectMapper();
+    }
+
+    @Bean
+    FacilityNotifications notifier() {
+      return mock(FacilityNotifications.class);
+    }
+
+    @Bean
+    FacilityScope scope() {
+      return mock(FacilityScope.class);
+    }
+
+    @Bean
+    FacilityDirectory directory() {
+      return mock(FacilityDirectory.class);
+    }
+
+    @Bean
+    FacilityFiles files() {
+      return mock(FacilityFiles.class);
+    }
+  }
+}

@@ -13,6 +13,27 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class SaasUserSourceTest {
     @Test
+    void snapshotUsesConfiguredSyncBudgetBeyondNinetySeconds() {
+        var source = new SaasUserSource() {
+            @Override protected Mono<PagerResult<org.jetlinks.sdk.server.auth.UserDetail>> page(
+                    QueryParamEntity query) {
+                var data = List.of(UserPersistenceTest.user("owner"));
+                return Mono.delay(java.time.Duration.ofSeconds(95))
+                        .map(ignored -> PagerResult.of(1, data, query));
+            }
+        };
+        org.springframework.test.util.ReflectionTestUtils.setField(source, "timeoutSeconds", 600L);
+        StepVerifier.withVirtualTime(source::fetchAll)
+                .thenAwait(java.time.Duration.ofSeconds(96))
+                .assertNext(values -> assertEquals(java.util.Set.of("owner"), values.keySet()))
+                .verifyComplete();
+        org.springframework.test.util.ReflectionTestUtils.setField(source, "timeoutSeconds", 90L);
+        StepVerifier.withVirtualTime(source::fetchAll)
+                .thenAwait(java.time.Duration.ofSeconds(91))
+                .expectError(java.util.concurrent.TimeoutException.class).verify();
+    }
+
+    @Test
     void directoryPermissionQueryKeepsCallerScopeAndFailsClosed() {
         var marker = new Object();
         var holder = org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetsHolder.class);

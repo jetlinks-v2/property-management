@@ -161,6 +161,59 @@ class CustomerPersistenceTest {
     }
 
     @Test
+    void incompleteCustomerIsVisibleAtProjectLevelAndCanBeCompletedAndBound() {
+        var request = new CustomerRequests.Profile();
+        request.setUserId("alice");
+        request.setCustomerType("person");
+        request.setName("待完善业主");
+        var draft = service.createDraft("project", request).contextWrite(all()).block(WAIT);
+        assertFalse(draft.isProfileComplete());
+        assertTrue(draft.isPendingBinding());
+        assertEquals("", draft.getTelephone());
+        assertEquals(0, relationships.createQuery().count().block(WAIT));
+        assertEquals(0, families.createQuery().count().block(WAIT));
+        assertEquals(1, service.query("project", null, new QueryParamEntity())
+                .contextWrite(all()).block(WAIT).getTotal());
+        assertEquals(0, service.query("project", "one", new QueryParamEntity())
+                .contextWrite(all()).block(WAIT).getTotal());
+        assertTrue(service.detail("project", draft.getId()).contextWrite(all()).block(WAIT)
+                .isPendingBinding());
+        StepVerifier.create(service.createDraft("project", request).contextWrite(all()))
+                .expectErrorMatches(CustomerPersistenceTest::conflict).verify(WAIT);
+
+        var link = person("alice", "one", "导入分组").link();
+        service.link("project", draft.getId(), link).contextWrite(all()).block(WAIT);
+        assertFalse(service.detail("project", draft.getId()).contextWrite(all()).block(WAIT)
+                .isPendingBinding());
+        var completed = new CustomerRequests.Profile();
+        completed.setVersion(0L);
+        completed.setName(request.getName());
+        completed.setTelephone("13800000000");
+        service.update("project", draft.getId(), completed).contextWrite(all()).block(WAIT);
+        assertTrue(service.detail("project", draft.getId()).contextWrite(all()).block(WAIT)
+                .isProfileComplete());
+    }
+
+    @Test
+    void draftVisibilityDoesNotBypassExistingSpaceOrUserPermissions() {
+        var request = new CustomerRequests.Profile();
+        request.setUserId("bob");
+        request.setCustomerType("person");
+        request.setName("待绑定业主");
+        StepVerifier.create(service.createDraft("project", request)
+                .contextWrite(access(Set.of("two"), Set.of("alice"))))
+                .expectError(AccessDenyException.class).verify(WAIT);
+        service.create("project", person("alice", "one", "家庭")).contextWrite(all()).block(WAIT);
+        var draft = service.createDraft("project", request).contextWrite(all()).block(WAIT);
+        var page = service.query("project", null, new QueryParamEntity())
+                .contextWrite(access(Set.of("two"), Set.of("bob"))).block(WAIT);
+        assertEquals(1, page.getTotal());
+        assertEquals(draft.getId(), page.getData().get(0).getId());
+        StepVerifier.create(service.query("other-project", null, new QueryParamEntity())
+                .contextWrite(all())).expectError(AccessDenyException.class).verify(WAIT);
+    }
+
+    @Test
     void familyMembershipEndsSeparatelyAndHistoryRetainsDeletedCustomer() {
         var alice =
                 service.create("project", person("alice", "one", "甲家庭"))

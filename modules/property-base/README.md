@@ -70,7 +70,7 @@ return CommandSupportManagerProviders
 
 全量同步通过 `authService:user` 显式 SDK 命令执行，分页暂存、校验和缺失 ID 复核后统一事务落库，保留本地身份、版本和标注审计；异常空来源、分页变化、重复 ID 或复核失败均不提交。SaaS 删除仅逻辑删除，同 ID 恢复保留身份。
 
-用户及关系表 `pm_user`、`pm_user_org` 和租约表 `pm_user_sync_state` 由 EasyORM 管理。配置统一使用 `application-local.yml` 中的 `property.user-sync`：`enabled` 默认 true、`interval-seconds` 默认 3600（1 小时）、`max-users` 默认 100000、`timeout-seconds` 默认 120。关闭 enabled 同时关闭 worker 及手动任务入口。首次在应用就绪 5 秒后执行；手动同步返回 taskId，客户端轮询状态，不能把受理当完成。
+用户及关系表 `pm_user`、`pm_user_org` 和租约表 `pm_user_sync_state` 由 EasyORM 管理。配置统一使用 `application-local.yml` 中的 `property.user-sync`：`enabled` 默认 true、`interval-seconds` 默认 3600（1 小时）、`max-users` 默认 100000、`timeout-seconds` 默认 120、`page-timeout-seconds` 默认 60。分页快照读取使用整轮超时预算，单页等待同时受单页和整轮预算约束；批量迁入账号时应结合实测耗时配置整轮预算。关闭 enabled 同时关闭 worker 及手动任务入口。首次在应用就绪 5 秒后执行；手动同步返回 taskId，客户端轮询状态，不能把受理当完成。
 
 运行观测 MBean 为 `org.jetlinks:type=PropertyManagement,name=UserSync`；最近任务及失败原因通过 `_sync/status` 查询，失败保留上次成功时间。基础管理前端通过公开 HTTP 接口访问；其他物业后端不依赖本系统的内部服务和数据库，通过 core 中公开命令读取所需基础能力。
 
@@ -100,6 +100,10 @@ return CommandSupportManagerProviders
 ## 客户、家庭与历史
 
 个人及企业均使用已同步、启用且标注客户身份的 `userId` 建档；每项目同账号一份主档，通过关系表关联多套房屋。名称、电话和邮箱在前端选账号时回显，之后保存到本地主档，不回写 SaaS，也不被用户同步覆盖。个人必须选择客户性质和新建/加入家庭，企业不接收个人性质、家庭或个人证件字段。
+
+资料暂不完整时，可使用 `POST /property/customer/_draft?projectId=` 先保存客户主档，动作仍为 `property-customer:save`。账号必须满足上述同步及客户身份要求，并校验项目保存权限与账号读取权限；联系电话允许暂缺，不创建虚构家庭或房屋关系。返回 `profileComplete`（已有联系电话）及 `pendingBinding`（当前可见有效房屋关系为空），前端分别显示“待完善”和“待绑定”。后续通过既有资料更新与房屋关联接口补齐。
+
+项目级客户列表还包含从未发生过房屋关联的未删除主档，按项目读取权限显示；指定 `spaceId` 时不包含这类待绑定主档。已有任何房屋关联（含历史及逻辑删除关联）的客户继续遵守空间授权，不通过项目级待绑定查询扩大可见范围。
 
 每次房屋关系独立保存开始、结束时间和原因。家庭只要仍有一个有效成员就可加入；最后有效成员结束或误建关联被删除后不再作为当前家庭选项。历史接口按每次已结束关系返回完整客户资料；逻辑删除主档保留历史，误建关联的删除不虚构结束时间。结束最后关系后主档仍能按有权的历史关联管理和复用。
 

@@ -13,6 +13,19 @@ import java.util.Objects;
 public class CustomerView extends PropertyCustomerEntity {
     private List<RelationshipView> relationships = List.of();
 
+    /** 无房屋关系的主档也有稳定列表键。 */
+    public String getRecordId() {
+        return getId();
+    }
+
+    public boolean isProfileComplete() {
+        return getTelephone() != null && !getTelephone().isBlank();
+    }
+
+    public boolean isPendingBinding() {
+        return relationships.isEmpty();
+    }
+
     /** 仅用于当前列表查询，基于已经按资产范围裁剪的当前关系派生。 */
     @JsonIgnore
     public List<String> getNature() {

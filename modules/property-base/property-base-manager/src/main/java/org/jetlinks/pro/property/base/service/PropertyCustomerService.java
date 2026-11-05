@@ -50,6 +50,8 @@ public class PropertyCustomerService {
                     "registeredAddress",
                     "createTime",
                     "modifyTime",
+                    "profileComplete",
+                    "pendingBinding",
                     "version");
     private static final Set<String> HISTORY_FIELDS =
             Set.of(
@@ -102,11 +104,34 @@ public class PropertyCustomerService {
     }
 
     private Mono<List<CustomerView>> current(String projectId, String spaceId) {
-        return scope.spaces(projectId, spaceId, CrudAssetPermission.read)
+        var visible = scope.spaces(projectId, spaceId, CrudAssetPermission.read)
                 .flatMap(
                         spaces ->
                                 scopedRelations(projectId, spaces)
                                         .flatMap(rows -> assembleCurrent(rows, spaces)));
+        if (StringUtils.isNotBlank(spaceId)) return visible;
+        // 绑定客户继续按空间权限过滤，仅真正没有任何关系的主档使用项目权限。
+        return visible.flatMap(
+                list -> unbound(projectId).map(drafts -> {
+                    var all = new ArrayList<>(list);
+                    all.addAll(drafts);
+                    all.sort(Comparator.comparing(CustomerView::getId));
+                    return all;
+                }));
+    }
+
+    private Mono<List<CustomerView>> unbound(String projectId) {
+        return scope.project(projectId, CrudAssetPermission.read)
+                .then(bounded(relationships.createQuery().where("projectId", projectId).fetch()))
+                .flatMap(links -> {
+                    var related = links.stream()
+                            .map(PropertyCustomerRelationshipEntity::getCustomerId)
+                            .collect(Collectors.toSet());
+                    return bounded(customers.createQuery()
+                            .where("projectId", projectId).and("deleted", false).fetch())
+                            .map(rows -> rows.stream().filter(row -> !related.contains(row.getId()))
+                                    .map(PropertyCustomerService::customerView).toList());
+                });
     }
 
     private Mono<List<CustomerView>> assembleCurrent(
@@ -245,13 +270,20 @@ public class PropertyCustomerService {
                                                                         })));
     }
 
-    /** 所有读取先以统一空间资产范围缩小关系，再定位主档；已结束关系也可授权历史主档。 */
+    /** 有关系的客户按空间授权；从未绑定的主档按项目授权，不能借此读取隐藏房屋的客户。 */
     private Mono<PropertyCustomerEntity> authorizedCustomer(
             String projectId, String id, CrudAssetPermission permission, boolean deletedAllowed) {
         return scope.spaces(projectId, null, permission)
                 .flatMap(spaces -> scopedRelations(projectId, spaces))
-                .filter(rows -> rows.stream().anyMatch(row -> id.equals(row.getCustomerId())))
-                .switchIfEmpty(Mono.error(error("not_found", 404)))
+                .flatMap(rows -> {
+                    if (rows.stream().anyMatch(row -> id.equals(row.getCustomerId())))
+                        return Mono.just(true);
+                    return relationships.createQuery().where("projectId", projectId)
+                            .and("customerId", id).count()
+                            .filter(count -> count == 0)
+                            .map(ignored -> true)
+                            .switchIfEmpty(Mono.error(error("not_found", 404)));
+                })
                 .then(customers.findById(id))
                 .filter(
                         row ->
@@ -278,6 +310,34 @@ public class PropertyCustomerService {
         return writeLock(projectId)
                 .then(Mono.defer(() -> createOne(projectId, request, false, new HashMap<>())))
                 .flatMap(row -> detail(projectId, row.getId()));
+    }
+
+    /** 与完整建档共用项目行锁和账号身份校验，不创建虚构电话、家庭或房屋关系。 */
+    @Transactional
+    public Mono<CustomerView> createDraft(String projectId, CustomerRequests.Profile request) {
+        if (request == null) return Mono.error(error("invalid", 400));
+        validateProfile(request, request.getCustomerType(), false);
+        String id = UUID.nameUUIDFromBytes(
+                (projectId + "\0" + request.getUserId()).getBytes(StandardCharsets.UTF_8)).toString();
+        return scope.project(projectId, CrudAssetPermission.save)
+                .then(scope.lock(projectId))
+                .then(selectableUser(request.getUserId()))
+                .then(customers.findById(id).hasElement())
+                .flatMap(exists -> {
+                    if (exists) return Mono.error(error("exists", 409));
+                    var row = new PropertyCustomerEntity();
+                    BeanUtils.copyProperties(request, row);
+                    row.setId(id);
+                    row.setProjectId(projectId);
+                    if (StringUtils.isBlank(row.getTelephone())) row.setTelephone("");
+                    return validateProfileDictionary(row, null)
+                            .then(scope.authenticated())
+                            .flatMap(auth -> {
+                                PropertyDictionaryService.init(row, auth);
+                                return customers.insert(row).thenReturn(row);
+                            });
+                })
+                .map(PropertyCustomerService::customerView);
     }
 
     @Transactional
@@ -1020,11 +1080,15 @@ public class PropertyCustomerService {
     }
 
     static void validateProfile(CustomerRequests.Profile request, String type) {
+        validateProfile(request, type, true);
+    }
+
+    private static void validateProfile(CustomerRequests.Profile request, String type, boolean requirePhone) {
         if (!Set.of("person", "company").contains(type == null ? "" : type)
                 || StringUtils.isBlank(request.getName())
                 || request.getName().length() > 128
-                || StringUtils.isBlank(request.getTelephone())
-                || request.getTelephone().length() > 64
+                || (requirePhone && StringUtils.isBlank(request.getTelephone()))
+                || tooLong(request.getTelephone(), 64)
                 || tooLong(request.getEmail(), 256)
                 || tooLong(request.getAddress(), 512)
                 || tooLong(request.getCertificateType(), 64)

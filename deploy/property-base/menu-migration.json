@@ -1,0 +1,115 @@
+{
+  "source": {
+    "module": "property-base-ui",
+    "branch": "2.20",
+    "menus": "runtime-ui/modules/property-base-ui/baseMenu.json"
+  },
+  "applications": {
+    "repair": {
+      "menuMappings": [
+        {
+          "oldId": "repair-system-basic",
+          "targetId": "charging-basic",
+          "targetCode": "charging/basic"
+        },
+        {
+          "oldId": "repair-system-OrganizationType",
+          "targetId": "charging-OrganizationType",
+          "targetCode": "charging/OrganizationType"
+        },
+        {
+          "oldId": "repair-system-User",
+          "targetId": "charging-User",
+          "targetCode": "charging/User"
+        },
+        {
+          "oldId": "repair-system-Space",
+          "targetId": "charging-Space",
+          "targetCode": "charging/Space"
+        },
+        {
+          "oldId": "repair-system-Customer",
+          "targetId": "charging-Customer",
+          "targetCode": "charging/Customer"
+        },
+        {
+          "oldId": "repair-system-Dictionary",
+          "targetId": "charging-Dictionary",
+          "targetCode": "charging/Dictionary"
+        }
+      ]
+    },
+    "quality": {
+      "menuMappings": [
+        {
+          "oldId": "quality-system-basic",
+          "targetId": "charging-basic",
+          "targetCode": "charging/basic"
+        },
+        {
+          "oldId": "quality-system-OrganizationType",
+          "targetId": "charging-OrganizationType",
+          "targetCode": "charging/OrganizationType"
+        },
+        {
+          "oldId": "quality-system-User",
+          "targetId": "charging-User",
+          "targetCode": "charging/User"
+        },
+        {
+          "oldId": "quality-system-Space",
+          "targetId": "charging-Space",
+          "targetCode": "charging/Space"
+        },
+        {
+          "oldId": "quality-system-Customer",
+          "targetId": "charging-Customer",
+          "targetCode": "charging/Customer"
+        },
+        {
+          "oldId": "quality-system-Dictionary",
+          "targetId": "charging-Dictionary",
+          "targetCode": "charging/Dictionary"
+        }
+      ]
+    },
+    "facility-energy": {
+      "menuMappings": [
+        {
+          "oldId": "facility-system-basic",
+          "targetId": "charging-basic",
+          "targetCode": "charging/basic"
+        },
+        {
+          "oldId": "facility-system-OrganizationType",
+          "targetId": "charging-OrganizationType",
+          "targetCode": "charging/OrganizationType"
+        },
+        {
+          "oldId": "facility-system-User",
+          "targetId": "charging-User",
+          "targetCode": "charging/User"
+        },
+        {
+          "oldId": "facility-system-Space",
+          "targetId": "charging-Space",
+          "targetCode": "charging/Space"
+        },
+        {
+          "oldId": "facility-system-Customer",
+          "targetId": "charging-Customer",
+          "targetCode": "charging/Customer"
+        },
+        {
+          "oldId": "facility-system-Dictionary",
+          "targetId": "charging-Dictionary",
+          "targetCode": "charging/Dictionary"
+        }
+      ],
+      "promoteToRoot": [
+        "facility-system-Sync",
+        "facility-system-Operations"
+      ]
+    }
+  }
+}

@@ -68,10 +68,7 @@ public class UserSyncJob implements SmartLifecycle, UserSyncJobMBean {
                                                 .onErrorResume(
                                                         error -> {
                                                             failures.incrementAndGet();
-                                                            log.warn(
-                                                                    "Property user sync failed: {}",
-                                                                    error.getClass()
-                                                                            .getSimpleName());
+                                                            log.warn("Property user sync failed", error);
                                                             return Mono.empty();
                                                         }))
                         .subscribe());

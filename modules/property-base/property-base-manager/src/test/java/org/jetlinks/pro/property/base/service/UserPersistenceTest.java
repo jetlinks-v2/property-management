@@ -66,6 +66,28 @@ class UserPersistenceTest {
     }
 
     @Test
+    void thousandsOfNewUsersFitPostgresBindLimitAndKeepLocalIdentities() {
+        var existing = user("existing-owner");
+        snapshot(existing);
+        sync.synchronize().block(WAIT);
+        service.updateIdentities(existing.getId(), Set.of(UserIdentity.owner), 0)
+                .contextWrite(access(Set.of(existing.getId()))).block(WAIT);
+        var batch = new LinkedHashMap<String, UserDetail>();
+        batch.put(existing.getId(), existing);
+        for (int index = 0; index < 4087; index++) {
+            var added = user(String.format("owner-%05d", index));
+            batch.put(added.getId(), added);
+        }
+        when(source.fetchAll()).thenReturn(Mono.just(batch));
+        var result = sync.synchronize().block(Duration.ofSeconds(60));
+        assertEquals(4087, result.added());
+        assertEquals(4088, users.createQuery().count().block(WAIT));
+        assertTrue(users.findById(existing.getId()).block(WAIT).getOwner());
+        assertFalse(users.findById("owner-04086").block(WAIT).getOwner());
+        assertEquals("succeeded", sync.status().block(WAIT).status());
+    }
+
+    @Test
     void identityAuditStoresDisplayNameAndFallsBackToUsername() {
         snapshot(user("a"));
         sync.synchronize().block(WAIT);
@@ -400,7 +422,7 @@ class UserPersistenceTest {
         users.createUpdate().set("employee", true).in("id", List.of("staff", "hidden")).execute().block(WAIT);
         when(source.authorizedIds(anyList())).thenAnswer(call ->
                 Flux.fromIterable(call.<List<String>>getArgument(0)).filter(id -> Set.of("staff", "customer").contains(id)));
-        var provider = new org.jetlinks.pro.property.base.command.PropertyEmployeeCommandSupport(users, orgs, source);
+        var provider = new org.jetlinks.pro.property.base.command.PropertyEmployeeCommandSupport(users, orgs, new PropertyUserScope(users));
         var command = new org.jetlinks.pro.property.base.command.QueryPropertyEmployeePageCommand();
         command.setQuery(QueryParamEntity.newQuery().is("id", "staff").or().is("id", "hidden").orderByAsc("id").getParam());
         var roundTrip = new org.jetlinks.pro.property.base.command.QueryPropertyEmployeePageCommand();

@@ -24,11 +24,18 @@ public class SaasUserSource {
     @Value("${property.user-sync.max-users:100000}")
     private int maxUsers = 100000;
 
+    @Value("${property.user-sync.timeout-seconds:120}")
+    private long timeoutSeconds = 120;
+
+    @Value("${property.user-sync.page-timeout-seconds:60}")
+    private long pageTimeoutSeconds = 60;
+
     static final int PAGE_SIZE = 200;
 
     public Mono<Map<String, UserDetail>> fetchAll() {
         return Mono.defer(() -> readPage(0, -1, new LinkedHashMap<>()))
-                .timeout(Duration.ofSeconds(90))
+                // 分页快照服从整轮同步预算，避免人数增加后被固定 90 秒提前取消。
+                .timeout(Duration.ofSeconds(Math.max(10, timeoutSeconds)))
                 .contextWrite(ignored -> Context.empty());
     }
 
@@ -131,7 +138,8 @@ public class SaasUserSource {
                         support ->
                                 support.execute(pageCommand(query))
                                         .flatMap(page -> restoreAccountTypes(support, page)))
-                .timeout(Duration.ofSeconds(10));
+                .timeout(Duration.ofSeconds(Math.max(1, pageTimeoutSeconds)))
+                .checkpoint("property-user-source-page-" + query.getPageIndex());
     }
 
     private Mono<PagerResult<UserDetail>> restoreAccountTypes(
