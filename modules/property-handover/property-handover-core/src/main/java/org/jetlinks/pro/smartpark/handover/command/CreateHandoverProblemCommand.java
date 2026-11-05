@@ -14,7 +14,8 @@ import reactor.core.publisher.Mono;
  */
 public class CreateHandoverProblemCommand
         extends AbstractCommand<Mono<String>, CreateHandoverProblemCommand> {
-    public static final String SERVICE_ID = "propertyService:handover";
+    // 独立服务必须使用独立 provider；共用 propertyService 会让本机注册遮蔽远程基础目录。
+    public static final String SERVICE_ID = "handoverService:problem";
 
     public ProblemRequest getRequest() {
         return getOrNull("request", ProblemRequest.class);

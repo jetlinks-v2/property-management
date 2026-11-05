@@ -2,6 +2,8 @@
 
 本服务提供 `/property/handover/**`，使用独立 PostgreSQL 数据库 `property_handover`。基础组织、人员、空间通过 `property-base-core` 公共命令查询；认证、租户、应用、文件继续使用 SaaS 平台。运行类路径不引入基础、报修或巡检 manager。
 
+报事转查验通过 `CreateHandoverProblemCommand` 调用 `handoverService:problem`。查验使用独立命令 provider，不能与基础服务的 `propertyService` 共用前缀，否则本机命令注册会遮蔽远程项目、员工和组织目录。
+
 ## 本地启动
 
 使用 JDK 17 和 Maven 3.9。IDEA 启动 `SmartParkHandoverApplication`，工作目录设为本服务目录，profiles 与相邻服务一致使用 `default,dev,local`；只启用 `default,local` 也可。连接信息放在未跟踪的 `src/main/resources/application-local.yml` 或 IDE 环境变量中。`application-default.yml` 可作为本机示例保存，按根 `.gitignore` 约定不提交；`application-local.yml/.yaml` 同时排除在发布 JAR 之外。不要把实际密码、公钥或 RPC 密钥写进共享文件。
