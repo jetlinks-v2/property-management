@@ -51,9 +51,7 @@ class HandoverReceiptPersistenceTest extends ReceiptVerificationPersistenceTest 
     void verifiedReceiptBlocksReleasingItsPaymentButNotAnotherPaymentInSameRoom() {
         var bill = documentBill();
         var payment =
-                cashier.collect(project, fixture.submission(fixture.input(bill, "30")), DATE)
-                        .contextWrite(fixture.allowed())
-                        .block(WAIT);
+                historicalPayment(bill, "30");
         var batch = handed(payment.payment());
         var receipt = receiptFor(bill);
         verify(verification(receipt));
@@ -77,9 +75,7 @@ class HandoverReceiptPersistenceTest extends ReceiptVerificationPersistenceTest 
                 409);
         var other = documentBill();
         var second =
-                cashier.collect(project, fixture.submission(fixture.input(other, "20")), DATE)
-                        .contextWrite(fixture.allowed())
-                        .block(WAIT);
+                historicalPayment(other, "20");
         var unrelated = handed(second.payment());
         var cancelled =
                 handover.action(

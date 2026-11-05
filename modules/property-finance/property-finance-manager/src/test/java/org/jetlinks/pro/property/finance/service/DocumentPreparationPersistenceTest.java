@@ -123,9 +123,7 @@ class DocumentPreparationPersistenceTest extends DocumentSourcePersistenceTest {
                         i.items());
         fixture.rejects(preparation.preview(project, i, NOW), 409);
         var collected =
-                cashier.collect(project, fixture.submission(fixture.input(a, "10.00")), DATE)
-                        .contextWrite(fixture.allowed())
-                        .block(WAIT);
+                historicalPayment(a, "10.00");
         fixture.rejects(
                 preparation.preview(
                         project,
@@ -141,9 +139,7 @@ class DocumentPreparationPersistenceTest extends DocumentSourcePersistenceTest {
     void ruleAndSourceVersionsChangePreviewTokenAndCustomDaysExpireFromPayment() {
         var row = documentBill();
         var collected =
-                cashier.collect(project, fixture.submission(fixture.input(row, "10.00")), DATE)
-                        .contextWrite(fixture.allowed())
-                        .block(WAIT);
+                historicalPayment(row, "10.00");
         var input = input(List.of(item("RECEIVED", collected.lines().get(0).getId(), "10")));
         var initial = preview(input);
         var rule =

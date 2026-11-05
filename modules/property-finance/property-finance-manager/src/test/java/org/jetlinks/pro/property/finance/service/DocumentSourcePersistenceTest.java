@@ -26,6 +26,11 @@ import java.util.*;
         webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class DocumentSourcePersistenceTest extends TemporaryPersistenceTest {
     @Autowired DocumentSourceService documents;
+    @Autowired HistoricalReceiptFixture historicalReceipts;
+
+    CashierService.Detail historicalPayment(ReceivableEntity row, String amount) {
+        return historicalReceipts.seed(row, amount).contextWrite(fixture.allowed()).block(WAIT);
+    }
 
     static String tax() {
         return JSON.toJSONString(
@@ -84,15 +89,13 @@ class DocumentSourcePersistenceTest extends TemporaryPersistenceTest {
     @Test
     void differentReceiptsOfSameBillNormalizeAndCannotBeSelectedTwice() {
         var row = documentBill();
-        var firstInput = fixture.input(row, "40.00");
         var first =
-                cashier.collect(project, fixture.submission(firstInput), DATE)
+                historicalReceipts.seed(row, "40.00")
                         .contextWrite(fixture.allowed())
                         .block(WAIT);
         row = bills.findById(row.getId()).block(WAIT);
-        var secondInput = fixture.input(row, "60.00");
         var second =
-                cashier.collect(project, fixture.submission(secondInput), DATE)
+                historicalReceipts.seed(row, "60.00")
                         .contextWrite(fixture.allowed())
                         .block(WAIT);
         var a = load("RECEIVED", first.lines().get(0).getId());
@@ -161,9 +164,8 @@ class DocumentSourcePersistenceTest extends TemporaryPersistenceTest {
     @Test
     void fakeTemporaryRootOrMixedHouseLinesAreRejected() {
         var row = documentBill();
-        var input = fixture.input(row, "10.00");
         var ordinary =
-                cashier.collect(project, fixture.submission(input), DATE)
+                historicalReceipts.seed(row, "10.00")
                         .contextWrite(fixture.allowed())
                         .block(WAIT);
         fixture.rejects(
@@ -211,9 +213,7 @@ class DocumentSourcePersistenceTest extends TemporaryPersistenceTest {
     void corruptedReceiptDimensionsCompanyAndAmountCannotSupplyDocumentQuota() {
         var row = documentBill();
         var payment =
-                cashier.collect(project, fixture.submission(fixture.input(row, "40.00")), DATE)
-                        .contextWrite(fixture.allowed())
-                        .block(WAIT);
+                historicalPayment(row, "40.00");
         var lineId = payment.lines().get(0).getId();
         for (var field :
                 List.of("spaceId", "customerId", "subjectId", "standardId", "sourceType")) {
@@ -248,9 +248,7 @@ class DocumentSourcePersistenceTest extends TemporaryPersistenceTest {
     void realRefundReconcilesNetPaidAndUnpaidInvoiceBeforePaymentPath() {
         var row = documentBill();
         var payment =
-                cashier.collect(project, fixture.submission(fixture.input(row, "40.00")), DATE)
-                        .contextWrite(fixture.allowed())
-                        .block(WAIT);
+                historicalPayment(row, "40.00");
         var input = new org.jetlinks.pro.property.finance.payment.RefundInput();
         input.setCompanyId("company");
         input.setMethod("1");

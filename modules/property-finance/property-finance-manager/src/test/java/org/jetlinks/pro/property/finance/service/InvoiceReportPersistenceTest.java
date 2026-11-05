@@ -144,19 +144,9 @@ class InvoiceReportPersistenceTest extends DocumentQueryPersistenceTest {
     @Test
     void reportReceivableIsNotRepeatedForDifferentPaymentsAndSummaryIgnoresPageSize() {
         var a = documentBill();
-        cashier.collect(
-                        project,
-                        fixture.submission(fixture.input(a, "10.00")),
-                        CashierPersistenceTest.DATE)
-                .contextWrite(fixture.allowed())
-                .block(WAIT);
+        historicalPayment(a, "10.00");
         a = bills.findById(a.getId()).block(WAIT);
-        cashier.collect(
-                        project,
-                        fixture.submission(fixture.input(a, "20.00")),
-                        CashierPersistenceTest.DATE)
-                .contextWrite(fixture.allowed())
-                .block(WAIT);
+        historicalPayment(a, "20.00");
         documentBill();
         var input = reportInput();
         input.setPageSize(1);

@@ -30,6 +30,7 @@ class PaymentToAdvancePersistenceTest {
 
     @Autowired PaymentToAdvanceService service;
     @Autowired CashierService cashier;
+    @Autowired HistoricalReceiptFixture historicalReceipts;
     @Autowired TemporaryService temporary;
     @Autowired FundsService funds;
     @Autowired CashierConfiguration configuration;
@@ -63,10 +64,7 @@ class PaymentToAdvancePersistenceTest {
         var bill = fixture.fixture.bill("convert");
         billId = bill.getId();
         var payment =
-                cashier.collect(
-                                project,
-                                fixture.fixture.submission(fixture.fixture.input(bill, "60.01")),
-                                DATE)
+                historicalReceipts.seed(bill, "60.01")
                         .contextWrite(fixture.fixture.allowed())
                         .block(WAIT);
         lineId = payment.lines().get(0).getId();

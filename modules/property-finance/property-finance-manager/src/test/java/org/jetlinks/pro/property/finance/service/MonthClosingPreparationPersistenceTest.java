@@ -108,12 +108,12 @@ class MonthClosingPreparationPersistenceTest extends HandoverPersistenceTest {
                 .execute()
                 .block(WAIT);
         second.setSpaceId("hidden");
-        var input = input(first, "5");
-        input.setItems(List.of(input.getItems().get(0), input(second, "5").getItems().get(0)));
+        var input = input(first, "100");
+        input.setItems(List.of(input.getItems().get(0), input(second, "100").getItems().get(0)));
         input.setTenders(
                 List.of(
                         new org.jetlinks.pro.property.finance.payment.CashierInput.Tender(
-                                "1", null, new java.math.BigDecimal("10"))));
+                                "1", null, new java.math.BigDecimal("200"))));
         cashier.collect(project, submission(input), DATE).contextWrite(allowed()).block(WAIT);
         var context = allowed();
         var holder = context.<AssetsHolder>get(AssetsHolder.class);

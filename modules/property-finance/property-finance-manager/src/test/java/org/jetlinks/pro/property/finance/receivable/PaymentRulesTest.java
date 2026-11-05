@@ -31,43 +31,46 @@ class PaymentRulesTest {
     }
 
     @Test
-    void paymentUsesFreshFrozenSnapshotAndPartialPaymentLeavesExactDebt() {
+    void collectionRequiresFullFreshBalanceAndNeverMutatesOriginal() {
         var original = approvedBill();
         original.setCalculatedAsOfDate("2024-02-15");
-        var result = rules.prepare(List.of(original), input("10.00"), LocalDate.of(2024, 2, 16));
+        var result = rules.prepare(List.of(original), input("29.76"), LocalDate.of(2024, 2, 16));
         assertEquals("29.76", result.rows().get(0).getActualReceivableAmount().toPlainString());
-        assertEquals("19.76", result.rows().get(0).getArrears().toPlainString());
-        assertEquals("10.00", result.rows().get(0).getPaidAmount().toPlainString());
+        assertEquals("0.00", result.rows().get(0).getArrears().toPlainString());
+        assertEquals("29.76", result.rows().get(0).getPaidAmount().toPlainString());
         assertEquals("25.51", original.getArrears().toPlainString());
-        assertNotEquals(
-                result.token(),
-                rules.prepare(List.of(original), input("10.00"), LocalDate.of(2024, 2, 17))
-                        .token());
+        assertThrows(RuntimeException.class,
+                () -> rules.prepare(List.of(original), input("25.51"), LocalDate.of(2024, 2, 16)));
+        assertThrows(RuntimeException.class,
+                () -> rules.prepare(List.of(original), input("29.76"), LocalDate.of(2024, 2, 17)));
         assertThrows(
                 RuntimeException.class,
                 () -> rules.prepare(List.of(original), input("29.77"), LocalDate.of(2024, 2, 16)));
     }
 
     @Test
-    void mixedTendersConsumeInInputOrderWithoutLosingCent() {
+    void singleTenderClearsAllSelectedBillsWithoutLosingCentAndRejectsMixedPayment() {
         var a = approvedBill();
         var b = approvedBill();
         b.setId("second");
         var input = input("10.00");
         input.setItems(
                 List.of(
-                        new CashierInput.Item("bill", 2L, new BigDecimal("10.01")),
-                        new CashierInput.Item("second", 2L, new BigDecimal("12.00"))));
+                        new CashierInput.Item("bill", 2L, new BigDecimal("25.51")),
+                        new CashierInput.Item("second", 2L, new BigDecimal("25.51"))));
+        input.setTenders(List.of(new CashierInput.Tender("1", null, new BigDecimal("51.02"))));
+        var result = rules.prepare(List.of(a, b), input, LocalDate.of(2024, 2, 15));
+        assertEquals(List.of("25.51", "25.51"),
+                result.allocations().stream().map(line -> line.amount().toPlainString()).toList());
+        assertTrue(result.rows().stream().allMatch(row -> row.getArrears().signum() == 0));
+        assertEquals("51.02", result.total());
+        assertEquals(0, a.getPaidAmount().signum());
         input.setTenders(
                 List.of(
                         new CashierInput.Tender("1", null, new BigDecimal("5.00")),
-                        new CashierInput.Tender("3", "bank-record", new BigDecimal("17.01"))));
-        var result = rules.prepare(List.of(a, b), input, LocalDate.of(2024, 2, 15));
-        assertEquals(
-                List.of("5.00", "5.01", "12.00"),
-                result.allocations().stream().map(line -> line.amount().toPlainString()).toList());
-        assertEquals("22.01", result.total());
-        assertEquals(0, a.getPaidAmount().signum());
+                        new CashierInput.Tender("3", "bank-record", new BigDecimal("46.02"))));
+        assertThrows(RuntimeException.class,
+                () -> rules.prepare(List.of(a, b), input, LocalDate.of(2024, 2, 15)));
         assertThrows(
                 RuntimeException.class,
                 () -> rules.prepare(List.of(a, b), input("0.001"), LocalDate.of(2024, 2, 15)));
@@ -106,9 +109,9 @@ class PaymentRulesTest {
     void financialMonthClosePreservesBookedAmountButDoesNotPreventCollectingHistoricalDebt() {
         var row = approvedBill();
         row.setFinancialClosed(true);
-        var result = rules.prepare(List.of(row), input("10.00"), LocalDate.of(2024, 3, 15));
+        var result = rules.prepare(List.of(row), input("25.51"), LocalDate.of(2024, 3, 15));
         assertEquals("25.51", result.rows().get(0).getActualReceivableAmount().toPlainString());
-        assertEquals("15.51", result.rows().get(0).getArrears().toPlainString());
+        assertEquals("0.00", result.rows().get(0).getArrears().toPlainString());
         var changed = input("9.99");
         assertNotEquals(
                 PaymentRules.fingerprint(input("10.00")), PaymentRules.fingerprint(changed));
@@ -131,11 +134,11 @@ class PaymentRulesTest {
     @Test
     void cashierReductionChangesPrincipalAndDebtAndIsBoundToConfirmation() {
         var row = approvedBill();
-        var input = input("10.00");
+        var input = input("20.51");
         input.setReduction(new CashierInput.Reduction("AMOUNT", new BigDecimal("5.00"), "柜台减免"));
         var result = rules.prepare(List.of(row), input, AdjustmentRulesTest.TODAY);
         assertEquals("5.00", result.rows().get(0).getFeeReductionAmount().toPlainString());
-        assertEquals("10.51", result.rows().get(0).getArrears().toPlainString());
+        assertEquals("0.00", result.rows().get(0).getArrears().toPlainString());
         assertEquals("20.51", result.rows().get(0).getActualReceivableAmount().toPlainString());
         assertEquals(0, row.getFeeReductionAmount().signum());
         var fingerprint = PaymentRules.fingerprint(input);
@@ -144,5 +147,14 @@ class PaymentRulesTest {
         assertNotEquals(result.token(), rules.prepare(List.of(row), input, AdjustmentRulesTest.TODAY).token());
         row.setFinancialClosed(true);
         assertThrows(RuntimeException.class, () -> rules.prepare(List.of(row), input, AdjustmentRulesTest.TODAY));
+    }
+
+    @Test
+    void internalBalanceOffsetStillAllowsPartialSettlement() {
+        var input = input("10.00");
+        input.setTenders(List.of(new CashierInput.Tender("ADVANCE", "advance-source", new BigDecimal("10.00"))));
+        var result = rules.prepareBalance(List.of(approvedBill()), input, AdjustmentRulesTest.TODAY);
+        assertEquals("15.51", result.rows().get(0).getArrears().toPlainString());
+        assertEquals("10.00", result.rows().get(0).getPaidAmount().toPlainString());
     }
 }

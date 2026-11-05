@@ -53,7 +53,7 @@ class FinancialPeriodGatePersistenceTest extends CashierPersistenceTest {
     @Test
     void businessDateCannotBeBypassedByTheCalculationDateAndRejectedWriteRollsBackInitialization() {
         var row = bill("actual-date");
-        var request = submission(input(row, "10"));
+        var request = submission(input(row, "100"));
         var stale =
                 new CashierService.Submission(request.requestId(), "0".repeat(64), request.input());
         rejects(cashier.collect(project, stale, DATE), 409);
@@ -94,7 +94,7 @@ class FinancialPeriodGatePersistenceTest extends CashierPersistenceTest {
     @Test
     void previewAndCallsOutsideATransactionCannotCreateControlRows() {
         var row = bill("preview");
-        preview(input(row, "10"));
+        preview(input(row, "100"));
         assertEquals(0, controlCount());
         rejects(gate.lock(project), 500);
         assertEquals(0, controlCount());
@@ -107,7 +107,7 @@ class FinancialPeriodGatePersistenceTest extends CashierPersistenceTest {
     @Test
     void closedBusinessDateRejectsNewMoneyButOpenPeriodCanCollectHistoricalArrears() {
         var row = bill("closed");
-        var oldRequest = submission(input(row, "10"));
+        var oldRequest = submission(input(row, "100"));
         closeTo(DATE).contextWrite(allowed()).block(WAIT);
         rejects(cashier.collect(project, oldRequest, DATE), 409);
         assertEquals(0, payments.createQuery().where("projectId", project).count().block(WAIT));
@@ -118,7 +118,7 @@ class FinancialPeriodGatePersistenceTest extends CashierPersistenceTest {
                 .where("id", row.getId())
                 .execute()
                 .block(WAIT);
-        var next = input(row, "10");
+        var next = input(row, "100");
         next.setPaidAt(DATE.plusDays(1) + "T10:00:00");
         var quote =
                 cashier.preview(project, next, DATE.plusDays(1))
@@ -130,14 +130,14 @@ class FinancialPeriodGatePersistenceTest extends CashierPersistenceTest {
                 cashier.collect(project, request, DATE.plusDays(1))
                         .contextWrite(allowed())
                         .block(WAIT);
-        assertEquals("10.00", paid.payment().getAmount().toPlainString());
+        assertEquals("100.00", paid.payment().getAmount().toPlainString());
         assertEquals(1, controlCount());
     }
 
     @Test
     void successfulOriginalRequestStillRecoversAfterItsPeriodCloses() {
         var row = bill("replay");
-        var request = submission(input(row, "10"));
+        var request = submission(input(row, "100"));
         var paid = cashier.collect(project, request, DATE).contextWrite(allowed()).block(WAIT);
         closeTo(DATE).contextWrite(allowed()).block(WAIT);
         var recovered =
@@ -152,7 +152,7 @@ class FinancialPeriodGatePersistenceTest extends CashierPersistenceTest {
     @Test
     void replayThatStartsBeforeCommitRecoversAfterWaitingForClosingTransaction() {
         var row = bill("waiting-replay");
-        var request = submission(input(row, "10"));
+        var request = submission(input(row, "100"));
         var paidButNotCommitted = Sinks.<Void>one();
         var replayMissedUncommittedPayment = Sinks.<Void>one();
         var first =
@@ -221,7 +221,7 @@ class FinancialPeriodGatePersistenceTest extends CashierPersistenceTest {
     void closingFirstRejectsAConcurrentBackdatedCollection() {
         initialize();
         var row = bill("closing-first");
-        var request = submission(input(row, "10"));
+        var request = submission(input(row, "100"));
         var acquired = Sinks.<Void>one();
         var collectionStarted = Sinks.<Void>one();
         var closing =
@@ -261,7 +261,7 @@ class FinancialPeriodGatePersistenceTest extends CashierPersistenceTest {
     void collectionFirstCommitsBeforeClosingCanReadThePeriod() {
         initialize();
         var row = bill("collection-first");
-        var request = submission(input(row, "10"));
+        var request = submission(input(row, "100"));
         var acquired = Sinks.<Void>one();
         var closingStarted = Sinks.<Void>one();
         var collection =
@@ -305,14 +305,14 @@ class FinancialPeriodGatePersistenceTest extends CashierPersistenceTest {
                                                                         closingStarted
                                                                                 .tryEmitEmpty())));
         var result = Mono.zip(collection, closing).contextWrite(allowed()).block(WAIT);
-        assertEquals("10.00", result.getT1().payment().getAmount().toPlainString());
+        assertEquals("100.00", result.getT1().payment().getAmount().toPlainString());
         assertEquals(1, result.getT2());
     }
 
     @Test
     void firstConcurrentRequestUsesOneControlAndPreservesSuccessfulReplay() {
         var row = bill("first-race");
-        var request = submission(input(row, "10"));
+        var request = submission(input(row, "100"));
         var results =
                 Flux.merge(
                                 cashier.collect(project, request, DATE),

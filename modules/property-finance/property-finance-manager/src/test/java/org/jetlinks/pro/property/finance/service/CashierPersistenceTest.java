@@ -165,18 +165,18 @@ class CashierPersistenceTest {
     }
 
     @Test
-    void previewDoesNotWriteAndPartialCollectionIsAtomicAndRetryIsIdempotent() {
+    void previewDoesNotWriteAndFullCollectionIsAtomicAndRetryIsIdempotent() {
         var row = bill("one");
-        var input = input(row, "10.01");
+        var input = input(row, "100.00");
         var request = submission(input);
         assertEquals(
                 "0.00", bills.findById(row.getId()).block(WAIT).getPaidAmount().toPlainString());
         assertEquals(0, payments.createQuery().where("projectId", project).count().block(WAIT));
         var detail = cashier.collect(project, request, DATE).contextWrite(allowed()).block(WAIT);
-        assertEquals("10.01", detail.payment().getAmount().toPlainString());
+        assertEquals("100.00", detail.payment().getAmount().toPlainString());
         assertEquals("龚超", detail.payment().getPayerName());
         assertEquals("龚超", detail.lines().get(0).getCustomerName());
-        assertEquals("89.99", bills.findById(row.getId()).block(WAIT).getArrears().toPlainString());
+        assertEquals("0.00", bills.findById(row.getId()).block(WAIT).getArrears().toPlainString());
         assertEquals(
                 detail.payment().getId(),
                 cashier.collect(project, request, DATE)
@@ -201,15 +201,35 @@ class CashierPersistenceTest {
     }
 
     @Test
+    void directRequestsCannotPartiallyCollectOrCombinePaymentMethods() {
+        var row = bill("invalid-full-collection");
+        var partial = input(row, "40.00");
+        rejects(cashier.preview(project, partial, DATE), 409);
+        rejects(cashier.collect(project, new CashierService.Submission(
+                UUID.randomUUID().toString(), "0".repeat(64), partial), DATE), 409);
+        var mixed = input(row, "100.00");
+        mixed.setTenders(List.of(
+                new CashierInput.Tender("1", null, new BigDecimal("40.00")),
+                new CashierInput.Tender("3", "bank-record", new BigDecimal("60.00"))));
+        rejects(cashier.preview(project, mixed, DATE), 400);
+        rejects(cashier.collect(project, new CashierService.Submission(
+                UUID.randomUUID().toString(), "0".repeat(64), mixed), DATE), 400);
+        assertEquals(0, payments.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(0, lines.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(0, logs.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(new BigDecimal("100.00"), bills.findById(row.getId()).block(WAIT).getArrears());
+    }
+
+    @Test
     void stalePreviewBlockedLastBillAndCrossProjectCannotLeavePartialPayments() {
         var a = bill("a");
         var b = bill("b");
-        var input = input(a, "1.00");
+        var input = input(a, "100.00");
         input.setItems(
                 List.of(
-                        new CashierInput.Item(a.getId(), 0L, new BigDecimal("1.00")),
-                        new CashierInput.Item(b.getId(), 0L, new BigDecimal("1.00"))));
-        input.setTenders(List.of(new CashierInput.Tender("1", null, new BigDecimal("2.00"))));
+                        new CashierInput.Item(a.getId(), 0L, new BigDecimal("100.00")),
+                        new CashierInput.Item(b.getId(), 0L, new BigDecimal("100.00"))));
+        input.setTenders(List.of(new CashierInput.Tender("1", null, new BigDecimal("200.00"))));
         var request = submission(input);
         bills.createUpdate().set("frozen", true).where("id", b.getId()).execute().block(WAIT);
         rejects(cashier.collect(project, request, DATE), 409);
@@ -224,7 +244,7 @@ class CashierPersistenceTest {
     @Test
     void concurrentSameRequestCollectsOnlyOnceAndDifferentRequestsCannotOvercollect() {
         var row = bill("one");
-        var request = submission(input(row, "60.00"));
+        var request = submission(input(row, "100.00"));
         var results =
                 Flux.merge(
                                 cashier.collect(project, request, DATE).contextWrite(allowed()),
@@ -233,7 +253,7 @@ class CashierPersistenceTest {
                         .block(WAIT);
         assertEquals(2, results.size());
         assertEquals(results.get(0).payment().getId(), results.get(1).payment().getId());
-        assertEquals("40.00", bills.findById(row.getId()).block(WAIT).getArrears().toPlainString());
+        assertEquals("0.00", bills.findById(row.getId()).block(WAIT).getArrears().toPlainString());
         var different =
                 new CashierService.Submission(
                         UUID.randomUUID().toString(), request.token(), request.input());
@@ -245,12 +265,12 @@ class CashierPersistenceTest {
     void secondAuditFailureRollsBackPaymentAllocationsAndEveryBill() throws Exception {
         var a = bill("a");
         var b = bill("b");
-        var input = input(a, "10.00");
+        var input = input(a, "100.00");
         input.setItems(
                 List.of(
-                        new CashierInput.Item(a.getId(), 0L, new BigDecimal("10.00")),
-                        new CashierInput.Item(b.getId(), 0L, new BigDecimal("10.00"))));
-        input.setTenders(List.of(new CashierInput.Tender("1", null, new BigDecimal("20.00"))));
+                        new CashierInput.Item(a.getId(), 0L, new BigDecimal("100.00")),
+                        new CashierInput.Item(b.getId(), 0L, new BigDecimal("100.00"))));
+        input.setTenders(List.of(new CashierInput.Tender("1", null, new BigDecimal("200.00"))));
         var request = submission(input);
         var constraint = "payment_audit_" + UUID.randomUUID().toString().replace("-", "");
         var result =
@@ -348,7 +368,7 @@ class CashierPersistenceTest {
         assertEquals(
                 List.of("family-link"),
                 options.stream().map(CashierService.PayerOption::relationshipId).toList());
-        var input = input(row, "20.00");
+        var input = input(row, "100.00");
         input.setPayerRelationshipId("outsider");
         rejects(cashier.preview(project, input, DATE), 409);
         input.setPayerRelationshipId("family-link");
@@ -442,7 +462,7 @@ class CashierPersistenceTest {
     @Test
     void httpPaymentFlowAndRecordOrFiltersCannotExpandProject() {
         var row = bill("http");
-        var input = input(row, "10.01");
+        var input = input(row, "100.00");
         input.setPaidAt(LocalDate.now() + "T10:00:00");
         var controller =
                 new org.jetlinks.pro.property.finance.web.CashierController(
@@ -477,7 +497,7 @@ class CashierPersistenceTest {
                         .expectBody(CashierService.Detail.class)
                         .returnResult()
                         .getResponseBody();
-        assertEquals("10.01", detail.payment().getAmount().toPlainString());
+        assertEquals("100.00", detail.payment().getAmount().toPlainString());
         client.get()
                 .uri(path + "/payments/" + detail.payment().getId())
                 .exchange()
@@ -515,7 +535,7 @@ class CashierPersistenceTest {
                 .jsonPath("$.total")
                 .isEqualTo(1)
                 .jsonPath("$.data[0].line.amount")
-                .isEqualTo("10.01");
+                .isEqualTo("100.00");
         StepVerifier.create(
                         records.query(
                                 project,
@@ -534,11 +554,11 @@ class CashierPersistenceTest {
                 .where("id", b.getId())
                 .execute()
                 .block(WAIT);
-        var input = input(a, "10.01");
+        var input = input(a, "200.00");
         input.setItems(
                 List.of(
-                        new CashierInput.Item(a.getId(), 0L, new BigDecimal("5.00")),
-                        new CashierInput.Item(b.getId(), 0L, new BigDecimal("5.01"))));
+                        new CashierInput.Item(a.getId(), 0L, new BigDecimal("100.00")),
+                        new CashierInput.Item(b.getId(), 0L, new BigDecimal("100.00"))));
         var request = submission(input);
         var restricted = allowed();
         var holder =
@@ -563,7 +583,7 @@ class CashierPersistenceTest {
                         .contextWrite(restricted)
                         .block(WAIT);
         assertEquals(1, visible.getTotal());
-        assertEquals("5.00", visible.getData().get(0).line().getAmount().toPlainString());
+        assertEquals("100.00", visible.getData().get(0).line().getAmount().toPlainString());
         StepVerifier.create(
                         cashier.detail(project, receipt.payment().getId()).contextWrite(restricted))
                 .expectErrorMatches(error -> TaxItemPersistenceTest.status(error, 403))
@@ -573,7 +593,7 @@ class CashierPersistenceTest {
     @Test
     void concurrentDifferentClientsCannotBothCollectTheSameBalance() {
         var row = bill("race");
-        var input = input(row, "60.00");
+        var input = input(row, "100.00");
         var a = submission(input);
         var b = new CashierService.Submission(UUID.randomUUID().toString(), a.token(), a.input());
         var outcomes =
@@ -589,11 +609,11 @@ class CashierPersistenceTest {
         assertEquals(1, outcomes.stream().filter(reactor.core.publisher.Signal::isOnNext).count());
         assertEquals(1, outcomes.stream().filter(reactor.core.publisher.Signal::isOnError).count());
         assertEquals(1, payments.createQuery().where("projectId", project).count().block(WAIT));
-        assertEquals("40.00", bills.findById(row.getId()).block(WAIT).getArrears().toPlainString());
+        assertEquals("0.00", bills.findById(row.getId()).block(WAIT).getArrears().toPlainString());
     }
 
     @Test
-    void eitherSelectedCustomerCanPaySameDebtAndUnselectedRoomCustomerCannot() {
+    void eitherSelectedCustomerCanPayInFullAndUnselectedRoomCustomerCannot() {
         var row = bill("shared");
         var parsed = com.alibaba.fastjson.JSON.parseObject(row.getSnapshotJson());
         parsed.put(
@@ -652,18 +672,21 @@ class CashierPersistenceTest {
         assertEquals(
                 List.of("link", "second-link"),
                 candidates.stream().map(CashierService.PayerOption::relationshipId).toList());
-        var a = input(row, "40.00");
+        var a = input(row, "100.00");
         a.setPayerRelationshipId("third-link");
         rejects(cashier.preview(project, a, DATE), 409);
         a.setPayerRelationshipId("link");
         cashier.collect(project, submission(a), DATE).contextWrite(allowed()).block(WAIT);
-        var b = input(bills.findById(row.getId()).block(WAIT), "60.00");
+        var another = bill("shared-second");
+        bills.createUpdate().set("snapshotJson", parsed.toJSONString())
+                .where("id", another.getId()).execute().block(WAIT);
+        var b = input(another, "100.00");
         b.setPayerRelationshipId("second-link");
         var payment =
                 cashier.collect(project, submission(b), DATE).contextWrite(allowed()).block(WAIT);
         assertEquals("张女士", payment.payment().getPayerName());
         assertEquals("second-user", payment.payment().getPayerUserId());
-        assertEquals(1, bills.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(2, bills.createQuery().where("projectId", project).count().block(WAIT));
         assertEquals(
                 "100.00", bills.findById(row.getId()).block(WAIT).getPaidAmount().toPlainString());
         assertEquals("0.00", bills.findById(row.getId()).block(WAIT).getArrears().toPlainString());
@@ -708,6 +731,7 @@ class CashierPersistenceTest {
     @Import({
         HouseSettingPersistenceTest.Config.class,
         CashierService.class,
+        HistoricalReceiptFixture.class,
         PaymentLedger.class,
         PaymentRules.class,
         PaymentRecordService.class

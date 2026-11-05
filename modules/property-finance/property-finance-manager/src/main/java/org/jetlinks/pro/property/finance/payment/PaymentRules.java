@@ -30,6 +30,7 @@ public class PaymentRules {
 
     public Result prepare(List<ReceivableEntity> originals, CashierInput input, LocalDate date) {
         validate(input, date);
+        if (input.getTenders().size() != 1) throw error("cashier_single_payment_required", 400);
         for (var row : originals) {
             if (!"APPROVED".equals(row.getReviewState()))
                 throw error("cashier_review_required", 409);
@@ -38,7 +39,7 @@ public class PaymentRules {
             if (company != null && !company.isBlank() && !company.equals(input.getCompanyId()))
                 throw error("cashier_company_mismatch", 409);
         }
-        return calculate(originals, input, date);
+        return calculate(originals, input, date, true);
     }
 
     /** 内部余额结转入口，人工收款接口仍只接受MANUAL_METHODS。 */
@@ -46,10 +47,11 @@ public class PaymentRules {
             List<ReceivableEntity> originals, CashierInput input, LocalDate date) {
         validate(input, date, Set.of("ADVANCE", "DEPOSIT"));
         if (input.getReduction() != null) throw error("cashier_reduction_invalid", 400);
-        return calculate(originals, input, date);
+        return calculate(originals, input, date, false);
     }
 
-    private Result calculate(List<ReceivableEntity> originals, CashierInput input, LocalDate date) {
+    private Result calculate(
+            List<ReceivableEntity> originals, CashierInput input, LocalDate date, boolean fullCollection) {
         var indexed = new HashMap<String, ReceivableEntity>();
         originals.forEach(row -> indexed.put(row.getId(), row));
         var rows = new ArrayList<ReceivableEntity>();
@@ -87,6 +89,9 @@ public class PaymentRules {
             var amount = itemMoney(input.getItems().get(index).amount(), input);
             if (amount.signum() == 0 && discount.signum() == 0) throw error("cashier_invalid", 400);
             if (amount.compareTo(row.getArrears()) > 0) throw error("cashier_exceeds_balance", 409);
+            // 柜台只能收清所选账单的剩余应收；内部余额冲抵仍可按可用余额部分核销。
+            if (fullCollection && amount.compareTo(row.getArrears()) != 0)
+                throw error("cashier_full_collection_required", 409);
             row.setPaidAmount(row.getPaidAmount().add(amount));
             row.setArrears(row.getActualReceivableAmount().subtract(row.getPaidAmount()));
             row.setPaidDate(LocalDateTime.parse(input.getPaidAt()).toLocalDate().toString());

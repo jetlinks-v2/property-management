@@ -459,9 +459,7 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
         assertEquals(1, documentRows.createQuery().where("projectId", project).count().block(WAIT));
         var second = issue(submission(receiptInput)).document();
         var current = bills.findById(bill.getId()).block(WAIT);
-        cashier.collect(project, fixture.submission(fixture.input(current, "10.00")), DATE)
-                .contextWrite(fixture.allowed())
-                .block(WAIT);
+        historicalPayment(current, "10.00");
         fixture.rejects(
                 reverse.reverse(
                         project, "RECEIPT", second.getId(), reversal(second, "已收款不能作废"), NOW),
@@ -609,9 +607,7 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
         reverse(invoiceDoc, reversal(invoiceDoc, "退回额度"));
         var current = bills.findById(bill.getId()).block(WAIT);
         var paid =
-                cashier.collect(project, fixture.submission(fixture.input(current, "100.00")), DATE)
-                        .contextWrite(fixture.allowed())
-                        .block(WAIT);
+                historicalPayment(current, "100.00");
         for (var item :
                 List.of(
                         item("RECEIVABLE", bill.getId(), "10"),

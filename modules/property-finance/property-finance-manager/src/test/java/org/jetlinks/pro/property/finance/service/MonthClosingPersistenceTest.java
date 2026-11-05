@@ -165,6 +165,7 @@ class MonthClosingPersistenceTest extends HandoverPersistenceTest {
     void requirementForReceivableReviewIsEffectiveAndCannotBeBypassedByToken() {
         var row = bill("review");
         bills.createUpdate()
+                .set("reviewState", "PENDING")
                 .set("dueDate", "2024-02-15")
                 .where("id", row.getId())
                 .execute()
@@ -289,7 +290,7 @@ class MonthClosingPersistenceTest extends HandoverPersistenceTest {
         close("2024-02");
         var frozen = bills.findById(row.getId()).block(WAIT);
         var nextDay = END.plusDays(1);
-        var input = input(frozen, "10");
+        var input = input(frozen, "100");
         input.setPaidAt("2024-03-01T10:00:00");
         var quote = cashier.preview(project, input, nextDay).contextWrite(allowed()).block(WAIT);
         cashier.collect(

@@ -54,8 +54,10 @@ class RefundPersistenceTest {
         project = fixture.project;
     }
 
+    @Autowired HistoricalReceiptFixture historicalReceipts;
+
     CashierService.Detail collect(ReceivableEntity bill, String amount) {
-        return cashier.collect(project, fixture.submission(fixture.input(bill, amount)), DATE)
+        return historicalReceipts.seed(bill, amount)
                 .contextWrite(fixture.allowed())
                 .block(WAIT);
     }

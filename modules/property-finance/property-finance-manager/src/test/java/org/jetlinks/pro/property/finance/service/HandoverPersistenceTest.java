@@ -34,9 +34,11 @@ class HandoverPersistenceTest extends CashierPersistenceTest {
     @Autowired ReactiveRepository<DocumentEntity, String> documents;
     @Autowired ReactiveRepository<DocumentLineEntity, String> documentLines;
 
+    @Autowired HistoricalReceiptFixture historicalReceipts;
+
     PaymentEntity paid(String name, String amount) {
         var row = bill(name);
-        return cashier.collect(project, submission(input(row, amount)), DATE)
+        return historicalReceipts.seed(row, amount)
                 .contextWrite(allowed())
                 .block(WAIT)
                 .payment();
