@@ -39,6 +39,10 @@ public class PropertyOrganizationEntity extends GenericEntity<String> {
     @ColumnType(javaType = String.class)
     private OrganizationType organizationType;
 
+    @Column(length = 64)
+    @Schema(description = "物业端维护的项目章文件 ID，SaaS 同步不得覆盖")
+    private String projectSealFileId;
+
     @Column(nullable = false)
     private Long version;
 

@@ -39,6 +39,9 @@ public class PropertyOrganizationInfo implements Serializable {
     @Schema(description = "已标注的物业类型，null 表示未标注；不继承父级类型")
     private OrganizationType organizationType;
 
+    @Schema(description = "项目章平台文件 ID；未配置或非项目为空")
+    private String projectSealFileId;
+
     @Schema(description = "有权查看的下级组织，叶节点为空列表")
     private List<PropertyOrganizationInfo> children;
 }

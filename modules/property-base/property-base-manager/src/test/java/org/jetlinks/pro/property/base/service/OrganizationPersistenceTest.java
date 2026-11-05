@@ -11,6 +11,8 @@ import org.hswebframework.web.crud.configuration.EntityFactoryConfiguration;
 import org.hswebframework.web.crud.configuration.R2dbcSqlExecutorConfiguration;
 import org.hswebframework.web.exception.BusinessException;
 import org.jetlinks.pro.assets.AssetsHolder;
+import org.jetlinks.pro.io.file.FileManager;
+import org.jetlinks.pro.io.file.FileInfo;
 import org.jetlinks.pro.command.CommandSupportManagerProviders;
 import org.jetlinks.pro.command.register.CommandServiceEndpointRegister;
 import org.jetlinks.pro.property.base.command.PropertyOrganizationCommandSupport;
@@ -83,6 +85,8 @@ class OrganizationPersistenceTest {
     @Autowired OrganizationSyncService sync;
     @Autowired PropertyOrganizationService service;
     @Autowired SaasOrganizationSource source;
+    @Autowired PropertyProjectSealService seals;
+    @Autowired FileManager files;
 
     @BeforeEach
     void resetData() {
@@ -92,6 +96,95 @@ class OrganizationPersistenceTest {
                 .block(TIMEOUT);
         states.deleteById(OrganizationSyncService.STATE_ID).block(TIMEOUT);
         reset(source);
+        reset(files);
+    }
+
+    @Test
+    void projectSealSaveReplaceClearAndSyncPreserveFileAndAudit() {
+        snapshot(org("park", null, "项目"));
+        sync.synchronize().block(TIMEOUT);
+        var access = access(Set.of("park", "seal-a", "seal-b"));
+        service.updateType("park", OrganizationType.project, 0).contextWrite(access).block(TIMEOUT);
+        image("seal-a", "png", 1024);
+        image("seal-b", "jpg", 1024);
+        var row = seals.update("park", "seal-a", 1).contextWrite(access).block(TIMEOUT);
+        assertEquals("seal-a", row.getProjectSealFileId());
+        assertEquals(2L, row.getVersion());
+        assertEquals("tester", row.getModifierId());
+        assertNotNull(row.getModifyTime());
+        snapshot(org("park", null, "项目改名"));
+        sync.synchronize().block(TIMEOUT);
+        assertEquals("seal-a", organizations.findById("park").block(TIMEOUT).getProjectSealFileId());
+        assertEquals("seal-a", organizationTreeCommand().contextWrite(access).blockFirst(TIMEOUT).getProjectSealFileId());
+        row = seals.update("park", "seal-b", 2).contextWrite(access).block(TIMEOUT);
+        assertEquals("seal-b", row.getProjectSealFileId());
+        row = seals.update("park", null, 3).contextWrite(access).block(TIMEOUT);
+        assertNull(row.getProjectSealFileId());
+        assertEquals(4L, row.getVersion());
+        verify(files, never()).delete(anyString());
+    }
+
+    @Test
+    void projectSealRejectsNonProjectsInvalidFilesAndForbiddenAssetsWithoutWrites() {
+        snapshot(org("park", null, "项目"), org("vendor", null, "外协"));
+        sync.synchronize().block(TIMEOUT);
+        service.updateType("park", OrganizationType.project, 0)
+                .contextWrite(access(Set.of("park"))).block(TIMEOUT);
+        service.updateType("vendor", OrganizationType.external, 0)
+                .contextWrite(access(Set.of("vendor"))).block(TIMEOUT);
+        image("svg", "svg", 1024);
+        image("large", "png", 5 * 1024 * 1024 + 1);
+        image("empty", "png", 0);
+        when(files.getFile("missing")).thenReturn(Mono.empty());
+        var allowed = access(Set.of("park", "vendor", "svg", "large", "empty", "missing"));
+        for (String fileId : List.of("svg", "large", "empty", "missing", " ")) {
+            StepVerifier.create(seals.update("park", fileId, 1).contextWrite(allowed))
+                    .expectErrorMatches(error -> error instanceof BusinessException e && e.getStatus() == 400)
+                    .verify(TIMEOUT);
+        }
+        StepVerifier.create(seals.update("vendor", null, 1).contextWrite(allowed))
+                .expectErrorMatches(error -> error instanceof BusinessException e && e.getStatus() == 409)
+                .verify(TIMEOUT);
+        StepVerifier.create(seals.update("park", null, 1).contextWrite(access(Set.of("vendor"))))
+                .expectError(AccessDenyException.class).verify(TIMEOUT);
+        StepVerifier.create(seals.update("park", "forbidden", 1).contextWrite(access(Set.of("park"))))
+                .expectError(AccessDenyException.class).verify(TIMEOUT);
+        StepVerifier.create(seals.update("park", null, 1))
+                .expectError(org.hswebframework.web.authorization.exception.UnAuthorizedException.class)
+                .verify(TIMEOUT);
+        assertNull(organizations.findById("park").block(TIMEOUT).getProjectSealFileId());
+        assertEquals(1L, organizations.findById("park").block(TIMEOUT).getVersion());
+        verify(files, never()).getFile("forbidden");
+    }
+
+    @Test
+    void concurrentProjectSealWritesHaveOneWinnerAndTypeUsesSameVersion() {
+        snapshot(org("park", null, "项目"));
+        sync.synchronize().block(TIMEOUT);
+        var access = access(Set.of("park", "seal-a", "seal-b"));
+        service.updateType("park", OrganizationType.project, 0).contextWrite(access).block(TIMEOUT);
+        image("seal-a", "png", 5 * 1024 * 1024);
+        image("seal-b", "jpg", 1024);
+        var results = Flux.merge(
+                        seals.update("park", "seal-a", 1).materialize(),
+                        seals.update("park", "seal-b", 1).materialize())
+                .contextWrite(access).collectList().block(TIMEOUT);
+        assertEquals(1, results.stream().filter(signal -> signal.isOnNext()).count());
+        assertEquals(1, results.stream().filter(signal -> signal.getThrowable() instanceof BusinessException e
+                && e.getStatus() == 409).count());
+        assertEquals(2L, organizations.findById("park").block(TIMEOUT).getVersion());
+        StepVerifier.create(service.updateType("park", OrganizationType.external, 1).contextWrite(access))
+                .expectErrorMatches(error -> error instanceof BusinessException e && e.getStatus() == 409)
+                .verify(TIMEOUT);
+    }
+
+    private void image(String id, String extension, long size) {
+        var file = new FileInfo();
+        file.setId(id);
+        file.setName("seal." + extension);
+        file.setExtension(extension);
+        file.setLength(size);
+        when(files.getFile(id)).thenReturn(Mono.just(file));
     }
 
     @Test
@@ -433,6 +526,17 @@ class OrganizationPersistenceTest {
         EntityFactoryConfiguration.class
     })
     static class Config {
+        @Bean
+        FileManager files() {
+            return mock(FileManager.class);
+        }
+
+        @Bean
+        PropertyProjectSealService seals(
+                ReactiveRepository<PropertyOrganizationEntity, String> organizations,
+                FileManager files) {
+            return new PropertyProjectSealService(organizations, files);
+        }
         @Bean
         SaasOrganizationSource source() {
             return mock(SaasOrganizationSource.class);

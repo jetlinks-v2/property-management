@@ -30,7 +30,7 @@ DTO 仅含 id、name、telephone、直接 organizationIds；员工 ID 与 SaaS u
 | 命令 ID | `QueryPropertyOrganizationTree`，按 JetLinks 命令类名规则生成 |
 | 输入 | 无参数；不接收调用者指定的用户、项目、租户或查询条件 |
 | 返回 | `Flux<PropertyOrganizationInfo>`，每个元素为一个根节点，`children` 为下级节点 |
-| 节点字段 | `id`、`name`、`code`、`parentId`、`sortIndex`、`organizationType`、`children` |
+| 节点字段 | `id`、`name`、`code`、`parentId`、`sortIndex`、`organizationType`、`projectSealFileId`、`children` |
 | 组织类型 | `OrganizationType.project` 为项目，`external` 为外协单位，`null` 为未标注 |
 | 范围 | 当前认证用户有权读取、未逻辑删除的完整组织树，保留未标注的公司等上级层级 |
 
@@ -61,6 +61,16 @@ return CommandSupportManagerProviders
 
 调用必须保留当前 `Authentication` / `AssetsHolder` Reactor 上下文；提供方复用 HTTP 组织树查询的资产过滤。消费方使用自己的业务菜单权限，无需授予组织类型维护菜单。内部任务若需要其他授权范围，须单独明确契约，不得通过清空上下文扩大用户查询范围。
 
+
+## 项目章
+
+物业基础管理的组织配置中，仅项目类型显示项目章，位于关联空间之后。每个项目可选维护一张 PNG/JPG 图片，大小不超过 5MB；支持预览、替换和确认删除，操作后自动保存。非项目不能维护，项目不需要先关联空间才能上传。
+
+1. 重启基础服务，由 EasyORM 为 `pm_organization` 自动补充可空的 `project_seal_file_id` 字段，无需重新同步或初始化数据。
+2. 发布公共前端 `property-base-ui`，重新初始化该模块菜单，给维护人员授予组织配置下的“维护项目章”按钮权限。接口动作是 `property-organization:seal`，与修改组织类型的 `save` 独立，同时校验 organization 资产写权限；上传沿用平台文件服务。
+3. `PUT /property/organization/{id}/seal` 接收 `{"fileId":"平台文件ID","version":当前组织版本}`；清除需显式提交 `fileId:null`。返回最新组织详情与版本，版本冲突返回 409，不自动重试。后端检查组织为项目、文件读权限和平台文件元数据（PNG/JPG、有效大小）。图片链接通过平台文件解析器获取，不存储本机地址。
+
+项目章保存在物业组织镜像的自有字段，SaaS 同步不覆盖。组织树 HTTP 与公开 `QueryPropertyOrganizationTreeCommand` 返回文件 ID，命令仅对项目输出该字段；其他业务通过 core 命令读取，不直接依赖 manager 或查表。更换和删除仅更改文件引用，不物理删除历史文件。本功能不包含单据盖章，未来出具单据时应由单据模块保存当时的章文件引用。
 
 ## 用户镜像与物业身份
 

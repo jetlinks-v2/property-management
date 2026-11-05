@@ -6,6 +6,7 @@ import org.jetlinks.core.annotation.command.CommandHandler;
 import org.jetlinks.pro.annotation.command.CommandService;
 import org.jetlinks.pro.property.base.entity.PropertyOrganizationEntity;
 import org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo;
+import org.jetlinks.pro.property.base.organization.OrganizationType;
 import org.jetlinks.pro.property.base.service.PropertyOrganizationService;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
@@ -41,6 +42,8 @@ public class PropertyOrganizationCommandSupport {
         info.setParentId(entity.getParentId());
         info.setSortIndex(entity.getSortIndex());
         info.setOrganizationType(entity.getOrganizationType());
+        info.setProjectSealFileId(entity.getOrganizationType() == OrganizationType.project
+                ? entity.getProjectSealFileId() : null);
         info.setChildren(entity.getChildren().stream().map(this::toInfo).toList());
         return info;
     }

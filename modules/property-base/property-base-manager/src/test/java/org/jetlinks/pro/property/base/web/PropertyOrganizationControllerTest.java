@@ -12,6 +12,26 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class PropertyOrganizationControllerTest {
     @Test
+    void sealRequiresDedicatedActionAndExplicitFileAndVersion() throws Exception {
+        var method = PropertyProjectSealController.class.getMethod("updateSeal", String.class,
+                PropertyProjectSealController.SealUpdate.class);
+        var definition = DefaultBasicAuthorizeDefinition.from(PropertyProjectSealController.class, method);
+        assertTrue(definition.getResources().hasPermission(new TestAuthentication("operator")
+                .addPermission("property-organization", "seal")));
+        assertFalse(definition.getResources().hasPermission(new TestAuthentication("type-only")
+                .addPermission("property-organization", "save")));
+        assertFalse(definition.getResources().hasPermission(new TestAuthentication("ungranted")));
+        var mapper = new ObjectMapper();
+        var type = PropertyProjectSealController.SealUpdate.class;
+        assertThrows(Exception.class, () -> mapper.readValue("{\"version\":1}", type));
+        assertNull(mapper.readValue("{\"fileId\":null,\"version\":1}", type).fileId());
+        try (var validator = Validation.buildDefaultValidatorFactory()) {
+            assertFalse(validator.getValidator().validate(new PropertyProjectSealController.SealUpdate("file", -1L)).isEmpty());
+            assertFalse(validator.getValidator().validate(new PropertyProjectSealController.SealUpdate("file", null)).isEmpty());
+            assertFalse(validator.getValidator().validate(new PropertyProjectSealController.SealUpdate("", 1L)).isEmpty());
+        }
+    }
+    @Test
     void eachEndpointRequiresItsOwnMenuAction() throws Exception {
         for (String method :
                 List.of("tree", "detail", "types", "status", "updateType", "synchronize")) {
