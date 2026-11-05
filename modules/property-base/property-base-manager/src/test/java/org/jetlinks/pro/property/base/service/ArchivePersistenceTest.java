@@ -15,6 +15,7 @@ import org.hswebframework.web.exception.BusinessException;
 import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.base.entity.*;
+import org.jetlinks.pro.property.base.command.*;
 import org.jetlinks.pro.property.base.organization.OrganizationType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -63,6 +64,67 @@ class ArchivePersistenceTest {
     @Autowired ReactiveRepository<PropertyCustomerRelationshipEntity, String> relationships;
     @Autowired ReactiveRepository<PropertyDictionaryTypeEntity, String> types;
     @Autowired ReactiveRepository<PropertyDictionaryItemEntity, String> items;
+
+
+    @Autowired PropertyHouseCommandSupport financeHouseCommands;
+    @Autowired PropertyDictionaryCommandSupport financeDictionaryCommands;
+    @Autowired PropertySpaceCommandSupport financeSpaceCommands;
+
+    @Test
+    void financeCommandsReadOnlyCompletedHousesAndKeepExistingDirectorySeparate() {
+        houseService.save("project", "single", write("single", 0L, "123.45"))
+                .contextWrite(all()).block(WAIT);
+        var request = new QueryPropertyHousesCommand();
+        request.setProjectId("project");
+        var page = financeHouseCommands.queryHouses(request).contextWrite(all()).block(WAIT);
+        assertEquals(1, page.total());
+        assertEquals("single", page.data().get(0).spaceId());
+        assertEquals(new BigDecimal("123.45"), page.data().get(0).billingArea());
+        request.setPageSize(201);
+        StepVerifier.create(financeHouseCommands.queryHouses(request).contextWrite(all()))
+                .expectErrorMatches(e -> status(e, 400)).verify(WAIT);
+        var spaceRequest = new QueryPropertySpaceNodesCommand();
+        spaceRequest.setProjectId("project");
+        var nodes = financeSpaceCommands.querySpaces(spaceRequest).contextWrite(all()).block(WAIT);
+        assertEquals(Set.of("single", "tower", "middle", "room"),
+                nodes.stream().map(n -> n.id()).collect(java.util.stream.Collectors.toSet()));
+        assertEquals("propertyService:directory", QueryPropertySpacesCommand.SERVICE_ID);
+    }
+
+    @Test
+    void financeContextProviderOpensItsOwnTransactionAndRejectsIncompleteOrUnreadableHouse() {
+        var request = new QueryPropertyHouseContextCommand();
+        request.setProjectId("project"); request.setSpaceId("single"); request.setForUpdate(true);
+        StepVerifier.create(financeHouseCommands.queryHouseContext(request).contextWrite(all()))
+                .expectErrorMatches(e -> status(e, 409)).verify(WAIT);
+        houseService.save("project", "single", write("single", 0L, "30.00"))
+                .contextWrite(all()).block(WAIT);
+        // No caller transaction: the separately deployed provider owns the read transaction.
+        var restored = new QueryPropertyHouseContextCommand();
+        request.readable().forEach(restored::with);
+        var commandSupport = org.jetlinks.supports.command.JavaBeanCommandSupport.create(financeHouseCommands);
+        var context = commandSupport.execute(restored).contextWrite(all()).block(WAIT);
+        assertEquals("single", context.house().spaceId());
+        assertTrue(context.customers().isEmpty());
+        StepVerifier.create(financeHouseCommands.queryHouseContext(request)
+                .contextWrite(access(Set.of("room"), ORG_IDS)))
+                .expectError().verify(WAIT);
+    }
+
+    @Test
+    void financeDictionaryCommandFiltersDisabledOptionsAndRejectsDisabledCategory() {
+        var request = new QueryPropertyDictionaryOptionsCommand(); request.setTypeCode("house-type");
+        dictionary.createItem("house-type", item("closed", false, null)).contextWrite(all()).block(WAIT);
+        var options = financeDictionaryCommands.queryOptions(request).contextWrite(all()).block(WAIT);
+        assertEquals(List.of("residential"), options.stream().map(n -> n.value()).toList());
+        var type = dictionary.types().contextWrite(all()).block(WAIT).stream()
+                .filter(n -> "house-type".equals(n.getCode())).findFirst().orElseThrow();
+        dictionary.updateType(type.getId(), type("house-type", false, type.getVersion()))
+                .contextWrite(all()).block(WAIT);
+        StepVerifier.create(financeDictionaryCommands.queryOptions(request).contextWrite(all()))
+                .expectErrorMatches(e -> status(e, 409)).verify(WAIT);
+        StepVerifier.create(financeDictionaryCommands.queryOptions(request)).expectError().verify(WAIT);
+    }
 
     @BeforeEach
     void prepare() {
@@ -1020,6 +1082,6 @@ class ArchivePersistenceTest {
         return Context.of(AssetsHolder.class, holder, Authentication.class, auth);
     }
 
-    @Import({CustomerPersistenceTest.Config.class, PropertySpaceService.class})
+    @Import({CustomerPersistenceTest.Config.class, PropertySpaceService.class, PropertyHouseCommandSupport.class, PropertyDictionaryCommandSupport.class, PropertySpaceCommandSupport.class})
     static class Config {}
 }

@@ -12,6 +12,7 @@
     <packaging>pom</packaging>
     <name>Property Finance</name>
     <modules>
+        <module>property-finance-core</module>
         <module>property-finance-manager</module>
     </modules>
 </project>

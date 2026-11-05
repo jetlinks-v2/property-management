@@ -1,0 +1,12 @@
+[
+  {
+    "path": "/property/finance/**",
+    "authorize": true,
+    "order": -20
+  },
+  {
+    "path": "/v3/api-docs/property-finance-service",
+    "authorize": true,
+    "order": -20
+  }
+]
