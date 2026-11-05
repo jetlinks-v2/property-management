@@ -309,6 +309,24 @@ class ReceivedReportPersistenceTest {
     @Autowired org.jetlinks.pro.property.finance.web.ReceivedReportController controller;
 
     @Test
+    void receivedLedgerUsesPathProjectAndKeepsPositiveReceiptsAndNegativeRefunds() {
+        var original = payment("100.01", "1", "room", "2024-02-15T12:00:00");
+        refund(original, "10.01", "CASH", "2024-02-16T12:00:00");
+        var ledger = new org.jetlinks.pro.property.finance.web.ReceivedLedgerController(reports, exports);
+        var client = org.springframework.test.web.reactive.server.WebTestClient.bindToController(ledger)
+                .controllerAdvice(new TaxItemPersistenceTest.HttpErrors())
+                .webFilter((exchange, chain) -> chain.filter(exchange).contextWrite(allowed)).build();
+        var forged = input();
+        forged.setProjectIds(List.of("foreign-project"));
+        forged.setGroupBy("PROJECT");
+        client.post().uri("/property/finance/projects/" + project + "/received/_query")
+                .bodyValue(forged).exchange().expectStatus().isOk()
+                .expectBody().jsonPath("$.groupBy").isEqualTo("DETAIL")
+                .jsonPath("$.page.total").isEqualTo(2)
+                .jsonPath("$.summary.netAmount").isEqualTo("90.00");
+    }
+
+    @Test
     void actualDimensionAssetsProtectsAllSourceTotalsAndExports() {
         var visible = payment("20", "1", "room", "2024-02-01T00:00:00");
         var hidden = payment("999", "1", "secret", "2024-02-01T00:00:00");

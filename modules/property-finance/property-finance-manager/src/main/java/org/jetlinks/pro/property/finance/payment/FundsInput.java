@@ -17,6 +17,7 @@ public class FundsInput {
             spaceId,
             relationshipId,
             standardId,
+            subjectId,
             companyId,
             method,
             recordedId,

@@ -100,6 +100,17 @@ class TemporaryPersistenceTest {
     @Autowired FinancialPeriodTestSupport periods;
 
     @Test
+    void selectedSubjectMustOwnTheStandardAndCompanyCannotBeForged() {
+        var input = input();
+        input.setSubjectId("another-subject");
+        fixture.rejects(service.preview(project, input, DATE), 409);
+        input.setSubjectId(setting.subjectId);
+        input.setCompanyId("another-company");
+        fixture.rejects(service.preview(project, input, DATE), 409);
+        assertEquals(0, payments.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    @Test
     void closedPeriodBlocksNewTemporaryCollectionButRecoversOriginalReceipt() {
         var original = request(input());
         var result =

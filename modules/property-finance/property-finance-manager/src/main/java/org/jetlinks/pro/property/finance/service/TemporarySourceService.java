@@ -49,6 +49,9 @@ public class TemporarySourceService {
                 .then(standards.current(project, input.getStandardId(), input.getCompanyId()))
                 .map(
                         standard -> {
+                            if (input.getSubjectId() != null
+                                    && !input.getSubjectId().equals(standard.getSubjectId()))
+                                throw error("setting_subject_unavailable", 409);
                             // 起止日期可覆盖未来期间；标准必须覆盖本次业务期间，不能拿已失效标准收费。
                             if (standard.getExecuteDate() != null
                                             && standard.getExecuteDate()

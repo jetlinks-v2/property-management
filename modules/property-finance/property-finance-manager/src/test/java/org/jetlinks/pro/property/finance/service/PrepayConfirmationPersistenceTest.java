@@ -62,6 +62,11 @@ class PrepayConfirmationPersistenceTest extends PrepayQuotePersistenceTest {
                                                                             1L))
                                                     .toList()));
                         });
+        when(cashierConfiguration.defaultCompanyId(eq(fixture.project), anyBoolean()))
+                .thenReturn(Mono.just("company"));
+        doCallRealMethod()
+                .when(cashierConfiguration)
+                .resolveCollection(eq(fixture.project), any(), anyBoolean());
     }
 
     PrepayConfirmationInput payment(String amount) {
@@ -81,6 +86,25 @@ class PrepayConfirmationPersistenceTest extends PrepayQuotePersistenceTest {
     }
 
     @Autowired FinancialPeriodTestSupport periods;
+
+    @Test
+    void changedProjectDefaultRejectsNewPrepayButDoesNotChangeConfirmedReceipt() {
+        var quote = create(input());
+        var request = payment(quote.payAmount());
+        when(cashierConfiguration.defaultCompanyId(eq(fixture.project), anyBoolean()))
+                .thenReturn(Mono.just("another-company"));
+        reject(confirmation.confirm(fixture.project, quote.id(), request, DATE), 409);
+        assertEquals(
+                0, payments.createQuery().where("projectId", fixture.project).count().block(WAIT));
+        when(cashierConfiguration.defaultCompanyId(eq(fixture.project), anyBoolean()))
+                .thenReturn(Mono.just("company"));
+        var saved = confirm(quote, request);
+        when(cashierConfiguration.defaultCompanyId(eq(fixture.project), anyBoolean()))
+                .thenReturn(Mono.just("another-company"));
+        assertEquals(
+                saved.receipt().payment().getId(),
+                confirm(quote, request).receipt().payment().getId());
+    }
 
     @Test
     void closedPeriodBlocksPrepayBeforeGeneratingBillsOrConsumingBenefits() {
@@ -257,7 +281,12 @@ class PrepayConfirmationPersistenceTest extends PrepayQuotePersistenceTest {
                 .block(WAIT);
         reject(confirmation.confirm(fixture.project, q.id(), payment(q.payAmount()), DATE), 409);
         var second = create(input());
-        settings.createUpdate().set("version", 1L).where("id", settingId).execute().block(WAIT);
+        var version = settings.findById(settingId).block(WAIT).getVersion();
+        settings.createUpdate()
+                .set("version", version + 1)
+                .where("id", settingId)
+                .execute()
+                .block(WAIT);
         reject(
                 confirmation.confirm(
                         fixture.project, second.id(), payment(second.payAmount()), DATE),
@@ -289,7 +318,7 @@ class PrepayConfirmationPersistenceTest extends PrepayQuotePersistenceTest {
                                         List.of(original.customers().get(0), second))));
         var i = fixture.input("two", "2024-01-01", "2026-12-31");
         i.setCustomerRelationshipIds(List.of("link", "second-link"));
-        var setting = run(settingService.create(fixture.project, i, DATE));
+        var setting = createApproved(i);
         when(activitySource.spaces(fixture.project))
                 .thenReturn(
                         Mono.just(
@@ -534,12 +563,7 @@ class PrepayConfirmationPersistenceTest extends PrepayQuotePersistenceTest {
                 .where("id", fixture.standardId)
                 .execute()
                 .block(WAIT);
-        var created =
-                run(
-                        settingService.create(
-                                fixture.project,
-                                fixture.input("tiny", "2024-02-01", "2024-12-31"),
-                                DATE));
+        var created = createApproved(fixture.input("tiny", "2024-02-01", "2024-12-31"));
         var a = activity(false);
         var config = ActivityCodec.decode(a.getConfigJson(), ActivitySnapshot.class);
         config.getInput().setTargetIds(List.of("tiny"));
@@ -798,12 +822,7 @@ class PrepayConfirmationPersistenceTest extends PrepayQuotePersistenceTest {
     @Test
     void oneConfirmationRequestCannotBeReusedForAnotherHouseQuote() {
         var first = create(input());
-        var setting =
-                run(
-                        settingService.create(
-                                fixture.project,
-                                fixture.input("other-house", "2024-01-01", "2026-12-31"),
-                                DATE));
+        var setting = createApproved(fixture.input("other-house", "2024-01-01", "2026-12-31"));
         var second =
                 create(
                         new PrepayQuoteInput(

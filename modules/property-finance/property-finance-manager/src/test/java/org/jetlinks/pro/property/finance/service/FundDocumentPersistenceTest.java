@@ -50,6 +50,10 @@ class FundDocumentPersistenceTest extends DocumentIssuePersistenceTest {
         value.setOccurredAt("2024-02-15T12:00:00");
         value.setPayerName("龚超");
         value.setReason("柜台存入");
+        if ("ADVANCE".equals(type)) {
+            value.setStartDate("2024-02-01");
+            value.setEndDate("2024-02-29");
+        }
         return value;
     }
 

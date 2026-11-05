@@ -44,7 +44,7 @@ public class CashierService {
 
     public Mono<List<CashierConfiguration.CompanyOption>> options(String project) {
         return scope.project(project, CrudAssetPermission.save)
-                .then(configuration.options(project));
+                .then(configuration.collectionOptions(project));
     }
 
     /** 候选为每笔账单所选收费对象的交集，同时必须仍是对应房屋的有效客户。 */
@@ -131,7 +131,7 @@ public class CashierService {
                                             .flatMap(
                                                     payer ->
                                                             configuration
-                                                                    .resolve(project, input, false)
+                                                                    .resolveCollection(project, input, false)
                                                                     .flatMap(
                                                                             config ->
                                                                                     rows(
@@ -190,7 +190,7 @@ public class CashierService {
                                                                     .flatMap(
                                                                             payer ->
                                                                                     configuration
-                                                                                            .resolve(
+                                                                                            .resolveCollection(
                                                                                                     project,
                                                                                                     input,
                                                                                                     true)

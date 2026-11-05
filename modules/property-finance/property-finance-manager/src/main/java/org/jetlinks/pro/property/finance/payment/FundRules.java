@@ -14,6 +14,14 @@ public final class FundRules {
 
     public static final Set<String> TYPES = Set.of("ADVANCE", "DEPOSIT");
 
+    /** 新预收款必须明确计费期间；已入账的旧请求仍按原指纹恢复。 */
+    public static void validateNewCollection(FundsInput input) {
+        if ("TOPUP".equals(input.getAction())
+                && "ADVANCE".equals(input.getType())
+                && (blank(input.getStartDate()) || blank(input.getEndDate())))
+            throw error("fund_period_required", 400);
+    }
+
     public static void validate(FundsInput i, LocalDate date) {
         if (i == null
                 || date == null
@@ -24,9 +32,10 @@ public final class FundRules {
         money(i.getAmount());
         if (blank(i.getCompanyId())
                 || blank(i.getPayerName())
-                || blank(i.getReason())
                 || i.getPayerName().length() > 128
-                || i.getReason().length() > 1000) throw error("fund_invalid", 400);
+                || n(i.getReason()).length() > 1000
+                || (!"TOPUP".equals(i.getAction()) && blank(i.getReason())))
+            throw error("fund_invalid", 400);
         for (var id :
                 List.of(
                         n(i.getCompanyId()),
@@ -35,6 +44,7 @@ public final class FundRules {
                         n(i.getSpaceId()),
                         n(i.getRelationshipId()),
                         n(i.getStandardId()),
+                        n(i.getSubjectId()),
                         n(i.getRecordedId()),
                         n(i.getTargetSpaceId()),
                         n(i.getTargetRelationshipId()),
@@ -56,7 +66,10 @@ public final class FundRules {
         }
         if (blank(i.getStartDate()) != blank(i.getEndDate())) throw error("fund_invalid", 400);
         if ("TOPUP".equals(i.getAction())) {
-            if (blank(i.getSpaceId()) || blank(i.getRelationshipId()) || blank(i.getStandardId()))
+            if (blank(i.getSpaceId())
+                    || blank(i.getRelationshipId())
+                    || (blank(i.getStandardId())
+                            && (!"DEPOSIT".equals(i.getType()) || blank(i.getSubjectId()))))
                 throw error("fund_invalid", 400);
         } else if (blank(i.getAccountId()) || i.getVersion() == null || i.getVersion() < 0)
             throw error("fund_invalid", 400);
@@ -133,6 +146,8 @@ public final class FundRules {
                                                         v.version(),
                                                         money(v.amount()).toPlainString()))
                                 .toList());
+        // 已持久化的旧请求指纹保持不变；科目押金的新字段必须参与幂等校验。
+        if (!blank(i.getSubjectId())) fields.add(i.getSubjectId());
         return JSON.toJSONString(fields);
     }
 

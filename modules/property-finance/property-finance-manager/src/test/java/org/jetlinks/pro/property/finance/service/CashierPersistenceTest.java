@@ -82,6 +82,9 @@ class CashierPersistenceTest {
                                                                             1L))
                                                     .toList()));
                         });
+        when(configuration.resolveCollection(anyString(), any(), anyBoolean()))
+                .thenAnswer(call -> configuration.resolve(
+                        call.getArgument(0), call.getArgument(1), call.getArgument(2)));
     }
 
     ReceivableEntity bill(String suffix) {

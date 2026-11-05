@@ -110,7 +110,7 @@ public class PrepayConfirmationService {
                 != 0) return Mono.error(error("cashier_total_mismatch", 400));
         // 与普通柜台、资金结转共用锁序：基础→公司→科目/设置→活动→应收→报价/支付。
         return archive.context(quote.getProjectId(), quote.getSpaceId(), true)
-                .then(configuration.resolve(quote.getProjectId(), funding, true))
+                .then(configuration.resolveCollection(quote.getProjectId(), funding, true))
                 .flatMap(
                         config ->
                                 lockReferences(setting)

@@ -15,7 +15,9 @@ import org.jetlinks.pro.property.base.archive.PropertyHouseContext;
 import org.jetlinks.pro.property.base.archive.PropertyHouseCustomer;
 import org.jetlinks.pro.property.finance.entity.FundAccountEntity;
 import org.jetlinks.pro.property.finance.entity.StandardEntity;
+import org.jetlinks.pro.property.finance.entity.SubjectEntity;
 import org.jetlinks.pro.property.finance.payment.FundsInput;
+import org.jetlinks.pro.property.finance.payment.FundRules;
 import org.jetlinks.pro.property.finance.setting.SettingRules;
 import org.springframework.stereotype.Component;
 
@@ -49,6 +51,8 @@ public class FundSourceService {
     }
 
     private Mono<Prepared> topup(String project, FundsInput input, boolean lock) {
+        if ("DEPOSIT".equals(input.getType()) && FundRules.blank(input.getStandardId()))
+            return deposit(project, input, lock);
         return current(
                         project,
                         input.getType(),
@@ -77,6 +81,9 @@ public class FundSourceService {
     }
 
     private void validateTopup(FundsInput input, StandardEntity standard) {
+        if (!FundRules.blank(input.getSubjectId())
+                && !input.getSubjectId().equals(standard.getSubjectId()))
+            throw error("setting_subject_unavailable", 409);
         if (input.getQuantity() != null) {
             var expected =
                     standard.getPrice()
@@ -90,6 +97,65 @@ public class FundSourceService {
         if (standard.getExecuteDate() != null && standard.getExecuteDate().compareTo(date) > 0
                 || standard.getCancelDate() != null && standard.getCancelDate().compareTo(date) < 0)
             throw error("setting_standard_unavailable", 409);
+    }
+
+    /** 押金按已下发科目收取，不创建虚构标准；存入事实仍由同一余额账本原子写入。 */
+    private Mono<Prepared> deposit(String project, FundsInput input, boolean lock) {
+        return AssetsHolder.assertPermission(
+                        AssetType.of("space"), input.getSpaceId(), CrudAssetPermission.save)
+                .then(archive.context(project, input.getSpaceId(), lock))
+                .flatMap(context -> collectionStandards
+                        .issuedSubject(project, input.getSubjectId(), false)
+                        .flatMap(subject -> depositAccount(project, input, context, subject)));
+    }
+
+    private Mono<Prepared> depositAccount(
+            String project, FundsInput input, PropertyHouseContext context, SubjectEntity subject) {
+        if (!project.equals(context.house().projectId())
+                || !input.getSpaceId().equals(context.house().spaceId()))
+            return Mono.error(error("fund_source_invalid", 409));
+        var customer = context.customers().stream()
+                .filter(value -> value.relationshipId().equals(input.getRelationshipId()))
+                .findFirst().orElseThrow(() -> error("cashier_payer_invalid", 409));
+        var key = JSON.toJSONString(List.of(project, input.getCompanyId(), input.getType(),
+                input.getSpaceId(), customer.customerId(), subject.getId()));
+        var id = UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)).toString();
+        return accounts.findById(id)
+                .filter(account -> !Boolean.TRUE.equals(account.getDeleted()))
+                .switchIfEmpty(Mono.fromSupplier(() -> {
+                    var account = new FundAccountEntity();
+                    account.setId(id);
+                    account.setVersion(0L);
+                    account.setProjectId(project);
+                    account.setCompanyId(input.getCompanyId());
+                    account.setType(input.getType());
+                    account.setSpaceId(input.getSpaceId());
+                    account.setCustomerId(customer.customerId());
+                    account.setSubjectId(subject.getId());
+                    account.setBalance(BigDecimal.ZERO.setScale(2));
+                    account.setInvoiceOccupiedAmount(BigDecimal.ZERO.setScale(2));
+                    return account;
+                }))
+                .map(account -> {
+                    // 空标准表示科目押金；旧版非空列保留，历史流水中的原标准快照不变。
+                    account.setStandardId("");
+                    account.setStandardName("");
+                    account.setSubjectName(subject.getName());
+                    account.setFullName(context.house().fullName());
+                    account.setRelationshipId(customer.relationshipId());
+                    account.setCustomerName(customer.name());
+                    account.setSourceIdentity(context.house().version() + ":"
+                            + customer.relationshipVersion() + ":" + customer.customerVersion());
+                    account.setDocumentSnapshotJson(JSON.toJSONString(java.util.Map.of(
+                            "subject", subject, "fundType", input.getType(),
+                            "customerId", customer.customerId(),
+                            "relationshipId", customer.relationshipId())));
+                    return new Prepared(account, null, subject.getId() + ":" + subject.getVersion());
+                });
+    }
+
+    Flux<SubjectEntity> issuedSubjects(String project) {
+        return collectionStandards.issuedSubjects(project);
     }
 
     private Mono<Prepared> historical(String project, FundsInput input, boolean lock) {
@@ -270,6 +336,8 @@ public class FundSourceService {
     }
 
     Mono<Void> lockReferences(String project, FundsInput input) {
+        if ("TOPUP".equals(input.getAction()) && FundRules.blank(input.getStandardId()))
+            return collectionStandards.issuedSubject(project, input.getSubjectId(), true).then();
         var ids = new TreeSet<String>();
         if ("TOPUP".equals(input.getAction())) ids.add(input.getStandardId());
         if (Set.of("TRANSFER", "DEDUCT").contains(input.getAction()))

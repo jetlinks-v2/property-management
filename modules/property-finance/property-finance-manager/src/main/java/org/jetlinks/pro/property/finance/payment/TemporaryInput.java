@@ -13,6 +13,7 @@ public class TemporaryInput {
     private String spaceId;
     private String relationshipId;
     private String standardId;
+    private String subjectId;
     private String companyId;
     private String startDate;
     private String endDate;

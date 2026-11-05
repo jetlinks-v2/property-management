@@ -45,7 +45,7 @@ public class TemporaryService {
                                             .flatMap(
                                                     context ->
                                                             configuration
-                                                                    .resolve(
+                                                                    .resolveCollection(
                                                                             project,
                                                                             input.fundingInput(),
                                                                             false)
@@ -114,7 +114,7 @@ public class TemporaryService {
                 .flatMap(
                         context ->
                                 configuration
-                                        .resolve(project, input.fundingInput(), true)
+                                        .resolveCollection(project, input.fundingInput(), true)
                                         .flatMap(
                                                 config ->
                                                         sources.prepare(

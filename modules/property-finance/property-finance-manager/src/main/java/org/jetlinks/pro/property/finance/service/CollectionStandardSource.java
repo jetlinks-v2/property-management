@@ -21,6 +21,23 @@ public class CollectionStandardSource {
     private final ReactiveRepository<StandardEntity, String> standards;
     private final ReactiveRepository<ProjectSubjectEntity, String> issued;
 
+    Mono<SubjectEntity> issuedSubject(String project, String id, boolean lock) {
+        return subjects.subject(id, lock)
+                .filter(subject -> Boolean.TRUE.equals(subject.getEnabled()))
+                .switchIfEmpty(Mono.error(error("setting_subject_unavailable", 409)))
+                .flatMap(subject -> (lock ? lockIssued(project, id) : issued.createQuery()
+                                .where("projectId", project).and("subjectId", id)
+                                .and("deleted", false).fetchOne()
+                                .switchIfEmpty(Mono.error(error("setting_subject_unavailable", 409))))
+                        .thenReturn(subject));
+    }
+
+    Flux<SubjectEntity> issuedSubjects(String project) {
+        return issued.createQuery().where("projectId", project).and("deleted", false).fetch()
+                .concatMap(relation -> subjects.subject(relation.getSubjectId(), false))
+                .filter(subject -> Boolean.TRUE.equals(subject.getEnabled()));
+    }
+
     Mono<StandardEntity> current(String project, String id, String company) {
         // 本方法只读取；财务引用锁统一在公司锁之后获取，防止与标准维护形成反向锁序。
         return standards

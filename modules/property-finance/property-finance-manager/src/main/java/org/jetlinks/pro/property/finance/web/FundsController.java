@@ -24,7 +24,6 @@ public class FundsController {
     private final ReceivableService receivables;
     private final FundsService service;
     private final HouseSettingService settings;
-    private final CashierService cashier;
     private final BillingJobProperties properties;
 
     @PostMapping("/_query")
@@ -52,11 +51,15 @@ public class FundsController {
     @GetMapping("/_options")
     @ResourceAction(id = "query", name = "查询")
     public Mono<Map<String, Object>> options(@PathVariable String projectId) {
-        return Mono.zip(settings.options(projectId), cashier.options(projectId))
+        return Mono.zip(
+                        settings.options(projectId), service.companyOptions(projectId),
+                        service.issuedSubjects(projectId), service.defaultCompanyId(projectId))
                 .map(
                         v -> {
                             var m = new HashMap<String, Object>(v.getT1());
                             m.put("companies", v.getT2());
+                            m.put("subjects", v.getT3());
+                            m.put("defaultCompanyId", v.getT4());
                             return m;
                         });
     }

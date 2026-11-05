@@ -37,6 +37,24 @@ public class FundsService {
     private final ReactiveRepository<FundAccountEntity, String> accounts;
     private final ReactiveRepository<FundEntryEntity, String> entries;
 
+    public Mono<List<SubjectEntity>> issuedSubjects(String project) {
+        return scope.project(project, CrudAssetPermission.read)
+                .thenMany(sources.issuedSubjects(project))
+                .collectList();
+    }
+
+    public Mono<String> defaultCompanyId(String project) {
+        return scope.project(project, CrudAssetPermission.read)
+                .then(configuration.defaultCompanyId(project, false))
+                .defaultIfEmpty("");
+    }
+
+    /** 资金退款需要原公司的付款配置，不随项目默认公司切换。 */
+    public Mono<List<CashierConfiguration.CompanyOption>> companyOptions(String project) {
+        return scope.project(project, CrudAssetPermission.save)
+                .then(configuration.options(project));
+    }
+
     public Mono<String> quote(
             String project, String standard, String company, BigDecimal quantity) {
         return scope.project(project, CrudAssetPermission.read)
@@ -77,6 +95,7 @@ public class FundsService {
                         Mono.defer(
                                 () -> {
                                     FundRules.validate(input, date);
+                                    FundRules.validateNewCollection(input);
                                     return sources.prepare(project, input, false)
                                             .flatMap(
                                                     source ->
@@ -147,6 +166,7 @@ public class FundsService {
             Submission request,
             LocalDate date,
             Authentication auth) {
+        FundRules.validateNewCollection(request.input());
         // 先锁基础档案，再锁公司、科目/标准、应收、资金账户，和柜台/标准维护采用相同锁序。
         return sources.prepare(project, request.input(), true)
                 .then(config(project, request.input(), true))
@@ -204,7 +224,9 @@ public class FundsService {
                     List.of(
                             new CashierInput.Tender(
                                     i.getMethod(), i.getRecordedId(), i.getAmount())));
-            return configuration.resolve(project, cash, lock);
+            return "TOPUP".equals(i.getAction())
+                    ? configuration.resolveCollection(project, cash, lock)
+                    : configuration.resolve(project, cash, lock);
         }
         return configuration
                 .balanceCompany(project, i.getCompanyId(), lock)

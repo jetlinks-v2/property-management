@@ -67,6 +67,9 @@ class FundsPersistenceTest {
         company.setVersion(1L);
         when(configuration.balanceCompany(anyString(), anyString(), anyBoolean()))
                 .thenReturn(Mono.just(company));
+        when(configuration.defaultCompanyId(anyString(), anyBoolean()))
+                .thenReturn(Mono.just("company"));
+        doCallRealMethod().when(configuration).resolveCollection(anyString(), any(), anyBoolean());
     }
 
     FundsInput input(String action, String amount) {
@@ -82,6 +85,10 @@ class FundsPersistenceTest {
         i.setOccurredAt("2024-02-15T12:00:00");
         i.setPayerName("龚超");
         i.setReason("柜台办理");
+        if ("TOPUP".equals(action)) {
+            i.setStartDate("2024-02-01");
+            i.setEndDate("2024-02-29");
+        }
         return i;
     }
 
@@ -112,7 +119,7 @@ class FundsPersistenceTest {
     }
 
     @Test
-    void topupFreezesOptionalBillingDatesForReportingWithoutChangingAmount() {
+    void topupFreezesBillingDatesForReportingWithoutChangingAmount() {
         var input = input("TOPUP", "20.01");
         input.setStartDate("2024-02-01");
         input.setEndDate("2024-02-29");
@@ -127,6 +134,98 @@ class FundsPersistenceTest {
     }
 
     @Autowired FinancialPeriodTestSupport periods;
+
+    @Test
+    void newAdvanceRequiresBothBillingDatesBeforePreviewOrDirectSubmission() {
+        var input = input("TOPUP", "20.01");
+        input.setStartDate(null);
+        input.setEndDate(null);
+        rejects(service.preview(project, input, DATE), 400);
+        var request =
+                new FundsService.Submission(UUID.randomUUID().toString(), "a".repeat(64), input);
+        rejects(service.execute(project, request, DATE), 400);
+        input.setStartDate("2024-02-01");
+        rejects(service.preview(project, input, DATE), 400);
+        input.setStartDate(null);
+        input.setEndDate("2024-02-29");
+        rejects(service.preview(project, input, DATE), 400);
+        input.setStartDate("2024-03-01");
+        rejects(service.preview(project, input, DATE), 400);
+        assertEquals(0, entries.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(0, accounts.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    @Test
+    void depositUsesIssuedSubjectWithoutStandardAndRefundsWithoutCreatingPayment() {
+        var input = input("TOPUP", "120.01");
+        input.setType("DEPOSIT");
+        input.setStartDate(null);
+        input.setEndDate(null);
+        input.setStandardId(null);
+        input.setSubjectId(setting.subjectId);
+        input.setQuantity(new BigDecimal("2"));
+        input.setReason("");
+        var request = request(input);
+        var first =
+                service.execute(project, request, DATE).contextWrite(fixture.allowed()).block(WAIT);
+        var retry =
+                service.execute(project, request, DATE).contextWrite(fixture.allowed()).block(WAIT);
+        assertEquals(first.entry().getId(), retry.entry().getId());
+        assertEquals("", first.account().getStandardId());
+        assertEquals(setting.subjectId, first.account().getSubjectId());
+        money("120.01", retry.account().getBalance());
+        var refund = debit(first.account(), "REFUND", "20.01");
+        refund.setType("DEPOSIT");
+        var returned = run(refund);
+        money("100.00", returned.account().getBalance());
+        money("-20.01", returned.entry().getCashAmount());
+        assertEquals(2, entries.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(0, payments.createQuery().where("projectId", project).count().block(WAIT));
+        input.setSubjectId("foreign-subject");
+        rejects(service.execute(project, request, DATE), 409);
+    }
+
+    @Test
+    void depositRejectsMissingDisabledOrUnissuedSubjectBeforeWriting() {
+        var input = input("TOPUP", "12.00");
+        input.setType("DEPOSIT");
+        input.setStandardId(null);
+        rejects(service.preview(project, input, DATE), 400);
+        input.setSubjectId(setting.subjectId);
+        subjects.createUpdate()
+                .set("enabled", false)
+                .where("id", setting.subjectId)
+                .execute()
+                .block(WAIT);
+        rejects(service.preview(project, input, DATE), 409);
+        subjects.createUpdate()
+                .set("enabled", true)
+                .where("id", setting.subjectId)
+                .execute()
+                .block(WAIT);
+        issued.createUpdate()
+                .set("deleted", true)
+                .where("projectId", project)
+                .execute()
+                .block(WAIT);
+        rejects(service.preview(project, input, DATE), 409);
+        assertEquals(0, accounts.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    @Test
+    void depositUsesProjectDefaultCompanyAndRejectsAChangedDefaultAfterPreview() {
+        var input = input("TOPUP", "12.00");
+        input.setType("DEPOSIT");
+        input.setStandardId(null);
+        input.setSubjectId(setting.subjectId);
+        var request = request(input);
+        when(configuration.defaultCompanyId(anyString(), anyBoolean()))
+                .thenReturn(Mono.just("another-company"));
+        rejects(service.execute(project, request, DATE), 409);
+        assertEquals(0, accounts.createQuery().where("projectId", project).count().block(WAIT));
+        when(configuration.defaultCompanyId(anyString(), anyBoolean())).thenReturn(Mono.empty());
+        rejects(service.preview(project, input, DATE), 409);
+    }
 
     @Test
     void closedPeriodBlocksEveryNewFundActionButPreservesOriginalTopup() {
@@ -411,7 +510,6 @@ class FundsPersistenceTest {
                         mock(ReceivableService.class),
                         service,
                         mock(HouseSettingService.class),
-                        mock(CashierService.class),
                         new BillingJobProperties());
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(

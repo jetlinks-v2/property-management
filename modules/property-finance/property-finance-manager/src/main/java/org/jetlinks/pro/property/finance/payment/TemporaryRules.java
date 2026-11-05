@@ -19,7 +19,9 @@ public final class TemporaryRules {
                 || blank(input.getStandardId())
                 || input.getSpaceId().length() > 64
                 || input.getRelationshipId().length() > 64
-                || input.getStandardId().length() > 64) throw error("temporary_invalid", 400);
+                || input.getStandardId().length() > 64
+                || input.getSubjectId() != null && input.getSubjectId().length() > 64)
+            throw error("temporary_invalid", 400);
         try {
             var start = LocalDate.parse(input.getStartDate());
             var end = LocalDate.parse(input.getEndDate());

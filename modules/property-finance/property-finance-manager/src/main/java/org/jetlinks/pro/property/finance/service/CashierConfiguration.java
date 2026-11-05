@@ -25,6 +25,58 @@ public class CashierConfiguration {
     private final ReactiveRepository<RecordedInfoEntity, String> records;
     private final ReactiveRepository<FinanceBankEntity, String> banks;
 
+    Mono<String> defaultCompanyId(String project, boolean lock) {
+        var query = new QueryParamEntity();
+        query.setForUpdate(lock);
+        return relations
+                .createQuery()
+                .setParam(query)
+                .where("projectId", project)
+                .and("defaultKey", project)
+                .and("deleted", false)
+                .fetchOne()
+                .map(FinanceProjectCompanyEntity::getCompanyId);
+    }
+
+    /** 新收款统一使用项目默认公司；历史退款仍沿用原款公司的配置。 */
+    public Mono<Resolved> resolveCollection(String project, CashierInput input, boolean lock) {
+        return resolve(project, input, lock)
+                .flatMap(
+                        config ->
+                                defaultCompanyId(project, lock)
+                                        .filter(config.company().getId()::equals)
+                                        .switchIfEmpty(
+                                                Mono.error(
+                                                        error(
+                                                                "cashier_default_company_required",
+                                                                409)))
+                                        .thenReturn(config));
+    }
+
+    Mono<List<CompanyOption>> collectionOptions(String project) {
+        return defaultCompanyId(project, false)
+                .switchIfEmpty(Mono.error(error("cashier_default_company_required", 409)))
+                .flatMap(
+                        id ->
+                                options(project)
+                                        .map(
+                                                rows -> {
+                                                    var selected =
+                                                            rows.stream()
+                                                                    .filter(
+                                                                            row ->
+                                                                                    id.equals(
+                                                                                            row
+                                                                                                    .id()))
+                                                                    .toList();
+                                                    if (selected.size() != 1)
+                                                        throw error(
+                                                                "cashier_default_company_required",
+                                                                409);
+                                                    return selected;
+                                                }));
+    }
+
     Mono<FinanceCompanyEntity> balanceCompany(String project, String companyId, boolean lock) {
         return companies
                 .company(companyId, lock)

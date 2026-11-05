@@ -65,7 +65,7 @@ public class FundLedger {
         entry.setMethodText(methodText);
         entry.setRecordedId(input.getRecordedId());
         entry.setBankName(bankName);
-        entry.setReason(input.getReason());
+        entry.setReason(java.util.Objects.toString(input.getReason(), ""));
         entry.setAttachmentFileId(input.getAttachmentFileId());
         entry.setAttachmentName(input.getAttachmentName());
         entry.setRequestFingerprint(fingerprint);
