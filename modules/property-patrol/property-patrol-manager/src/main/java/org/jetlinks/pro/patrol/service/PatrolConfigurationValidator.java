@@ -12,7 +12,6 @@ import org.jetlinks.pro.patrol.entity.PatrolCategoryEntity;
 import org.jetlinks.pro.patrol.entity.PatrolConfigEntity;
 import org.jetlinks.pro.patrol.entity.PatrolPlanEntity;
 import org.jetlinks.pro.patrol.entity.PatrolPointEntity;
-import org.jetlinks.pro.patrol.entity.PatrolPostEntity;
 import org.jetlinks.pro.patrol.entity.PatrolRosterEntity;
 import org.jetlinks.pro.patrol.entity.PatrolStandardEntity;
 import org.jetlinks.pro.patrol.integration.PatrolScope;
@@ -35,7 +34,7 @@ public class PatrolConfigurationValidator {
     private final PatrolCategoryService categories;
     private final PatrolPointService points;
     private final PatrolStandardService standards;
-    private final PatrolPostService posts;
+    private final PatrolRoleService roles;
     private final SaasPersonDirectory people;
     private final PatrolScope scope;
     private final PatrolAttachmentService attachments;
@@ -64,6 +63,7 @@ public class PatrolConfigurationValidator {
                             if (entity instanceof PatrolCategoryEntity category
                                     && category.getParentId() == null) category.setParentId("");
                             if (entity instanceof PatrolPointEntity point) {
+                                point.completeCode(previous instanceof PatrolPointEntity old ? old.getCode() : null);
                                 if (previous instanceof PatrolPointEntity old
                                         && !java.util.Objects.equals(old.getCategoryId(), point.getCategoryId()))
                                     return Mono.error(new BusinessException("error.patrol.point.category_managed"));
@@ -76,7 +76,7 @@ public class PatrolConfigurationValidator {
                                 point.setCategoryIds(categoryIds);
                                 return reactor.core.publisher.Flux.fromIterable(categoryIds)
                                         .concatMap(id -> reference(PatrolAssetType.patrolCategory, id,
-                                                categories.findById(id), current.key(), entity)).then()
+                                                categories.findForUpdate(id), current.key(), entity)).then()
                                         .then(reactor.core.publisher.Flux.fromIterable(
                                                 point.getTagIds() == null ? List.<String>of() : point.getTagIds())
                                                 .concatMap(id -> reference(PatrolAssetType.patrolTag, id,
@@ -110,8 +110,6 @@ public class PatrolConfigurationValidator {
                                         org.jetlinks.pro.patrol.entity.PatrolAttachmentEntity.Purpose.example,
                                         current.key(), null, standard);
                             }
-                            if (entity instanceof PatrolPostEntity post)
-                                return people.assertMembers(post.getUserIds());
                             if (entity instanceof PatrolRosterEntity roster) {
                                 if (roster.getEndTime() <= roster.getStartTime()
                                         || roster.getEndTime() - roster.getStartTime() > 86400000L)
@@ -124,11 +122,9 @@ public class PatrolConfigurationValidator {
                                 if (!shiftDay.equals(roster.getBusinessDate()))
                                     return Mono.error(
                                             new BusinessException("error.patrol.roster.date"));
-                                return reference(
-                                                PatrolAssetType.patrolPost,
-                                                roster.getPostId(),
-                                                posts.findById(roster.getPostId()),
-                                                current.key(), entity)
+                                Mono<Void> memberCheck = roster.getRoleId().isBlank()
+                                        ? people.assertMembers(List.of(roster.getUserId()))
+                                        : roleReference(roster.getRoleId())
                                         .flatMap(
                                                 post ->
                                                         post.getUserIds()
@@ -138,8 +134,8 @@ public class PatrolConfigurationValidator {
                                                                         List.of(roster.getUserId()))
                                                                 : Mono.error(
                                                                         new BusinessException(
-                                                                                "error.patrol.execution.unassigned")))
-                                        .then(people.query(org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
+                                                                                "error.patrol.execution.unassigned")));
+                                return memberCheck.then(people.query(org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
                                                 .is("id", roster.getUserId()).getParam()))
                                         .doOnNext(page -> { if (!page.getData().isEmpty()) roster.setUserName(page.getData().get(0).name()); })
                                         .then();
@@ -177,18 +173,16 @@ public class PatrolConfigurationValidator {
                                             if (!point.getCategoryIds().contains(plan.getCategoryId()))
                                                 throw new BusinessException("error.patrol.reference.unavailable");
                                         }),
-                                        reference(
-                                                PatrolAssetType.patrolPost,
-                                                plan.getPostId(),
-                                                posts.findById(plan.getPostId()),
-                                                current.key(), entity).doOnNext(post -> {
-                                            if (!java.util.Objects.equals(plan.getProjectId(), post.getProjectId()))
-                                                throw new BusinessException("error.patrol.project_mismatch", 400);
-                                        })));
+                                        plan.getRoleId().isBlank()
+                                                ? Mono.fromRunnable(() -> plan.setRoleName(""))
+                                                : roleReference(plan.getRoleId()).doOnNext(role -> plan.setRoleName(role.getName())).then()));
                             }
                             return Mono.empty();
                         });
-        return PatrolOwnership.resolve(entity, previous, points, posts).then(Mono.defer(() ->
+        // 全应用预警不需要项目上下文，仍执行当前应用 Scope 及预警内容校验。
+        if (entity instanceof org.jetlinks.pro.patrol.entity.PatrolWarningEntity)
+            return PatrolOwnership.resolve(entity, previous, points).then(references);
+        return PatrolOwnership.resolve(entity, previous, points).then(Mono.defer(() ->
                 org.jetlinks.pro.patrol.integration.PatrolProjectContext.current().flatMap(context ->
                         entity.getProjectId() == null ? references
                                 : references.contextWrite(ctx -> ctx.put(
@@ -211,8 +205,13 @@ public class PatrolConfigurationValidator {
         if (parent == null || parent.isEmpty()) return Mono.empty();
         if (!visited.add(parent) || visited.size() > 32)
             return Mono.error(new BusinessException("error.patrol.category.cycle"));
-        return reference(PatrolAssetType.patrolCategory, parent, categories.findById(parent), key, category)
+        return reference(PatrolAssetType.patrolCategory, parent, categories.findForUpdate(parent), key, category)
                 .flatMap(value -> checkParents(category, value.getParentId(), visited, key));
+    }
+
+    /** 角色属于当前应用，不与点位项目比较；认证服务执行 role 资产授权。 */
+    private Mono<org.jetlinks.pro.patrol.entity.PatrolRole> roleReference(String id) {
+        return roles.findById(id).switchIfEmpty(Mono.error(new BusinessException("error.patrol.reference.unavailable")));
     }
 
     private <E extends PatrolConfigEntity> Mono<E> reference(
@@ -223,8 +222,7 @@ public class PatrolConfigurationValidator {
                         entity ->
                                 entity.isEnabled() && key.equals(entity.getScopeKey())
                                         ? org.jetlinks.pro.patrol.integration.PatrolProjectContext.current().flatMap(context -> {
-                                            if (!context.canReference(owner.getProjectId(), owner.getOwnerOrganizationId(),
-                                                    entity.getProjectId(), entity.getOwnerOrganizationId()))
+                                            if (!context.canReference(owner.getProjectId(), entity.getProjectId()))
                                                 return Mono.error(new BusinessException("error.patrol.project_mismatch", 400));
                                             return Mono.just(entity);
                                         })

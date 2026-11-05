@@ -11,7 +11,6 @@ import org.jetlinks.pro.patrol.entity.PatrolConfigEntity;
 import org.jetlinks.pro.patrol.service.PatrolCategoryService;
 import org.jetlinks.pro.patrol.service.PatrolPlanService;
 import org.jetlinks.pro.patrol.service.PatrolPointService;
-import org.jetlinks.pro.patrol.service.PatrolPostService;
 import org.jetlinks.pro.patrol.service.PatrolRosterService;
 import org.jetlinks.pro.patrol.service.PatrolStandardService;
 import org.jetlinks.pro.patrol.service.PatrolAttachmentService;
@@ -32,7 +31,6 @@ public class PatrolAssetSupplier implements AssetSupplier {
     private final PatrolCategoryService categories;
     private final PatrolPointService points;
     private final PatrolStandardService standards;
-    private final PatrolPostService posts;
     private final PatrolRosterService rosters;
     private final PatrolPlanService plans;
     private final PatrolAttachmentService attachments;
@@ -63,7 +61,6 @@ public class PatrolAssetSupplier implements AssetSupplier {
                     case patrolCategory -> categories;
                     case patrolPoint -> points;
                     case patrolStandard -> standards;
-                    case patrolPost -> posts;
                     case patrolRoster -> rosters;
                     case patrolPlan -> plans;
                     case patrolAttachment -> attachments;

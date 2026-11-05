@@ -75,8 +75,7 @@ public class PatrolPointCategoryService {
                                                 return materialize(point, pair.getT2().getUser().getId())
                                                         .then(categories.findById(categoryId).flatMap(category ->
                                                                 org.jetlinks.pro.patrol.integration.PatrolProjectContext.current().flatMap(context ->
-                                                                        context.canReference(point.getProjectId(), point.getOwnerOrganizationId(),
-                                                                                category.getProjectId(), category.getOwnerOrganizationId())
+                                                                        context.canReference(point.getProjectId(), category.getProjectId())
                                                                                 ? Mono.empty() : Mono.error(new BusinessException("error.patrol.project_mismatch", 400)))))
                                                         .then(changeLocked(point, categoryId, enabled,
                                                                 pair.getT2().getUser().getId(),
@@ -91,7 +90,7 @@ public class PatrolPointCategoryService {
     }
 
     private Mono<PatrolCategoryEntity> checkedCategory(String id, String key, boolean mustBeEnabled) {
-        return categories.findById(id).switchIfEmpty(Mono.error(NotFoundException::new))
+        return categories.findForUpdate(id).switchIfEmpty(Mono.error(NotFoundException::new))
                 .flatMap(category -> key.equals(category.getScopeKey()) && (!mustBeEnabled || category.isEnabled())
                         ? Mono.just(category) : Mono.error(new BusinessException("error.patrol.reference.unavailable")));
     }

@@ -73,25 +73,24 @@ public class PatrolAttachmentService extends GenericReactiveCrudService<PatrolAt
     }
 
     public Mono<Void> assertReferences(Collection<String> ids, Purpose purpose, String scopeKey, String creatorId) {
-        return assertReferences(ids, purpose, scopeKey, creatorId, null);
+        return assertReferences(ids, purpose, scopeKey, creatorId, (String) null);
     }
 
     public Mono<Void> assertReferences(Collection<String> ids, Purpose purpose, String scopeKey, String creatorId,
                                        org.jetlinks.pro.patrol.entity.PatrolConfigEntity owner) {
         return assertReferences(ids, purpose, scopeKey, creatorId,
-                owner == null ? null : owner.getProjectId(), owner == null ? null : owner.getOwnerOrganizationId());
+                owner == null ? null : owner.getProjectId());
     }
 
     public Mono<Void> assertReferences(Collection<String> ids, Purpose purpose, String scopeKey, String creatorId,
-                                       String projectId, String ownerOrganizationId) {
+                                       String projectId) {
         return Flux.fromIterable(ids).distinct().concatMap(id -> authorized(id).flatMap(attachment -> {
             if (!scopeKey.equals(attachment.getScopeKey()) || attachment.getPurpose() != purpose
                     || creatorId != null && !creatorId.equals(attachment.getCreatorId()))
                 return Mono.error(new AccessDenyException.NoStackTrace());
-            if (projectId == null && ownerOrganizationId == null) return Mono.just(attachment);
+            if (projectId == null) return Mono.just(attachment);
             return org.jetlinks.pro.patrol.integration.PatrolProjectContext.current().flatMap(context ->
-                    context.canReference(projectId, ownerOrganizationId,
-                            attachment.getProjectId(), attachment.getOwnerOrganizationId())
+                    context.canReference(projectId, attachment.getProjectId())
                     ? Mono.just(attachment) : Mono.error(new AccessDenyException.NoStackTrace()));
         })).then();
     }

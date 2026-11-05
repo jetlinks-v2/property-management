@@ -27,7 +27,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
-/** 岗位指派与规则配置分别保存；所有选中点位在同一事务中替换，不改写任务快照。 */
+/** 角色可单独指派，也可连同规则一次保存；选中点位在同一事务中替换，不改写任务快照。 */
 @Service
 @AllArgsConstructor
 public class PatrolPointAssignmentService {
@@ -37,7 +37,13 @@ public class PatrolPointAssignmentService {
     private final PatrolScope scope;
     private final TransactionalOperator transaction;
 
-    public record Rule(String postId, String levelId, String standardId) {}
+    public record Rule(String roleId, String levelId, String standardId) {
+        public Rule {
+            roleId = roleId == null ? "" : roleId.trim();
+            levelId = levelId == null || levelId.isBlank() ? null : levelId.trim();
+            standardId = standardId == null || standardId.isBlank() ? null : standardId.trim();
+        }
+    }
     public record Detail(String pointId, String categoryId, List<PatrolPlanEntity> assignments) {}
 
     /** 全部分类概览仅汇总可读计划；编辑入口仍要求明确分类并校验完整计划集合。 */
@@ -77,12 +83,12 @@ public class PatrolPointAssignmentService {
                 }));
     }
 
-    public Mono<Void> assign(List<String> pointIds, List<String> postIds) {
-        return assign(pointIds, postIds, null);
+    public Mono<Void> assign(List<String> pointIds, List<String> roleIds) {
+        return assign(pointIds, roleIds, null);
     }
 
-    public Mono<Void> assign(List<String> pointIds, List<String> postIds, String categoryId) {
-        return replace(pointIds, postIds, null, categoryId);
+    public Mono<Void> assign(List<String> pointIds, List<String> roleIds, String categoryId) {
+        return replace(pointIds, roleIds, null, categoryId);
     }
 
     public Mono<Void> configure(List<String> pointIds, List<Rule> rules) {
@@ -90,15 +96,27 @@ public class PatrolPointAssignmentService {
     }
 
     public Mono<Void> configure(List<String> pointIds, List<Rule> rules, String categoryId) {
-        return replace(pointIds, rules.stream().map(Rule::postId).toList(), rules, categoryId);
+        return replace(pointIds, rules.stream().map(Rule::roleId).toList(), rules, categoryId, true);
     }
 
-    private Mono<Void> replace(List<String> pointIds, List<String> postIds, List<Rule> rules, String categoryId) {
+    /** 同时替换角色及规则，不要求预先保存角色；复用原有资产校验、点位锁和事务。 */
+    public Mono<Void> configureAll(List<String> pointIds, List<Rule> rules, String categoryId) {
+        if (rules.stream().anyMatch(rule -> (rule.levelId() == null) != (rule.standardId() == null)))
+            return Mono.error(new BusinessException("error.patrol.assignment.incomplete", 400));
+        return replace(pointIds, rules.stream().map(Rule::roleId).toList(), rules, categoryId, false);
+    }
+
+    private Mono<Void> replace(List<String> pointIds, List<String> roleIds, List<Rule> rules, String categoryId) {
+        return replace(pointIds, roleIds, rules, categoryId, false);
+    }
+
+    private Mono<Void> replace(List<String> pointIds, List<String> roleIds, List<Rule> rules, String categoryId,
+                               boolean requireAssignedRoles) {
         return Mono.defer(() -> {
             if (pointIds.isEmpty() || pointIds.size() > 100)
                 return Mono.error(new BusinessException("error.patrol.assignment.limit"));
             if (new HashSet<>(pointIds).size() != pointIds.size()
-                    || new HashSet<>(postIds).size() != postIds.size())
+                    || new HashSet<>(roleIds).size() != roleIds.size())
                 return Mono.error(new BusinessException("error.patrol.assignment.duplicate"));
             // 新入口同时控制点位配置和已有计划资产；混入一个越权对象则整体拒绝。
             return authorizePoints(pointIds, CrudAssetPermission.save)
@@ -115,7 +133,7 @@ public class PatrolPointAssignmentService {
                         return Flux.fromIterable(selected.stream().sorted(Comparator.comparing(PatrolPointEntity::getId)).toList())
                                 .concatMap(point -> lock(point, userId, userName, now)).then(load(selected, selection))
                                 .flatMap(existing -> authorizePlans(existing, CrudAssetPermission.save)
-                                        .then(prepare(selected, existing, selection, postIds, rules, userId, userName, now))
+                                        .then(prepare(selected, existing, selection, roleIds, rules, userId, userName, now, requireAssignedRoles))
                                         .flatMap(rows -> persist(existing, rows, userId, userName, now, rules != null)));
                     })).then().as(transaction::transactional);
         });
@@ -180,31 +198,32 @@ public class PatrolPointAssignmentService {
 
     private Mono<List<PatrolPlanEntity>> prepare(List<PatrolPointEntity> selected, List<PatrolPlanEntity> existing,
                                                 Map<String, String> selection,
-                                                List<String> postIds, List<Rule> rules, String userId, String userName, long now) {
+                                                List<String> roleIds, List<Rule> rules, String userId, String userName, long now,
+                                                boolean requireAssignedRoles) {
         List<PatrolPlanEntity> replacements = new ArrayList<>();
         Map<String, PatrolPlanEntity> current = new HashMap<>();
         for (var row : existing) {
-            String key = row.getPointId() + "|" + row.getPostId();
+            String key = row.getPointId() + "|" + row.getRoleId();
             var previous = current.get(key);
             if (previous != null && previous.isEnabled() && row.isEnabled())
                 return Mono.error(new BusinessException("error.patrol.assignment.duplicate_plan"));
             if (previous == null || row.isEnabled()) current.put(key, row);
         }
         for (var point : selected) {
-            if (rules != null) {
+            if (requireAssignedRoles) {
                 var assigned = existing.stream().filter(row -> row.isEnabled() && point.getId().equals(row.getPointId()))
-                        .map(PatrolPlanEntity::getPostId).collect(java.util.stream.Collectors.toSet());
-                if (assigned.isEmpty() || !assigned.equals(new HashSet<>(postIds)))
+                        .map(PatrolPlanEntity::getRoleId).collect(java.util.stream.Collectors.toSet());
+                if (assigned.isEmpty() || !assigned.equals(new HashSet<>(roleIds)))
                     return Mono.error(new BusinessException("error.patrol.assignment.posts_differ"));
             }
-            for (int i = 0; i < postIds.size(); i++) {
-                String key = point.getId() + "|" + postIds.get(i);
+            for (int i = 0; i < roleIds.size(); i++) {
+                String key = point.getId() + "|" + roleIds.get(i);
                 var old = current.get(key);
                 var row = old == null ? new PatrolPlanEntity() : old;
                 if (old == null) {
                     row.setId(UUID.nameUUIDFromBytes(("point-category-post|" + point.getId() + "|" + selection.get(point.getId())
-                            + "|" + postIds.get(i)).getBytes(StandardCharsets.UTF_8)).toString());
-                    row.setPointId(point.getId()); row.setPostId(postIds.get(i));
+                            + "|" + roleIds.get(i)).getBytes(StandardCharsets.UTF_8)).toString());
+                    row.setPointId(point.getId()); row.setRoleId(roleIds.get(i));
                     row.setCreatorId(userId); row.setCreatorName(userName); row.setCreateTime(now); row.setExtensions(new HashMap<>());
                 }
                 row.setCategoryId(selection.get(point.getId()));
@@ -212,6 +231,8 @@ public class PatrolPointAssignmentService {
                 row.setModifierId(userId); row.setModifierName(userName); row.setModifyTime(now);
                 if (rules != null) {
                     row.setLevelId(rules.get(i).levelId()); row.setStandardId(rules.get(i).standardId());
+                    // 当前规则由等级重新解析；两项都清空时停止后续任务生成，历史快照保留。
+                    row.setRule(null);
                     row.setEffectiveFrom(null); row.setEffectiveTo(null);
                 }
                 replacements.add(row);
@@ -235,7 +256,13 @@ public class PatrolPointAssignmentService {
         Mono<Void> clear = !clearDates || retained.isEmpty() ? Mono.empty() : plans.createUpdate()
                 .setNull(PatrolPlanEntity::getEffectiveFrom).setNull(PatrolPlanEntity::getEffectiveTo)
                 .in(PatrolPlanEntity::getId, retained.stream().map(PatrolPlanEntity::getId).toList()).execute().then();
-        return disable.then(update).then(clear)
+        var clearedIds = retained.stream().filter(row -> row.getStandardId() == null)
+                .map(PatrolPlanEntity::getId).toList();
+        // save 跳过 null 字段，显式清除已取消的规则，避免旧配置残留在数据库。
+        Mono<Void> clearRules = !clearDates || clearedIds.isEmpty() ? Mono.empty() : plans.createUpdate()
+                .setNull(PatrolPlanEntity::getLevelId).setNull(PatrolPlanEntity::getStandardId)
+                .setNull(PatrolPlanEntity::getRule).in(PatrolPlanEntity::getId, clearedIds).execute().then();
+        return disable.then(update).then(clear).then(clearRules)
                 .then(added.isEmpty() ? Mono.empty() : plans.insertBatch(Mono.just(added)).then())
                 .thenMany(AssetsHolder.bindAssets(Flux.fromIterable(added), PatrolAssetType.patrolPlan, PatrolConfigEntity::getId))
                 .then();

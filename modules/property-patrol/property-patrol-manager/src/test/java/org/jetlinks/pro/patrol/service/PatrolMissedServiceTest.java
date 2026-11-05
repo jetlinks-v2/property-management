@@ -32,11 +32,11 @@ class PatrolMissedServiceTest {
         items = f.db.repository(PatrolMissedItemEntity.class, PatrolMissedItemEntity::new);
         events = f.db.repository(PatrolMissedEventEntity.class, PatrolMissedEventEntity::new);
         scope = mock(PatrolScope.class);
-        when(scope.current()).thenReturn(Mono.just(new PatrolScope.Current("north", "app")));
+        when(scope.current()).thenReturn(Mono.just(new PatrolScope.Current("app")));
         var people = mock(SaasPersonDirectory.class);
         when(people.assertMembers(List.of("alice"))).thenReturn(Mono.empty());
         when(people.assertMembers(List.of("bob"))).thenReturn(Mono.empty());
-        missed = new PatrolMissedService(items, events, f.tasks, f.plans, f.posts, f.rosters, scope, people,
+        missed = new PatrolMissedService(items, events, f.tasks, f.plans, f.roles, f.rosters, scope, people,
                 new DefaultQueryHelper(f.db.operator()), TransactionalOperator.create(new R2dbcTransactionManager(f.db.connections)));
     }
     @AfterEach void close() { f.close(); }
@@ -112,7 +112,7 @@ class PatrolMissedServiceTest {
         assertEquals(0, f.tasks.findById(task.getId()).block().getCompletedCount());
         assertTrue(group(task).stream().allMatch(row -> row.getStatus() == PatrolMissedItemEntity.Status.pending));
         assertEquals(2, events.createQuery().count().block());
-        when(scope.current()).thenReturn(Mono.just(new PatrolScope.Current("north", "another-app")));
+        when(scope.current()).thenReturn(Mono.just(new PatrolScope.Current("another-app")));
         assertTrue(missed.mine(LocalDate.now(), LocalDate.now()).contextWrite(f.identity).block().isEmpty());
         StepVerifier.create(missed.apply(List.of(pending.get(0).getId()), "x", true).contextWrite(f.identity))
                 .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
@@ -157,5 +157,44 @@ class PatrolMissedServiceTest {
         assertTrue(missed.group("foreign").contextWrite(f.identity).block().isEmpty());
         assertEquals(1, items.createQuery().count().block());
         assertEquals(1, missed.mine(LocalDate.now(), LocalDate.now()).contextWrite(f.identity).block().size());
+    }
+
+    @Test void scheduledNonRoleMemberCanApplyOnlyForAnOverlappingShiftInTheSameProjectAndApplication() {
+        var task = ended(2); task.setProjectId("project"); f.tasks.updateById(task.getId(), task).block();
+        var own = group(task).get(0);
+        var shift = new PatrolRosterEntity(); shift.setId("bob-shift"); shift.setName("白班");
+        shift.setScopeKey("another-app"); shift.setProjectId("project"); shift.setRoleId("another-role");
+        shift.setUserId("bob"); shift.setBusinessDate(java.time.Instant.ofEpochMilli(task.getEndTime())
+                .atZone(java.time.ZoneId.of("Asia/Shanghai")).toLocalDate());
+        shift.setStartTime(task.getStartTime()); shift.setEndTime(task.getEndTime());
+        f.rosters.insert(shift).block();
+        assertTrue(missed.mine(LocalDate.now(), LocalDate.now()).contextWrite(bob()).block().isEmpty());
+        // Scope 为不可更新字段；另建本应用班次，不能靠 UPDATE 构造跨应用迁移。
+        shift.setId("bob-current-shift"); shift.setScopeKey("app"); shift.setRest(true);
+        f.rosters.insert(shift).block();
+        assertTrue(missed.mine(LocalDate.now(), LocalDate.now()).contextWrite(bob()).block().isEmpty());
+        f.rosters.createUpdate().set(PatrolRosterEntity::isRest, false)
+                .set(PatrolRosterEntity::getProjectId, "other-project")
+                .where(PatrolRosterEntity::getId, shift.getId()).execute().block();
+        assertTrue(missed.mine(LocalDate.now(), LocalDate.now()).contextWrite(bob()).block().isEmpty());
+        f.rosters.createUpdate().set(PatrolRosterEntity::getProjectId, "project")
+                .where(PatrolRosterEntity::getId, shift.getId()).execute().block();
+        assertEquals(2, missed.mine(LocalDate.now(), LocalDate.now()).contextWrite(bob()).block().size());
+        assertEquals(1, missed.apply(List.of(own.getId()), "班次内漏检", true).contextWrite(bob()).block());
+        assertEquals("bob", group(task).get(0).getApplicantId());
+        assertEquals(0, f.tasks.findById(task.getId()).block().getCompletedCount());
+        assertEquals(0, f.executions.createQuery().count().block());
+        f.rosters.createUpdate().set(PatrolRosterEntity::getStartTime, task.getEndTime())
+                .set(PatrolRosterEntity::getEndTime, task.getEndTime() + 3600000)
+                .where(PatrolRosterEntity::getId, shift.getId()).execute().block();
+        assertTrue(missed.mine(LocalDate.now(), LocalDate.now()).contextWrite(bob()).block().isEmpty());
+    }
+
+    @Test void allStaffMissedItemsAreAvailableWithoutARoleOrShift() {
+        var assigned = ended(1);
+        var task = f.tasks.findById(assigned.getId()).block(); task.setId("all-staff"); task.setRoleId("");
+        task.setPeriodNo(2); task.setStartTime(task.getStartTime() + 1); f.tasks.insert(task).block();
+        var rows = group(task).stream().filter(row -> task.getId().equals(row.getTaskId())).toList();
+        assertEquals(1, missed.apply(List.of(rows.get(0).getId()), "全员任务漏检", true).contextWrite(bob()).block());
     }
 }

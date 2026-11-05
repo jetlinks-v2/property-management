@@ -25,13 +25,14 @@ public abstract class PatrolConfigEntity extends ExtendableEntity<String>
     @Column(length = 160, nullable = false, updatable = false)
     private String scopeKey;
 
-    /** 业务项目使用物业组织原 ID；共享模板为 null，由 ownerOrganizationId 明确维护组织。 */
+    /** 除系统级异常预警外，巡更业务配置必须归属项目，使用基础数据中 project 组织原 ID。 */
     @Column(length = 64)
     private String projectId;
 
     @Column(length = 128)
     private String projectName;
 
+    /** 仅保留旧版组织归属数据供显式迁移；新写入清空，不参与授权或业务引用。 */
     @Column(length = 64)
     private String ownerOrganizationId;
 

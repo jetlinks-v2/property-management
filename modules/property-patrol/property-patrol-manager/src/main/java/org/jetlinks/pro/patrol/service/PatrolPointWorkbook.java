@@ -23,17 +23,20 @@ public final class PatrolPointWorkbook {
     public record Preview(List<ImportRow> rows) {
         public boolean valid() { return !rows.isEmpty() && rows.stream().allMatch(row -> row.errors().isEmpty()); }
     }
+    /** 分类参考保留名称用于四列表格填写，路径仅用于区分同名分类。 */
+    public record CategoryReference(String id, String name, String path, String projectName) {}
 
-    public static byte[] template(Map<String, String> categories) throws IOException {
+    public static byte[] template(List<CategoryReference> categories) throws IOException {
         try (var book = new XSSFWorkbook(); var bytes = new ByteArrayOutputStream()) {
             var sheet = book.createSheet("点位导入");
             header(sheet, HEADERS);
             var reference = book.createSheet("分类参考");
-            header(reference, new String[]{"分类id", "分类名称"});
+            header(reference, new String[]{"分类id", "分类名称", "分类路径", "所属项目"});
             int index = 1;
-            for (var entry : categories.entrySet()) {
+            for (var entry : categories) {
                 var row = reference.createRow(index++);
-                row.createCell(0).setCellValue(entry.getKey()); row.createCell(1).setCellValue(entry.getValue());
+                row.createCell(0).setCellValue(entry.id()); row.createCell(1).setCellValue(entry.name());
+                row.createCell(2).setCellValue(entry.path()); row.createCell(3).setCellValue(entry.projectName());
             }
             book.write(bytes); return bytes.toByteArray();
         }
@@ -82,7 +85,7 @@ public final class PatrolPointWorkbook {
                                 Map<String, String> tags, Map<String, String> pointPosts) throws IOException {
         try (var book = new XSSFWorkbook(); var bytes = new ByteArrayOutputStream()) {
             var sheet = book.createSheet("巡更点位");
-            header(sheet, new String[]{"点位名称", "点位编码", "分类", "指定巡更岗位", "标签", "所属位置", "状态", "最后编辑时间"});
+            header(sheet, new String[]{"点位名称", "点位编码", "分类", "指定巡更角色", "标签", "所属位置", "状态", "最后编辑时间"});
             var format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.of("Asia/Shanghai"));
             int index = 1;
             for (var point : points) {

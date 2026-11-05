@@ -74,7 +74,7 @@ class ExecutionPolicyTest {
     }
 
     @Test
-    void rosterPolicyIsExplicit() {
+    void originalPolicyAllowsNoScheduleAndRequiresCurrentShiftWhenConfigured() {
         assertDoesNotThrow(
                 () ->
                         check(
@@ -85,8 +85,7 @@ class ExecutionPolicyTest {
                                 ExecutionPolicy.RosterPolicy.optional,
                                 false,
                                 false));
-        assertThrows(
-                IllegalArgumentException.class,
+        assertDoesNotThrow(
                 () ->
                         check(
                                 start,

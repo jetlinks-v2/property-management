@@ -24,8 +24,13 @@ import javax.persistence.Table;
 @Asset(type = "patrolRoster")
 public class PatrolRosterEntity extends PatrolConfigEntity {
     @Column(length = 64, nullable = false)
-    @NotBlank
-    private String postId;
+    @NotNull
+    private String roleId = "";
+
+    /** 排班可以仅指定员工；角色仅供排班管理使用，不限定该班次能执行哪个角色任务。 */
+    public void setRoleId(String roleId) {
+        this.roleId = roleId == null ? "" : roleId.trim();
+    }
 
     @Column(length = 10, nullable = false)
     @NotNull

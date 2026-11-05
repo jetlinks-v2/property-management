@@ -2,7 +2,7 @@ package org.jetlinks.pro.patrol.service;
 
 import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.jetlinks.pro.patrol.entity.PatrolExecutionEntity;
-import org.jetlinks.pro.patrol.entity.PatrolPostEntity;
+import org.jetlinks.pro.patrol.entity.PatrolRole;
 import org.jetlinks.pro.patrol.entity.PatrolTaskEntity;
 import org.jetlinks.pro.patrol.integration.PatrolScope;
 import org.jetlinks.pro.patrol.integration.SaasPersonDirectory;
@@ -32,7 +32,7 @@ class PatrolMobileServiceTest {
         fixture.db.enableTenantQueries();
         scope = mock(PatrolScope.class);
         people = mock(SaasPersonDirectory.class);
-        when(scope.current()).thenReturn(Mono.just(new PatrolScope.Current("north", "app")));
+        when(scope.current()).thenReturn(Mono.just(new PatrolScope.Current("app")));
         when(people.assertMembers(List.of("alice"))).thenReturn(Mono.empty());
         mobile = service(scope);
     }
@@ -75,13 +75,13 @@ class PatrolMobileServiceTest {
         var future = rows.stream().filter(row -> "future-task".equals(row.task().getId())).findFirst().orElseThrow();
         assertFalse(future.executable());
         assertEquals("error.patrol.execution.outside_window", future.reason());
-        fixture.posts.createUpdate().set(PatrolPostEntity::getUserIds, List.of("bob")).where("id", "post").execute().block();
+        fixture.roles.get("post").setUserIds(List.of("bob"));
         assertTrue(mobile.tasks(LocalDate.now()).contextWrite(fixture.identity).block().isEmpty());
         var all = mobile.tasks(LocalDate.now(), false).contextWrite(fixture.identity).block();
         assertEquals(2, all.size());
         assertTrue(all.stream().noneMatch(PatrolMobileService.MobileTask::executable));
         assertTrue(all.stream().allMatch(row -> "error.patrol.execution.unassigned".equals(row.reason())));
-        fixture.posts.createUpdate().set(PatrolPostEntity::isEnabled, false).where("id", "post").execute().block();
+        fixture.roles.get("post").setEnabled(false);
         assertTrue(mobile.tasks(LocalDate.now()).contextWrite(fixture.identity).block().isEmpty());
     }
 
@@ -110,14 +110,14 @@ class PatrolMobileServiceTest {
         // 同一业务 scope 中伪造外项目计划，仍必须被 AssetsHolder 排除。
         fixture.seedPlan("foreign", "south");
         var foreign = fixture.plans.findById("foreign").block();
-        foreign.setScopeKey("north|app"); fixture.plans.updateById("foreign", foreign).block();
+        foreign.setScopeKey("app"); fixture.plans.updateById("foreign", foreign).block();
         var task = fixture.tasks.findById("task").block();
         task.setId("foreign-task"); task.setTaskGroupId("foreign-group"); task.setPlanId("foreign"); fixture.tasks.insert(task).block();
         var rows = mobile.tasks(LocalDate.now()).contextWrite(fixture.identity).block();
         assertEquals(List.of("task"), rows.stream().map(row -> row.task().getId()).toList());
         assertEquals(List.of("task"), mobile.tasks(LocalDate.now(), false).contextWrite(fixture.identity).block()
                 .stream().map(row -> row.task().getId()).toList());
-        when(scope.current()).thenReturn(Mono.just(new PatrolScope.Current("north", "another-app")));
+        when(scope.current()).thenReturn(Mono.just(new PatrolScope.Current("another-app")));
         assertTrue(mobile.tasks(LocalDate.now()).contextWrite(fixture.identity).block().isEmpty());
     }
 

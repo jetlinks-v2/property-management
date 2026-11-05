@@ -39,8 +39,18 @@ public class PatrolPlanEntity extends PatrolConfigEntity {
     private String categoryId;
 
     @Column(length = 64, nullable = false)
-    @NotBlank
-    private String postId;
+    @NotNull
+    private String roleId = "";
+
+    /** 空串表示原系统的全员任务，不创建虚拟应用角色；仍使用原计划资产授权。 */
+    public void setRoleId(String roleId) {
+        this.roleId = roleId == null ? "" : roleId.trim();
+    }
+
+    /** 保存指派时由应用角色目录生成；定时任务使用快照，不冒充用户查询角色或成员。 */
+    @Column(length = 256)
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private String roleName;
 
     @Column(length = 64)
     private String standardId;

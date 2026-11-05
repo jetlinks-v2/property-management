@@ -29,9 +29,19 @@ import javax.persistence.Table;
 @Asset(type = "patrolPoint")
 public class PatrolPointEntity extends PatrolConfigEntity {
     @Column(length = 64, nullable = false)
-    @NotBlank
     @Size(max = 64)
     private String code;
+
+    /** 新增留空沿用导入的PT+点位ID规则；编辑留空保留原编码，避免无意改变已有编号。 */
+    public void completeCode(String previousCode) {
+        if (code != null && !code.isBlank()) {
+            code = code.trim();
+        } else if (previousCode != null && !previousCode.isBlank()) {
+            code = previousCode;
+        } else {
+            code = "PT" + getId().replace("-", "").toUpperCase(java.util.Locale.ROOT);
+        }
+    }
 
     @Column(length = 64, nullable = false)
     @NotBlank

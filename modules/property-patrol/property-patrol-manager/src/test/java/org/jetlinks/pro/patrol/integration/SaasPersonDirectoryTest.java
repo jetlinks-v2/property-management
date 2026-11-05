@@ -103,7 +103,7 @@ class SaasPersonDirectoryTest {
                 .write()
                 .apply(
                         (withTenant ? TenantHolder.makeCurrent("north") : Context.empty())
-                                .put(PatrolProjectContext.class, ProjectTestContexts.project(withTenant ? "north|app-a" : "|app-a"))
+                                .put(PatrolProjectContext.class, ProjectTestContexts.project("app-a"))
                                 .put(
                                         AssetsHolder.class,
                                         new CreatorAssetsHolder(user, mock(AssetManager.class))));
@@ -155,9 +155,8 @@ class SaasPersonDirectoryTest {
                 .thenReturn(Mono.just(PagerResult.empty()));
         StepVerifier.create(new PatrolScope().current().contextWrite(identity(false)))
                 .assertNext(current -> {
-                    assertEquals("", current.tenantId());
                     assertEquals("app-a", current.applicationId());
-                    assertEquals("|app-a", current.key());
+                    assertEquals("app-a", current.key());
                 }).verifyComplete();
         StepVerifier.create(directory.query(new QueryParamEntity()).contextWrite(identity(false)))
                 .expectNextCount(1).verifyComplete();

@@ -3,7 +3,7 @@ package org.jetlinks.pro.patrol.service;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.hswebframework.web.exception.BusinessException;
-import org.jetlinks.pro.patrol.entity.PatrolPostEntity;
+import org.jetlinks.pro.patrol.entity.PatrolRole;
 import org.jetlinks.pro.patrol.entity.PatrolRosterEntity;
 import java.io.*;
 import java.time.*;
@@ -15,11 +15,11 @@ public final class PatrolRosterWorkbook {
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
     private PatrolRosterWorkbook() {}
 
-    public static byte[] template(YearMonth month, List<PatrolPostEntity> posts, Map<String, String> names) throws IOException {
+    public static byte[] template(YearMonth month, List<PatrolRole> roles, Map<String, String> names) throws IOException {
         try (var book = new XSSFWorkbook(); var bytes = new ByteArrayOutputStream()) {
             var sheet = book.createSheet("排班表");
             sheet.createRow(0).createCell(0).setCellValue(month.toString());
-            String[] fields = {"岗位ID", "岗位", "人员ID", "姓名"};
+            String[] fields = {"巡更角色ID（可空）", "巡更角色（可空）", "人员ID", "姓名"};
             var header = sheet.createRow(1);
             for (int i = 0; i < fields.length; i++) header.createCell(i).setCellValue(fields[i]);
             var dates = sheet.createRow(2);
@@ -31,13 +31,21 @@ public final class PatrolRosterWorkbook {
             }
             sheet.createRow(4).createCell(0).setCellValue("示例行（不导入）；请在班次表填写班次，再从第6行填写每日班次或休息");
             int index = 5;
-            for (var post : posts) for (String userId : post.getUserIds()) {
+            for (var post : roles) for (String userId : post.getUserIds()) {
                 if (index >= MAX_ROWS + 5) throw invalid();
                 var row = sheet.createRow(index++);
                 row.createCell(0).setCellValue(post.getId());
                 row.createCell(1).setCellValue(post.getName());
                 row.createCell(2).setCellValue(userId);
                 row.createCell(3).setCellValue(names.getOrDefault(userId, userId));
+            }
+            var assigned = roles.stream().flatMap(role -> role.getUserIds().stream()).collect(java.util.stream.Collectors.toSet());
+            for (var person : names.entrySet()) {
+                if (assigned.contains(person.getKey())) continue;
+                if (index >= MAX_ROWS + 5) throw invalid();
+                var row = sheet.createRow(index++);
+                row.createCell(2).setCellValue(person.getKey());
+                row.createCell(3).setCellValue(person.getValue());
             }
             for (int i = 0; i < 4; i++) sheet.setColumnWidth(i, (i % 2 == 0 ? 38 : 20) * 256);
             for (int d = 4; d < month.lengthOfMonth() + 4; d++) sheet.setColumnWidth(d, 12 * 256);
@@ -80,7 +88,7 @@ public final class PatrolRosterWorkbook {
                 for (int d = 1; d <= month.lengthOfMonth(); d++) {
                     String shift = cell(row, d + 3);
                     if (shift.isEmpty()) continue;
-                    if (post.isBlank() || user.isBlank() || !seen.add(post + "|" + user + "|" + d)) throw invalid();
+                    if (user.isBlank() || !seen.add(post + "|" + user + "|" + d)) throw invalid();
                     boolean rest = "休息".equals(shift);
                     var time = shifts.get(shift);
                     if (!rest && time == null) throw invalid();
@@ -89,7 +97,7 @@ public final class PatrolRosterWorkbook {
                     var end = rest ? start.plusDays(1) : date.atTime(time[1]);
                     if (!end.isAfter(start)) end = end.plusDays(1);
                     var item = new PatrolRosterEntity();
-                    item.setPostId(post); item.setUserId(user); item.setBusinessDate(date);
+                    item.setRoleId(post); item.setUserId(user); item.setBusinessDate(date);
                     item.setName(shift); item.setShiftName(shift); item.setRest(rest);
                     item.setStartTime(start.atZone(ZONE).toInstant().toEpochMilli());
                     item.setEndTime(end.atZone(ZONE).toInstant().toEpochMilli());

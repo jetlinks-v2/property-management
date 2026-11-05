@@ -18,7 +18,7 @@ import reactor.core.publisher.Mono;
 @RestController
 @AllArgsConstructor
 @RequestMapping("/park/patrol/persons")
-@Resource(id = "patrol-post", name = "巡更岗位")
+@Resource(id = "patrol-point", name = "巡更点位")
 public class PatrolPersonController {
     private final SaasPersonDirectory people;
 

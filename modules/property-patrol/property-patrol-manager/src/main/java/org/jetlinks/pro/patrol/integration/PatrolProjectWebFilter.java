@@ -27,13 +27,17 @@ public class PatrolProjectWebFilter implements WebFilter {
 
     @Override public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         if (!exchange.getRequest().getPath().value().startsWith("/park/patrol/")) return chain.filter(exchange);
+        String path = exchange.getRequest().getPath().value();
+        // 应用角色和全局预警无需基础组织树；沿用上游认证、应用 Scope 与 AssetsHolder。
+        if (path.equals("/park/patrol/warnings") || path.startsWith("/park/patrol/warnings/")
+                || path.equals("/park/patrol/roles/_query"))
+            return chain.filter(exchange);
         return Authentication.currentReactive().switchIfEmpty(Mono.error(UnAuthorizedException.NoStackTrace::new))
                 .flatMap(auth -> Mono.zip(directory.organizations().collectList(), scope.current(),
                         AssetsHolder.currentReactive().defaultIfEmpty(AssetsHolderProvider.compose(List.of()))))
                 .flatMap(data -> {
                     var context = new PatrolProjectContext(data.getT1(),
                             exchange.getRequest().getHeaders().getFirst(PatrolProjectContext.HEADER), data.getT2().key());
-                    context.attachmentOwner(exchange.getRequest().getHeaders().getFirst("X-Patrol-Owner"));
                     var holder = new PatrolProjectAssetsHolder(data.getT3(), context, assets);
                     // 历史归属入口仅处理未归属数据，沿用原资产授权；业务接口没有此豁免。
                     boolean migration = exchange.getRequest().getPath().value().startsWith("/park/patrol/project-migrations/");

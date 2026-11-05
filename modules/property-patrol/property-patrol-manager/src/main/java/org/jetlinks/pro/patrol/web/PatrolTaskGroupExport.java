@@ -20,7 +20,7 @@ final class PatrolTaskGroupExport {
             var sheet = workbook.createSheet("点位巡更记录");
             var header = sheet.createRow(0);
             String[] labels = {"巡更点位", "点位分类", "点位等级", "归属日期", "开始时间", "结束时间",
-                    "业务岗位", "时段数", "已巡次数", "应巡次数", "最后巡更时间"};
+                    "巡更角色", "时段数", "已巡次数", "应巡次数", "最后巡更时间"};
             for (int i = 0; i < labels.length; i++) {
                 header.createCell(i).setCellValue(labels[i]);
                 sheet.setColumnWidth(i, (i == 4 || i == 5 || i == 10 ? 24 : 20) * 256);
@@ -28,7 +28,8 @@ final class PatrolTaskGroupExport {
             for (var group : groups) {
                 var row = sheet.createRow(sheet.getPhysicalNumberOfRows());
                 Object[] values = {group.getPointName(), group.getCategoryName(), group.getLevelName(),
-                        group.getBelongDate(), time(group.getStartTime()), time(group.getEndTime()), group.getPostName(),
+                        group.getBelongDate(), time(group.getStartTime()), time(group.getEndTime()),
+                        group.getRoleId() != null && group.getRoleId().isBlank() ? "全员巡更" : group.getRoleName(),
                         group.getPeriodCount(), group.getCompletedCount(), group.getRequiredCount(), time(group.getLastExecutionTime())};
                 for (int i = 0; i < values.length; i++) {
                     var cell = row.createCell(i);

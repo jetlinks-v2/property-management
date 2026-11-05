@@ -54,7 +54,6 @@ final class PatrolDatabase implements AutoCloseable {
         metadata.addFeature(projectTerms.patrolProjectPointTerm());
         metadata.addFeature(projectTerms.patrolProjectStandardTerm());
         metadata.addFeature(projectTerms.patrolProjectAttachmentTerm());
-        metadata.addFeature(projectTerms.patrolProjectPostTerm());
         metadata.addFeature(projectTerms.patrolProjectRosterTerm());
         metadata.addFeature(projectTerms.patrolProjectPlanTerm());
 

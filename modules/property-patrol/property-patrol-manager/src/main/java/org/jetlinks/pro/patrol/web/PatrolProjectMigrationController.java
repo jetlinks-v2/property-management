@@ -42,7 +42,7 @@ public class PatrolProjectMigrationController {
         var query = input.query() == null ? new QueryParamEntity() : input.query().clone();
         query.setPaging(true); query.setTotal(null); query.setPageSize(Math.min(200, Math.max(1, query.getPageSize())));
         return action(input.type(), "query").then(PatrolProjectContext.current()).flatMap(context -> {
-            query.toNestQuery(q -> q.and("scopeKey", context.scopeKey()).isNull("projectId").isNull("ownerOrganizationId"));
+            query.toNestQuery(q -> q.and("scopeKey", context.scopeKey()).isNull("projectId"));
             return AssetsHolder.injectQueryParam(query, input.type(), "id")
                     .flatMap(scoped -> supplier.service(input.type()).queryPager(scoped)).map(page -> page);
         });
@@ -71,12 +71,12 @@ public class PatrolProjectMigrationController {
         var service = (org.hswebframework.web.crud.service.GenericReactiveCrudService<PatrolConfigEntity, String>) (Object) supplier.service(type);
         return ((Mono<PatrolConfigEntity>) service.findById(id)).switchIfEmpty(Mono.error(AccessDenyException.NoStackTrace::new))
                 .flatMap(row -> PatrolProjectContext.current().flatMap(context -> {
-                    if (!context.scopeKey().equals(row.getScopeKey()) || row.getProjectId() != null || row.getOwnerOrganizationId() != null)
+                    if (!context.scopeKey().equals(row.getScopeKey()) || row.getProjectId() != null)
                         return Mono.error(new BusinessException("error.patrol.project_immutable", 400));
-                    row.setProjectId(project); row.setProjectName(context.projectName(project));
+                    row.setProjectId(project); row.setProjectName(context.projectName(project)); row.setOwnerOrganizationId(null);
                     return validator.validate(row).then(service.createUpdate()
-                                    .set("projectId", project).set("projectName", row.getProjectName())
-                                    .where("id", id).and("scopeKey", context.scopeKey()).isNull("projectId").isNull("ownerOrganizationId")
+                                    .set("projectId", project).set("projectName", row.getProjectName()).setNull("ownerOrganizationId")
+                                    .where("id", id).and("scopeKey", context.scopeKey()).isNull("projectId")
                                     .execute().flatMap(changed -> changed == 1 ? Mono.empty()
                                             : Mono.error(new BusinessException("error.patrol.project_immutable", 400))))
                             .then(type == PatrolAssetType.patrolPlan ? backfillFacts(id, project, row.getProjectName()) : Mono.empty())
