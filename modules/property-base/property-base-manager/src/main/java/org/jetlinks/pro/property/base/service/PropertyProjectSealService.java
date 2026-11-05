@@ -13,6 +13,12 @@ import org.jetlinks.pro.io.file.FileManager;
 import org.jetlinks.pro.property.base.entity.PropertyOrganizationEntity;
 import org.jetlinks.pro.property.base.organization.OrganizationType;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.http.codec.multipart.FilePart;
+import org.jetlinks.pro.property.base.organization.PropertyProjectSeal;
+import reactor.core.scheduler.Schedulers;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Mono;
 
@@ -22,6 +28,12 @@ import java.util.Set;
 @Service
 @RequiredArgsConstructor
 public class PropertyProjectSealService {
+    public static final int MAX_BYTES = 2 * 1024 * 1024;
+    // 保留既有文件引用接口的构造契约；上传及读取沿公共存储能力惰性解析。
+    @Autowired
+    private ObjectProvider<PropertyOrganizationService> organizationServices;
+    @Autowired
+    private ObjectProvider<PropertyProjectSealStorage> storageProviders;
     private static final long MAX_SIZE = 5 * 1024 * 1024;
     private final ReactiveRepository<PropertyOrganizationEntity, String> organizations;
     private final FileManager files;
@@ -81,6 +93,7 @@ public class PropertyProjectSealService {
                 .set(PropertyOrganizationEntity::getModifyTime, System.currentTimeMillis());
         if (fileId == null) update.setNull(PropertyOrganizationEntity::getProjectSealFileId);
         else update.set(PropertyOrganizationEntity::getProjectSealFileId, fileId);
+        update.setNull(PropertyOrganizationEntity::getProjectSealMediaType);
         // 与类型标注共享版本；条件同时防止覆盖并发修改或复活被来源删除的组织。
         return update.where(PropertyOrganizationEntity::getId, id)
                 .and(PropertyOrganizationEntity::getVersion, version)
@@ -94,5 +107,51 @@ public class PropertyProjectSealService {
 
     private static BusinessException error(String code, int status) {
         return new BusinessException.NoStackTrace("error.property_org_" + code, status);
+    }
+
+    /** 上传与只读命令复用项目资产权限；既有文件引用维护入口继续保留。 */
+    public Mono<PropertyOrganizationEntity> upload(String id, long version, FilePart file) {
+        return organizationServices.getObject().sealWritable(id, version)
+            .then(DataBufferUtils.join(file.content(), MAX_BYTES))
+            .onErrorMap(org.springframework.core.io.buffer.DataBufferLimitException.class, error -> ArchiveScope.error("seal_invalid", 400))
+            .switchIfEmpty(Mono.error(ArchiveScope.error("seal_invalid", 400)))
+            .map(PropertyProjectSealStorage::bytes)
+            .publishOn(Schedulers.boundedElastic()).flatMap(bytes -> {
+                String type = imageType(bytes);
+                return storageProviders.getObject().save("project-seal." + (type.equals("image/png") ? "png" : "jpg"), bytes)
+                    .flatMap(fileId -> organizationServices.getObject().updateSeal(id, version, fileId, type)
+                        // 上传已确认成功但数据库拒绝时回收本次文件，不触碰原章。
+                        .onErrorResume(error -> storageProviders.getObject().delete(fileId).onErrorComplete().then(Mono.error(error))));
+            });
+    }
+    public Mono<PropertyOrganizationEntity> remove(String id, long version) {
+        return organizationServices.getObject().updateSeal(id, version, null, null);
+    }
+    public Mono<PropertyProjectSeal> read(String id) {
+        return organizationServices.getObject().detail(id).flatMap(row -> {
+            if (row.getOrganizationType() != OrganizationType.project)
+                return Mono.error(ArchiveScope.error("seal_project_only", 409));
+            if (row.getProjectSealFileId() == null) return Mono.empty();
+            return storageProviders.getObject().read(row.getProjectSealFileId()).publishOn(Schedulers.boundedElastic())
+                .map(bytes -> new PropertyProjectSeal(id, imageType(bytes), bytes));
+        });
+    }
+    /** 先验证真实格式与尺寸再解码，拒绝扩展名伪装和超大像素，运行在boundedElastic。 */
+    static String imageType(byte[] bytes) {
+        if (bytes.length == 0 || bytes.length > MAX_BYTES) throw ArchiveScope.error("seal_invalid", 400);
+        try (var input = javax.imageio.ImageIO.createImageInputStream(new java.io.ByteArrayInputStream(bytes))) {
+            var readers = javax.imageio.ImageIO.getImageReaders(input);
+            if (!readers.hasNext()) throw ArchiveScope.error("seal_invalid", 400);
+            var reader = readers.next();
+            try {
+                reader.setInput(input);
+                String format = reader.getFormatName();
+                if (!(format.equalsIgnoreCase("png") || format.equalsIgnoreCase("jpeg"))
+                    || reader.getWidth(0) <= 0 || reader.getHeight(0) <= 0
+                    || reader.getWidth(0) > 4096 || reader.getHeight(0) > 4096 || reader.read(0) == null)
+                    throw ArchiveScope.error("seal_invalid", 400);
+                return format.equalsIgnoreCase("png") ? "image/png" : "image/jpeg";
+            } finally { reader.dispose(); }
+        } catch (java.io.IOException | IllegalArgumentException error) { throw ArchiveScope.error("seal_invalid", 400); }
     }
 }

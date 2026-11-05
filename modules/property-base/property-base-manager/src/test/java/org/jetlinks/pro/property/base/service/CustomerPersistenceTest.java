@@ -12,6 +12,8 @@ import org.hswebframework.web.authorization.simple.SimpleAuthentication;
 import org.hswebframework.web.authorization.simple.SimpleUser;
 import org.hswebframework.web.exception.BusinessException;
 import org.jetlinks.pro.assets.AssetsHolder;
+import org.jetlinks.pro.property.base.command.PropertyCustomerCommandSupport;
+import org.jetlinks.pro.property.base.command.QueryPropertyCustomersCommand;
 import org.jetlinks.pro.property.base.customer.CustomerRequests;
 import org.jetlinks.pro.property.base.entity.*;
 import org.jetlinks.pro.property.base.organization.OrganizationType;
@@ -45,6 +47,7 @@ class CustomerPersistenceTest {
     }
 
     @Autowired PropertyCustomerService service;
+    @Autowired PropertyCustomerCommandSupport directory;
     @Autowired PropertyDictionaryService dictionary;
     @Autowired ReactiveRepository<PropertyCustomerEntity, String> customers;
     @Autowired ReactiveRepository<PropertyCustomerRelationshipEntity, String> relationships;
@@ -153,6 +156,37 @@ class CustomerPersistenceTest {
         customers
                 .deleteById(customers.createQuery().fetch().map(PropertyCustomerEntity::getId))
                 .block(WAIT);
+    }
+
+    @Test
+    void publishedDirectoryAggregatesOnlyReadableCurrentRelationships() {
+        var alice = service.create("project", person("alice", "one")).contextWrite(all()).block(WAIT);
+        service.link("project", alice.getId(), link("two")).contextWrite(all()).block(WAIT);
+        service.create("project", person("bob", "two")).contextWrite(all()).block(WAIT);
+        var query = new QueryPropertyCustomersCommand();
+        query.setProjectId("project");
+        var rows = directory.query(query).contextWrite(all()).collectList().block(WAIT);
+        assertEquals(2, rows.size());
+        assertEquals(Set.of("one", "two"), new HashSet<>(rows.stream()
+                .filter(row -> "alice".equals(row.getUserId())).findFirst().orElseThrow().getSpaceIds()));
+        var restricted = directory.query(query)
+                .contextWrite(access(Set.of("one"), Set.of("alice"))).collectList().block(WAIT);
+        assertEquals(1, restricted.size());
+        assertEquals(List.of("one"), restricted.get(0).getSpaceIds());
+        query.setSpaceId("two");
+        StepVerifier.create(directory.query(query).contextWrite(access(Set.of("one"), Set.of("alice"))))
+                .expectError(AccessDenyException.class).verify();
+        query.setSpaceId("one");
+        var relation = alice.getRelationships().get(0);
+        service.deleteRelationship("project", relation.getId(), relation.getVersion()).contextWrite(all()).block(WAIT);
+        assertEquals(0, directory.query(query).contextWrite(all()).count().block(WAIT));
+    }
+
+    private static CustomerRequests.Link link(String spaceId) {
+        var request = new CustomerRequests.Link();
+        request.setSpaceId(spaceId);
+        request.setNature("owner");
+        return request;
     }
 
     @Test
@@ -502,7 +536,8 @@ class CustomerPersistenceTest {
         ArchiveScope.class,
         PropertyDictionaryService.class,
         PropertyHouseService.class,
-        PropertyCustomerService.class
+        PropertyCustomerService.class,
+        PropertyCustomerCommandSupport.class
     })
     static class Config {}
 }

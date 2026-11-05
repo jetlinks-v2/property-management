@@ -169,6 +169,21 @@ class ArchivePersistenceTest {
     }
 
     @Test
+    void dictionaryCommandRequiresAuthenticationAndReturnsOnlyEnabledPublicValues() {
+        var provider = new org.jetlinks.pro.property.base.command.PropertyDictionaryCommandSupport(dictionary);
+        var request = new org.jetlinks.pro.property.base.command.QueryPropertyDictionaryItemsCommand(); request.setTypeCode("house-type");
+        StepVerifier.create(provider.query(request)).expectError(UnAuthorizedException.class).verify(WAIT);
+        var result = provider.query(request).contextWrite(all()).collectList().block(WAIT);
+        assertEquals(1, result.size()); assertEquals("residential", result.get(0).value());
+        var itemId = PropertyDictionaryService.identity("house-type", "residential");
+        dictionary.updateItem(itemId, item("residential", false, 0L)).contextWrite(all()).block(WAIT);
+        assertTrue(provider.query(request).contextWrite(all()).collectList().block(WAIT).isEmpty());
+        dictionary.updateItem(itemId, item("residential", true, 1L)).contextWrite(all()).block(WAIT);
+        dictionary.updateType(PropertyDictionaryService.identity("type", "house-type"), type("house-type", false, 0L)).contextWrite(all()).block(WAIT);
+        assertTrue(provider.query(request).contextWrite(all()).collectList().block(WAIT).isEmpty());
+        request.setTypeCode("missing-type"); assertTrue(provider.query(request).contextWrite(all()).collectList().block(WAIT).isEmpty());
+    }
+    @Test
     void singleRootAndArbitraryDepthLeafCanBecomeHouseButNonLeafCannot() {
         var initial =
                 houseService

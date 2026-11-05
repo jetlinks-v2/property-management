@@ -27,6 +27,14 @@ import reactor.core.publisher.Flux;
         description = "供物业业务模块查询已标注类型的完整组织树")
 public class PropertyOrganizationCommandSupport {
     private final PropertyOrganizationService organizations;
+    private final org.springframework.beans.factory.ObjectProvider<org.jetlinks.pro.property.base.service.PropertyProjectSealService> seals;
+
+    /** 章与组织树共用组织公开服务，仍由基础服务校验项目类型和read资产权限。 */
+    @CommandHandler(name = "获取项目章")
+    public reactor.core.publisher.Mono<org.jetlinks.pro.property.base.organization.PropertyProjectSeal> projectSeal(GetPropertyProjectSealCommand command) {
+        return seals.getObject().read(command.getProjectId());
+    }
+
 
     /** 沿用订阅者的权限上下文，逐根节点返回公共 DTO，不暴露内部 Entity。 */
     @CommandHandler(name = "查询物业组织树", description = "返回有权访问的完整树及当前类型标注")

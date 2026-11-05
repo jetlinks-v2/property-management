@@ -51,7 +51,8 @@ public class PropertyOrganizationService {
         return assertAccess(id, CrudAssetPermission.save)
                 .then(lock(id))
                 .then(active(id))
-                .flatMap(old -> old.getOrganizationType() == type ? Mono.just(old) : bindings.createQuery()
+                .flatMap(old -> old.getOrganizationType() == type ? Mono.just(old)
+                    : old.getProjectSealFileId() != null ? Mono.error(ArchiveScope.error("seal_remove_before_type", 409)) : bindings.createQuery()
                         .where("organizationId", id).and("deleted", false).count()
                         .flatMap(count -> count == 0 ? Mono.just(old) : Mono.error(ArchiveScope.error("organization_in_use", 409))))
                 .then(authenticated())
@@ -90,6 +91,32 @@ public class PropertyOrganizationService {
                                                                             "error.property_org_version_conflict",
                                                                             409)));
                         });
+    }
+
+    /** 上传入口及事务提交均检查当前组织类型，防止并发改类型后留存项目章。 */
+    public Mono<PropertyOrganizationEntity> sealWritable(String id, long version) {
+        return assertAccess(id, CrudAssetPermission.save).then(active(id)).flatMap(row -> {
+            if (row.getOrganizationType() != OrganizationType.project)
+                return Mono.error(ArchiveScope.error("seal_project_only", 409));
+            if (row.getVersion() != version)
+                return Mono.error(new BusinessException.NoStackTrace("error.property_org_version_conflict", 409));
+            return Mono.just(row);
+        });
+    }
+
+    @Transactional
+    public Mono<PropertyOrganizationEntity> updateSeal(String id, long version, String fileId, String mediaType) {
+        return sealWritable(id, version).then(lock(id)).then(authenticated()).flatMap(auth -> {
+            var update = repository.createUpdate().set("version", version + 1)
+                .set("modifierId", auth.getUser().getId()).set("modifierName", auth.getUser().getUsername())
+                .set("modifyTime", System.currentTimeMillis());
+            if (fileId == null) update.setNull("projectSealFileId").setNull("projectSealMediaType");
+            else update.set("projectSealFileId", fileId).set("projectSealMediaType", mediaType);
+            return update.where("id", id).and("version", version).and("deleted", false)
+                .and("organizationType", OrganizationType.project).execute()
+                .flatMap(count -> count == 1 ? active(id)
+                    : Mono.error(new BusinessException.NoStackTrace("error.property_org_version_conflict", 409)));
+        });
     }
 
     private Mono<Void> assertAccess(String id, CrudAssetPermission permission) {

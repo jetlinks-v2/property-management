@@ -33,8 +33,8 @@ class ArchiveExcelControllerTest {
             new ArchiveExcelService(scope, houses, customers, users, dictionary);
     final WebTestClient client =
             WebTestClient.bindToController(
-                            new PropertyHouseController(houses, excel, null),
-                            new PropertyCustomerController(customers, excel, null))
+                            new PropertyHouseController(houses, excel, mock(org.jetlinks.pro.property.base.command.PropertyHouseholdCommandSupport.class)),
+                            new PropertyCustomerController(customers, excel, mock(org.jetlinks.pro.property.base.command.PropertyHouseholdCommandSupport.class)))
                     .build();
 
     @BeforeEach
