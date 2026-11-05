@@ -28,6 +28,22 @@ import javax.persistence.*;
             @Index(name = "idx_pm_fin_recv_source", columnList = "sourceReceivableId,deleted")
         })
 public class ReceivableEntity extends FinanceEntity {
+    /** 历史空值表示未审核；按钮审核独立于已取消的流程审批。 */
+    @Column(length = 16)
+    private String reviewState = "PENDING";
+
+    @Column(length = 10)
+    private String reviewedOn;
+
+    @Column(length = 64)
+    private String reviewedBy;
+
+    @Column(length = 128)
+    private String reviewedName;
+
+    @Column(length = 1000)
+    private String reviewReason;
+
     /** 根账按设置和自然账期标识；拆分子账使用来源账单及序号，均由后端生成。 */
     @Column(length = 160, nullable = false)
     @JsonIgnore
