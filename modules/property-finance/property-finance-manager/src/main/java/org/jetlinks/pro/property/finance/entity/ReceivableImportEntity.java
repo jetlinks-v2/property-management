@@ -26,6 +26,7 @@ public class ReceivableImportEntity extends FinanceEntity {
     @Column private Integer totalCount;
     @Column private Integer successCount;
     @Column private Integer errorCount;
+    @Column private Integer rejectedCount;
 
     @Column(length = 8000)
     private String errorMessage;

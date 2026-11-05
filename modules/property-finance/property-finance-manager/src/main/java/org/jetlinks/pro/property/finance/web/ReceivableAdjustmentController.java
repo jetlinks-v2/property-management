@@ -3,15 +3,17 @@ package org.jetlinks.pro.property.finance.web;
 import lombok.RequiredArgsConstructor;
 
 import org.hswebframework.web.authorization.annotation.*;
+import org.jetlinks.pro.property.finance.entity.ReceivableChangeEntity;
 import org.jetlinks.pro.property.finance.receivable.*;
 import org.jetlinks.pro.property.finance.service.ReceivableAdjustmentService;
+import org.jetlinks.pro.property.finance.service.ReceivableChangeAuditService;
 import org.springframework.web.bind.annotation.*;
 
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDate;
 
-/** 调整权限同时约束预览和发布，不需要旧流程中心审批权限。 */
+/** 调整权限约束预览和申请；正式改账只允许经本地审批入口发布。 */
 @RestController
 @RequiredArgsConstructor
 @Authorize
@@ -19,6 +21,7 @@ import java.time.LocalDate;
 @Resource(id = "property-finance-receivable", name = "应收款管理")
 public class ReceivableAdjustmentController {
     private final ReceivableAdjustmentService service;
+    private final ReceivableChangeAuditService audit;
 
     @PostMapping("/_preview")
     @ResourceAction(id = "adjust", name = "调整")
@@ -31,10 +34,10 @@ public class ReceivableAdjustmentController {
 
     @PostMapping
     @ResourceAction(id = "adjust", name = "调整")
-    public Mono<ReceivableView> submit(
+    public Mono<ReceivableChangeEntity> submit(
             @PathVariable String projectId,
             @PathVariable String id,
             @RequestBody ReceivableAdjustmentService.SubmitInput input) {
-        return service.submit(projectId, id, input, LocalDate.now());
+        return audit.requestAdjustment(projectId, id, input, LocalDate.now());
     }
 }

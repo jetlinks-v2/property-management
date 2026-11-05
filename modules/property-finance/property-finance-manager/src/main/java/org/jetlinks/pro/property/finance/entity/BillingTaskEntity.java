@@ -12,7 +12,7 @@ import javax.persistence.Column;
 import javax.persistence.Index;
 import javax.persistence.Table;
 
-/** 每设置、任务类型、业务日只有一个持久执行身份；失败和重试不覆盖原业务日期。 */
+/** 每设置或历史根账、任务类型、业务日只有一个持久执行身份；失败和重试不覆盖原业务日期。 */
 @Getter
 @Setter
 @EnableEntityEvent
@@ -42,8 +42,12 @@ public class BillingTaskEntity extends GenericEntity<String> {
     @Column(length = 2000, nullable = false)
     private String fullName;
 
-    @Column(length = 64, nullable = false)
+    @Column(length = 64)
     private String settingId;
+
+    /** 无收费设置的历史根账单任务，和 settingId 二选一；身份不能通过HTTP改写。 */
+    @Column(length = 64)
+    private String receivableId;
 
     @JsonIgnore
     @Column(length = 64)

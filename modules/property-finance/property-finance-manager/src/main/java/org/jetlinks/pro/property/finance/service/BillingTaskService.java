@@ -33,16 +33,32 @@ public class BillingTaskService {
     private static final AssetType SPACE = AssetType.of("space");
     private final ReactiveRepository<BillingTaskEntity, String> tasks;
     private final ReactiveRepository<HouseSettingEntity, String> settings;
+    private final ReactiveRepository<
+                    org.jetlinks.pro.property.finance.entity.ReceivableEntity, String>
+            bills;
     private final ReceivableGenerationService generation;
     private final FinanceScope scope;
 
     /** 仅生命周期作业入口调用。清除调用上下文，逐项恢复持久化租户，权限来自已保存设置的系统委托。 */
     Mono<RunSummary> scan(BillingTaskKind kind, LocalDate date) {
-        return settings.createQuery()
-                .where("deleted", false)
-                .lte("effectiveStartDate", date.toString())
-                .fetch()
-                .flatMap(setting -> execute(setting, kind, date), 4, 1)
+        var configured =
+                settings.createQuery()
+                        .where("deleted", false)
+                        .lte("effectiveStartDate", date.toString())
+                        .fetch()
+                        .flatMap(setting -> execute(setting, kind, date), 4, 1);
+        // 历史导入根账不依赖收费设置；子账由根账沿来源链处理，避免重复计算。
+        var historical =
+                kind == BillingTaskKind.GENERATE
+                        ? reactor.core.publisher.Flux.<TaskResult>empty()
+                        : bills.createQuery()
+                                .where("deleted", false)
+                                .isNull("settingId")
+                                .isNull("sourceReceivableId")
+                                .fetch()
+                                .flatMap(bill -> executeReceivable(bill, kind, date), 4, 1);
+        return configured
+                .concatWith(historical)
                 .reduce(new RunSummary(0, 0, 0), RunSummary::add)
                 .contextWrite(ignored -> Context.empty());
     }
@@ -51,47 +67,86 @@ public class BillingTaskService {
         return ensureTask(setting, kind, date)
                 .flatMap(
                         task ->
-                                claim(task)
-                                        .flatMap(
-                                                owner -> {
-                                                    Mono<
-                                                                    ReceivableGenerationService
-                                                                            .GenerationResult>
-                                                            run =
-                                                                    generation.scheduled(
-                                                                            setting.getProjectId(),
-                                                                            setting.getId(),
-                                                                            date,
-                                                                            kind);
-                                                    if (setting.getTenantId() != null
-                                                            && !setting.getTenantId().isEmpty())
-                                                        run =
-                                                                run.contextWrite(
-                                                                        TenantHolder.makeCurrent(
-                                                                                setting
-                                                                                        .getTenantId()));
-                                                    return run.timeout(Duration.ofMinutes(5))
-                                                            .flatMap(
-                                                                    result ->
-                                                                            complete(
-                                                                                            task,
-                                                                                            owner,
-                                                                                            result)
-                                                                                    .thenReturn(
-                                                                                            new TaskResult(
-                                                                                                    "SUCCEEDED")))
-                                                            .onErrorResume(
-                                                                    failure ->
-                                                                            fail(
-                                                                                            task,
-                                                                                            owner,
-                                                                                            failure)
-                                                                                    .thenReturn(
-                                                                                            new TaskResult(
-                                                                                                    "FAILED")));
-                                                })
-                                        .defaultIfEmpty(new TaskResult("SKIPPED")))
+                                run(
+                                        task,
+                                        () ->
+                                                generation.scheduled(
+                                                        setting.getProjectId(),
+                                                        setting.getId(),
+                                                        date,
+                                                        kind)))
                 .as(MonoTracer.create("/property/finance/billing-task/execute"));
+    }
+
+    Mono<TaskResult> executeReceivable(
+            org.jetlinks.pro.property.finance.entity.ReceivableEntity bill,
+            BillingTaskKind kind,
+            LocalDate date) {
+        String key = "BILL:" + bill.getId() + ":" + kind.name() + ":" + date;
+        String id = UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)).toString();
+        return tasks.findById(id)
+                .switchIfEmpty(
+                        Mono.defer(
+                                () -> {
+                                    var task = new BillingTaskEntity();
+                                    task.setId(id);
+                                    task.setProjectId(bill.getProjectId());
+                                    task.setSpaceId(bill.getSpaceId());
+                                    task.setFullName(bill.getFullName());
+                                    task.setReceivableId(bill.getId());
+                                    task.setTenantId(bill.getTenantId());
+                                    task.setKind(kind.name());
+                                    task.setBusinessDate(date.toString());
+                                    task.setStatus("PENDING");
+                                    task.setAttempts(0);
+                                    task.setLeaseUntil(0L);
+                                    task.setCreateTime(System.currentTimeMillis());
+                                    return tasks.insert(task)
+                                            .thenReturn(task)
+                                            .onErrorResume(
+                                                    failure ->
+                                                            tasks.findById(id)
+                                                                    .switchIfEmpty(
+                                                                            Mono.error(failure)));
+                                }))
+                .flatMap(
+                        task ->
+                                run(
+                                        task,
+                                        () ->
+                                                generation.scheduledReceivable(
+                                                        bill.getProjectId(),
+                                                        bill.getId(),
+                                                        date,
+                                                        kind)))
+                .as(MonoTracer.create("property.finance.billing-task.execute-history"));
+    }
+
+    private Mono<TaskResult> run(
+            BillingTaskEntity task,
+            java.util.function.Supplier<Mono<ReceivableGenerationService.GenerationResult>>
+                    action) {
+        return claim(task)
+                .flatMap(
+                        owner -> {
+                            Mono<ReceivableGenerationService.GenerationResult> run =
+                                    Mono.defer(action);
+                            if (task.getTenantId() != null && !task.getTenantId().isEmpty())
+                                run =
+                                        run.contextWrite(
+                                                TenantHolder.makeCurrent(task.getTenantId()));
+                            return run.timeout(Duration.ofMinutes(5))
+                                    .flatMap(
+                                            result ->
+                                                    complete(task, owner, result)
+                                                            .thenReturn(
+                                                                    new TaskResult("SUCCEEDED")))
+                                    .onErrorResume(
+                                            failure ->
+                                                    fail(task, owner, failure)
+                                                            .thenReturn(new TaskResult("FAILED")));
+                        })
+                .defaultIfEmpty(new TaskResult("SKIPPED"));
     }
 
     private Mono<BillingTaskEntity> ensureTask(
@@ -225,34 +280,32 @@ public class BillingTaskService {
         return tasks.createQuery()
                 .in("status", java.util.List.of("PENDING", "RUNNING"))
                 .fetch()
-                .flatMap(
-                        task ->
-                                settings.findById(task.getSettingId())
-                                        .filter(row -> !Boolean.TRUE.equals(row.getDeleted()))
-                                        .flatMap(
-                                                setting ->
-                                                        execute(
-                                                                setting,
-                                                                BillingTaskKind.valueOf(
-                                                                        task.getKind()),
-                                                                LocalDate.parse(
-                                                                        task.getBusinessDate())))
-                                        .switchIfEmpty(
-                                                tasks.createUpdate()
-                                                        .set("status", "SKIPPED")
-                                                        .set(
-                                                                "finishTime",
-                                                                System.currentTimeMillis())
-                                                        .set("leaseUntil", 0L)
-                                                        .setNull("leaseOwner")
-                                                        .where("id", task.getId())
-                                                        .and("status", task.getStatus())
-                                                        .execute()
-                                                        .thenReturn(new TaskResult("SKIPPED"))),
-                        4,
-                        1)
+                .flatMap(this::resumeTask, 4, 1)
                 .reduce(new RunSummary(0, 0, 0), RunSummary::add)
                 .contextWrite(ignored -> Context.empty());
+    }
+
+    private Mono<TaskResult> resumeTask(BillingTaskEntity task) {
+        var kind = BillingTaskKind.valueOf(task.getKind());
+        var date = LocalDate.parse(task.getBusinessDate());
+        Mono<TaskResult> resume =
+                task.getReceivableId() == null
+                        ? settings.findById(task.getSettingId())
+                                .filter(row -> !Boolean.TRUE.equals(row.getDeleted()))
+                                .flatMap(setting -> execute(setting, kind, date))
+                        : bills.findById(task.getReceivableId())
+                                .filter(row -> !Boolean.TRUE.equals(row.getDeleted()))
+                                .flatMap(bill -> executeReceivable(bill, kind, date));
+        return resume.switchIfEmpty(
+                tasks.createUpdate()
+                        .set("status", "SKIPPED")
+                        .set("finishTime", System.currentTimeMillis())
+                        .set("leaseUntil", 0L)
+                        .setNull("leaseOwner")
+                        .where("id", task.getId())
+                        .and("status", task.getStatus())
+                        .execute()
+                        .thenReturn(new TaskResult("SKIPPED")));
     }
 
     record TaskResult(String status) {}

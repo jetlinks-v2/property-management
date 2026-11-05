@@ -32,6 +32,7 @@ public class ReceivableGenerationService {
     private final FinancialPeriodGate periodGate;
     private final ReactiveRepository<HouseSettingEntity, String> settings;
     private final ReactiveRepository<ReceivableEntity, String> bills;
+    private final ReactiveRepository<ReceivableChangeEntity, String> changes;
     private final NaturalBillingPeriodService periods;
     private final ReceivableCalculationService calculation;
 
@@ -224,6 +225,7 @@ public class ReceivableGenerationService {
             StandardEntity standard,
             Authentication auth) {
         var row = ReceivableDrafts.create(setting, period, standard);
+        row.setTenantId(Objects.toString(setting.getTenantId(), ""));
         row.setId(UUID.randomUUID().toString());
         init(row, auth);
         return row;
@@ -269,6 +271,100 @@ public class ReceivableGenerationService {
             return Mono.error(error("receivable_payment_locked", 409));
         if (date.isBefore(LocalDate.parse(bill.getCalculatedAsOfDate())))
             return Mono.error(error("receivable_date_regression", 409));
+        return assertNoPendingClose(bill, date, kind)
+                .then(Mono.defer(() -> refreshAmounts(bill, standard, date, auth, kind)));
+    }
+
+    /** 与旧关期规则一致：待审批调整/拆分不能被关期任务越过；失败进入持久任务供处理后重试。 */
+    private Mono<Void> assertNoPendingClose(
+            ReceivableEntity bill, LocalDate date, BillingTaskKind kind) {
+        if (!kind.closePeriod()
+                || "CLOSED".equals(bill.getPeriodStatus())
+                || !date.isAfter(LocalDate.parse(bill.getCalcEndDate()))) return Mono.empty();
+        return changes.createQuery()
+                .where("receivableId", bill.getId())
+                .and("projectId", bill.getProjectId())
+                .and("status", "PENDING")
+                .and("deleted", false)
+                .count()
+                .flatMap(
+                        count ->
+                                count > 0
+                                        ? Mono.error(error("change_pending", 409))
+                                        : Mono.empty());
+    }
+
+    /** 无设置的历史根账也参与滞纳金/关期；仍保留导入合同额及拆分来源链。 */
+    @Transactional
+    public Mono<GenerationResult> scheduledReceivable(
+            String project, String id, LocalDate date, BillingTaskKind kind) {
+        if (kind == BillingTaskKind.GENERATE || kind == BillingTaskKind.ALL)
+            return Mono.error(error("change_invalid", 400));
+        return taskBill(project, id, false)
+                .flatMap(
+                        initial ->
+                                periodGate
+                                        .lockForReceivableTask(initial, systemActor())
+                                        .flatMap(
+                                                control ->
+                                                        periodGate
+                                                                .assertOpen(control, date)
+                                                                .then(taskBill(project, id, true)))
+                                        .flatMap(
+                                                current -> {
+                                                    if (!Objects.equals(
+                                                            initial.getTenantId(),
+                                                            current.getTenantId()))
+                                                        return Mono.error(
+                                                                error("task_tenant_invalid", 409));
+                                                    if (Boolean.TRUE.equals(current.getDeleted()))
+                                                        return Mono.just(
+                                                                new GenerationResult(0, 0));
+                                                    var run =
+                                                            Boolean.TRUE.equals(current.getSplit())
+                                                                    ? refreshChildren(
+                                                                            current,
+                                                                            date,
+                                                                            systemActor(),
+                                                                            kind)
+                                                                    : refresh(
+                                                                            current,
+                                                                            SettingRules.standard(
+                                                                                    current
+                                                                                            .getSnapshotJson()),
+                                                                            date,
+                                                                            systemActor(),
+                                                                            kind);
+                                                    return run.thenReturn(
+                                                            new GenerationResult(0, 1));
+                                                }))
+                .as(MonoTracer.create("property.finance.receivable.scheduled-history"));
+    }
+
+    private Mono<ReceivableEntity> taskBill(String project, String id, boolean lock) {
+        var query = new QueryParamEntity();
+        query.setForUpdate(lock);
+        return bills.createQuery()
+                .setParam(query)
+                .where("id", id)
+                .and("projectId", project)
+                .isNull("settingId")
+                .isNull("sourceReceivableId")
+                .fetchOne()
+                .switchIfEmpty(Mono.error(error("receivable_not_found", 404)));
+    }
+
+    private Mono<Void> refreshAmounts(
+            ReceivableEntity bill,
+            StandardEntity standard,
+            LocalDate date,
+            Authentication auth,
+            BillingTaskKind kind) {
+        // 已关期不再计提本金，避免历史导入金额被当前公式覆盖；滞纳金仍可每日刷新。
+        if (kind == BillingTaskKind.CLOSE && !date.isAfter(LocalDate.parse(bill.getCalcEndDate())))
+            return Mono.empty();
+        if ((kind == BillingTaskKind.ACCRUE || kind == BillingTaskKind.CLOSE)
+                && "CLOSED".equals(bill.getPeriodStatus())) return Mono.empty();
         calculation.calculate(bill, standard, date, kind);
         var update =
                 audit(bills.createUpdate(), auth, bill.getVersion())

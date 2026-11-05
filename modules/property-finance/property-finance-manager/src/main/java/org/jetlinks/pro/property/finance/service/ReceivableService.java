@@ -34,22 +34,23 @@ public class ReceivableService {
     private final FinancialPeriodGate periodGate;
     private final ReactiveRepository<ReceivableEntity, String> bills;
     private final ReactiveRepository<ReceivableLogEntity, String> logs;
+    private final ReceivablePresentationService presentation;
 
     public Mono<PagerResult<ReceivableView>> query(String project, QueryParamEntity input) {
         return scope.project(project, CrudAssetPermission.read)
-                .then(secured(project, input))
                 .flatMap(
-                        query ->
-                                QueryHelper.transformPageResult(
-                                        QueryHelper.queryPager(query, bills::createQuery),
-                                        rows ->
-                                                Mono.just(
-                                                        rows.stream()
-                                                                .map(
-                                                                        row ->
-                                                                                ReceivableView.of(
-                                                                                        row, false))
-                                                                .toList())));
+                        info ->
+                                secured(project, input)
+                                        .flatMap(
+                                                query ->
+                                                        QueryHelper.transformPageResult(
+                                                                QueryHelper.queryPager(
+                                                                        query, bills::createQuery),
+                                                                rows ->
+                                                                        presentation.views(
+                                                                                rows,
+                                                                                info.name(),
+                                                                                false))));
     }
 
     private Mono<QueryParamEntity> secured(String project, QueryParamEntity input) {
@@ -75,12 +76,21 @@ public class ReceivableService {
 
     public Mono<ReceivableView> detail(String project, String id) {
         return scope.project(project, CrudAssetPermission.read)
-                .then(row(project, id, false, false))
                 .flatMap(
-                        row ->
-                                AssetsHolder.assertPermission(
-                                                SPACE, row.getSpaceId(), CrudAssetPermission.read)
-                                        .thenReturn(ReceivableView.of(row, true)));
+                        info ->
+                                row(project, id, false, false)
+                                        .flatMap(
+                                                row ->
+                                                        AssetsHolder.assertPermission(
+                                                                        SPACE,
+                                                                        row.getSpaceId(),
+                                                                        CrudAssetPermission.read)
+                                                                .then(
+                                                                        presentation.views(
+                                                                                List.of(row),
+                                                                                info.name(),
+                                                                                true))
+                                                                .map(views -> views.get(0))));
     }
 
     /** 删除后仍可按原账单身份查审计，先验证原账单空间授权，绝不单凭日志ID读取。 */
@@ -309,7 +319,7 @@ public class ReceivableService {
         var wrapper = new org.springframework.beans.BeanWrapperImpl(row);
         for (var field : wrapper.getPropertyDescriptors()) {
             // Jackson注解不约束FastJSON；审计显式排除原始快照，并把金额转为精确文本。
-            if (Set.of("class", "snapshotJson").contains(field.getName())) continue;
+            if (Set.of("class", "snapshotJson", "tenantId").contains(field.getName())) continue;
             var value = wrapper.getPropertyValue(field.getName());
             snapshot.put(
                     field.getName(),
@@ -330,20 +340,41 @@ public class ReceivableService {
     /** 读取上限加一条以识别超限；不按分页截断后冒充完整导出。POI在有界弹性线程运行。 */
     public Mono<byte[]> export(String project, QueryParamEntity input) {
         return scope.project(project, CrudAssetPermission.read)
-                .then(secured(project, input))
-                .flatMapMany(
-                        query -> {
-                            query.setPageIndex(0);
-                            query.setPageSize(EXPORT_LIMIT + 1);
-                            return bills.createQuery().setParam(query).fetch();
-                        })
-                .collectList()
                 .flatMap(
-                        rows ->
-                                rows.size() > EXPORT_LIMIT
-                                        ? Mono.error(error("receivable_export_limit", 400))
-                                        : Mono.fromCallable(() -> ReceivableWorkbook.write(rows))
-                                                .subscribeOn(Schedulers.boundedElastic()));
+                        info ->
+                                secured(project, input)
+                                        .flatMapMany(
+                                                query -> {
+                                                    query.setPageIndex(0);
+                                                    query.setPageSize(EXPORT_LIMIT + 1);
+                                                    return bills.createQuery()
+                                                            .setParam(query)
+                                                            .fetch();
+                                                })
+                                        .collectList()
+                                        .flatMap(
+                                                rows ->
+                                                        rows.size() > EXPORT_LIMIT
+                                                                ? Mono.error(
+                                                                        error(
+                                                                                "receivable_export_limit",
+                                                                                400))
+                                                                : presentation
+                                                                        .views(
+                                                                                rows,
+                                                                                info.name(),
+                                                                                false)
+                                                                        .flatMap(
+                                                                                views ->
+                                                                                        Mono
+                                                                                                .fromCallable(
+                                                                                                        () ->
+                                                                                                                ReceivableWorkbook
+                                                                                                                        .write(
+                                                                                                                                views))
+                                                                                                .subscribeOn(
+                                                                                                        Schedulers
+                                                                                                                .boundedElastic()))));
     }
 
     public record ChangeInput(Long version, String reason) {}

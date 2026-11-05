@@ -3,7 +3,9 @@ package org.jetlinks.pro.property.finance.web;
 import lombok.RequiredArgsConstructor;
 
 import org.hswebframework.web.authorization.annotation.*;
+import org.jetlinks.pro.property.finance.entity.ReceivableChangeEntity;
 import org.jetlinks.pro.property.finance.receivable.*;
+import org.jetlinks.pro.property.finance.service.ReceivableChangeAuditService;
 import org.jetlinks.pro.property.finance.service.ReceivableSplitService;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,6 +21,7 @@ import java.util.List;
 @Resource(id = "property-finance-receivable", name = "应收款管理")
 public class ReceivableSplitController {
     private final ReceivableSplitService service;
+    private final ReceivableChangeAuditService audit;
 
     @GetMapping("/_options")
     @ResourceAction(id = "split", name = "拆分")
@@ -38,10 +41,10 @@ public class ReceivableSplitController {
 
     @PostMapping
     @ResourceAction(id = "split", name = "拆分")
-    public Mono<List<ReceivableView>> submit(
+    public Mono<ReceivableChangeEntity> submit(
             @PathVariable String projectId,
             @PathVariable String id,
             @RequestBody ReceivableSplitService.Submit input) {
-        return service.submit(projectId, id, input, LocalDate.now());
+        return audit.requestSplit(projectId, id, input, LocalDate.now());
     }
 }

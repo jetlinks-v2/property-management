@@ -63,11 +63,18 @@ class HouseSettingPersistenceTest {
     @Autowired ReactiveRepository<ReceivableEntity, String> bills;
     @Autowired BillingTaskService tasks;
     @Autowired ReceivableService receivables;
+    @Autowired ReceivablePresentationService presentation;
+    @Autowired ReactiveRepository<DocumentEntity, String> documents;
+    @Autowired ReactiveRepository<DocumentLineEntity, String> documentLines;
     @Autowired ReceivableBatchService batches;
     @Autowired ReceivableAdjustmentService adjustments;
     @Autowired ReactiveRepository<ReceivableImportEntity, String> importRecords;
     @Autowired HistoricalReceivableService historical;
+    @Autowired HistoricalImportAuditService importAudit;
+    @Autowired ReactiveRepository<ReceivableImportLineEntity, String> importDrafts;
     @Autowired ReceivableSplitService splits;
+    @Autowired ReceivableChangeAuditService changeAudit;
+    @Autowired ReactiveRepository<ReceivableChangeEntity, String> changeRows;
     @Autowired org.jetlinks.pro.property.finance.receivable.SplitRules splitRules;
     @Autowired org.jetlinks.pro.property.finance.receivable.AdjustmentRules adjustmentRules;
     @Autowired ReactiveRepository<ReceivableLogEntity, String> receivableLogs;
@@ -956,8 +963,8 @@ class HouseSettingPersistenceTest {
                         new java.io.ByteArrayInputStream(bytes))) {
             var sheet = book.getSheetAt(0);
             assertEquals(1, sheet.getLastRowNum());
-            assertEquals("实际应收", sheet.getRow(0).getCell(21).getStringCellValue());
-            assertEquals("999999999999999999.99", sheet.getRow(1).getCell(21).getStringCellValue());
+            assertEquals("实际应收", sheet.getRow(0).getCell(11).getStringCellValue());
+            assertEquals("999999999999999999.99", sheet.getRow(1).getCell(11).getStringCellValue());
         }
         var holder = mock(AssetsHolder.class);
         when(holder.assertPermission(anyString(), anyCollection(), any()))
@@ -988,7 +995,8 @@ class HouseSettingPersistenceTest {
         ReactiveRepository<ReceivableLogEntity, String> failedLogs = mock(ReactiveRepository.class);
         when(failedLogs.insert(any(ReceivableLogEntity.class)))
                 .thenReturn(Mono.error(new IllegalStateException("audit unavailable")));
-        var failedService = new ReceivableService(financeScope, periodGate, bills, failedLogs);
+        var failedService =
+                new ReceivableService(financeScope, periodGate, bills, failedLogs, presentation);
         StepVerifier.create(
                         org.springframework.transaction.reactive.TransactionalOperator.create(
                                         transactionManager)
@@ -1253,7 +1261,7 @@ class HouseSettingPersistenceTest {
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(
                                 new org.jetlinks.pro.property.finance.web
-                                        .ReceivableAdjustmentController(adjustments))
+                                        .ReceivableAdjustmentController(adjustments, changeAudit))
                         .webFilter(
                                 (exchange, chain) -> chain.filter(exchange).contextWrite(allowed()))
                         .build();
@@ -1527,7 +1535,7 @@ class HouseSettingPersistenceTest {
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(
                                 new org.jetlinks.pro.property.finance.web.ReceivableSplitController(
-                                        splits))
+                                        splits, changeAudit))
                         .webFilter(
                                 (exchange, chain) -> chain.filter(exchange).contextWrite(allowed()))
                         .build();
@@ -1572,12 +1580,305 @@ class HouseSettingPersistenceTest {
                 .expectStatus()
                 .isOk()
                 .expectBody()
-                .jsonPath("$[0].actualReceivableAmount")
-                .isEqualTo("12.76")
-                .jsonPath("$[0].sourceReceivableId")
+                .jsonPath("$.status")
+                .isEqualTo("PENDING")
+                .jsonPath("$.receivableId")
                 .isEqualTo(source.getId())
-                .jsonPath("$[0].snapshotJson")
+                .jsonPath("$.previewJson")
                 .doesNotExist();
+    }
+
+    private Mono<ReceivableImportEntity> importAndApprove(
+            org.springframework.http.codec.multipart.FilePart file) {
+        return historical
+                .importFile(project, file)
+                .flatMap(
+                        record ->
+                                "PENDING".equals(record.getStatus())
+                                        ? importAudit.decide(
+                                                project,
+                                                record.getId(),
+                                                new HistoricalImportAuditService.Decision(
+                                                        record.getVersion(), "核对历史应收", List.of()),
+                                                true)
+                                        : Mono.just(record));
+    }
+
+    @Test
+    void historicalReviewStagesThenApprovesSelectedRowsAndRetainsRejectedHistory()
+            throws Exception {
+        mockHistoricalHouses();
+        var record =
+                historical
+                        .importFile(project, historicalPart(historicalFile("100.00", true)))
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals("PENDING", record.getStatus());
+        assertEquals(0, record.getSuccessCount());
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+        var page =
+                importAudit
+                        .lines(
+                                project,
+                                record.getId(),
+                                new org.hswebframework.web.api.crud.entity.QueryParamEntity())
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(2, page.getTotal());
+        assertEquals(2, page.getData().get(0).lineNumber());
+        assertEquals(
+                "100.00",
+                page.getData().get(0).receivable().getActualReceivableAmount().toPlainString());
+        StepVerifier.create(
+                        importAudit
+                                .decide(
+                                        "foreign-project",
+                                        record.getId(),
+                                        new HistoricalImportAuditService.Decision(
+                                                record.getVersion(), "跨项目", List.of()),
+                                        true)
+                                .contextWrite(allowed()))
+                .expectError(org.hswebframework.web.exception.BusinessException.class)
+                .verify(WAIT);
+        var row = page.getData().get(0);
+        var input =
+                new HistoricalImportAuditService.Decision(
+                        record.getVersion(),
+                        "核对第2行",
+                        List.of(new HistoricalImportAuditService.Item(row.id(), row.version())));
+        var denied = mock(AssetsHolder.class);
+        when(denied.assertPermission(anyString(), anyCollection(), any()))
+                .thenReturn(Mono.error(new IllegalStateException("space denied")));
+        StepVerifier.create(
+                        importAudit
+                                .decide(project, record.getId(), input, true)
+                                .contextWrite(allowed().put(AssetsHolder.class, denied)))
+                .expectError()
+                .verify(WAIT);
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+        var partial =
+                importAudit
+                        .decide(project, record.getId(), input, true)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals("PENDING", partial.getStatus());
+        assertEquals(1, partial.getSuccessCount());
+        assertEquals(1, bills.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals("APPROVED", bills.findById(row.id()).block(WAIT).getReviewState());
+        StepVerifier.create(
+                        importAudit
+                                .decide(project, record.getId(), input, true)
+                                .contextWrite(allowed()))
+                .expectError(org.hswebframework.web.exception.BusinessException.class)
+                .verify(WAIT);
+        var finalRecord =
+                importAudit
+                        .decide(
+                                project,
+                                record.getId(),
+                                new HistoricalImportAuditService.Decision(
+                                        partial.getVersion(), "剩余行资料不符", List.of()),
+                                false)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals("APPROVED", finalRecord.getStatus());
+        assertEquals(1, finalRecord.getSuccessCount());
+        assertEquals(1, finalRecord.getRejectedCount());
+        var rejected =
+                importDrafts
+                        .createQuery()
+                        .where("importId", record.getId())
+                        .and("status", "REJECTED")
+                        .fetchOne()
+                        .block(WAIT);
+        assertEquals("剩余行资料不符", rejected.getReviewReason());
+        assertFalse(rejected.getDeleted());
+        assertNull(bills.findById(rejected.getId()).block(WAIT));
+    }
+
+    @Test
+    void historicalBatchReviewRollsBackEveryBatchOnDuplicateAndPeriodIsRechecked()
+            throws Exception {
+        mockHistoricalHouses();
+        var first =
+                historical
+                        .importFile(project, historicalPart(historicalFile("100.00", false)))
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var second =
+                historical
+                        .importFile(project, historicalPart(historicalFile("100.00", false)))
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var input =
+                new HistoricalImportAuditService.BatchDecision(
+                        List.of(
+                                new HistoricalImportAuditService.Item(
+                                        first.getId(), first.getVersion()),
+                                new HistoricalImportAuditService.Item(
+                                        second.getId(), second.getVersion())),
+                        "核对批次");
+        StepVerifier.create(importAudit.decideBatches(project, input, true).contextWrite(allowed()))
+                .expectErrorMatches(
+                        e ->
+                                e instanceof org.hswebframework.web.exception.BusinessException
+                                        && e.getMessage().contains("historical_row"))
+                .verify(WAIT);
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(
+                2,
+                importDrafts
+                        .createQuery()
+                        .where("projectId", project)
+                        .and("status", "PENDING")
+                        .count()
+                        .block(WAIT));
+        assertEquals(
+                first.getVersion(), importRecords.findById(first.getId()).block(WAIT).getVersion());
+        assertEquals("PENDING", importRecords.findById(second.getId()).block(WAIT).getStatus());
+        financialPeriods
+                .close(project, LocalDate.now().minusDays(1))
+                .contextWrite(allowed())
+                .block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                importAudit
+                        .decide(
+                                project,
+                                first.getId(),
+                                new HistoricalImportAuditService.Decision(
+                                        first.getVersion(), "关账后审核", List.of()),
+                                true)
+                        .contextWrite(allowed()));
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+        // 驳回只结束待审，不入账，已经关闭的期间也可保留驳回历史。
+        var rejected =
+                importAudit
+                        .decideBatches(project, input, false)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertTrue(rejected.stream().allMatch(row -> "REJECTED".equals(row.getStatus())));
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    @Test
+    void historicalReviewUpgradeSqlIsRepeatableAndPreservesExistingRows() throws Exception {
+        var sql =
+                java.nio.file.Files.readString(
+                        java.nio.file.Path.of("../sql/migrate-historical-import-review.sql"));
+        DB.copyFileToContainer(
+                org.testcontainers.images.builder.Transferable.of(
+                        sql.getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                "/tmp/import-review.sql");
+        for (int run = 0; run < 2; run++) {
+            var result =
+                    DB.execInContainer(
+                            "psql",
+                            "-U",
+                            "postgres",
+                            "-d",
+                            "setting_test",
+                            "-v",
+                            "ON_ERROR_STOP=1",
+                            "-f",
+                            "/tmp/import-review.sql");
+            assertEquals(0, result.getExitCode(), result.getStderr());
+        }
+        mockHistoricalHouses();
+        var pending =
+                historical
+                        .importFile(project, historicalPart(historicalFile("100.00", false)))
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(
+                1,
+                importDrafts.createQuery().where("importId", pending.getId()).count().block(WAIT));
+    }
+
+    @Test
+    void receivableTaxProjectionUsesInvoiceFactsAndNetReversalsOnly() throws Exception {
+        mockHistoricalHouses();
+        importAndApprove(historicalPart(historicalFile("100.00", false)))
+                .contextWrite(allowed())
+                .block(WAIT);
+        var row = bills.createQuery().where("projectId", project).fetchOne().block(WAIT);
+        assertNull(
+                presentation
+                        .views(List.of(row), "测试项目", false)
+                        .block(WAIT)
+                        .get(0)
+                        .getOutputTaxAmount());
+        taxDocument(row, project, "RECEIPT", "100.00", "40.00");
+        taxDocument(row, "foreign-project", "INVOICE", "100.00", "50.00");
+        assertNull(
+                presentation
+                        .views(List.of(row), "测试项目", false)
+                        .block(WAIT)
+                        .get(0)
+                        .getOutputTaxAmount());
+        taxDocument(row, project, "INVOICE", "100.00", "6.00");
+        var blue = presentation.views(List.of(row), "测试项目", false).block(WAIT).get(0);
+        assertEquals("6.00", blue.getOutputTaxAmount().toPlainString());
+        assertEquals("94.00", blue.getIncomeExcludingTax().toPlainString());
+        assertEquals("测试项目", blue.getProjectName());
+        taxDocument(row, project, "INVOICE", "-100.00", "-6.00");
+        assertNull(
+                presentation
+                        .views(List.of(row), "测试项目", false)
+                        .block(WAIT)
+                        .get(0)
+                        .getOutputTaxAmount());
+        taxDocument(row, project, "INVOICE", "100.00", "3.00");
+        var reissued = presentation.views(List.of(row), "测试项目", false).block(WAIT).get(0);
+        assertEquals("3.00", reissued.getOutputTaxAmount().toPlainString());
+        assertEquals("97.00", reissued.getIncomeExcludingTax().toPlainString());
+    }
+
+    private void taxDocument(
+            ReceivableEntity bill, String projectId, String type, String amount, String tax) {
+        var doc = new DocumentEntity();
+        doc.setId(UUID.randomUUID().toString());
+        StandardPersistenceTest.initialize(doc);
+        doc.setTenantId("tenant");
+        doc.setProjectId(projectId);
+        doc.setCreatorId("user");
+        doc.setDocumentType(type);
+        doc.setChannel("SIMULATED");
+        doc.setStatus("ISSUED");
+        doc.setDocumentNumber(doc.getId());
+        doc.setRootDocumentId(doc.getId());
+        doc.setReopenCount(0);
+        doc.setCompanyId("company");
+        doc.setCompanyName("开票公司");
+        doc.setSellerTaxNum("tax");
+        doc.setCustomerId("customer");
+        doc.setCustomerName("龚超");
+        doc.setBuyerName("龚超");
+        doc.setIssueScene("RECEIVABLE");
+        doc.setIssuedAt(LocalDate.now().toString());
+        doc.setRequestFingerprint(doc.getId());
+        doc.setBuyerJson("{}");
+        doc.setRuleJson("{}");
+        doc.setAmount(new BigDecimal(amount));
+        doc.setTaxAmount(new BigDecimal(tax));
+        doc.setNetAmount(doc.getAmount().subtract(doc.getTaxAmount()));
+        documents.insert(doc).block(WAIT);
+        var line = new DocumentLineEntity();
+        line.setId(UUID.randomUUID().toString());
+        StandardPersistenceTest.initialize(line);
+        line.setProjectId(projectId);
+        line.setDocumentId(doc.getId());
+        line.setLineIndex(1);
+        line.setSpaceId(bill.getSpaceId());
+        line.setSourceType("RECEIVABLE");
+        line.setSourceId(bill.getId());
+        line.setOriginalSourceType("RECEIVABLE");
+        line.setOriginalSourceId(bill.getId());
+        line.setSourceSnapshotJson("{}");
+        line.setLineSnapshotJson("{}");
+        line.setAmount(doc.getAmount());
+        line.setTaxAmount(doc.getTaxAmount());
+        line.setNetAmount(doc.getNetAmount());
+        documentLines.insert(line).block(WAIT);
     }
 
     private byte[] historicalFile(String lastActual, boolean twoRows) throws Exception {
@@ -1648,11 +1949,10 @@ class HouseSettingPersistenceTest {
         assertTrue(invalid.getErrorMessage().contains("3"), invalid.getErrorMessage());
         assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
         var success =
-                historical
-                        .importFile(project, historicalPart(historicalFile("100.00", true)))
+                importAndApprove(historicalPart(historicalFile("100.00", true)))
                         .contextWrite(allowed())
                         .block(WAIT);
-        assertEquals("SUCCESS", success.getStatus());
+        assertEquals("APPROVED", success.getStatus());
         assertEquals(2, success.getSuccessCount());
         var imported =
                 bills.createQuery().where("projectId", project).fetch().collectList().block(WAIT);
@@ -1677,14 +1977,13 @@ class HouseSettingPersistenceTest {
                 .calculate(row, standard, DATE, BillingTaskKind.ALL);
         assertEquals(new BigDecimal("100.00"), row.getActualReceivableAmount());
         var duplicate =
-                historical
-                        .importFile(project, historicalPart(historicalFile("100.00", true)))
+                importAndApprove(historicalPart(historicalFile("100.00", true)))
                         .contextWrite(allowed())
                         .block(WAIT);
         assertEquals("FAILED", duplicate.getStatus());
         assertEquals(2, bills.createQuery().where("projectId", project).count().block(WAIT));
         assertEquals(
-                2, receivableLogs.createQuery().where("projectId", project).count().block(WAIT));
+                4, receivableLogs.createQuery().where("projectId", project).count().block(WAIT));
         var history =
                 historical
                         .records(
@@ -1720,6 +2019,7 @@ class HouseSettingPersistenceTest {
                         bills,
                         failedLogs,
                         importRecords,
+                        importDrafts,
                         transactionManager);
         var record =
                 service.importFile(project, historicalPart(historicalFile("100.00", true)))
@@ -1770,9 +2070,28 @@ class HouseSettingPersistenceTest {
                             sql);
             assertEquals(0, result.getExitCode(), result.getStderr());
         }
+        // 其他项目同名科目超过游标批次，导入仍只锁本项目已下发科目，不在读游标中嵌套查询。
+        Flux.range(0, 80)
+                .concatMap(
+                        index -> {
+                            var other = new SubjectEntity();
+                            other.setId(UUID.randomUUID().toString());
+                            StandardPersistenceTest.initialize(other);
+                            other.setCategoryId(other.getId());
+                            other.setCode("K" + other.getId().replace("-", "").substring(0, 16));
+                            other.setName("物业费");
+                            other.setNameKey(other.getId());
+                            other.setFeeType("1");
+                            other.setEnabled(true);
+                            other.setAutoInvoice(false);
+                            other.setArrearsConfigId("arrears");
+                            return subjectRows.insert(other);
+                        })
+                .then()
+                .block(WAIT);
         mockHistoricalHouses();
         var bytes = historicalFile("100.00", false);
-        var result =
+        var staged =
                 Flux.merge(
                                 historical
                                         .importFile(project, historicalPart(bytes))
@@ -1782,11 +2101,31 @@ class HouseSettingPersistenceTest {
                                         .contextWrite(allowed()))
                         .collectList()
                         .block(WAIT);
-        assertEquals(1, result.stream().filter(r -> "SUCCESS".equals(r.getStatus())).count());
-        assertEquals(1, result.stream().filter(r -> "FAILED".equals(r.getStatus())).count());
+        assertTrue(staged.stream().allMatch(row -> "PENDING".equals(row.getStatus())));
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+        var result =
+                Flux.fromIterable(staged)
+                        .flatMap(
+                                record ->
+                                        importAudit
+                                                .decide(
+                                                        project,
+                                                        record.getId(),
+                                                        new HistoricalImportAuditService.Decision(
+                                                                record.getVersion(),
+                                                                "核对导入",
+                                                                List.of()),
+                                                        true)
+                                                .map(ReceivableImportEntity::getStatus)
+                                                .onErrorReturn("CONFLICT")
+                                                .contextWrite(allowed()))
+                        .collectList()
+                        .block(WAIT);
+        assertEquals(1, result.stream().filter("APPROVED"::equals).count());
+        assertEquals(1, result.stream().filter("CONFLICT"::equals).count());
         assertEquals(1, bills.createQuery().where("projectId", project).count().block(WAIT));
         assertEquals(
-                1, receivableLogs.createQuery().where("projectId", project).count().block(WAIT));
+                3, receivableLogs.createQuery().where("projectId", project).count().block(WAIT));
         var copied =
                 DB.execInContainer(
                         "psql",
@@ -1810,7 +2149,9 @@ class HouseSettingPersistenceTest {
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(
                                 new org.jetlinks.pro.property.finance.web
-                                        .HistoricalReceivableController(historical))
+                                        .HistoricalReceivableController(historical),
+                                new org.jetlinks.pro.property.finance.web
+                                        .HistoricalImportAuditController(importAudit))
                         .webFilter(
                                 (exchange, chain) -> chain.filter(exchange).contextWrite(allowed()))
                         .build();
@@ -1851,9 +2192,9 @@ class HouseSettingPersistenceTest {
                 .isOk()
                 .expectBody()
                 .jsonPath("$.status")
-                .isEqualTo("SUCCESS")
+                .isEqualTo("PENDING")
                 .jsonPath("$.successCount")
-                .isEqualTo(1);
+                .isEqualTo(0);
         var query = new org.hswebframework.web.api.crud.entity.QueryParamEntity();
         query.toQuery().or("projectId", "other-project");
         client.post()
@@ -1876,9 +2217,51 @@ class HouseSettingPersistenceTest {
                 .isEqualTo(1)
                 .jsonPath("$.data[0].projectId")
                 .isEqualTo(project);
-        StepVerifier.create(
-                        historical.importFile(
-                                project, historicalPart(historicalFile("100.00", false))))
+        var pending =
+                importRecords.createQuery().where("projectId", project).fetchOne().block(WAIT);
+        assertEquals(
+                0,
+                receivables
+                        .query(
+                                project,
+                                new org.hswebframework.web.api.crud.entity.QueryParamEntity())
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .getTotal());
+        client.post()
+                .uri(path + "/" + pending.getId() + "/lines/_query")
+                .bodyValue(new org.hswebframework.web.api.crud.entity.QueryParamEntity())
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody()
+                .jsonPath("$.data[0].lineNumber")
+                .isEqualTo(2)
+                .jsonPath("$.data[0].receivable.actualReceivableAmount")
+                .isEqualTo("100.00");
+        client.post()
+                .uri(path + "/" + pending.getId() + "/_approve")
+                .bodyValue(
+                        new HistoricalImportAuditService.Decision(
+                                pending.getVersion(), "核对通过", List.of()))
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody()
+                .jsonPath("$.status")
+                .isEqualTo("APPROVED")
+                .jsonPath("$.successCount")
+                .isEqualTo(1);
+        assertEquals(
+                1,
+                receivables
+                        .query(
+                                project,
+                                new org.hswebframework.web.api.crud.entity.QueryParamEntity())
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .getTotal());
+        StepVerifier.create(importAndApprove(historicalPart(historicalFile("100.00", false))))
                 .expectError(
                         org.hswebframework.web.authorization.exception.UnAuthorizedException.class)
                 .verify(WAIT);
@@ -1945,8 +2328,7 @@ class HouseSettingPersistenceTest {
     @Test
     void historicalNoticeDoesNotInventCurrentPriceOrQuantity() throws Exception {
         mockHistoricalHouses();
-        historical
-                .importFile(project, historicalPart(historicalFile("100.00", false)))
+        importAndApprove(historicalPart(historicalFile("100.00", false)))
                 .contextWrite(allowed())
                 .block(WAIT);
         var row = bills.createQuery().where("projectId", project).fetchOne().block(WAIT);
@@ -2636,9 +3018,12 @@ class HouseSettingPersistenceTest {
         ReceivableLateFeeCalculator.class,
         BillingTaskService.class,
         ReceivableService.class,
+        ReceivablePresentationService.class,
         ReceivableAdjustmentService.class,
         ReceivableSplitService.class,
+        ReceivableChangeAuditService.class,
         HistoricalReceivableService.class,
+        HistoricalImportAuditService.class,
         ReceivableBatchService.class,
         org.jetlinks.pro.property.finance.receivable.SplitRules.class,
         org.jetlinks.pro.property.finance.receivable.AdjustmentRules.class

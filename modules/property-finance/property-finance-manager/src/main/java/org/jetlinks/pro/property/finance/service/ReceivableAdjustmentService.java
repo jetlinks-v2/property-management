@@ -22,7 +22,7 @@ import reactor.core.publisher.Mono;
 import java.time.LocalDate;
 import java.util.*;
 
-/** 调整预览无写入；正式提交锁定原账、重算并比对预览，账单与审计同事务发布，无审批状态。 */
+/** 调整预览无写入；本地审批通过后锁定原账、重算并比对预览，账单与审计同事务发布。 */
 @Service
 @RequiredArgsConstructor
 public class ReceivableAdjustmentService {

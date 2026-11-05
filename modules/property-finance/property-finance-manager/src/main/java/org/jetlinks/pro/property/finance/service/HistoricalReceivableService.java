@@ -33,7 +33,7 @@ import java.security.*;
 import java.time.LocalDate;
 import java.util.*;
 
-/** 全表预检后才写应收；批次单独留存，业务写入和审计共享一个响应式事务。 */
+/** 全表预检通过后暂存待审核；审核通过才发布正式应收，暂存和审计共用响应式事务。 */
 @Service
 @RequiredArgsConstructor
 public class HistoricalReceivableService {
@@ -46,6 +46,7 @@ public class HistoricalReceivableService {
     private final ReactiveRepository<ReceivableEntity, String> bills;
     private final ReactiveRepository<ReceivableLogEntity, String> logs;
     private final ReactiveRepository<ReceivableImportEntity, String> records;
+    private final ReactiveRepository<ReceivableImportLineEntity, String> drafts;
     private final ReactiveTransactionManager transactions;
 
     public Flux<DataBuffer> template(String project) {
@@ -148,6 +149,7 @@ public class HistoricalReceivableService {
                             record.setTotalCount(0);
                             record.setSuccessCount(0);
                             record.setErrorCount(0);
+                            record.setRejectedCount(0);
                             record.setOperatorId(auth.getUser().getId());
                             record.setOperatorName(auth.getUser().getUsername());
                             // 批次必须先独立落库；只有业务处理失败才写失败结果，批次本身写失败直接返回异常。
@@ -249,20 +251,42 @@ public class HistoricalReceivableService {
                                         if (!keys.add(row.getBillKey()))
                                             return Flux.error(
                                                     error("historical_duplicate_file", 409));
-                                    return Flux.fromIterable(rows)
+                                    var staged = new ArrayList<ReceivableImportLineEntity>();
+                                    for (int index = 0; index < rows.size(); index++) {
+                                        var row = rows.get(index);
+                                        var draft = new ReceivableImportLineEntity();
+                                        init(draft, auth);
+                                        draft.setId(row.getId());
+                                        draft.setProjectId(project);
+                                        draft.setSpaceId(row.getSpaceId());
+                                        draft.setImportId(record.getId());
+                                        draft.setFullName(row.getFullName());
+                                        draft.setCustomerName(row.getCustomerName());
+                                        draft.setLineNumber(ordered.get(index).row());
+                                        draft.setStatus("PENDING");
+                                        draft.setPayloadJson(JSON.toJSONString(row));
+                                        staged.add(draft);
+                                    }
+                                    return Flux.fromIterable(staged)
                                             .concatMap(
-                                                    row ->
-                                                            bills.insert(row)
-                                                                    .then(
-                                                                            logs.insert(
-                                                                                    log(
-                                                                                            row,
-                                                                                            auth))));
+                                                    draft -> {
+                                                        var event =
+                                                                log(
+                                                                        JSON.parseObject(
+                                                                                draft
+                                                                                        .getPayloadJson(),
+                                                                                ReceivableEntity
+                                                                                        .class),
+                                                                        auth);
+                                                        event.setOperation("IMPORT_STAGE");
+                                                        return drafts.insert(draft)
+                                                                .then(logs.insert(event));
+                                                    });
                                 })
                         .then(
                                 records.createUpdate()
-                                        .set("status", "SUCCESS")
-                                        .set("successCount", lines.size())
+                                        .set("status", "PENDING")
+                                        .set("successCount", 0)
                                         .set("errorCount", 0)
                                         .set("finishTime", System.currentTimeMillis())
                                         .where("id", record.getId())
@@ -350,21 +374,25 @@ public class HistoricalReceivableService {
         var query = new QueryParamEntity();
         query.setForUpdate(true);
         query.toQuery().orderByAsc("id");
-        return subjects.createQuery()
-                .setParam(query)
-                .where("name", line.subjectName())
+        // 先取本项目已下发科目，再锁候选；不流式锁全系统同名科目并嵌套查询同一连接。
+        // 后者在候选较多时会耗尽游标需求而挂起，也会不必要地锁住其他项目数据。
+        return issued.createQuery()
+                .where("projectId", project)
                 .and("deleted", false)
                 .fetch()
-                .concatMap(
-                        subject ->
-                                issued.createQuery()
-                                        .where("projectId", project)
-                                        .and("subjectId", subject.getId())
-                                        .and("deleted", false)
-                                        .count()
-                                        .filter(count -> count > 0)
-                                        .map(count -> subject))
+                .map(ProjectSubjectEntity::getSubjectId)
                 .collectList()
+                .flatMap(
+                        ids ->
+                                ids.isEmpty()
+                                        ? Mono.just(List.<SubjectEntity>of())
+                                        : subjects.createQuery()
+                                                .setParam(query)
+                                                .where("name", line.subjectName())
+                                                .and("deleted", false)
+                                                .in("id", ids)
+                                                .fetch()
+                                                .collectList())
                 .flatMap(
                         matches ->
                                 matches.size() == 1
@@ -493,7 +521,7 @@ public class HistoricalReceivableService {
         return row;
     }
 
-    private ReceivableLogEntity log(ReceivableEntity row, Authentication auth) {
+    static ReceivableLogEntity log(ReceivableEntity row, Authentication auth) {
         var log = new ReceivableLogEntity();
         log.setId(UUID.randomUUID().toString());
         log.setProjectId(row.getProjectId());

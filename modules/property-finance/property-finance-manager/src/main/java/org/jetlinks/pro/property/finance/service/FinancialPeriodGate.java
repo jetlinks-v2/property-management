@@ -62,6 +62,19 @@ public class FinancialPeriodGate {
                 .as(MonoTracer.create("property.finance.period.billing-task-lock"));
     }
 
+    /** 历史账单不伪造收费设置；仅以数据库冻结的归属恢复系统任务的租户和项目门闩。 */
+    Mono<FinancialPeriodControlEntity> lockForReceivableTask(
+            org.jetlinks.pro.property.finance.entity.ReceivableEntity bill, Authentication actor) {
+        return requireTransaction()
+                .then(TenantHolder.currentId().defaultIfEmpty(""))
+                .flatMap(
+                        tenant -> {
+                            if (bill.getTenantId() == null || !tenant.equals(bill.getTenantId()))
+                                return Mono.error(error("task_tenant_invalid", 409));
+                            return lock(bill.getProjectId(), tenant, actor);
+                        });
+    }
+
     private Mono<Void> requireTransaction() {
         return TransactionSynchronizationManager.forCurrentTransaction()
                 .onErrorMap(

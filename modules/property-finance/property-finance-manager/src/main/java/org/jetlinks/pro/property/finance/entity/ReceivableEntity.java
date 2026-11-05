@@ -28,6 +28,11 @@ import javax.persistence.*;
             @Index(name = "idx_pm_fin_recv_source", columnList = "sourceReceivableId,deleted")
         })
 public class ReceivableEntity extends FinanceEntity {
+    /** 系统任务只能恢复落账时冻结的租户，不能从定时器调用者继承身份。 */
+    @JsonIgnore
+    @Column(length = 64)
+    private String tenantId;
+
     /** 历史空值表示未审核；按钮审核独立于已取消的流程审批。 */
     @Column(length = 16)
     private String reviewState = "PENDING";
