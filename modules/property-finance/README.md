@@ -363,6 +363,18 @@ Excel/PDF 导出复用当前筛选及分组，最多10000条明细或分组行�
 
 Excel/PDF最多10000条明细或分组行，超限拒绝无截断；沿用 `FinanceReportFile` 的中文、安全文本及精确金额输出。PDF金额列按实际位数分配宽度、禁止金额断行，跨页重复表头。数据库读取结束后在 `boundedElastic` 渲染。查询与导出使用 `MonoTracer`，无新增常驻任务或 MBean。
 
+## 合同来源与镜像
+
+财务独立保存合同镜像，跨模块只依赖 `property-finance-core` 的 `ApplyFinanceContractsCommand` 及快照 DTO，命令服务为 `propertyService:finance-contract`。调用需要 `property-finance-contracts:sync`、项目及整批新旧房屋的 `save` 权限，保留调用者租户，不提供免鉴权入口；其他 manager 不得直接读写镜像表。
+
+合同来源身份 `sourceId` 和同项目合同编码建立后不能改成其他合同，逻辑删除后也不释放编码。增量仅按上游显式删除标记逻辑删除，本次未返回的合同继续保留；同身份可恢复，原创建时间和历史账单不变。全部字段、权限、来源空间和唯一性先校验，再与同步版本、批次审计同事务写入。未变化的已有快照不制造修改时间或提高版本，过期版本和并发冲突返回409，拒绝静默覆盖。首次预期版本为 `null` 或 `-1`，后续使用上次同步结果或 HTTP 适配器在下载前读取的版本。
+
+`POST /property/finance/projects/{projectId}/contracts/_query` 以 `keyword/pageIndex/pageSize` 查询，默认每页12、最多200；`query` 按钮与项目/房屋 `read` 范围在计数和分页前生效。只读 DTO 返回合同编号、名称、来源客户标识/名称、空间位置、履约期间、面积及版本，不返回URL、租户内部字段或原始来源载荷。不开放通用编辑或删除。
+
+`POST /property/finance/projects/{projectId}/contracts/_sync` 接受 `startDate/endDate`（`yyyy-MM-dd`），独立 `sync` 按钮权限。远程地址只配置于 `property.finance.contract-source.url`，默认未配置明确返回503，不伪造已同步。URL应为不含查询串、用户信息及片段的HTTP(S)接口；环境凭据由部署者管理，不能让请求传入URL，不向来源转发登录令牌。GET调用附带项目及日期参数，连接结果20秒超时、响应最多2MiB、每批最多1000条，不静默截断。返回兼容旧 `code=0/data` 数组以及 `id/concatNo/concatName/projectId/houseId/customer/startDate/endDate/leaseArea/isDelete` 字段；任一错误状态、非法结构、编码、字段或项目不符均明确失败，不泄漏上游原始异常体。
+
+下载在数据库事务外，下载前读取本地版本，下载完成后再按该版本原子应用。期间若已有其他更新，整批拒绝409。空间通过基础公开命令校验真实末端，不要求先补计费面积，名称取有权来源快照；历史客户失效不阻止合同历史保留，缺少客户名称时显示上游客户标识。手工同步带 `MonoTracer`，不新设后台调度或 MBean；旧系统已注释的合同定时器不会被无依据自动启用。来源尚未配置时其他计费功能可独立运行。
+
 ## 合同账单月度分配
 
 `ContractMonthAllocation` 为冻结合同账单金额提供只读月度分配及六项余额计算。自然月比例与计费共用 `BillingProrationService`：完整月为1，首尾不足月按实际含首尾天数除以该月天数。内部使用28、29、30、31的公倍数表示精确整数权重，避免先舍入月份比例再放大成金额误差；对外 `monthFraction` 仍返回12位小数。
