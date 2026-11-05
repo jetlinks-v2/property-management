@@ -61,4 +61,15 @@ JMX `org.jetlinks:type=HandoverExport,name=worker` 提供本节点的 `Active`�
 
 既有环境先备份业务 schema，再执行 [只读分类盘点](../../modules/property-handover/docs/sql/01-material-category-inventory.sql)。部署新实体完成建表后，暂停查验写入，在业务 schema 下执行 [资料分类迁移](../../modules/property-handover/docs/sql/02-material-category-migrate.sql)。脚本复制资料使用的分类及父级，保存独立 ID 映射和原记录版本，保留原问题引用。跨项目同级重名、未知分类应先人工确认，脚本不会自动合并。对账为零且引用数量一致后恢复服务。需要回退时先停写并回退应用，再执行 [保护性回滚](../../modules/property-handover/docs/sql/03-material-category-rollback.sql)；迁移后已编辑或新增资料则明确拒绝自动回滚，保留备份人工处理。全新环境不需要执行迁移。
 
-设备升级：旧模板的供应商、生产日期曾保存在 properties。备份业务 schema 后执行 modules/property-handover/docs/sql/04-equipment-fields-migrate.sql，仅补空字段，保留原扩展值；日期须为 PostgreSQL 可解析日期，非法值整批回滚。需要撤回时，确认迁移后未编辑，再执行 05-equipment-fields-rollback.sql。
+设备升级：旧模板的供应商、生产日期曾保存在 properties。备份业务 schema 后执行 modules/property-handover/docs/sql/04-equipment-fields-migrate.sql，仅补空字段，保留原扩展值；日期须为 PostgreSQL 可解析日期，非法值整批回滚。备份表只记录实际迁移行及迁移后的值和版本。需要撤回时执行 05-equipment-fields-rollback.sql：迁移行已编辑、删除或值不符则整批拒绝；未迁移行和迁移后新增的行不参与回滚。保留备份表用于核对，脚本不支持重复执行。
+
+
+## 阶段记录、清单确认和首页统计
+
+PC 展示七个主阶段；交接总结为次级入口，后端八阶段契约保留。启动会议保存地点及起止毫秒时间，结束不得早于开始；资料移交保存地点、双方人名电话、资料完整性及业务时间；技术交底使用文本分类、交底人、目录接收人和业务时间。服务端校验与表单、阶段 Excel 模板一致。
+
+`POST /property/handover/item/_confirm` 接收 `{projectId,source:"MATERIAL_TRANSFER",items:[{id,version}]}`。完整校验当前项目、来源、版本及未完成问题后，事务确认整批；一条冲突全部回滚。单条确认沿用 `/{id}/confirm`。确认与阶段推进竞争同一流程版本，完成阶段不可继续确认。`GET /property/handover/process/history?projectId=...&stage=...&pageIndex=0&pageSize=12` 返回真实操作者、动作、内容及时间，遵守项目范围。项目进度查询支持 keyword、stage 和 stageStatus，先筛选再分页。
+
+`GET /property/handover/statistics?projectId=...&year=2026` 的 projectId 可省略，省略时只汇总当前有权项目。四指标为有业务记录的项目数、累计问题数、已完成问题数、资料移交清单数；前介台账不计为施工问题。年份仅作用于 inspectionTime 的上海时区月度趋势，不影响累计数和分类/状态分布。`years` 给出历史查验年份；没有数据的月份返回零。问题列表与 H5 继续使用 `/problem/_counts`，不依赖首页权限或资料目录。H5 问题分类请求 `/problem-category/_query`。
+
+前端沿用既有菜单与按钮动作 ID，无须仅为本轮字段、页面布局重新初始化菜单；已有账号须拥有对应流程、配置、问题动作及项目资产权限。新增批量确认使用已有流程保存按钮权限，HTTP 接口仍由配置保存资源授权。

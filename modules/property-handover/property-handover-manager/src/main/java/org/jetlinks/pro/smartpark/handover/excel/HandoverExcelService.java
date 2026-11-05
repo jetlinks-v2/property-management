@@ -35,7 +35,8 @@ public class HandoverExcelService {
         HandoverExcelSchema.validateSelector(kind, source, stage);
         return HandoverExcelPermission.assertImport(kind)
                 .then(catalog.load(projectId, source, kind))
-                .flatMapMany(options -> HandoverWorkbook.template(kind, options.options(kind)));
+                .flatMapMany(
+                        options -> HandoverWorkbook.template(kind, stage, options.options(kind)));
     }
 
     public Mono<Map<String, Long>> importFile(

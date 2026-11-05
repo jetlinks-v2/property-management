@@ -31,7 +31,12 @@ public final class HandoverWorkbook {
     private HandoverWorkbook() {}
 
     public static Flux<DataBuffer> template(String kind, Map<String, List<String>> options) {
-        var columns = HandoverExcelSchema.columns(kind);
+        return template(kind, null, options);
+    }
+
+    public static Flux<DataBuffer> template(
+            String kind, String stage, Map<String, List<String>> options) {
+        var columns = HandoverExcelSchema.columns(kind, stage);
         var headers =
                 columns.stream()
                         .map(c -> new ExcelHeader(c.key(), c.title(), CellDataType.STRING))

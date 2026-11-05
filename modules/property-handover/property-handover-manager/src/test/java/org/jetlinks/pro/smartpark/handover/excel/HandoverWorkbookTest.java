@@ -20,15 +20,76 @@ import java.util.Map;
 
 class HandoverWorkbookTest {
     @Test
+    void stageTemplatesMatchFormsAndDisclosureUsesTextCategoryAndReceiver() throws Exception {
+        byte[] data =
+                bytes(
+                        HandoverWorkbook.template(
+                                "record", "disclosure", Map.of("receiverName", List.of("接收员"))));
+        try (var book = new XSSFWorkbook(new ByteArrayInputStream(data))) {
+            var header = book.getSheetAt(0).getRow(0);
+            var titles = new java.util.ArrayList<String>();
+            header.forEach(cell -> titles.add(cell.getStringCellValue()));
+            assertTrue(titles.containsAll(List.of("交底分类", "交底人", "交底接收人")));
+            assertFalse(titles.contains("资料分类"));
+            var col = header.getCell(titles.indexOf("交底分类"));
+            assertEquals(
+                    IndexedColors.RED.getIndex(),
+                    book.getFontAt(col.getCellStyle().getFontIndex()).getColor());
+        }
+        var user =
+                new org.jetlinks.pro.property.base.user.PropertyEmployeeInfo(
+                        "receiver", "接收员", null, List.of());
+        var row =
+                new HandoverWorkbook.ImportRow(
+                        3,
+                        Map.of(
+                                "title",
+                                "消防交底",
+                                "receiverName",
+                                "接收员",
+                                "properties.disclosureCategory",
+                                "消防",
+                                "properties.disclosureUserName",
+                                "工程师",
+                                "time",
+                                "2026-11-04"),
+                        List.of());
+        var record =
+                (HandoverRecordEntity)
+                        HandoverImportMapper.map(
+                                        "record",
+                                        "project",
+                                        null,
+                                        "disclosure",
+                                        row,
+                                        new HandoverImportCatalog.Catalog(
+                                                List.of(), List.of(), List.of(), List.of(user)))
+                                .value();
+        assertEquals("receiver", record.getProperties().get("receiverId"));
+        assertEquals("消防", record.getProperties().get("disclosureCategory"));
+        assertNull(record.getCategoryId());
+    }
+
+    @Test
     void equipmentCategoryIsFreeTextAndKnownFieldsRemainIndependent() {
         var catalog = new HandoverImportCatalog.Catalog(List.of(), List.of(), List.of(), List.of());
-        var values = new java.util.HashMap<String,String>();
-        values.put("name", "消防水泵"); values.put("categoryName", "消防设备");
-        values.put("controlArea", "A组团"); values.put("mainParameters", "75kW 中文参数");
-        values.put("productionDate", "2025-03-01"); values.put("installationDate", "2025-04-01");
-        values.put("supplier", "设备供应公司"); values.put("quantity", "2.125");
-        var mapped = HandoverImportMapper.map("equipment", "project", null, null,
-                new HandoverWorkbook.ImportRow(2, values, List.of()), catalog);
+        var values = new java.util.HashMap<String, String>();
+        values.put("name", "消防水泵");
+        values.put("categoryName", "消防设备");
+        values.put("controlArea", "A组团");
+        values.put("mainParameters", "75kW 中文参数");
+        values.put("productionDate", "2025-03-01");
+        values.put("installationDate", "2025-04-01");
+        values.put("supplier", "设备供应公司");
+        values.put("quantity", "2.125");
+        var mapped =
+                HandoverImportMapper.map(
+                        "equipment",
+                        "project",
+                        null,
+                        null,
+                        new HandoverWorkbook.ImportRow(2, values, List.of()),
+                        catalog);
         var json = new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(mapped.value());
         assertEquals("消防设备", json.path("categoryName").asText());
         assertEquals("A组团", json.path("controlArea").asText());
@@ -62,7 +123,10 @@ class HandoverWorkbookTest {
                     assertThrows(
                             HandoverImportException.class,
                             () -> HandoverWorkbook.read(bytes, "problem"));
-            assertEquals(2, error.getErrors().get(0).row(), error.getErrors() + "; cause=" + error.getCause());
+            assertEquals(
+                    2,
+                    error.getErrors().get(0).row(),
+                    error.getErrors() + "; cause=" + error.getCause());
         } catch (Exception error) {
             throw new AssertionError(error);
         }

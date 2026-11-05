@@ -19,6 +19,43 @@ class HandoverExportWorkbookTest {
     @TempDir Path temp;
 
     @Test
+    void equipmentExportContainsChineseTypedColumnsAndRetainsExtensionData() throws Exception {
+        Path output = temp.resolve("设备清单.xlsx");
+        try (var writer = new HandoverExportWorkbook("equipment")) {
+            writer.row(
+                    "pump",
+                    Map.of(
+                            "name",
+                            "消防水泵",
+                            "categoryName",
+                            "消防设备",
+                            "quantity",
+                            new java.math.BigDecimal("2.125"),
+                            "supplier",
+                            "重庆供应公司",
+                            "productionDate",
+                            java.time.Instant.parse("2025-03-01T00:00:00Z").toEpochMilli(),
+                            "properties",
+                            Map.of("ratedVoltage", "380V")));
+            writer.finish();
+            Files.copy(writer.workbook, output);
+        }
+        try (var book = new XSSFWorkbook(output.toFile())) {
+            var sheet = book.getSheetAt(0);
+            var header = sheet.getRow(0);
+            var columns = new HashMap<String, Integer>();
+            header.forEach(cell -> columns.put(cell.getStringCellValue(), cell.getColumnIndex()));
+            var row = sheet.getRow(1);
+            assertEquals("消防设备", row.getCell(columns.get("设备分类")).getStringCellValue());
+            assertEquals("2.125", row.getCell(columns.get("数量")).getStringCellValue());
+            assertEquals("重庆供应公司", row.getCell(columns.get("供货厂家/供应商")).getStringCellValue());
+            assertTrue(
+                    row.getCell(columns.get("生产日期")).getStringCellValue().startsWith("2025-03-01"));
+            assertTrue(row.getCell(columns.get("全部扩展字段")).getStringCellValue().contains("380V"));
+        }
+    }
+
+    @Test
     void safeTextAndPhotoTypesRemainInIndependentColumnsAndAllRelationsResolve() throws Exception {
         Path output = temp.resolve("safe.xlsx"), directory;
         try (var writer = new HandoverExportWorkbook("problem")) {

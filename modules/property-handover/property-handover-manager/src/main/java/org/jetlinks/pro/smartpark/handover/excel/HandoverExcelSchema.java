@@ -112,7 +112,7 @@ public final class HandoverExcelSchema {
                             c("description", "说明", false, ""));
             case "ledger" ->
                     List.of(
-                                                        c("categoryName", "问题分类", false, ""),
+                            c("categoryName", "问题分类", false, ""),
                             c("organizationName", "责任单位", false, ""),
                             c("entryUserName", "录入人", false, ""),
                             c("location", "位置", false, "1栋大堂"),
@@ -130,7 +130,22 @@ public final class HandoverExcelSchema {
                             c("personNames", "参与人员", false, ""),
                             c("participantNames", "其他参与人", false, ""),
                             c("time", "业务时间", false, "2026-11-04 09:00:00"),
-                            c("properties.location", "地点", false, ""),
+                            c("properties.meetingLocation", "会议地点", false, "会议室"),
+                            c(
+                                    "properties.meetingStartTime",
+                                    "会议开始时间",
+                                    false,
+                                    "2026-11-04 09:00:00"),
+                            c("properties.meetingEndTime", "会议结束时间", false, "2026-11-04 10:00:00"),
+                            c("properties.submitLocation", "移交地点", false, "现场"),
+                            c("properties.submitUserName", "移交人", false, ""),
+                            c("properties.submitUserPhone", "移交人电话", false, ""),
+                            c("properties.receiveUserName", "接收人", false, ""),
+                            c("properties.receiveUserPhone", "接收人电话", false, ""),
+                            c("properties.materialComplete", "资料齐全", false, "不齐全"),
+                            c("properties.disclosureCategory", "交底分类", false, "消防系统"),
+                            c("properties.disclosureUserName", "交底人", false, ""),
+                            c("receiverName", "交底接收人", false, ""),
                             c("properties.result", "结论", false, ""),
                             c("remark", "备注", false, ""),
                             c("photos", "附件图片", false, ""));
@@ -157,6 +172,52 @@ public final class HandoverExcelSchema {
                             c("photos", "问题图片", false, ""));
             default -> throw new BusinessException("error.handover.excel_kind_invalid", 400);
         };
+    }
+
+    /** 模板按阶段裁剪并标明必填；通用解析/导出保留完整字段集合。 */
+    public static List<Column> columns(String kind, String stage) {
+        if (!"record".equals(kind) || stage == null) return columns(kind);
+        Set<String> stageKeys =
+                switch (stage) {
+                    case "kickoff" ->
+                            Set.of(
+                                    "properties.meetingLocation",
+                                    "properties.meetingStartTime",
+                                    "properties.meetingEndTime");
+                    case "material" ->
+                            Set.of(
+                                    "properties.submitLocation",
+                                    "properties.submitUserName",
+                                    "properties.submitUserPhone",
+                                    "properties.receiveUserName",
+                                    "properties.receiveUserPhone",
+                                    "properties.materialComplete");
+                    case "disclosure" ->
+                            Set.of(
+                                    "properties.disclosureCategory",
+                                    "properties.disclosureUserName",
+                                    "receiverName");
+                    default -> Set.of();
+                };
+        return columns(kind).stream()
+                .filter(
+                        c ->
+                                (!c.key().startsWith("properties.")
+                                                && !c.key().equals("receiverName"))
+                                        || stageKeys.contains(c.key()))
+                .filter(c -> !("disclosure".equals(stage) && "categoryName".equals(c.key())))
+                .map(
+                        c ->
+                                new Column(
+                                        c.key(),
+                                        c.title(),
+                                        c.required()
+                                                || stageKeys.contains(c.key())
+                                                || ("time".equals(c.key())
+                                                        && Set.of("material", "disclosure")
+                                                                .contains(stage)),
+                                        c.example()))
+                .toList();
     }
 
     public static void validateSelector(String kind, String source, String stage) {

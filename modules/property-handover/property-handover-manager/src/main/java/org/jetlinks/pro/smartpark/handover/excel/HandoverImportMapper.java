@@ -28,16 +28,18 @@ public final class HandoverImportMapper {
             HandoverWorkbook.ImportRow input,
             HandoverImportCatalog.Catalog catalog) {
         Map<String, String> row = input.values();
-        String category = "equipment".equals(kind) ? null :
-                resolve(
-                        row.get("categoryName"),
-                        catalog.categories().stream()
-                                .filter(c -> !Boolean.FALSE.equals(c.getEnabled()))
-                                .toList(),
-                        catalog::categoryLabel,
-                        HandoverCategoryEntity::getId,
-                        input.row(),
-                        "资料分类");
+        String category =
+                "equipment".equals(kind) || ("record".equals(kind) && "disclosure".equals(stage))
+                        ? null
+                        : resolve(
+                                row.get("categoryName"),
+                                catalog.categories().stream()
+                                        .filter(c -> !Boolean.FALSE.equals(c.getEnabled()))
+                                        .toList(),
+                                catalog::categoryLabel,
+                                HandoverCategoryEntity::getId,
+                                input.row(),
+                                "资料分类");
         Map<String, String> properties = new LinkedHashMap<>();
         row.forEach(
                 (key, value) -> {
@@ -71,10 +73,22 @@ public final class HandoverImportMapper {
                 var entity = new HandoverLedgerEntity();
                 entity.setTitle(row.get("title"));
                 entity.setCategoryId(category);
-                entity.setOrganizationId(resolve(row.get("organizationName"), catalog.organizations(),
-                        HandoverResponsibilityEntity::getName, HandoverResponsibilityEntity::getOrganizationId, input.row(), "责任单位"));
-                entity.setEntryUserId(resolve(row.get("entryUserName"), catalog.users(),
-                        PropertyEmployeeInfo::name, PropertyEmployeeInfo::id, input.row(), "录入人"));
+                entity.setOrganizationId(
+                        resolve(
+                                row.get("organizationName"),
+                                catalog.organizations(),
+                                HandoverResponsibilityEntity::getName,
+                                HandoverResponsibilityEntity::getOrganizationId,
+                                input.row(),
+                                "责任单位"));
+                entity.setEntryUserId(
+                        resolve(
+                                row.get("entryUserName"),
+                                catalog.users(),
+                                PropertyEmployeeInfo::name,
+                                PropertyEmployeeInfo::id,
+                                input.row(),
+                                "录入人"));
                 entity.setLocation(row.get("location"));
                 entity.setDescription(row.get("description"));
                 entity.setProposedSolution(row.get("proposedSolution"));
@@ -92,9 +106,13 @@ public final class HandoverImportMapper {
                 entity.setSupplier(row.get("supplier"));
                 entity.setUnit(row.get("unit"));
                 if (HandoverRules.hasText(row.get("quantity"))) {
-                    try { entity.setQuantity(new BigDecimal(row.get("quantity"))); }
-                    catch (NumberFormatException error) { throw HandoverWorkbook.invalid(input.row(), "数量", "请输入有效非负数"); }
-                    if (entity.getQuantity().signum() < 0) throw HandoverWorkbook.invalid(input.row(), "数量", "数量不能小于0");
+                    try {
+                        entity.setQuantity(new BigDecimal(row.get("quantity")));
+                    } catch (NumberFormatException error) {
+                        throw HandoverWorkbook.invalid(input.row(), "数量", "请输入有效非负数");
+                    }
+                    if (entity.getQuantity().signum() < 0)
+                        throw HandoverWorkbook.invalid(input.row(), "数量", "数量不能小于0");
                 }
                 entity.setProductionDate(date(row.get("productionDate"), input.row(), "生产日期"));
                 entity.setSpecification(row.get("specification"));
@@ -117,6 +135,32 @@ public final class HandoverImportMapper {
                 entity.setParticipantNames(row.get("participantNames"));
                 entity.setRemark(row.get("remark"));
                 entity.setTime(date(row.get("time"), input.row(), "业务时间"));
+                for (String key : List.of("meetingStartTime", "meetingEndTime")) {
+                    Long date =
+                            date(
+                                    properties.get(key),
+                                    input.row(),
+                                    key.equals("meetingStartTime") ? "会议开始时间" : "会议结束时间");
+                    if (date != null) properties.put(key, String.valueOf(date));
+                }
+                if ("material".equals(stage)) {
+                    String complete = properties.getOrDefault("materialComplete", "");
+                    if (!Set.of("齐全", "不齐全").contains(complete))
+                        throw HandoverWorkbook.invalid(input.row(), "资料齐全", "请选择齐全或不齐全");
+                    properties.put("materialComplete", "齐全".equals(complete) ? "1" : "0");
+                }
+                if ("disclosure".equals(stage)) {
+                    properties.put(
+                            "receiverId",
+                            resolveRequired(
+                                    row.get("receiverName"),
+                                    catalog.users(),
+                                    PropertyEmployeeInfo::name,
+                                    PropertyEmployeeInfo::id,
+                                    input.row(),
+                                    "交底接收人"));
+                    properties.put("receiverName", row.get("receiverName"));
+                }
                 entity.setProperties(properties);
                 String names = row.getOrDefault("personNames", "");
                 entity.setPersonIds(

@@ -91,7 +91,21 @@ final class HandoverExportWorkbook implements AutoCloseable {
             if (!(v instanceof Map<?, ?> m)) return "";
             v = m.get(part);
         }
-        return v == null ? "" : v.toString();
+        if (v == null) return "";
+        if ("properties.materialComplete".equals(key))
+            return "1".equals(v.toString()) ? "齐全" : "不齐全";
+        if (key.endsWith("Date") || key.equals("time") || key.endsWith("Time")) {
+            try {
+                return java.time.Instant.ofEpochMilli(Long.parseLong(v.toString()))
+                        .atZone(java.time.ZoneId.of("Asia/Shanghai"))
+                        .format(
+                                java.time.format.DateTimeFormatter.ofPattern(
+                                        "yyyy-MM-dd HH:mm:ss"));
+            } catch (NumberFormatException ignored) {
+                /* 历史文本日期原样展示，不伪造时间。 */
+            }
+        }
+        return v.toString();
     }
 
     synchronized void node(String text) throws IOException {

@@ -301,9 +301,11 @@ class HandoverPersistenceTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(strings={"SITE_INSPECTION","PHYSICAL_HANDOVER","QUALITY_ACCEPTANCE"})
+    @org.junit.jupiter.params.provider.ValueSource(
+            strings = {"SITE_INSPECTION", "PHYSICAL_HANDOVER", "QUALITY_ACCEPTANCE"})
     void contractorRectificationMustPassInitialThenFinalReviewAndKeepsAuditActors(String source) {
-        var cycle = row("cycle", "external-a", 0, 0);cycle.setSource(source);
+        var cycle = row("cycle", "external-a", 0, 0);
+        cycle.setSource(source);
         problems.insert(cycle).block(WAIT);
         var selected = new HandoverResponsibilityEntity();
         base(selected, "unit-a");
@@ -344,7 +346,7 @@ class HandoverPersistenceTest {
     }
 
     @Test
-    void statisticsAggregateOnlyAuthorizedProjectAndSelectedYear() {
+    void statisticsTotalsAreAllTimeAndOnlyTrendUsesSelectedYear() {
         var a = row("jan", "external-a", 0, 0);
         a.setCategoryId("water");
         a.setCategoryName("给排水");
@@ -365,20 +367,68 @@ class HandoverPersistenceTest {
         material.setTitle("资料移交");
         material.setCreateTime(time(2025, 1));
         records.insert(material).block(WAIT);
+        var document = item("document");
+        document.setSource("MATERIAL_TRANSFER");
+        items.insert(document).block(WAIT);
+        var second = item("document-2");
+        second.setSource("MATERIAL_TRANSFER");
+        items.insert(second).block(WAIT);
         var query = new HandoverQuery();
         query.setProjectId("project");
         var result = statistics.statistics(query, 2025).contextWrite(employee).block(WAIT);
-        assertEquals(2L, result.get("total"));
+        assertEquals(3L, result.get("total"));
         assertEquals(1L, result.get("completed"));
-        assertEquals(1L, result.get("materialCount"));
+        assertEquals(2L, result.get("materialCount"));
         var categories = (List<HandoverStatisticsService.CategoryPoint>) result.get("byCategory");
-        assertEquals(1, categories.size());
+        assertEquals(2, categories.size());
         assertEquals(2, categories.get(0).getTotal());
+        var previous = statistics.statistics(query, 2024).contextWrite(employee).block(WAIT);
+        assertEquals(result.get("total"), previous.get("total"));
+        assertEquals(3L, result.get("total"));
+        assertNull(query.getInspectionTimeFrom());
         var months = (List<java.util.Map<String, Object>>) result.get("monthly");
         assertEquals(12, months.size());
         assertEquals(1L, months.get(0).get("total"));
         assertEquals(1L, months.get(1).get("completed"));
         assertEquals(0L, months.get(2).get("total"));
+    }
+
+    @Test
+    void allProjectStatisticsExcludeUnauthorizedProjectsAndUnusedDirectories() {
+        var allowed = new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo();
+        allowed.setId("project");
+        allowed.setName("项目A");
+        var second = new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo();
+        second.setId("second");
+        second.setName("项目B");
+        var unused = new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo();
+        unused.setId("unused");
+        unused.setName("空项目");
+        org.mockito.Mockito.when(directory.projects())
+                .thenReturn(Flux.just(allowed, second, unused));
+        var a = row("all-a", "external-a", 0, 0);
+        a.setInspectionTime(time(2025, 1));
+        var b = row("all-b", "external-a", 3, 2);
+        b.setProjectId("second");
+        b.setInspectionTime(time(2024, 1));
+        var denied = row("all-c", "external-a", 0, 0);
+        denied.setProjectId("denied");
+        denied.setInspectionTime(time(2025, 1));
+        problems.insertBatch(Mono.just(List.of(a, b, denied))).block(WAIT);
+        var access = access("tester", Set.of("project", "second", "unused"));
+        var all = statistics.statistics(new HandoverQuery(), 2025).contextWrite(access).block(WAIT);
+        assertEquals(2L, all.get("total"));
+        assertEquals(1L, all.get("completed"));
+        assertEquals(2L, all.get("projectCount"));
+        var months = (List<java.util.Map<String, Object>>) all.get("monthly");
+        assertEquals(1L, months.get(0).get("total"));
+        assertTrue(((List<Integer>) all.get("years")).contains(2024));
+        HandoverPersistenceFixture.directory(directory, false, List.of());
+        org.mockito.Mockito.when(directory.projects()).thenReturn(Flux.just(allowed));
+        var limited =
+                statistics.statistics(new HandoverQuery(), 2025).contextWrite(access).block(WAIT);
+        assertEquals(0L, limited.get("total"));
+        assertEquals(0L, limited.get("projectCount"));
     }
 
     @Test

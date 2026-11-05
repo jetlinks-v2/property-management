@@ -83,7 +83,13 @@ public class HandoverImportCatalog {
             result.put(
                     "initiatorName",
                     users.stream().map(PropertyEmployeeInfo::name).distinct().toList());
-            result.put("entryUserName", users.stream().map(PropertyEmployeeInfo::name).distinct().toList());
+            result.put(
+                    "entryUserName",
+                    users.stream().map(PropertyEmployeeInfo::name).distinct().toList());
+            result.put(
+                    "receiverName",
+                    users.stream().map(PropertyEmployeeInfo::name).distinct().toList());
+            result.put("properties.materialComplete", List.of("齐全", "不齐全"));
             result.put("inspectionType", List.of("承接查验", "管理权移交"));
             return result;
         }
@@ -101,7 +107,9 @@ public class HandoverImportCatalog {
                 .flatMap(
                         context ->
                                 Mono.zip(
-                                                "record".equals(kind) ? materialOptions(context) : read(categories, context, projectId),
+                                                "record".equals(kind)
+                                                        ? materialOptions(context)
+                                                        : read(categories, context, projectId),
                                                 read(organizations, context, projectId),
                                                 read(items, context, projectId)
                                                         .map(
@@ -126,21 +134,39 @@ public class HandoverImportCatalog {
 
     // 仅将共享资料目录投影为模板选项，绝不写回项目问题分类表。
     private Mono<List<HandoverCategoryEntity>> materialOptions(HandoverContext context) {
-        return materialCategories.createQuery()
-                .setParam(scope.mandatory(new QueryParamEntity(), context, null)).fetch()
-                .take(REFERENCE_LIMIT + 1L).collectList().map(rows -> {
-                    HandoverRules.require(rows.size() <= REFERENCE_LIMIT, "excel_reference_limit");
-                    var enabled = rows.stream().filter(row -> Boolean.TRUE.equals(row.getEnabled()))
-                            .map(HandoverMaterialCategoryEntity::getId).collect(java.util.stream.Collectors.toSet());
-                    return rows.stream().filter(row -> enabled.contains(row.getId())
-                            && (row.getParentId() == null || enabled.contains(row.getParentId())))
-                            .map(row -> {
-                                var option = new HandoverCategoryEntity();
-                                option.setId(row.getId()); option.setName(row.getName());
-                                option.setParentId(row.getParentId()); option.setEnabled(row.getEnabled());
-                                return option;
-                            }).toList();
-                });
+        return materialCategories
+                .createQuery()
+                .setParam(scope.mandatory(new QueryParamEntity(), context, null))
+                .fetch()
+                .take(REFERENCE_LIMIT + 1L)
+                .collectList()
+                .map(
+                        rows -> {
+                            HandoverRules.require(
+                                    rows.size() <= REFERENCE_LIMIT, "excel_reference_limit");
+                            var enabled =
+                                    rows.stream()
+                                            .filter(row -> Boolean.TRUE.equals(row.getEnabled()))
+                                            .map(HandoverMaterialCategoryEntity::getId)
+                                            .collect(java.util.stream.Collectors.toSet());
+                            return rows.stream()
+                                    .filter(
+                                            row ->
+                                                    enabled.contains(row.getId())
+                                                            && (row.getParentId() == null
+                                                                    || enabled.contains(
+                                                                            row.getParentId())))
+                                    .map(
+                                            row -> {
+                                                var option = new HandoverCategoryEntity();
+                                                option.setId(row.getId());
+                                                option.setName(row.getName());
+                                                option.setParentId(row.getParentId());
+                                                option.setEnabled(row.getEnabled());
+                                                return option;
+                                            })
+                                    .toList();
+                        });
     }
 
     private <E extends HandoverEntity> Mono<List<E>> read(

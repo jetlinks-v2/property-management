@@ -28,7 +28,10 @@ public class HandoverExportRows {
     static final int PAGE_SIZE = 100;
     private static final Set<String> FILTERS =
             Set.of(
-                    "keyword", "location", "modifyTimeFrom", "modifyTimeTo",
+                    "keyword",
+                    "location",
+                    "modifyTimeFrom",
+                    "modifyTimeTo",
                     "status",
                     "auditStage",
                     "organizationId",
@@ -184,11 +187,17 @@ public class HandoverExportRows {
                                 LinkedHashMap<String, Object>>() {});
         Mono<?> related = Mono.empty();
         String category = Objects.toString(value.get("categoryId"), "");
-        if (!category.isEmpty())
+        if (!category.isEmpty() && !(row instanceof HandoverEquipmentEntity))
             related =
                     row instanceof HandoverRecordEntity
-                            ? materialCategories.findById(category).doOnNext(c -> value.put("categoryName", c.getName()))
-                            : categories.findById(category).doOnNext(c -> value.put("categoryName", c.getName()));
+                            ? materialCategories
+                                    .findById(category)
+                                    .doOnNext(c -> value.put("categoryName", c.getName()))
+                            : categories
+                                    .findById(category)
+                                    .doOnNext(c -> value.put("categoryName", c.getName()));
+        if (row instanceof HandoverRecordEntity record && record.getProperties() != null)
+            value.put("receiverName", record.getProperties().getOrDefault("receiverName", ""));
         String parent = Objects.toString(value.get("parentId"), "");
         if (!parent.isEmpty())
             related =
