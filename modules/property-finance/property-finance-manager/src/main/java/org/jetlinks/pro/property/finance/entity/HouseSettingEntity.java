@@ -9,7 +9,7 @@ import org.hswebframework.web.crud.annotation.EnableEntityEvent;
 
 import javax.persistence.*;
 
-/** 生效后按版本冻结规则与客户；停止或删除不级联财务历史。 */
+/** 审批通过后参与算费，按版本冻结规则与客户；停止或删除不级联财务历史。 */
 @Getter
 @Setter
 @EnableEntityEvent
@@ -19,7 +19,8 @@ import javax.persistence.*;
             @Index(
                     name = "idx_pm_fin_set_scope",
                     columnList = "projectId,spaceId,subjectId,deleted"),
-            @Index(name = "idx_pm_fin_set_standard", columnList = "standardId,deleted")
+            @Index(name = "idx_pm_fin_set_standard", columnList = "standardId,deleted"),
+            @Index(name = "idx_pm_fin_set_review", columnList = "projectId,reviewState,deleted")
         })
 public class HouseSettingEntity extends FinanceEntity {
     /** 后台恢复原租户上下文；空串明确表示平台域，不从最近请求借用用户上下文。 */
@@ -71,6 +72,21 @@ public class HouseSettingEntity extends FinanceEntity {
 
     @Column(length = 20, nullable = false)
     private String status;
+
+    /** 设置审批结果；通过后生成的普通账单直接继承该结果。 */
+    @Column(length = 16, nullable = false)
+    private String reviewState = "PENDING";
+
+    @Column(length = 64)
+    private String reviewedBy;
+
+    @Column(length = 128)
+    private String reviewedName;
+
+    @Column private Long reviewedAt;
+
+    @Column(length = 1000)
+    private String reviewReason;
 
     @Column(nullable = false)
     private Integer configVersion;

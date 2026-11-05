@@ -30,9 +30,12 @@ class ReceivableReviewPersistenceTest extends HouseSettingPersistenceTest {
 
     ReceivableEntity bill(String space) {
         var saved =
-                settings.create(project, input(space, "2024-02-10", null), DATE)
+                createApproved(project, input(space, "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
+        // 明确构造旧版本的待审核账单，用于已停用接口与历史审计回归。
+        bills.createUpdate().set("reviewState", "PENDING").where("settingId", saved.setting().getId())
+                .execute().block(WAIT);
         return bills.createQuery()
                 .where("settingId", saved.setting().getId())
                 .fetchOne()

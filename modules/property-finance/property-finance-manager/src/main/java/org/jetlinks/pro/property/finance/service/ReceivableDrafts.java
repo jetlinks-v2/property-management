@@ -15,6 +15,19 @@ final class ReceivableDrafts {
     static ReceivableEntity create(
             HouseSettingEntity setting, BillingPeriod period, StandardEntity standard) {
         var row = new ReceivableEntity();
+        // 正式账单继承已批准设置的结果，不再要求二次人工审核。
+        row.setReviewState(setting.getReviewState());
+        row.setReviewedBy(setting.getReviewedBy());
+        row.setReviewedName(setting.getReviewedName());
+        row.setReviewedOn(
+                setting.getReviewedAt() == null
+                        ? null
+                        : java.time.Instant.ofEpochMilli(setting.getReviewedAt())
+                                .atZone(java.time.ZoneId.systemDefault())
+                                .toLocalDate()
+                                .toString());
+        row.setReviewReason(setting.getReviewReason());
+        row.setSourceType("CHARGING");
         row.setBillKey(setting.getId() + ":" + period.getStart() + ":" + period.getEnd());
         row.setProjectId(setting.getProjectId());
         row.setSpaceId(setting.getSpaceId());

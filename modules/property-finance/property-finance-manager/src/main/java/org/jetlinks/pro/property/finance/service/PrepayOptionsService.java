@@ -84,6 +84,7 @@ public class PrepayOptionsService {
                 .and("spaceId", space)
                 .and("deleted", false)
                 .and("status", "ACTIVE")
+                .and("reviewState", "APPROVED")
                 .fetch()
                 .collectList()
                 .flatMap(

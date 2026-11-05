@@ -25,7 +25,7 @@ import reactor.core.publisher.*;
 import java.time.LocalDate;
 import java.util.*;
 
-/** 多收费对象共享同一应收，不分摊；保存快照与即时出账在同一个响应式事务内完成。 */
+/** 多收费对象共享同一应收，不分摊；保存待审批快照，审批通过后才允许出账。 */
 @Service
 @RequiredArgsConstructor
 public class HouseSettingService {
@@ -248,12 +248,13 @@ public class HouseSettingService {
                 .switchIfEmpty(Mono.error(error("standard_not_found", 404)));
     }
 
-    private Mono<Void> assertNoOverlap(HouseSettingEntity candidate, String excluded) {
+    Mono<Void> assertNoOverlap(HouseSettingEntity candidate, String excluded) {
         return settings.createQuery()
                 .where("projectId", candidate.getProjectId())
                 .and("spaceId", candidate.getSpaceId())
                 .and("subjectId", candidate.getSubjectId())
                 .and("deleted", false)
+                .and("reviewState", "ne", "REJECTED")
                 .fetch()
                 .filter(row -> !Objects.equals(row.getId(), excluded))
                 .any(
@@ -293,20 +294,11 @@ public class HouseSettingService {
 
     private Mono<SaveResult> generated(
             HouseSettingEntity row, LocalDate date, Authentication auth) {
-        return generation
-                .generate(row, date, auth)
-                .flatMap(
-                        result ->
-                                view(row)
-                                        .map(
-                                                view ->
-                                                        new SaveResult(
-                                                                view,
-                                                                result.generated(),
-                                                                result.retained())));
+        // 只提交审批；即时出账统一由批准事务执行，不能从保存入口绕过审批。
+        return view(row).map(view -> new SaveResult(view, 0, 0));
     }
 
-    private Mono<SettingView> view(HouseSettingEntity row) {
+    Mono<SettingView> view(HouseSettingEntity row) {
         return hasBills(row.getId()).map(billed -> SettingView.of(row, billed));
     }
 
@@ -347,9 +339,9 @@ public class HouseSettingService {
                                                                             return requireUnbilled(
                                                                                             old)
                                                                                     .then(
-                                                                                            assertNoOverlap(
+                                                                                            assertReplacementOverlapForEdit(
                                                                                                     next,
-                                                                                                    id))
+                                                                                                    old))
                                                                                     .then(
                                                                                             replace(
                                                                                                     old,
@@ -358,6 +350,14 @@ public class HouseSettingService {
                                                                         }))
                                         .flatMap(row -> generated(row, date, auth)))
                 .as(MonoTracer.create("/property/finance/setting/update"));
+    }
+
+    private Mono<Void> assertReplacementOverlapForEdit(
+            HouseSettingEntity next, HouseSettingEntity old) {
+        next.setId(old.getId());
+        return old.getPreviousVersionId() == null
+                ? assertNoOverlap(next, old.getId())
+                : assertReplacementOverlap(next, old.getPreviousVersionId());
     }
 
     private Mono<Void> requireUnbilled(HouseSettingEntity row) {
@@ -371,7 +371,13 @@ public class HouseSettingService {
 
     private Mono<HouseSettingEntity> replace(
             HouseSettingEntity old, HouseSettingEntity next, Authentication auth) {
-        var update = audit(settings.createUpdate(), auth, old.getVersion());
+        var update =
+                audit(settings.createUpdate(), auth, old.getVersion())
+                        .set("reviewState", "PENDING")
+                        .setNull("reviewedBy")
+                        .setNull("reviewedName")
+                        .setNull("reviewedAt")
+                        .setNull("reviewReason");
         var wrapper = new BeanWrapperImpl(next);
         for (String field :
                 List.of(
@@ -453,104 +459,106 @@ public class HouseSettingService {
                                                                                     old,
                                                                                     input
                                                                                             .getVersion());
-                                                                            if (!old.getSpaceId()
-                                                                                            .equals(
-                                                                                                    next
-                                                                                                            .getSpaceId())
-                                                                                    || !old.getProjectSubjectId()
-                                                                                            .equals(
-                                                                                                    next
-                                                                                                            .getProjectSubjectId())
-                                                                                    || !"ACTIVE"
-                                                                                            .equals(
-                                                                                                    old
-                                                                                                            .getStatus())
-                                                                                    || next.getEffectiveStartDate()
-                                                                                                    .compareTo(
-                                                                                                            old
-                                                                                                                    .getEffectiveStartDate())
-                                                                                            <= 0)
-                                                                                return Mono.error(
-                                                                                        error(
-                                                                                                "setting_version_invalid",
-                                                                                                409));
-                                                                            String end =
-                                                                                    LocalDate.parse(
-                                                                                                    next
-                                                                                                            .getEffectiveStartDate())
-                                                                                            .minusDays(
-                                                                                                    1)
-                                                                                            .toString();
-                                                                            return bills.createQuery()
-                                                                                    .where(
-                                                                                            "settingId",
-                                                                                            id)
-                                                                                    .gte(
-                                                                                            "calcEndDate",
-                                                                                            next
-                                                                                                    .getEffectiveStartDate())
-                                                                                    .fetchOne()
-                                                                                    .hasElement()
-                                                                                    .flatMap(
-                                                                                            affected -> {
-                                                                                                if (affected)
-                                                                                                    return Mono
-                                                                                                            .error(
-                                                                                                                    error(
-                                                                                                                            "setting_version_bills_overlap",
-                                                                                                                            409));
-                                                                                                var
-                                                                                                        update =
-                                                                                                                audit(
-                                                                                                                                settings
-                                                                                                                                        .createUpdate(),
-                                                                                                                                auth,
-                                                                                                                                old
-                                                                                                                                        .getVersion())
-                                                                                                                        .set(
-                                                                                                                                "status",
-                                                                                                                                "SUPERSEDED");
-                                                                                                if (old
-                                                                                                                        .getEffectiveEndDate()
-                                                                                                                == null
-                                                                                                        || old.getEffectiveEndDate()
-                                                                                                                        .compareTo(
-                                                                                                                                end)
-                                                                                                                > 0)
-                                                                                                    update
-                                                                                                            .set(
-                                                                                                                    "effectiveEndDate",
-                                                                                                                    end);
-                                                                                                return assertNoOverlap(
-                                                                                                                next,
-                                                                                                                id)
-                                                                                                        .then(
-                                                                                                                update.where(
-                                                                                                                                "id",
-                                                                                                                                id)
-                                                                                                                        .and(
-                                                                                                                                "version",
-                                                                                                                                old
-                                                                                                                                        .getVersion())
-                                                                                                                        .execute()
-                                                                                                                        .flatMap(
-                                                                                                                                SubjectService
-                                                                                                                                        ::changed))
-                                                                                                        .then(
-                                                                                                                Mono
-                                                                                                                        .defer(
-                                                                                                                                () -> {
-                                                                                                                                    next
-                                                                                                                                            .setPreviousVersionId(
-                                                                                                                                                    id);
-                                                                                                                                    return insert(
-                                                                                                                                            next,
-                                                                                                                                            auth);
-                                                                                                                                }));
-                                                                                            });
+                                                                            next
+                                                                                    .setPreviousVersionId(
+                                                                                            id);
+                                                                            return validateReplacement(
+                                                                                            old,
+                                                                                            next)
+                                                                                    .then(
+                                                                                            assertNoOverlap(
+                                                                                                    next,
+                                                                                                    id))
+                                                                                    .then(
+                                                                                            insert(
+                                                                                                    next,
+                                                                                                    auth));
                                                                         }))
                                         .flatMap(row -> generated(row, date, auth)))
                 .as(MonoTracer.create("/property/finance/setting/next-version"));
+    }
+
+    /** 待审批新版本不截断旧版本；审批期间持有项目锁，再检查旧账覆盖，避免覆盖已出账日期。 */
+    Mono<Void> validateReplacement(HouseSettingEntity old, HouseSettingEntity next) {
+        if (!old.getSpaceId().equals(next.getSpaceId())
+                || !old.getProjectSubjectId().equals(next.getProjectSubjectId())
+                || !"ACTIVE".equals(old.getStatus())
+                || !"APPROVED".equals(old.getReviewState())
+                || next.getEffectiveStartDate().compareTo(old.getEffectiveStartDate()) <= 0)
+            return Mono.error(error("setting_version_invalid", 409));
+        return bills.createQuery()
+                .where("settingId", old.getId())
+                .gte("calcEndDate", next.getEffectiveStartDate())
+                .fetchOne()
+                .hasElement()
+                .flatMap(
+                        affected ->
+                                affected
+                                        ? Mono.error(error("setting_version_bills_overlap", 409))
+                                        : Mono.empty());
+    }
+
+    Mono<Void> activateReplacement(HouseSettingEntity next, Authentication auth) {
+        if (next.getPreviousVersionId() == null) return assertNoOverlap(next, next.getId());
+        return setting(next.getProjectId(), next.getPreviousVersionId(), true)
+                .flatMap(
+                        old ->
+                                validateReplacement(old, next)
+                                        .then(assertReplacementOverlap(next, old.getId()))
+                                        .then(
+                                                Mono.defer(
+                                                        () -> {
+                                                            var update =
+                                                                    audit(
+                                                                                    settings
+                                                                                            .createUpdate(),
+                                                                                    auth,
+                                                                                    old
+                                                                                            .getVersion())
+                                                                            .set(
+                                                                                    "status",
+                                                                                    "SUPERSEDED");
+                                                            String end =
+                                                                    LocalDate.parse(
+                                                                                    next
+                                                                                            .getEffectiveStartDate())
+                                                                            .minusDays(1)
+                                                                            .toString();
+                                                            if (old.getEffectiveEndDate() == null
+                                                                    || old.getEffectiveEndDate()
+                                                                                    .compareTo(end)
+                                                                            > 0)
+                                                                update.set("effectiveEndDate", end);
+                                                            return update.where("id", old.getId())
+                                                                    .and(
+                                                                            "version",
+                                                                            old.getVersion())
+                                                                    .execute()
+                                                                    .flatMap(
+                                                                            SubjectService::changed)
+                                                                    .then();
+                                                        })));
+    }
+
+    private Mono<Void> assertReplacementOverlap(HouseSettingEntity next, String previous) {
+        return settings.createQuery()
+                .where("projectId", next.getProjectId())
+                .and("spaceId", next.getSpaceId())
+                .and("subjectId", next.getSubjectId())
+                .and("deleted", false)
+                .and("reviewState", "ne", "REJECTED")
+                .notIn("id", List.of(next.getId(), previous))
+                .fetch()
+                .any(
+                        row ->
+                                SettingRules.overlaps(
+                                        next.getEffectiveStartDate(),
+                                        next.getEffectiveEndDate(),
+                                        row.getEffectiveStartDate(),
+                                        row.getEffectiveEndDate()))
+                .flatMap(
+                        overlap ->
+                                overlap ? Mono.error(error("setting_overlap", 409)) : Mono.empty());
     }
 
     /** 全批次先校验，再统一写入；任意一项失败回滚全部设置和应收。 */
@@ -663,7 +671,9 @@ public class HouseSettingService {
                                                                             LocalDate.parse(
                                                                                     old
                                                                                             .getEffectiveEndDate()))
-                                                            || !"ACTIVE".equals(old.getStatus()))
+                                                            || !"ACTIVE".equals(old.getStatus())
+                                                            || !"APPROVED"
+                                                                    .equals(old.getReviewState()))
                                                         return Mono.error(
                                                                 error(
                                                                         "setting_invalid_dates",

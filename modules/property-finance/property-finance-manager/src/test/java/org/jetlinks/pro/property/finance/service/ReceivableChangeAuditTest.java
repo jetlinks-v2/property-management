@@ -18,7 +18,7 @@ import java.util.List;
 class ReceivableChangeAuditTest extends HouseSettingPersistenceTest {
     private ReceivableEntity source() {
         var result =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         return bills.createQuery()

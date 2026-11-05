@@ -146,6 +146,8 @@ public class ReceivableGenerationService {
             FinancialPeriodControlEntity control) {
         return Mono.defer(
                 () -> {
+                    if (!"APPROVED".equals(setting.getReviewState()))
+                        return Mono.error(error("setting_review_required", 409));
                     if (date == null) return Mono.error(error("setting_invalid_dates", 400));
                     var start = LocalDate.parse(setting.getEffectiveStartDate());
                     var end = SettingRules.date(setting.getEffectiveEndDate(), false);

@@ -53,6 +53,7 @@ class HouseSettingPersistenceTest {
     }
 
     @Autowired HouseSettingService settings;
+    @Autowired HouseSettingReviewService settingReview;
     @Autowired ReceivableGenerationService generation;
     @Autowired ReceivableCalculationService calculation;
     @Autowired HouseArchiveSource archive;
@@ -208,7 +209,7 @@ class HouseSettingPersistenceTest {
                                         List.of(context.customers().get(0), second))));
         var input = input("room", "2024-02-01", "2024-02-29");
         input.setCustomerRelationshipIds(List.of("link", "second-link"));
-        var result = settings.create(project, input, DATE).contextWrite(allowed()).block(WAIT);
+        var result = createApproved(project, input, DATE).contextWrite(allowed()).block(WAIT);
         assertEquals(1, result.generated());
         assertEquals(List.of("link", "second-link"), result.setting().getCustomerRelationshipIds());
         assertEquals(List.of("龚超", "张女士"), result.setting().getCustomerNames());
@@ -220,7 +221,7 @@ class HouseSettingPersistenceTest {
         assertFalse(bill.getSnapshotJson().contains("familyId"));
         var other = input("other", "2024-02-01", "2024-02-29");
         other.setCustomerRelationshipIds(List.of("link", "missing"));
-        StepVerifier.create(settings.create(project, other, DATE).contextWrite(allowed()))
+        StepVerifier.create(createApproved(project, other, DATE).contextWrite(allowed()))
                 .expectError()
                 .verify(WAIT);
         assertEquals(1, bills.createQuery().where("projectId", project).count().block(WAIT));
@@ -252,7 +253,7 @@ class HouseSettingPersistenceTest {
     @Test
     void prepayQuoteMatchesPersistedBillAndIgnoresLaterLiveStandardChanges() {
         var saved =
-                settings.create(project, input("room", "2024-02-10", "2024-02-29"), DATE)
+                createApproved(project, input("room", "2024-02-10", "2024-02-29"), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var bill =
@@ -288,7 +289,7 @@ class HouseSettingPersistenceTest {
     @Test
     void saveImmediatelyGeneratesProratedLeapMonthAndFreezesTrustedSources() {
         var saved =
-                settings.create(project, input("room", "2024-02-10", "2024-02-29"), DATE)
+                createApproved(project, input("room", "2024-02-10", "2024-02-29"), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         assertEquals(1, saved.generated());
@@ -322,7 +323,7 @@ class HouseSettingPersistenceTest {
     @Test
     void futureSettingCreatesNoBillAndExpiredCoverageClosesWithLateFee() {
         var future =
-                settings.create(project, input("future", "2024-03-01", null), DATE)
+                createApproved(project, input("future", "2024-03-01", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         assertEquals(0, future.generated());
@@ -337,7 +338,7 @@ class HouseSettingPersistenceTest {
                 .execute()
                 .block(WAIT);
         var past =
-                settings.create(project, input("past", "2024-01-01", "2024-01-31"), DATE)
+                createApproved(project, input("past", "2024-01-01", "2024-01-31"), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var bill =
@@ -354,10 +355,10 @@ class HouseSettingPersistenceTest {
     void untrustedVariablesWrongCustomerAndUncoveredStandardAreRejectedBeforeAnyWrite() {
         var request = input("room", "2024-02-01", null);
         request.setVariableValues(Map.of("STANDARD_PRICE", "0.01"));
-        conflict(settings.create(project, request, DATE), 400);
+        conflict(createApproved(project, request, DATE), 400);
         request.setVariableValues(Map.of());
         request.setCustomerRelationshipIds(List.of("other-house-link"));
-        conflict(settings.create(project, request, DATE), 409);
+        conflict(createApproved(project, request, DATE), 409);
         request.setCustomerRelationshipIds(List.of("link"));
         standards
                 .createUpdate()
@@ -365,7 +366,7 @@ class HouseSettingPersistenceTest {
                 .where("id", standardId)
                 .execute()
                 .block(WAIT);
-        conflict(settings.create(project, request, DATE), 409);
+        conflict(createApproved(project, request, DATE), 409);
         assertEquals(0, rows.createQuery().where("projectId", project).count().block(WAIT));
         assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
     }
@@ -374,10 +375,10 @@ class HouseSettingPersistenceTest {
     void sameHouseSubjectOverlapIsSerializedAndRepeatedGenerationIsIdempotent() {
         var actions =
                 Flux.merge(
-                                settings.create(project, input("room", "2024-01-01", null), DATE)
+                                createApproved(project, input("room", "2024-01-01", null), DATE)
                                         .contextWrite(allowed())
                                         .materialize(),
-                                settings.create(project, input("room", "2024-02-01", null), DATE)
+                                createApproved(project, input("room", "2024-02-01", null), DATE)
                                         .contextWrite(allowed())
                                         .materialize())
                         .collectList()
@@ -411,7 +412,7 @@ class HouseSettingPersistenceTest {
     }
 
     @Test
-    void calculationFailureRollsBackConfigurationAndEveryGeneratedBill() {
+    void calculationFailureLeavesPendingSettingAndRollsBackApprovalAndEveryBill() {
         standards
                 .createUpdate()
                 .set("formulaExpression", "${STANDARD_PRICE}/0")
@@ -419,39 +420,40 @@ class HouseSettingPersistenceTest {
                 .execute()
                 .block(WAIT);
         StepVerifier.create(
-                        settings.create(project, input("room", "2024-01-01", null), DATE)
+                        createApproved(project, input("room", "2024-01-01", null), DATE)
                                 .contextWrite(allowed()))
                 .expectError()
                 .verify(WAIT);
-        assertEquals(0, rows.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(1, rows.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals("PENDING", rows.createQuery().where("projectId", project).fetchOne().block(WAIT).getReviewState());
         assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
     }
 
     @Test
     void issuedSettingsAreImmutableWhileFutureUnbilledCanBeEditedWithVersion() {
         var active =
-                settings.create(project, input("room", "2024-01-01", null), DATE)
+                createApproved(project, input("room", "2024-01-01", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT)
                         .setting();
         var change = input("room", "2024-01-01", null);
         change.setVersion(active.getVersion());
-        conflict(settings.update(project, active.getId(), change, DATE), 409);
+        conflict(updateApproved(project, active.getId(), change, DATE), 409);
         conflict(settings.delete(project, active.getId(), active.getVersion()), 409);
         var future =
-                settings.create(project, input("future", "2024-04-01", null), DATE)
+                createApproved(project, input("future", "2024-04-01", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT)
                         .setting();
         var replacement = input("future", "2024-05-01", null);
         replacement.setVersion(future.getVersion());
         var edited =
-                settings.update(project, future.getId(), replacement, DATE)
+                updateApproved(project, future.getId(), replacement, DATE)
                         .contextWrite(allowed())
                         .block(WAIT)
                         .setting();
-        assertEquals(1L, edited.getVersion());
-        conflict(settings.update(project, future.getId(), replacement, DATE), 409);
+        assertEquals(future.getVersion() + 2, edited.getVersion());
+        conflict(updateApproved(project, future.getId(), replacement, DATE), 409);
         settings.delete(project, future.getId(), edited.getVersion())
                 .contextWrite(allowed())
                 .block(WAIT);
@@ -462,12 +464,12 @@ class HouseSettingPersistenceTest {
     void missingSourceAnonymousAndForbiddenProjectNeverCreateSettings() {
         when(archive.context(eq(project), anyString(), anyBoolean()))
                 .thenReturn(Mono.error(FinanceScope.error("house_source_unavailable", 503)));
-        conflict(settings.create(project, input("room", "2024-01-01", null), DATE), 503);
-        StepVerifier.create(settings.create(project, input("room", "2024-01-01", null), DATE))
+        conflict(createApproved(project, input("room", "2024-01-01", null), DATE), 503);
+        StepVerifier.create(createApproved(project, input("room", "2024-01-01", null), DATE))
                 .expectError(
                         org.hswebframework.web.authorization.exception.UnAuthorizedException.class)
                 .verify(WAIT);
-        conflict(settings.create("forbidden", input("room", "2024-01-01", null), DATE), 403);
+        conflict(createApproved("forbidden", input("room", "2024-01-01", null), DATE), 403);
         assertEquals(0, rows.createQuery().where("projectId", project).count().block(WAIT));
     }
 
@@ -476,12 +478,12 @@ class HouseSettingPersistenceTest {
         var bad = input("bad", "2024-02-01", null);
         bad.setCustomerRelationshipIds(List.of("missing"));
         conflict(
-                settings.createBatch(
+                createBatchApproved(
                         project, List.of(input("good", "2024-02-01", null), bad), DATE),
                 409);
         assertEquals(0, rows.createQuery().where("projectId", project).count().block(WAIT));
         var saved =
-                settings.createBatch(
+                createBatchApproved(
                                 project,
                                 List.of(
                                         input("a", "2024-02-01", null),
@@ -493,21 +495,21 @@ class HouseSettingPersistenceTest {
         assertEquals(2, bills.createQuery().where("projectId", project).count().block(WAIT));
         var overlapA = input("c", "2024-02-01", null);
         var overlapB = input("c", "2024-03-01", null);
-        conflict(settings.createBatch(project, List.of(overlapA, overlapB), DATE), 409);
+        conflict(createBatchApproved(project, List.of(overlapA, overlapB), DATE), 409);
         assertEquals(2, rows.createQuery().where("projectId", project).count().block(WAIT));
     }
 
     @Test
     void nextVersionPreservesOldBillsAndRejectsDateThatWouldRewriteAnExistingBill() {
         var saved =
-                settings.create(project, input("room", "2024-01-01", null), DATE)
+                createApproved(project, input("room", "2024-01-01", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT)
                         .setting();
         var next = input("room", "2024-03-01", null);
         next.setVersion(saved.getVersion());
         var successor =
-                settings.nextVersion(project, saved.getId(), next, DATE)
+                nextVersionApproved(project, saved.getId(), next, DATE)
                         .contextWrite(allowed())
                         .block(WAIT)
                         .setting();
@@ -517,20 +519,20 @@ class HouseSettingPersistenceTest {
         assertEquals("SUPERSEDED", rows.findById(saved.getId()).block(WAIT).getStatus());
         assertEquals(2, bills.createQuery().where("settingId", saved.getId()).count().block(WAIT));
         var another =
-                settings.create(project, input("other", "2024-01-01", null), DATE)
+                createApproved(project, input("other", "2024-01-01", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT)
                         .setting();
         var collision = input("other", "2024-02-15", null);
         collision.setVersion(another.getVersion());
-        conflict(settings.nextVersion(project, another.getId(), collision, DATE), 409);
+        conflict(nextVersionApproved(project, another.getId(), collision, DATE), 409);
         assertNull(rows.findById(another.getId()).block(WAIT).getEffectiveEndDate());
     }
 
     @Test
     void stopDoesNotTouchExistingBillsAndPreventsLaterGeneration() {
         var setting =
-                settings.create(project, input("room", "2024-01-01", null), DATE)
+                createApproved(project, input("room", "2024-01-01", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT)
                         .setting();
@@ -603,7 +605,7 @@ class HouseSettingPersistenceTest {
                 .execute()
                 .block(WAIT);
         var saved =
-                settings.create(
+                createApproved(
                                 project,
                                 input("job", "2024-01-01", null),
                                 LocalDate.of(2023, 12, 31))
@@ -649,7 +651,7 @@ class HouseSettingPersistenceTest {
     @Test
     void failedTaskRollsBackBillsAndCanBeRetriedWithOriginalIdentityAndTenant() {
         var saved =
-                settings.create(
+                createApproved(
                                 project,
                                 input("failed-job", "2024-01-01", null),
                                 LocalDate.of(2023, 12, 31))
@@ -706,7 +708,7 @@ class HouseSettingPersistenceTest {
     @Test
     void expiredWorkerIsRecoveredAndTaskQueryCannotEscapeSpaceScope() {
         var visible =
-                settings.create(
+                createApproved(
                                 project,
                                 input("job", "2024-01-01", null),
                                 LocalDate.of(2023, 12, 31))
@@ -714,7 +716,7 @@ class HouseSettingPersistenceTest {
                         .block(WAIT)
                         .setting();
         var hidden =
-                settings.create(
+                createApproved(
                                 project,
                                 input("hidden", "2024-01-01", null),
                                 LocalDate.of(2023, 12, 31))
@@ -769,7 +771,7 @@ class HouseSettingPersistenceTest {
     @Test
     void receivableFreezeUnfreezeUsesVersionAndPreservesSameTransactionAudit() {
         var saved =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var bill =
@@ -822,7 +824,7 @@ class HouseSettingPersistenceTest {
     @Test
     void receivableDeleteIsLogicalAndDoesNotRegenerateWhileAuditRemains() {
         var saved =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var bill =
@@ -874,7 +876,7 @@ class HouseSettingPersistenceTest {
     @Test
     void receivableConcurrentChangesOnlyOneWinsAndCannotDeleteClosedOrPaidBills() {
         var saved =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var bill =
@@ -936,10 +938,10 @@ class HouseSettingPersistenceTest {
     @Test
     void receivableQueryAndExcelRetainProjectSpaceBoundaryAndExactAmounts() throws Exception {
         var saved =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
-        settings.create(project, input("hidden", "2024-02-10", null), DATE)
+        createApproved(project, input("hidden", "2024-02-10", null), DATE)
                 .contextWrite(allowed())
                 .block(WAIT);
         var bill =
@@ -983,7 +985,7 @@ class HouseSettingPersistenceTest {
     @Test
     void receivableAuditFailureRollsBackStatusAndHttpOnlyExposesParsedReadOnlySnapshot() {
         var saved =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var bill =
@@ -1053,7 +1055,7 @@ class HouseSettingPersistenceTest {
     @Test
     void adjustmentPreviewHasNoWritesAndPublishMatchesPreviewWithImmutableSourceAndAudit() {
         var saved =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var bill =
@@ -1150,7 +1152,7 @@ class HouseSettingPersistenceTest {
     @Test
     void formulaAdjustmentUsesFrozenStandardAndConcurrentPublishOnlySucceedsOnce() {
         var saved =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var bill =
@@ -1208,7 +1210,7 @@ class HouseSettingPersistenceTest {
     @Test
     void adjustmentAuditFailureRollsBackAmountsAndHttpPreviewUsesPreciseSafeContract() {
         var saved =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var bill =
@@ -1292,7 +1294,7 @@ class HouseSettingPersistenceTest {
     @Test
     void splitArchivesSourceAndConcurrentSubmitConservesAmountsThroughFutureAccrual() {
         var saved =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var source =
@@ -1397,7 +1399,7 @@ class HouseSettingPersistenceTest {
     @Test
     void splitAuditFailureRollsBackArchivedFlagAndBothChildren() {
         var saved =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var source =
@@ -1445,7 +1447,7 @@ class HouseSettingPersistenceTest {
     @Test
     void splitUpgradeSqlBackfillsRootIdentityAndCanBeRepeated() throws Exception {
         var saved =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var source =
@@ -1519,7 +1521,7 @@ class HouseSettingPersistenceTest {
     @Test
     void splitHttpUsesStringsForMoneyAndReturnsOnlyImplementedActions() {
         var saved =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var source =
@@ -2272,7 +2274,7 @@ class HouseSettingPersistenceTest {
     @Test
     void batchHttpUsesServerMoneyAndRejectsForeignProjectAndAnonymousRequests() {
         var saved =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var row =
@@ -2350,11 +2352,11 @@ class HouseSettingPersistenceTest {
     @Test
     void batchDeleteValidatesEveryVersionAndPolicyBeforeAnyWriteAndAudit() {
         var first =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var second =
-                settings.create(project, input("job", "2024-02-10", null), DATE)
+                createApproved(project, input("job", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var a =
@@ -2422,7 +2424,7 @@ class HouseSettingPersistenceTest {
     @Test
     void noticeUsesExactCurrentDebtAndVersionAndRejectsMixedSpaces() {
         var saved =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var row =
@@ -2451,7 +2453,7 @@ class HouseSettingPersistenceTest {
                 .block(WAIT);
         conflict(batches.notice(project, input), 409);
         var other =
-                settings.create(project, input("job", "2024-02-10", null), DATE)
+                createApproved(project, input("job", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var b =
@@ -2474,11 +2476,11 @@ class HouseSettingPersistenceTest {
     @Test
     void batchDeleteAuditFailureRollsBackEarlierDeletedBill() throws Exception {
         var first =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var second =
-                settings.create(project, input("job", "2024-02-10", null), DATE)
+                createApproved(project, input("job", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         var sort = new org.hswebframework.web.api.crud.entity.QueryParamEntity();
@@ -2755,7 +2757,7 @@ class HouseSettingPersistenceTest {
 
     private ReceivableEntity periodBill(String space) {
         var saved =
-                settings.create(project, input(space, "2024-02-10", null), DATE)
+                createApproved(project, input(space, "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT);
         return bills.createQuery()
@@ -2769,7 +2771,7 @@ class HouseSettingPersistenceTest {
             strings = {"CREATE", "UPDATE", "NEXT", "BATCH", "STOP", "DELETE"})
     void closedPeriodRejectsEverySettingWriteBeforeConfigurationOrBillChanges(String operation) {
         var saved =
-                settings.create(project, input("existing", "2024-03-01", null), DATE)
+                createApproved(project, input("existing", "2024-03-01", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT)
                         .setting();
@@ -2783,11 +2785,11 @@ class HouseSettingPersistenceTest {
         Mono<?> action =
                 switch (operation) {
                     case "CREATE" ->
-                            settings.create(project, input("new", "2024-03-01", null), DATE);
-                    case "UPDATE" -> settings.update(project, saved.getId(), input, DATE);
-                    case "NEXT" -> settings.nextVersion(project, saved.getId(), input, DATE);
+                            createApproved(project, input("new", "2024-03-01", null), DATE);
+                    case "UPDATE" -> updateApproved(project, saved.getId(), input, DATE);
+                    case "NEXT" -> nextVersionApproved(project, saved.getId(), input, DATE);
                     case "BATCH" ->
-                            settings.createBatch(
+                            createBatchApproved(
                                     project, List.of(input("new", "2024-03-01", null)), DATE);
                     case "STOP" ->
                             settings.stop(
@@ -2825,7 +2827,7 @@ class HouseSettingPersistenceTest {
     @Test
     void nextOpenDayCannotBackfillMissingClosedBillsOrBackdateNewSetting() {
         var saved =
-                settings.create(
+                createApproved(
                                 project,
                                 input("future-job", "2024-01-01", null),
                                 LocalDate.of(2023, 12, 31))
@@ -2842,7 +2844,7 @@ class HouseSettingPersistenceTest {
         FinancialPeriodTestSupport.rejectsClosed(
                 generation.scheduled(project, saved.getId(), next, BillingTaskKind.GENERATE));
         FinancialPeriodTestSupport.rejectsClosed(
-                settings.create(project, input("new-room", "2024-02-10", null), next)
+                createApproved(project, input("new-room", "2024-02-10", null), next)
                         .contextWrite(allowed()));
         assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
         assertEquals(1, rows.createQuery().where("projectId", project).count().block(WAIT));
@@ -2851,7 +2853,7 @@ class HouseSettingPersistenceTest {
     @Test
     void scheduledGenerationKeepsClosedBillAndCreatesNextOpenPeriodWithoutLogin() {
         var saved =
-                settings.create(project, input("room", "2024-02-10", null), DATE)
+                createApproved(project, input("room", "2024-02-10", null), DATE)
                         .contextWrite(allowed())
                         .block(WAIT)
                         .setting();
@@ -2939,7 +2941,7 @@ class HouseSettingPersistenceTest {
     @Test
     void closingFirstSerializesAnonymousGenerationBeforeAnyBillLockOrWrite() {
         var saved =
-                settings.create(project, input("job", "2024-02-10", null), LocalDate.of(2024, 2, 9))
+                createApproved(project, input("job", "2024-02-10", null), LocalDate.of(2024, 2, 9))
                         .contextWrite(allowed())
                         .block(WAIT)
                         .setting();
@@ -2976,7 +2978,7 @@ class HouseSettingPersistenceTest {
     @Test
     void wrongTenantCannotUseAnonymousTaskToInitializeAnotherProjectsPeriod() {
         var saved =
-                settings.create(project, input("job", "2024-02-10", null), LocalDate.of(2024, 2, 9))
+                createApproved(project, input("job", "2024-02-10", null), LocalDate.of(2024, 2, 9))
                         .contextWrite(allowed())
                         .block(WAIT)
                         .setting();
@@ -3005,10 +3007,172 @@ class HouseSettingPersistenceTest {
                 .verify(WAIT);
     }
 
+    // 既有算费回归显式经过设置审批；新增审批测试直接调用保存接口验证待审批行为。
+    private Mono<HouseSettingService.SaveResult> approveSetting(
+            String project, HouseSettingService.SaveResult saved, LocalDate date) {
+        return settingReview.decide(project, new HouseSettingReviewService.Input(
+                List.of(new HouseSettingReviewService.Item(saved.setting().getId(), saved.setting().getVersion())),
+                "核对收费规则"), true, date).map(results -> results.get(0));
+    }
+
+    Mono<HouseSettingService.SaveResult> createApproved(String project, SettingInput input, LocalDate date) {
+        return settings.create(project, input, date).flatMap(saved -> approveSetting(project, saved, date));
+    }
+
+    private Mono<HouseSettingService.SaveResult> updateApproved(String project, String id, SettingInput input, LocalDate date) {
+        return settings.update(project, id, input, date).flatMap(saved -> approveSetting(project, saved, date));
+    }
+
+    private Mono<HouseSettingService.SaveResult> nextVersionApproved(String project, String id, SettingInput input, LocalDate date) {
+        return settings.nextVersion(project, id, input, date).flatMap(saved -> approveSetting(project, saved, date));
+    }
+
+    private Mono<List<HouseSettingService.SaveResult>> createBatchApproved(String project, List<SettingInput> inputs, LocalDate date) {
+        return settings.createBatch(project, inputs, date).flatMapMany(Flux::fromIterable)
+                .concatMap(saved -> approveSetting(project, saved, date)).collectList();
+    }
+
+    @Test
+    void settingApprovalIsIndependentAndCannotBeBypassedByGeneration() {
+        var pending = settings.create(project, input("room", "2024-02-10", null), DATE)
+                .contextWrite(allowed()).block(WAIT);
+        assertEquals("PENDING", pending.setting().getReviewState());
+        assertEquals(0, pending.generated());
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+        conflict(generation.generate(project, pending.setting().getId(), DATE), 409);
+        StepVerifier.create(generation.scheduled(project, pending.setting().getId(), DATE, BillingTaskKind.ALL))
+                .expectErrorMatches(e -> TaxItemPersistenceTest.status(e, 409)).verify(WAIT);
+        var approved = approveSetting(project, pending, DATE).contextWrite(allowed()).block(WAIT);
+        assertEquals("APPROVED", approved.setting().getReviewState());
+        assertNotNull(approved.setting().getReviewedBy());
+        assertEquals("核对收费规则", approved.setting().getReviewReason());
+        assertEquals(1, approved.generated());
+        var bill = bills.createQuery().where("settingId", approved.setting().getId()).fetchOne().block(WAIT);
+        assertEquals("APPROVED", bill.getReviewState(), "账单继承设置审批结果，无需二次审核");
+        assertEquals(approved.setting().getReviewedBy(), bill.getReviewedBy());
+        conflict(approveSetting(project, pending, DATE), 409);
+        assertEquals(1, bills.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    @Test
+    void rejectedSettingCanBeEditedAndSubmittedAgainWithoutChangingBills() {
+        var pending = settings.create(project, input("room", "2024-02-10", null), DATE)
+                .contextWrite(allowed()).block(WAIT);
+        var rejected = settingReview.decide(project, new HouseSettingReviewService.Input(
+                List.of(new HouseSettingReviewService.Item(pending.setting().getId(), pending.setting().getVersion())),
+                "请核对面积"), false, DATE).contextWrite(allowed()).block(WAIT).get(0).setting();
+        assertEquals("REJECTED", rejected.getReviewState());
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+        var request = input("room", "2024-02-10", null);
+        request.setVersion(rejected.getVersion());
+        var revised = settings.update(project, rejected.getId(), request, DATE).contextWrite(allowed()).block(WAIT);
+        assertEquals("PENDING", revised.setting().getReviewState());
+        assertNull(revised.setting().getReviewedAt());
+        assertNull(revised.setting().getReviewReason());
+        assertEquals(1, approveSetting(project, revised, DATE).contextWrite(allowed()).block(WAIT).generated());
+    }
+
+    @Test
+    void settingApprovalBatchStaleItemAndWrongProjectHaveNoPartialWrites() {
+        var pending = settings.createBatch(project, List.of(input("room", "2024-02-10", null),
+                input("job", "2024-02-10", null)), DATE).contextWrite(allowed()).block(WAIT);
+        var one = pending.get(0).setting();
+        var two = pending.get(1).setting();
+        conflict(settingReview.decide(project, new HouseSettingReviewService.Input(List.of(
+                new HouseSettingReviewService.Item(one.getId(), one.getVersion()),
+                new HouseSettingReviewService.Item(two.getId(), two.getVersion() + 1)), "确认"), true, DATE), 409);
+        assertEquals("PENDING", rows.findById(one.getId()).block(WAIT).getReviewState());
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+        conflict(approveSetting("wrong-project", pending.get(0), DATE), 404);
+        conflict(settingReview.decide(project, new HouseSettingReviewService.Input(List.of(
+                new HouseSettingReviewService.Item(one.getId(), one.getVersion())), " "), true, DATE), 400);
+        StepVerifier.create(approveSetting(project, pending.get(0), DATE)).expectError().verify(WAIT);
+    }
+
+    @Test
+    void approvalCalculationFailureOnLastSettingRollsBackFirstApprovalAndBill() {
+        standards.createUpdate().set("formulaExpression", "1/(${BILLING_AREA}-1)")
+                .where("id", standardId).execute().block(WAIT);
+        var original = context("job");
+        var house = original.house();
+        when(archive.context(project, "job", true)).thenReturn(Mono.just(new PropertyHouseContext(
+                new PropertyHouseInfo(house.spaceId(), house.projectId(), house.name(), house.fullName(),
+                        house.spaceTypeId(), house.spaceTypeName(), house.spaceLocation(), BigDecimal.ONE,
+                        null, null, null, house.version()), original.customers())));
+        var pending = settings.createBatch(project, List.of(input("room", "2024-02-10", null),
+                input("job", "2024-02-10", null)), DATE).contextWrite(allowed()).block(WAIT);
+        var request = new HouseSettingReviewService.Input(pending.stream().map(saved ->
+                new HouseSettingReviewService.Item(saved.setting().getId(), saved.setting().getVersion())).toList(), "整批核对");
+        StepVerifier.create(settingReview.decide(project, request, true, DATE).contextWrite(allowed()))
+                .expectError().verify(WAIT);
+        for (var saved : pending) {
+            var retained = rows.findById(saved.setting().getId()).block(WAIT);
+            assertEquals("PENDING", retained.getReviewState());
+            assertEquals(saved.setting().getVersion(), retained.getVersion());
+            assertNull(retained.getReviewedAt());
+        }
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    @Test
+    void pendingReplacementNeverStopsOriginalAndRejectLeavesOriginalUntouched() {
+        var saved = createApproved(project, input("room", "2024-02-10", null), DATE)
+                .contextWrite(allowed()).block(WAIT);
+        var nextInput = input("room", "2024-03-01", null);
+        nextInput.setVersion(saved.setting().getVersion());
+        var next = settings.nextVersion(project, saved.setting().getId(), nextInput, DATE)
+                .contextWrite(allowed()).block(WAIT);
+        assertEquals("PENDING", next.setting().getReviewState());
+        assertEquals("ACTIVE", rows.findById(saved.setting().getId()).block(WAIT).getStatus());
+        assertNull(rows.findById(saved.setting().getId()).block(WAIT).getEffectiveEndDate());
+        settingReview.decide(project, new HouseSettingReviewService.Input(List.of(
+                new HouseSettingReviewService.Item(next.setting().getId(), next.setting().getVersion())),
+                "规则尚未确定"), false, DATE).contextWrite(allowed()).block(WAIT);
+        assertEquals("ACTIVE", rows.findById(saved.setting().getId()).block(WAIT).getStatus());
+        assertEquals(0, bills.createQuery().where("settingId", next.setting().getId()).count().block(WAIT));
+    }
+
+    @Test
+    void approvedReplacementSwitchesOriginalAndKeepsBillApproved() {
+        var old = createApproved(project, input("room", "2024-02-10", null), DATE)
+                .contextWrite(allowed()).block(WAIT).setting();
+        var input = input("room", "2024-03-01", null);
+        input.setVersion(old.getVersion());
+        var next = settings.nextVersion(project, old.getId(), input, DATE).contextWrite(allowed()).block(WAIT);
+        var result = approveSetting(project, next, LocalDate.of(2024, 3, 5)).contextWrite(allowed()).block(WAIT);
+        assertEquals("APPROVED", result.setting().getReviewState());
+        assertEquals(1, result.generated());
+        var previous = rows.findById(old.getId()).block(WAIT);
+        assertEquals("SUPERSEDED", previous.getStatus());
+        assertEquals("2024-02-29", previous.getEffectiveEndDate());
+        assertEquals("APPROVED", bills.createQuery().where("settingId", result.setting().getId()).fetchOne().block(WAIT).getReviewState());
+    }
+
+    @Test
+    void settingMigrationIsIdempotentAndOnlyPublishesLegacySettingBills() throws Exception {
+        var pending = settings.create(project, input("room", "2024-02-10", null), DATE)
+                .contextWrite(allowed()).block(WAIT).setting();
+        var existing = createApproved(project, input("job", "2024-02-10", null), DATE)
+                .contextWrite(allowed()).block(WAIT).setting();
+        var bill = bills.createQuery().where("settingId", existing.getId()).fetchOne().block(WAIT);
+        bills.createUpdate().set("reviewState", "PENDING").where("id", bill.getId()).execute().block(WAIT);
+        var script = java.nio.file.Files.readString(java.nio.file.Path.of("../sql/migrate-setting-review.sql"));
+        for (int run = 0; run < 2; run++) {
+            var result = DB.execInContainer("psql", "-X", "-U", "postgres", "-d", "setting_test", "-v", "ON_ERROR_STOP=1", "-c", script);
+            assertEquals(0, result.getExitCode(), result.getStderr());
+        }
+        assertEquals("PENDING", rows.findById(pending.getId()).block(WAIT).getReviewState(), "新提交待审设置不能被重复升级发布");
+        var migrated = bills.findById(bill.getId()).block(WAIT);
+        assertEquals("APPROVED", migrated.getReviewState());
+        assertEquals(bill.getActualReceivableAmount(), migrated.getActualReceivableAmount());
+        assertEquals(bill.getVersion() + 1, migrated.getVersion(), "重复脚本不重复更新账单版本");
+    }
+
     @Configuration
     @Import({
         StandardPersistenceTest.Config.class,
         HouseSettingService.class,
+        HouseSettingReviewService.class,
         ReceivableGenerationService.class,
         ReceivableCalculationService.class,
         ReceivableAmountCalculator.class,

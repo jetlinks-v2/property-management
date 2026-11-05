@@ -11,7 +11,7 @@ import reactor.core.publisher.Mono;
 import java.time.*;
 import java.util.List;
 
-/** 应收按钮审核不走工作流；action 固定于授权路由，不接受客户端覆盖。 */
+/** 普通应收二次审核已取消；保留旧路径返回明确停用响应，不再修改账单。 */
 @RestController
 @RequiredArgsConstructor
 @Authorize
@@ -50,7 +50,7 @@ public class ReceivableReviewController {
 
     private Mono<List<ReceivableReviewService.Result>> submit(
             String projectId, Input input, String action) {
-        return service.submit(
-                projectId, input.action(action), LocalDate.now(ZoneId.of(properties.getZone())));
+        // 兼容旧客户端的明确拒绝；不能通过旧接口撤销设置/导入审批已经发布的账单。
+        return Mono.error(FinanceScope.error("receivable_review_removed", 410));
     }
 }

@@ -69,7 +69,8 @@ public class PrepayQuoteSource {
             LocalDate date) {
         if (!setting.getProjectId().equals(context.house().projectId())
                 || !setting.getSpaceId().equals(context.house().spaceId())
-                || !"ACTIVE".equals(setting.getStatus()))
+                || !"ACTIVE".equals(setting.getStatus())
+                || !"APPROVED".equals(setting.getReviewState()))
             return Mono.error(error("prepay_source_changed", 409));
         var payer = payer(input, setting, context);
         return references(setting)

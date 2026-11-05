@@ -44,6 +44,7 @@ public class BillingTaskService {
         var configured =
                 settings.createQuery()
                         .where("deleted", false)
+                        .and("reviewState", "APPROVED")
                         .lte("effectiveStartDate", date.toString())
                         .fetch()
                         .flatMap(setting -> execute(setting, kind, date), 4, 1);

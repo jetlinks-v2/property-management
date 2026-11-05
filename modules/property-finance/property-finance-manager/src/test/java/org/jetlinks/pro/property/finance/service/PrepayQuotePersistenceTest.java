@@ -39,6 +39,7 @@ class PrepayQuotePersistenceTest {
 
     @Autowired PrepayQuoteService service;
     @Autowired HouseSettingService settingService;
+    @Autowired HouseSettingReviewService settingReview;
     @Autowired HouseArchiveSource archive;
     @Autowired PrepayPeriodPricing pricing;
     @Autowired ActivitySource activitySource;
@@ -61,12 +62,7 @@ class PrepayQuotePersistenceTest {
         fixture.subjects = issued;
         fixture.subjectRows = subjects;
         fixture.setup();
-        var saved =
-                run(
-                        settingService.create(
-                                fixture.project,
-                                fixture.input("room", "2024-01-01", "2026-12-31"),
-                                DATE));
+        var saved = createApproved(fixture.input("room", "2024-01-01", "2026-12-31"));
         settingId = saved.setting().getId();
         reset(activitySource);
         when(activitySource.spaces(fixture.project))
@@ -83,6 +79,22 @@ class PrepayQuotePersistenceTest {
 
     <T> T run(Mono<T> action) {
         return action.contextWrite(fixture.allowed()).block(WAIT);
+    }
+
+    HouseSettingService.SaveResult createApproved(
+            org.jetlinks.pro.property.finance.setting.SettingInput input) {
+        var saved = run(settingService.create(fixture.project, input, DATE));
+        return run(settingReview.decide(
+                        fixture.project,
+                        new HouseSettingReviewService.Input(
+                                List.of(
+                                        new HouseSettingReviewService.Item(
+                                                saved.setting().getId(),
+                                                saved.setting().getVersion())),
+                                "预缴来源已审批"),
+                        true,
+                        DATE))
+                .get(0);
     }
 
     PrepayQuoteInput input() {
@@ -513,7 +525,7 @@ class PrepayQuotePersistenceTest {
                                 new PropertyHouseContext(
                                         fixture.context("other-room").house(),
                                         List.of(context.customers().get(0), second))));
-        var setting = run(settingService.create(fixture.project, input, DATE));
+        var setting = createApproved(input);
         var result =
                 create(
                         new PrepayQuoteInput(
@@ -536,7 +548,7 @@ class PrepayQuotePersistenceTest {
     @Test
     void effectiveEndAndQuarterlyMonthRulesCannotBeBypassed() {
         var input = fixture.input("short-room", "2024-02-01", "2024-02-29");
-        var setting = run(settingService.create(fixture.project, input, DATE));
+        var setting = createApproved(input);
         reject(
                 service.create(
                         fixture.project,
