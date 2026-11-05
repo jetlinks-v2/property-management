@@ -154,6 +154,7 @@ public final class FinanceReportFile {
     }
 
     private static String escape(String text) {
-        return HtmlUtils.htmlEscape(text);
+        // XHTML解析器不声明HTML命名实体，数字实体同时保留文本转义和Unicode兼容。
+        return HtmlUtils.htmlEscapeDecimal(text);
     }
 }

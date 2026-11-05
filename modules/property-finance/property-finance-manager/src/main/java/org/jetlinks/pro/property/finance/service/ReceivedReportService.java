@@ -37,10 +37,10 @@ public class ReceivedReportService {
     private final ReactiveRepository<FundAccountEntity, String> accounts;
     private static final String CURRENT =
             "case when substring(\"receivedAt\" from 1 for 10) between \"calcStartDate\" and"
-                + " \"calcEndDate\" then amount else 0 end";
+                    + " \"calcEndDate\" then amount else 0 end";
     private static final String SUMS =
             "count(*) as rows, sum(case when amount>0 then amount else 0 end) as income, sum(case"
-                + " when amount<0 then -amount else 0 end) as refund, sum(amount) as net, sum("
+                    + " when amount<0 then -amount else 0 end) as refund, sum(amount) as net, sum("
                     + CURRENT
                     + ") as \"currentAmount\", sum(amount- ("
                     + CURRENT
@@ -133,6 +133,7 @@ public class ReceivedReportService {
                                 params,
                                 "id",
                                 "paymentId",
+                                "receivableId",
                                 "projectId",
                                 "spaceId",
                                 "fullName",
@@ -209,6 +210,8 @@ public class ReceivedReportService {
                                 "id",
                                 "projectId",
                                 "spaceId",
+                                "receivableId",
+                                "sourceType",
                                 "subjectId",
                                 "calcStartDate",
                                 "calcEndDate")
@@ -218,14 +221,17 @@ public class ReceivedReportService {
                     + " l.\"fullName\", l.\"customerName\", l.\"subjectId\", l.\"subjectName\","
                     + " p.\"paidAt\" as \"receivedAt\", l.\"calcStartDate\", l.\"calcEndDate\","
                     + " l.\"method\", l.\"methodText\", l.\"sourceType\", p.\"modifierName\" as"
-                    + " \"collectorName\", p.\"remark\", l.\"amount\" as amount from l join p on"
-                    + " l.\"paymentId\"=p.\"id\" and l.\"projectId\"=p.\"projectId\"";
+                    + " \"collectorName\", p.\"remark\", l.\"amount\" as amount, l.\"receivableId\""
+                    + " from l join p on l.\"paymentId\"=p.\"id\" and"
+                    + " l.\"projectId\"=p.\"projectId\"";
         String refund =
                 "select rl.\"id\", r.\"id\", rl.\"projectId\", rl.\"spaceId\", rl.\"fullName\","
                     + " rl.\"customerName\", original.\"subjectId\", rl.\"subjectName\","
                     + " r.\"refundedAt\", original.\"calcStartDate\", original.\"calcEndDate\","
-                    + " r.\"method\", r.\"methodText\", 'REFUND', r.\"modifierName\", r.\"reason\","
-                    + " -rl.\"amount\" from rl join r on rl.\"refundId\"=r.\"id\" and"
+                    + " r.\"method\", r.\"methodText\", case when"
+                    + " original.\"sourceType\"='TEMPORARY' then 'TEMPORARY_REFUND' else 'REFUND'"
+                    + " end, r.\"modifierName\", r.\"reason\", -rl.\"amount\","
+                    + " original.\"receivableId\" from rl join r on rl.\"refundId\"=r.\"id\" and"
                     + " rl.\"projectId\"=r.\"projectId\" join original on"
                     + " rl.\"sourceLineId\"=original.\"id\" and"
                     + " rl.\"projectId\"=original.\"projectId\" and"
@@ -235,19 +241,29 @@ public class ReceivedReportService {
                 "select e.\"id\", e.\"transactionId\", e.\"projectId\", e.\"spaceId\","
                     + " e.\"fullName\", e.\"customerName\", a.\"subjectId\", e.\"subjectName\","
                     + " e.\"occurredAt\", e.\"calcStartDate\", e.\"calcEndDate\", e.\"method\","
-                    + " e.\"methodText\", a.\"type\", e.\"modifierName\", e.\"reason\","
-                    + " e.\"cashAmount\" from e join a on e.\"accountId\"=a.\"id\" and"
+                    + " e.\"methodText\", case when e.\"cashAmount\"<0 then a.\"type\" || '_REFUND'"
+                    + " else a.\"type\" end, e.\"modifierName\", e.\"reason\", e.\"cashAmount\","
+                    + " cast(null as varchar(64)) from e join a on e.\"accountId\"=a.\"id\" and"
                     + " e.\"projectId\"=a.\"projectId\"";
         String source =
-                "(" + payment + " union all " + refund + " union all " + fund + ") report_source";
+                "(select report_source.*, \"sourceType\" || '-' || \"sourceId\" as \"sourceNo\""
+                        + " from ("
+                        + payment
+                        + " union all "
+                        + refund
+                        + " union all "
+                        + fund
+                        + ") report_source) numbered_source";
         var where = new ArrayList<String>();
         in(where, params, "spaceId", i.getSpaceIds());
         in(where, params, "subjectId", i.getSubjectIds());
+        ReportGroupKey.filter(where, params, i.getSubjectGroups(), "subjectId", "subjectName");
+        ReportGroupKey.filter(where, params, i.getMethodGroups(), "method", "methodText");
         in(where, params, "method", i.getPaymentMethods());
         in(where, params, "sourceType", i.getSourceTypes());
         like(where, params, "customerName", i.getCustomerName());
         like(where, params, "fullName", i.getFullName());
-        like(where, params, "sourceId", i.getPaymentNo());
+        like(where, params, "sourceNo", i.getPaymentNo());
         like(where, params, "collectorName", i.getCollectorName());
         if (i.getReceivedDateStart() != null) {
             where.add("substring(\"receivedAt\" from 1 for 10)>=?");
@@ -442,6 +458,8 @@ public class ReceivedReportService {
         return new ReceivedReportRow(
                 text(r, "id"),
                 text(r, "sourceId"),
+                text(r, "sourceNo"),
+                text(r, "receivableId"),
                 project,
                 names.get(project),
                 text(r, "spaceId"),

@@ -37,13 +37,26 @@ public class HandoverService {
     private final ReactiveRepository<HandoverOperationEntity, String> operations;
     private final ReactiveRepository<DocumentEntity, String> documents;
     private final ReactiveRepository<DocumentLineEntity, String> documentLines;
+    private final ReactiveRepository<FinancialPeriodControlEntity, String> periodControls;
+
+    public record Attachment(String fileId, String name, Long size) {}
 
     public record Input(
             List<HandoverSources.Item> items,
             String closingDate,
             String remark,
             String attachmentFileId,
-            String attachmentName) {}
+            String attachmentName,
+            List<Attachment> attachments) {
+        public Input(
+                List<HandoverSources.Item> items,
+                String closingDate,
+                String remark,
+                String attachmentFileId,
+                String attachmentName) {
+            this(items, closingDate, remark, attachmentFileId, attachmentName, List.of());
+        }
+    }
 
     public record Preview(
             String token,
@@ -250,6 +263,24 @@ public class HandoverService {
         row.setProjectId(project);
         row.setRequestFingerprint(fingerprint);
         row.setStatus("PENDING");
+        row.setHandoverNo(
+                "JZ-"
+                        + input.closingDate().replace("-", "")
+                        + "-"
+                        + id.substring(0, 12).toUpperCase(java.util.Locale.ROOT));
+        row.setAttachmentsJson(
+                JSON.toJSONString(
+                        input.attachments().stream()
+                                .map(
+                                        file ->
+                                                Map.of(
+                                                        "fileId",
+                                                        file.fileId(),
+                                                        "name",
+                                                        file.name(),
+                                                        "size",
+                                                        file.size()))
+                                .toList()));
         row.setClosingDate(input.closingDate());
         row.setSubmittedAt(now.toString());
         row.setSubmittedBy(displayName(auth));
@@ -273,6 +304,59 @@ public class HandoverService {
                                         }))
                 .then(log(id, row, "CREATE", fingerprint, null, input.remark(), auth))
                 .then(records.detail(row, CrudAssetPermission.save));
+    }
+
+    /** 预检只读现有边界，不初始化或锁期间；写入仍由既有事务门闩重验。 */
+    Mono<Void> batchCheck(HandoverEntity row) {
+        return TenantHolder.currentId()
+                .defaultIfEmpty("")
+                .flatMap(
+                        tenant ->
+                                periodControls
+                                        .createQuery()
+                                        .where("projectId", row.getProjectId())
+                                        .and("tenantId", tenant)
+                                        .and("deleted", false)
+                                        .fetchOne()
+                                        .flatMap(
+                                                control ->
+                                                        periodGate.assertOpen(
+                                                                control,
+                                                                LocalDate.parse(
+                                                                        row.getClosingDate()))));
+    }
+
+    /** 批量重试先恢复原操作身份，旧版本不会被误判为新的审核动作。 */
+    Mono<HandoverRecords.Detail> batchReplay(
+            String project, String id, String action, Action input) {
+        return scope.project(project, CrudAssetPermission.save)
+                .then(scope.authenticated())
+                .flatMap(
+                        auth ->
+                                TenantHolder.currentId()
+                                        .defaultIfEmpty("")
+                                        .flatMap(
+                                                tenant -> {
+                                                    var fingerprint =
+                                                            PaymentRules.digest(
+                                                                    JSON.toJSONString(
+                                                                            List.of(
+                                                                                    id,
+                                                                                    action,
+                                                                                    input.version(),
+                                                                                    input
+                                                                                            .reason())));
+                                                    var key =
+                                                            DocumentStore.requestKey(
+                                                                    tenant,
+                                                                    project,
+                                                                    auth,
+                                                                    "HANDOVER",
+                                                                    action,
+                                                                    input.requestId());
+                                                    return replayAction(
+                                                            project, id, key, tenant, fingerprint);
+                                                }));
     }
 
     @Transactional
@@ -648,6 +732,19 @@ public class HandoverService {
         } catch (DateTimeException | NullPointerException e) {
             throw error("handover_date_invalid", 400);
         }
+        var attachments = input.attachments() == null ? List.<Attachment>of() : input.attachments();
+        if (attachments.size() > 5) throw error("handover_invalid", 400);
+        var fileIds = new HashSet<String>();
+        for (var file : attachments)
+            if (file == null
+                    || blank(file.fileId())
+                    || tooLong(file.fileId(), 64)
+                    || blank(file.name())
+                    || tooLong(file.name(), 255)
+                    || file.size() == null
+                    || file.size() < 0
+                    || file.size() > 20L * 1024 * 1024
+                    || !fileIds.add(file.fileId())) throw error("handover_invalid", 400);
         var seen = new HashSet<String>();
         for (var i : input.items())
             if (i == null
@@ -668,7 +765,8 @@ public class HandoverService {
                 input.closingDate(),
                 trim(input.remark()),
                 trim(input.attachmentFileId()),
-                trim(input.attachmentName()));
+                trim(input.attachmentName()),
+                List.copyOf(attachments));
     }
 
     private static String bindingKey(String tenant, String project, String type, String id) {
@@ -682,6 +780,9 @@ public class HandoverService {
                 i.remark(),
                 i.attachmentFileId(),
                 i.attachmentName(),
+                i.attachments().stream()
+                        .map(a -> Arrays.asList(a.fileId(), a.name(), a.size()))
+                        .toList(),
                 i.items().stream().map(v -> List.of(v.type(), v.id(), v.version())).toList());
     }
 

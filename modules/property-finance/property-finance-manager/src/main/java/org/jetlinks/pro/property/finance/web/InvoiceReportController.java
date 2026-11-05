@@ -28,6 +28,15 @@ public class InvoiceReportController {
         return reports.query(input);
     }
 
+    @GetMapping("/{project}/{sourceType}/{sourceId}/documents")
+    @ResourceAction(id = "query", name = "查询")
+    public Mono<java.util.List<InvoiceReportDocument>> related(
+            @PathVariable String project,
+            @PathVariable String sourceType,
+            @PathVariable String sourceId) {
+        return reports.related(project, sourceType, sourceId);
+    }
+
     @PostMapping("/_export/{format}")
     @ResourceAction(id = "export", name = "导出")
     public Mono<ResponseEntity<byte[]>> export(

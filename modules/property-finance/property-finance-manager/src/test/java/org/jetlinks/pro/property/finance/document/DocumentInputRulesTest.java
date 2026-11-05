@@ -13,7 +13,15 @@ class DocumentInputRulesTest {
 
     static DocumentIssueInput.Buyer buyer(String name, String tax) {
         return new DocumentIssueInput.Buyer(
-                name, tax, "19123288779", "a@b.cn", " 重庆 ", "测试银行", "62220000", "001");
+                name,
+                tax,
+                "19123288779",
+                "a@b.cn",
+                " 重庆 ",
+                "测试银行",
+                "62220000",
+                "001",
+                (tax == null ? "PERSONAL" : "ENTERPRISE"));
     }
 
     static DocumentIssueInput.DifferenceVoucher voucher(String type) {
@@ -45,6 +53,35 @@ class DocumentInputRulesTest {
             DocumentIssueInput.DifferenceVoucher voucher) {
         return new DocumentIssueInput.Item(
                 "RECEIVABLE", "bill", amount, method, difference, voucher);
+    }
+
+    @Test
+    void titleTypeControlsTaxNumberForOrdinaryAndSpecialInvoices() {
+        var item = item("50", "FULL", "0", null);
+        for (var type : List.of("1", "2")) {
+            var enterprise =
+                    new DocumentIssueInput.Buyer(
+                            "企业", null, null, null, null, null, null, null, "ENTERPRISE");
+            assertThrows(
+                    RuntimeException.class,
+                    () -> policy.normalize(input("INVOICE", type, enterprise, item)));
+        }
+        var personal =
+                new DocumentIssueInput.Buyer(
+                        "个人", null, null, null, null, null, null, null, "PERSONAL");
+        assertEquals(
+                "PERSONAL",
+                policy.normalize(input("INVOICE", "1", personal, item)).buyer().titleType());
+        assertThrows(
+                RuntimeException.class,
+                () -> policy.normalize(input("INVOICE", "2", personal, item)));
+        var missing =
+                new DocumentIssueInput.Buyer(
+                        "未知抬头", null, null, null, null, null, null, null, null);
+        assertThrows(
+                RuntimeException.class,
+                () -> policy.normalize(input("INVOICE", "1", missing, item)));
+        assertNull(policy.normalize(input("RECEIPT", null, missing, item)).buyer().titleType());
     }
 
     @Test

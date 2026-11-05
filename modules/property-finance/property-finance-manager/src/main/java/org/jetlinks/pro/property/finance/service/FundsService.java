@@ -243,7 +243,8 @@ public class FundsService {
         if (!"TOPUP".equals(i.getAction())) {
             if (!Objects.equals(a.getVersion(), i.getVersion()))
                 throw error("version_conflict", 409);
-            if (a.getBalance().compareTo(i.getAmount()) < 0) throw error("fund_insufficient", 409);
+            if (a.getBalance().subtract(a.getRefundReservedAmount()).compareTo(i.getAmount()) < 0)
+                throw error("fund_insufficient", 409);
             if (a.getInvoiceOccupiedAmount().signum() > 0)
                 throw error("fund_invoice_occupied", 409);
         }

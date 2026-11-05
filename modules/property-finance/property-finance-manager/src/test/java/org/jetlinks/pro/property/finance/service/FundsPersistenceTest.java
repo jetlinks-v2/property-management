@@ -509,6 +509,7 @@ class FundsPersistenceTest {
                 new org.jetlinks.pro.property.finance.web.FundsController(
                         mock(ReceivableService.class),
                         service,
+                        mock(RefundApplicationService.class),
                         mock(HouseSettingService.class),
                         new BillingJobProperties());
         var client =

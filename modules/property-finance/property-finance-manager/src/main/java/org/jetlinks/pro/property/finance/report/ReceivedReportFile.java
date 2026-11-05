@@ -18,13 +18,17 @@ public class ReceivedReportFile {
     private static final Map<String, String> ZH =
             Map.ofEntries(
                     Map.entry("title", "实收统计"),
-                    Map.entry("scope", "按实际现金收支统计，排除余额冲抵和内部转存。非本期包含跨期及未提供费用期间的流水；无日期条件时不划分期间。"),
+                    Map.entry(
+                            "scope",
+                            "按实际现金收支统计，退款按退款日列负额；余额冲抵和内部转存不重复计现。往期包含跨期及无费用期间的流水；无日期条件时当期/往期未统计。"),
                     Map.entry("summary", "全筛选范围合计"),
                     Map.entry("projectName", "项目"),
                     Map.entry("fullName", "房屋"),
                     Map.entry("customerName", "客户"),
                     Map.entry("subjectName", "收费科目"),
-                    Map.entry("sourceId", "收款/退款单号"),
+                    Map.entry("sourceId", "收款/退款ID"),
+                    Map.entry("sourceNo", "收款/退款编号"),
+                    Map.entry("receivableId", "关联应收单号"),
                     Map.entry("receivedAt", "收支时间"),
                     Map.entry("calcStartDate", "费用开始"),
                     Map.entry("calcEndDate", "费用结束"),
@@ -35,14 +39,17 @@ public class ReceivedReportFile {
                     Map.entry("rowCount", "流水数"),
                     Map.entry("incomeAmount", "收入（元）"),
                     Map.entry("refundAmount", "退款（元）"),
-                    Map.entry("netAmount", "净实收（元）"),
-                    Map.entry("currentPeriodAmount", "本期（元）"),
-                    Map.entry("otherPeriodAmount", "非本期（元）"),
+                    Map.entry("netAmount", "实收总额（元）"),
+                    Map.entry("currentPeriodAmount", "当期实收（元）"),
+                    Map.entry("otherPeriodAmount", "往期实收（元）"),
                     Map.entry("RECEIVABLE", "应收收款"),
                     Map.entry("TEMPORARY", "临时收款"),
                     Map.entry("REFUND", "收款退款"),
                     Map.entry("ADVANCE", "预收款"),
-                    Map.entry("DEPOSIT", "押金"));
+                    Map.entry("DEPOSIT", "押金"),
+                    Map.entry("TEMPORARY_REFUND", "临时退款"),
+                    Map.entry("ADVANCE_REFUND", "预收退还"),
+                    Map.entry("DEPOSIT_REFUND", "押金退还"));
     private static final Map<String, String> EN =
             Map.ofEntries(
                     Map.entry("title", "Received report"),
@@ -57,6 +64,8 @@ public class ReceivedReportFile {
                     Map.entry("customerName", "Customer"),
                     Map.entry("subjectName", "Charge subject"),
                     Map.entry("sourceId", "Payment/refund ID"),
+                    Map.entry("sourceNo", "Payment/refund reference"),
+                    Map.entry("receivableId", "Receivable ID"),
                     Map.entry("receivedAt", "Transaction time"),
                     Map.entry("calcStartDate", "Billing start"),
                     Map.entry("calcEndDate", "Billing end"),
@@ -74,7 +83,10 @@ public class ReceivedReportFile {
                     Map.entry("TEMPORARY", "Temporary payment"),
                     Map.entry("REFUND", "Payment refund"),
                     Map.entry("ADVANCE", "Advance"),
-                    Map.entry("DEPOSIT", "Deposit"));
+                    Map.entry("DEPOSIT", "Deposit"),
+                    Map.entry("TEMPORARY_REFUND", "Temporary refund"),
+                    Map.entry("ADVANCE_REFUND", "Advance refund"),
+                    Map.entry("DEPOSIT_REFUND", "Deposit refund"));
 
     public byte[] write(ReceivedReportResult result, String format, Locale locale) {
         var columns = new ArrayList<String>();
@@ -85,7 +97,9 @@ public class ReceivedReportFile {
                             "fullName",
                             "customerName",
                             "subjectName",
+                            "sourceNo",
                             "sourceId",
+                            "receivableId",
                             "receivedAt",
                             "calcStartDate",
                             "calcEndDate",
@@ -126,6 +140,8 @@ public class ReceivedReportFile {
         v.put("customerName", text(r.customerName()));
         v.put("subjectName", text(r.subjectName()));
         v.put("sourceId", text(r.sourceId()));
+        v.put("sourceNo", text(r.sourceNo()));
+        v.put("receivableId", text(r.receivableId()));
         v.put("receivedAt", text(r.receivedAt()).replace('T', ' '));
         v.put("calcStartDate", text(r.calcStartDate()));
         v.put("calcEndDate", text(r.calcEndDate()));

@@ -24,7 +24,10 @@ public class InvoiceReportInput {
     private String groupBy = "DETAIL";
     private int pageIndex, pageSize = 12;
 
+    private List<ReportGroupKey> subjectGroups = List.of();
+
     public void validate() {
+        ReportGroupKey.validate(subjectGroups);
         var common = new ReceivableReportInput();
         common.setProjectIds(projectIds);
         common.setSpaceIds(spaceIds);

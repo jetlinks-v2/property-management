@@ -96,6 +96,113 @@ public class MonthClosingService {
                 .as(MonoTracer.create("property.finance.month-closing.preview"));
     }
 
+    Mono<Result> batchReplay(
+            String project,
+            String month,
+            String action,
+            String requestId,
+            Long version,
+            String reason) {
+        return scope.project(project, CrudAssetPermission.save)
+                .then(scope.authenticated())
+                .flatMap(
+                        auth ->
+                                tenant().flatMap(
+                                                tenant -> {
+                                                    var id =
+                                                            DigestUtils.sha256Hex(
+                                                                    JSON.toJSONString(
+                                                                            List.of(
+                                                                                    tenant,
+                                                                                    project,
+                                                                                    auth.getUser()
+                                                                                            .getId(),
+                                                                                    requestId)));
+                                                    return operations
+                                                            .createQuery()
+                                                            .where("id", id)
+                                                            .and("tenantId", tenant)
+                                                            .and("projectId", project)
+                                                            .and("deleted", false)
+                                                            .fetchOne()
+                                                            .flatMap(
+                                                                    row -> {
+                                                                        var saved = result(row);
+                                                                        if (!month.equals(
+                                                                                        row
+                                                                                                .getAccountMonth())
+                                                                                || !action.equals(
+                                                                                        row
+                                                                                                .getAction())
+                                                                                || !reason.trim()
+                                                                                        .equals(
+                                                                                                row
+                                                                                                        .getReason())
+                                                                                || saved.version()
+                                                                                        != version
+                                                                                                + 1)
+                                                                            return Mono.error(
+                                                                                    error(
+                                                                                            "month_closing_request_conflict",
+                                                                                            409));
+                                                                        return sources.restore(
+                                                                                        project,
+                                                                                        tenant,
+                                                                                        row.getId(),
+                                                                                        row
+                                                                                                .getMemberCount())
+                                                                                .thenReturn(saved);
+                                                                    });
+                                                }));
+    }
+
+    /** 批量预检只跳过由调用方统一验证的顺序；权限、年度完整性、来源快照仍逐期核对。 */
+    Mono<Preview> batchPreview(String project, String month, String action, LocalDate today) {
+        return scope.project(project, CrudAssetPermission.save)
+                .then(tenant())
+                .flatMap(
+                        tenant -> {
+                            validate(month, action, today);
+                            return calendar.period(project, month)
+                                    .flatMap(
+                                            period -> {
+                                                if (!("CLOSE".equals(action) ? "OPEN" : "CLOSED")
+                                                        .equals(period.getStatus()))
+                                                    return Mono.error(
+                                                            error("month_closing_state", 409));
+                                                if ("CLOSE".equals(action)
+                                                        && LocalDate.parse(period.getEndDate())
+                                                                .isAfter(today))
+                                                    return Mono.error(
+                                                            error("month_closing_not_due", 409));
+                                                return control(project, tenant)
+                                                        .flatMap(
+                                                                control ->
+                                                                        validYear(
+                                                                                        project,
+                                                                                        tenant,
+                                                                                        period)
+                                                                                .then(
+                                                                                        Mono.defer(
+                                                                                                () ->
+                                                                                                        "CLOSE"
+                                                                                                                        .equals(
+                                                                                                                                action)
+                                                                                                                ? closePlan(
+                                                                                                                        project,
+                                                                                                                        tenant,
+                                                                                                                        period,
+                                                                                                                        control)
+                                                                                                                : reopenPlan(
+                                                                                                                        project,
+                                                                                                                        tenant,
+                                                                                                                        period,
+                                                                                                                        control))));
+                                            });
+                        })
+                .map(Plan::preview);
+    }
+
     @Transactional
     public Mono<Result> submit(
             String project, String month, String action, Submission input, LocalDate today) {

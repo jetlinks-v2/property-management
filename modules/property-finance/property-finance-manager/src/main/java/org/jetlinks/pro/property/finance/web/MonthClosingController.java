@@ -20,9 +20,38 @@ import java.time.*;
 @Resource(id = "property-finance-month-closing", name = "财务月结")
 public class MonthClosingController {
     private final MonthClosingService service;
+    private final MonthClosingBatchService batchService;
     private final MonthClosingRuleService rules;
     private final MonthClosingRecords records;
     private final BillingJobProperties properties;
+
+    @PostMapping("/batch/_close/preview")
+    @ResourceAction(id = "close", name = "月结")
+    public Mono<java.util.List<MonthClosingBatchService.Row>> previewBatchClose(
+            @PathVariable String projectId, @RequestBody MonthClosingBatchService.Input input) {
+        return batchService.preview(projectId, "CLOSE", input, today());
+    }
+
+    @PostMapping("/batch/_close")
+    @ResourceAction(id = "close", name = "月结")
+    public Mono<java.util.List<MonthClosingBatchService.Row>> batchClose(
+            @PathVariable String projectId, @RequestBody MonthClosingBatchService.Input input) {
+        return batchService.execute(projectId, "CLOSE", input, today());
+    }
+
+    @PostMapping("/batch/_reopen/preview")
+    @ResourceAction(id = "reopen", name = "反月结")
+    public Mono<java.util.List<MonthClosingBatchService.Row>> previewBatchReopen(
+            @PathVariable String projectId, @RequestBody MonthClosingBatchService.Input input) {
+        return batchService.preview(projectId, "REOPEN", input, today());
+    }
+
+    @PostMapping("/batch/_reopen")
+    @ResourceAction(id = "reopen", name = "反月结")
+    public Mono<java.util.List<MonthClosingBatchService.Row>> batchReopen(
+            @PathVariable String projectId, @RequestBody MonthClosingBatchService.Input input) {
+        return batchService.execute(projectId, "REOPEN", input, today());
+    }
 
     @GetMapping("/rule")
     @QueryAction

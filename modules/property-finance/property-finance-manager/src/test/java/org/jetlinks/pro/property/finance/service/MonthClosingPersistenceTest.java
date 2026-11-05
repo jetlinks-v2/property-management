@@ -623,6 +623,70 @@ class MonthClosingPersistenceTest extends HandoverPersistenceTest {
         assertEquals("2024-03-09", result.closedThrough());
     }
 
+    @Test
+    void batchSortsAndRecoversCompletedMonthsWithoutDuplicatingOperations() {
+        year();
+        var batchService = new MonthClosingBatchService(closing, accountingPeriods);
+        var january = calendar.period(project, "2024-01").contextWrite(allowed()).block(WAIT);
+        var february = calendar.period(project, "2024-02").contextWrite(allowed()).block(WAIT);
+        var input =
+                new MonthClosingBatchService.Input(
+                        List.of(
+                                new MonthClosingBatchService.Item(
+                                        "2024-02",
+                                        february.getVersion(),
+                                        UUID.randomUUID().toString()),
+                                new MonthClosingBatchService.Item(
+                                        "2024-01",
+                                        january.getVersion(),
+                                        UUID.randomUUID().toString())),
+                        "批量结账核对");
+        var preflight =
+                batchService
+                        .preview(project, "CLOSE", input, END)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(
+                List.of("2024-01", "2024-02"),
+                preflight.stream().map(MonthClosingBatchService.Row::month).toList());
+        assertTrue(preflight.stream().allMatch(row -> "READY".equals(row.status())));
+        var completed =
+                batchService
+                        .execute(project, "CLOSE", input, END)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertTrue(completed.stream().allMatch(row -> "COMPLETED".equals(row.status())));
+        assertEquals(
+                completed,
+                batchService
+                        .execute(project, "CLOSE", input, END)
+                        .contextWrite(allowed())
+                        .block(WAIT));
+        assertEquals(
+                2, closingOperations.createQuery().where("projectId", project).count().block(WAIT));
+        var reopen =
+                new MonthClosingBatchService.Input(
+                        List.of(
+                                new MonthClosingBatchService.Item(
+                                        "2024-01",
+                                        january.getVersion() + 1,
+                                        UUID.randomUUID().toString()),
+                                new MonthClosingBatchService.Item(
+                                        "2024-02",
+                                        february.getVersion() + 1,
+                                        UUID.randomUUID().toString())),
+                        "批量反结核对");
+        var reopened =
+                batchService
+                        .execute(project, "REOPEN", reopen, END)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(
+                List.of("2024-02", "2024-01"),
+                reopened.stream().map(MonthClosingBatchService.Row::month).toList());
+        assertTrue(reopened.stream().allMatch(row -> "COMPLETED".equals(row.status())));
+    }
+
     @Configuration
     @Import({
         HandoverPersistenceTest.Config.class,

@@ -121,6 +121,10 @@ public class ReceivableEntity extends FinanceEntity {
     @Column(length = 10, nullable = false)
     private String calcEndDate;
 
+    /** 独立应收业务日；历史无法确认时为空，不能以到期日或迁移当日代替。 */
+    @Column(length = 10)
+    private String receivableDate;
+
     @Column(length = 10, nullable = false)
     private String dueDate;
 

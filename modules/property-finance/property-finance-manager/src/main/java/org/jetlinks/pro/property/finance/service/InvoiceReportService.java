@@ -2,6 +2,8 @@ package org.jetlinks.pro.property.finance.service;
 
 import static org.jetlinks.pro.property.finance.service.FinanceScope.error;
 
+import com.alibaba.fastjson.JSON;
+
 import lombok.RequiredArgsConstructor;
 
 import org.hswebframework.ezorm.rdb.executor.SqlRequests;
@@ -39,12 +41,14 @@ public class InvoiceReportService {
     private final ReactiveRepository<FundEntryEntity, String> entries;
     private final ReactiveRepository<FundAccountEntity, String> accounts;
     private final ReactiveRepository<DocumentEntity, String> documents;
+    private final ReactiveRepository<DocumentLineEntity, String> documentLines;
     private final ReactiveRepository<DocumentOccupationEntity, String> occupations;
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Mono<InvoiceReportResult> query(InvoiceReportInput input) {
         return prepare(input)
                 .flatMap(p -> load(input, p, false))
+                .flatMap(this::content)
                 .as(MonoTracer.create("/property/finance/reports/invoices/query"));
     }
 
@@ -52,7 +56,164 @@ public class InvoiceReportService {
     public Mono<InvoiceReportResult> exportData(InvoiceReportInput input) {
         return prepare(input)
                 .flatMap(p -> load(input, p, true))
+                .flatMap(this::content)
                 .as(MonoTracer.create("/property/finance/reports/invoices/export"));
+    }
+
+    /** 只取已经整票授权的最新票据行快照，不通过多票JOIN放大来源金额。 */
+    private Mono<InvoiceReportResult> content(InvoiceReportResult result) {
+        var ids =
+                result.page().getData().stream()
+                        .map(InvoiceReportRow::documentId)
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .toList();
+        if (ids.isEmpty()) return Mono.just(result);
+        return documentLines
+                .createQuery()
+                .in("documentId", ids)
+                .is("deleted", false)
+                .fetch()
+                .take(EXPORT_LIMIT + 1)
+                .collectList()
+                .map(
+                        lines -> {
+                            if (lines.size() > EXPORT_LIMIT)
+                                throw error("report_export_limit", 400);
+                            var contents = new HashMap<List<String>, LinkedHashSet<String>>();
+                            for (var line : lines) {
+                                String name =
+                                        JSON.parseObject(line.getLineSnapshotJson())
+                                                .getString("goodsName");
+                                if (name != null)
+                                    contents.computeIfAbsent(
+                                                    List.of(
+                                                            line.getDocumentId(),
+                                                            line.getSourceType(),
+                                                            line.getSourceId()),
+                                                    key -> new LinkedHashSet<>())
+                                            .add(name);
+                            }
+                            var rows = result.page().getData();
+                            for (int n = 0; n < rows.size(); n++) {
+                                var row = rows.get(n);
+                                if (row.documentId() != null)
+                                    rows.set(
+                                            n,
+                                            row.withContent(
+                                                    String.join(
+                                                            "、",
+                                                            contents.getOrDefault(
+                                                                    List.of(
+                                                                            row.documentId(),
+                                                                            row.sourceType(),
+                                                                            row.id()),
+                                                                    new LinkedHashSet<>()))));
+                            }
+                            return result;
+                        });
+    }
+
+    /** 来源可见与整票可见都校验；红票、旧蓝票及重开蓝票通过冻结的票据行关联。 */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Mono<List<InvoiceReportDocument>> related(String project, String type, String sourceId) {
+        var input = new InvoiceReportInput();
+        input.setProjectIds(List.of(project));
+        input.setSourceType(type);
+        input.setSourceId(sourceId);
+        input.setPageSize(200);
+        return query(input)
+                .flatMap(
+                        result -> {
+                            if (result.page().getData().stream()
+                                    .noneMatch(
+                                            row ->
+                                                    Objects.equals(row.id(), sourceId)
+                                                            && Objects.equals(
+                                                                    row.sourceType(), type)))
+                                return Mono.error(error("document_not_found", 404));
+                            return documentLines
+                                    .createQuery()
+                                    .is("projectId", project)
+                                    .is("sourceType", type)
+                                    .is("sourceId", sourceId)
+                                    .is("deleted", false)
+                                    .fetch()
+                                    .take(EXPORT_LIMIT + 1)
+                                    .collectList()
+                                    .flatMap(
+                                            lines -> {
+                                                if (lines.size() > EXPORT_LIMIT)
+                                                    return Mono.error(
+                                                            error("report_export_limit", 400));
+                                                if (lines.isEmpty())
+                                                    return Mono.just(
+                                                            List.<InvoiceReportDocument>of());
+                                                var ids =
+                                                        lines.stream()
+                                                                .map(
+                                                                        DocumentLineEntity
+                                                                                ::getDocumentId)
+                                                                .distinct()
+                                                                .toList();
+                                                var query = new QueryParamEntity();
+                                                query.setPaging(false);
+                                                query.toQuery().orderByDesc("issuedAt");
+                                                return visibility
+                                                        .documents(project)
+                                                        .flatMap(
+                                                                allowed ->
+                                                                        TenantHolder.currentId()
+                                                                                .defaultIfEmpty("")
+                                                                                .flatMap(
+                                                                                        tenant ->
+                                                                                                documents
+                                                                                                        .createQuery()
+                                                                                                        .setParam(
+                                                                                                                query)
+                                                                                                        .is(
+                                                                                                                "projectId",
+                                                                                                                project)
+                                                                                                        .is(
+                                                                                                                "tenantId",
+                                                                                                                tenant)
+                                                                                                        .is(
+                                                                                                                "documentType",
+                                                                                                                "INVOICE")
+                                                                                                        .is(
+                                                                                                                "deleted",
+                                                                                                                false)
+                                                                                                        .in(
+                                                                                                                "id",
+                                                                                                                ids)
+                                                                                                        .accept(
+                                                                                                                allowed)
+                                                                                                        .fetch()
+                                                                                                        .map(
+                                                                                                                doc ->
+                                                                                                                        new InvoiceReportDocument(
+                                                                                                                                doc
+                                                                                                                                        .getId(),
+                                                                                                                                doc
+                                                                                                                                        .getDocumentNumber(),
+                                                                                                                                doc
+                                                                                                                                        .getStatus(),
+                                                                                                                                doc
+                                                                                                                                        .getInvoiceType(),
+                                                                                                                                doc
+                                                                                                                                        .getIssuedAt(),
+                                                                                                                                doc.getAmount()
+                                                                                                                                        .setScale(
+                                                                                                                                                2)
+                                                                                                                                        .toPlainString(),
+                                                                                                                                doc
+                                                                                                                                        .getBuyerName(),
+                                                                                                                                doc
+                                                                                                                                        .getRemark()))
+                                                                                                        .collectList()));
+                                            });
+                        })
+                .as(MonoTracer.create("/property/finance/reports/invoices/related"));
     }
 
     private Mono<Prepared> prepare(InvoiceReportInput i) {
@@ -212,6 +373,7 @@ public class InvoiceReportService {
                         "issuedAt",
                         "createTime",
                         "buyerName",
+                        "remark",
                         "status");
         var oq = base(i);
         oq.toQuery().and("documentType", "INVOICE");
@@ -265,11 +427,13 @@ public class InvoiceReportService {
                         + " o.\"projectId\", o.\"sourceType\", o.\"sourceId\"), latest as (select"
                         + " o.\"projectId\", o.\"sourceType\", o.\"sourceId\", d.\"id\","
                         + " d.\"documentNumber\", d.\"invoiceType\", d.\"issuedAt\","
-                        + " d.\"buyerName\", row_number() over (partition by o.\"projectId\","
-                        + " o.\"sourceType\", o.\"sourceId\" order by d.\"issuedAt\" desc,"
-                        + " d.\"createTime\" desc, d.\"id\" desc) as rank from o join d on"
-                        + " o.\"documentId\"=d.\"id\" and o.\"projectId\"=d.\"projectId\"), covered"
-                        + " as (select s.*, coalesce(issued.invoiced,0) as invoiced, case when"
+                        + " d.\"buyerName\", d.\"remark\", row_number() over (partition by"
+                        + " o.\"projectId\", o.\"sourceType\", o.\"sourceId\" order by case when"
+                        + " d.\"status\"='SIMULATED_ISSUED' and o.\"state\"='ACTIVE' then 0 else 1"
+                        + " end, d.\"issuedAt\" desc, d.\"createTime\" desc, d.\"id\" desc) as rank"
+                        + " from o join d on o.\"documentId\"=d.\"id\" and"
+                        + " o.\"projectId\"=d.\"projectId\"), covered as (select s.*,"
+                        + " coalesce(issued.invoiced,0) as invoiced, case when"
                         + " s.basis>coalesce(issued.invoiced,0) then"
                         + " s.basis-coalesce(issued.invoiced,0) else 0 end as unissued, case when"
                         + " coalesce(issued.invoiced,0)>0 then case when issued.invoiced>=s.basis"
@@ -280,7 +444,8 @@ public class InvoiceReportService {
                         + " v.\"id\" is not null then h.\"invoiceType\" end as \"invoiceType\","
                         + " case when v.\"id\" is not null then h.\"issuedAt\" end as"
                         + " \"invoiceDate\", case when v.\"id\" is not null then h.\"buyerName\""
-                        + " end as \"buyerName\" from sources s left join issued on"
+                        + " end as \"buyerName\", case when v.\"id\" is not null then h.\"remark\""
+                        + " end as \"remark\" from sources s left join issued on"
                         + " s.\"id\"=issued.\"sourceId\" and s.\"projectId\"=issued.\"projectId\""
                         + " and s.\"sourceType\"=issued.\"sourceType\" left join latest h on"
                         + " s.\"id\"=h.\"sourceId\" and s.\"projectId\"=h.\"projectId\" and"
@@ -289,6 +454,7 @@ public class InvoiceReportService {
         var where = new ArrayList<String>();
         in(where, params, "spaceId", i.getSpaceIds());
         in(where, params, "subjectId", i.getSubjectIds());
+        ReportGroupKey.filter(where, params, i.getSubjectGroups(), "subjectId", "subjectName");
         eq(where, params, "sourceType", i.getSourceType());
         eq(where, params, "invoiceStatus", i.getInvoiceStatus());
         eq(where, params, "invoiceType", i.getInvoiceType());
@@ -479,6 +645,8 @@ public class InvoiceReportService {
                 text(r, "invoiceType"),
                 text(r, "invoiceDate"),
                 text(r, "buyerName"),
+                null,
+                text(r, "remark"),
                 ((Number) r.get("rows")).longValue(),
                 InvoiceReportAmounts.of(r));
     }

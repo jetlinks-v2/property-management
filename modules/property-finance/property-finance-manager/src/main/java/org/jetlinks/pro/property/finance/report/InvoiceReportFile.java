@@ -27,6 +27,8 @@ public class InvoiceReportFile {
                     Map.entry("invoiceType", "最新发票类型"),
                     Map.entry("invoiceDate", "最新开票时间"),
                     Map.entry("buyerName", "最新购方名称"),
+                    Map.entry("invoiceContent", "开票内容"),
+                    Map.entry("remark", "备注"),
                     Map.entry("rowCount", "来源数"),
                     Map.entry("receivableAmount", "来源基数（元）"),
                     Map.entry("receivedAmount", "已收金额（元）"),
@@ -47,8 +49,8 @@ public class InvoiceReportFile {
                     Map.entry(
                             "scope",
                             "Current canonical source coverage; simulated invoices only, excluding"
-                                + " receipts. Invoice filters match the latest blue invoice."
-                                + " Uninvoiced balance is not immediately issuable quota."),
+                                    + " receipts. Invoice filters match the latest blue invoice."
+                                    + " Uninvoiced balance is not immediately issuable quota."),
                     Map.entry("summary", "Filtered total"),
                     Map.entry("projectName", "Project"),
                     Map.entry("fullName", "Space"),
@@ -61,6 +63,8 @@ public class InvoiceReportFile {
                     Map.entry("invoiceType", "Latest invoice type"),
                     Map.entry("invoiceDate", "Latest issue time"),
                     Map.entry("buyerName", "Latest buyer"),
+                    Map.entry("invoiceContent", "Invoice content"),
+                    Map.entry("remark", "Remark"),
                     Map.entry("rowCount", "Sources"),
                     Map.entry("receivableAmount", "Source basis (CNY)"),
                     Map.entry("receivedAmount", "Received (CNY)"),
@@ -91,7 +95,9 @@ public class InvoiceReportFile {
                             "invoiceNo",
                             "invoiceType",
                             "invoiceDate",
-                            "buyerName"));
+                            "buyerName",
+                            "invoiceContent",
+                            "remark"));
         else
             columns.addAll(
                     List.of(
@@ -123,6 +129,8 @@ public class InvoiceReportFile {
         v.put("invoiceNo", text(r.invoiceNo()));
         v.put("invoiceDate", text(r.invoiceDate()).replace('T', ' '));
         v.put("buyerName", text(r.buyerName()));
+        v.put("invoiceContent", text(r.invoiceContent()));
+        v.put("remark", text(r.remark()));
         v.put("rowCount", Long.toString(r.rowCount()));
         v.put("sourceType", r.sourceType() == null ? "" : label(r.sourceType(), locale));
         v.put("invoiceStatus", r.invoiceStatus() == null ? "" : label(r.invoiceStatus(), locale));

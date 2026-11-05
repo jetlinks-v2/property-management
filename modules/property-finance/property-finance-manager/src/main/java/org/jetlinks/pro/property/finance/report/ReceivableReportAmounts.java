@@ -10,6 +10,7 @@ public record ReceivableReportAmounts(
         String remissionAmount,
         String netAmount,
         String receivedAmount,
+        String unreceivedAmount,
         String arrearsAmount,
         String collectionRate) {
     public static ReceivableReportAmounts of(Map<String, Object> row) {
@@ -26,6 +27,7 @@ public record ReceivableReportAmounts(
                 money(remission),
                 money(net),
                 money(paid),
+                money(value(row, "arrears")),
                 money(value(row, "arrears")),
                 money(rate));
     }

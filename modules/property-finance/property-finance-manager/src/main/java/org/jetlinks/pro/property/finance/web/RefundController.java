@@ -21,6 +21,7 @@ import java.util.List;
 @Resource(id = "property-finance-refund", name = "退款管理")
 public class RefundController {
     private final RefundService service;
+    private final RefundApplicationService applications;
     private final RefundRecordService records;
     private final BillingJobProperties properties;
 
@@ -46,9 +47,9 @@ public class RefundController {
 
     @PostMapping("/_confirm")
     @ResourceAction(id = "refund", name = "退款")
-    public Mono<RefundService.Detail> confirm(
+    public Mono<org.jetlinks.pro.property.finance.entity.RefundApplicationEntity> confirm(
             @PathVariable String projectId, @RequestBody RefundService.Submission input) {
-        return service.confirm(projectId, input, date());
+        return applications.submitPayment(projectId, input, date());
     }
 
     @PostMapping("/_query")

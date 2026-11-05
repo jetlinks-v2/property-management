@@ -363,7 +363,8 @@ class ReceiptVerificationPersistenceTest extends DocumentIssuePersistenceTest {
                         null,
                         null,
                         verification,
-                        new BillingJobProperties());
+                        new BillingJobProperties(),
+                        null);
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(
                                 controller)

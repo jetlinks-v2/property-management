@@ -19,6 +19,8 @@ public class ReceivableReportInput {
     private String customerName;
     private String fullName;
     private String receivableNo;
+    private String receivableDateStart;
+    private String receivableDateEnd;
     private String dueDateStart;
     private String dueDateEnd;
     private String collectionStatus;
@@ -26,7 +28,10 @@ public class ReceivableReportInput {
     private int pageIndex;
     private int pageSize = 12;
 
+    private List<ReportGroupKey> subjectGroups = List.of();
+
     public void validate() {
+        ReportGroupKey.validate(subjectGroups);
         ids(projectIds, 100, true);
         ids(spaceIds, 1000, false);
         ids(subjectIds, 1000, false);
@@ -40,6 +45,10 @@ public class ReceivableReportInput {
             throw error("report_query_invalid", 400);
         for (String s : Arrays.asList(customerName, fullName, receivableNo))
             if (s != null && s.length() > 200) throw error("report_query_invalid", 400);
+        var businessStart = date(receivableDateStart);
+        var businessEnd = date(receivableDateEnd);
+        if (businessStart != null && businessEnd != null && businessStart.isAfter(businessEnd))
+            throw error("report_query_invalid", 400);
         var start = date(dueDateStart);
         var end = date(dueDateEnd);
         if (start != null && end != null && start.isAfter(end))

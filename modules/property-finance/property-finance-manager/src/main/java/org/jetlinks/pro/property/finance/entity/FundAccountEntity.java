@@ -74,4 +74,9 @@ public class FundAccountEntity extends FinanceEntity {
     @Column(precision = 20, scale = 2, nullable = false)
     @JsonSerialize(using = ToStringSerializer.class)
     private BigDecimal invoiceOccupiedAmount;
+
+    /** 待审核退款的额度占用，不代表已经发生退款。 */
+    @Column(precision = 20, scale = 2, nullable = false)
+    @JsonSerialize(using = ToStringSerializer.class)
+    private BigDecimal refundReservedAmount = BigDecimal.ZERO.setScale(2);
 }

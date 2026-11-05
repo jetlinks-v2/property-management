@@ -38,10 +38,7 @@ class HandoverPersistenceTest extends CashierPersistenceTest {
 
     PaymentEntity paid(String name, String amount) {
         var row = bill(name);
-        return historicalReceipts.seed(row, amount)
-                .contextWrite(allowed())
-                .block(WAIT)
-                .payment();
+        return historicalReceipts.seed(row, amount).contextWrite(allowed()).block(WAIT).payment();
     }
 
     HandoverService.Input handoverInput(PaymentEntity... rows) {
@@ -442,7 +439,11 @@ class HandoverPersistenceTest extends CashierPersistenceTest {
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(
                                 new org.jetlinks.pro.property.finance.web.HandoverController(
-                                        handover, handoverRecords, new BillingJobProperties()))
+                                        handover,
+                                        handoverRecords,
+                                        new HandoverBatchService(handoverRecords, handover),
+                                        new HandoverStatementService(handoverRecords),
+                                        new BillingJobProperties()))
                         .controllerAdvice(new TaxItemPersistenceTest.HttpErrors())
                         .webFilter((e, c) -> c.filter(e).contextWrite(allowed()))
                         .build();
@@ -519,6 +520,130 @@ class HandoverPersistenceTest extends CashierPersistenceTest {
                                 org.hswebframework.web.authorization.annotation.ResourceAction
                                         .class)
                         .id());
+    }
+
+    @Test
+    void unifiedRowsLocateBatchAndAttachmentsAreFrozenAndBoundToPreview() {
+        var payment = paid("unified", "19.99");
+        var query = new HandoverRecords.DetailQuery(0, 12, "NO", null, null, null, null, null);
+        var pending = handoverRecords.details(project, query).contextWrite(allowed()).block(WAIT);
+        assertEquals(1, pending.getTotal());
+        assertEquals(payment.getId(), pending.getData().get(0).sourceId());
+        var input =
+                new HandoverService.Input(
+                        handoverInput(payment).items(),
+                        DATE.toString(),
+                        "附件核对",
+                        null,
+                        null,
+                        List.of(
+                                new HandoverService.Attachment("f1", "凭证1.pdf", 100L),
+                                new HandoverService.Attachment("f2", "凭证2.pdf", 200L)));
+        var saved = confirm(request(input));
+        assertTrue(saved.batch().getHandoverNo().startsWith("JZ-"));
+        assertEquals(2, saved.batch().getAttachments().size());
+        assertEquals(
+                0,
+                handoverRecords
+                        .details(project, query)
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .getTotal());
+        var handed =
+                handoverRecords
+                        .details(
+                                project,
+                                new HandoverRecords.DetailQuery(
+                                        0, 12, "YES", null, null, null, null, null))
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(saved.batch().getId(), handed.getData().get(0).batchId());
+        var invalid =
+                new HandoverService.Input(
+                        handoverInput(payment).items(),
+                        DATE.toString(),
+                        null,
+                        null,
+                        null,
+                        List.of(
+                                new HandoverService.Attachment(
+                                        "f", "large.pdf", 21L * 1024 * 1024)));
+        assertThrows(
+                Exception.class,
+                () -> handover.preview(project, invalid, NOW).contextWrite(allowed()).block(WAIT));
+        assertEquals(1, handovers.createQuery().where("projectId", project).count().block(WAIT));
+        var batchService = new HandoverBatchService(handoverRecords, handover);
+        var batchInput =
+                new HandoverBatchService.Input(
+                        List.of(
+                                new HandoverBatchService.Item(
+                                        saved.batch().getId(),
+                                        saved.batch().getVersion(),
+                                        UUID.randomUUID().toString())),
+                        "批量核对");
+        assertTrue(
+                batchService
+                        .preview(project, "APPROVE", batchInput)
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .get(0)
+                        .success());
+        assertTrue(
+                batchService
+                        .execute(project, "APPROVE", batchInput, NOW)
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .get(0)
+                        .success());
+        assertEquals("APPROVED", handovers.findById(saved.batch().getId()).block(WAIT).getStatus());
+        var statement =
+                new HandoverStatementService(handoverRecords)
+                        .statement(project, saved.batch().getId())
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals("19.99", statement.rows().get(0).cashAmount());
+    }
+
+    @Test
+    void batchPreviewRequiresSavePermissionForEverySpaceEvenWhenReadIsAllowed() {
+        var batch = confirm(request(handoverInput(paid("save-scope", "7.00")))).batch();
+        var restricted = allowed();
+        var holder = restricted.<AssetsHolder>get(AssetsHolder.class);
+        when(holder.assertPermission(
+                        eq("space"),
+                        anyCollection(),
+                        eq(org.jetlinks.pro.assets.crud.CrudAssetPermission.save)))
+                .thenReturn(Mono.error(FinanceScope.error("permission_denied", 403)));
+        assertNotNull(
+                handoverRecords
+                        .detail(project, batch.getId())
+                        .contextWrite(restricted)
+                        .block(WAIT));
+        var batchService = new HandoverBatchService(handoverRecords, handover);
+        var input =
+                new HandoverBatchService.Input(
+                        List.of(
+                                new HandoverBatchService.Item(
+                                        batch.getId(),
+                                        batch.getVersion(),
+                                        UUID.randomUUID().toString())),
+                        "核对");
+        assertFalse(
+                batchService
+                        .preview(project, "APPROVE", input)
+                        .contextWrite(restricted)
+                        .block(WAIT)
+                        .get(0)
+                        .success());
+        assertFalse(
+                batchService
+                        .execute(project, "APPROVE", input, NOW)
+                        .contextWrite(restricted)
+                        .block(WAIT)
+                        .get(0)
+                        .success());
+        assertEquals("PENDING", handovers.findById(batch.getId()).block(WAIT).getStatus());
+        assertEquals(1, handoverLogs.createQuery().where("projectId", project).count().block(WAIT));
     }
 
     @Configuration

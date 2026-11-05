@@ -22,6 +22,47 @@ import javax.persistence.*;
         indexes =
                 @Index(name = "idx_pm_fin_handover", columnList = "tenantId,projectId,closingDate"))
 public class HandoverEntity extends FinanceEntity {
+    /** 新单存可读业务号；历史单用稳定兼容号展示，不回写财务事实。 */
+    @Column(length = 40)
+    private String handoverNo;
+
+    @Transient private Integer lineCount;
+    @Transient private String occurredStart;
+    @Transient private String occurredEnd;
+    @Transient private String calcStartDate;
+    @Transient private String calcEndDate;
+
+    @Column(length = 8000)
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String attachmentsJson;
+
+    public java.util.List<org.jetlinks.pro.property.finance.service.HandoverService.Attachment>
+            getAttachments() {
+        if (attachmentsJson != null && !attachmentsJson.isBlank())
+            return com.alibaba.fastjson.JSON.parseArray(attachmentsJson).stream()
+                    .map(
+                            value -> {
+                                var file = (com.alibaba.fastjson.JSONObject) value;
+                                return new org.jetlinks.pro.property.finance.service.HandoverService
+                                        .Attachment(
+                                        file.getString("fileId"),
+                                        file.getString("name"),
+                                        file.getLong("size"));
+                            })
+                    .toList();
+        return attachmentFileId == null
+                ? java.util.List.of()
+                : java.util.List.of(
+                        new org.jetlinks.pro.property.finance.service.HandoverService.Attachment(
+                                attachmentFileId, attachmentName, null));
+    }
+
+    public String getHandoverNo() {
+        return handoverNo == null
+                ? "HIS-" + getId().substring(0, Math.min(12, getId().length()))
+                : handoverNo;
+    }
+
     @Column(length = 64, nullable = false)
     @JsonIgnore
     private String tenantId;

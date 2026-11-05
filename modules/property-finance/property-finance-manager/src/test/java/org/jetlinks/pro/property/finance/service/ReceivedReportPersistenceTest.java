@@ -177,6 +177,65 @@ class ReceivedReportPersistenceTest {
     }
 
     @Test
+    void drillMatchesExactGroupingSnapshotAndExportUsesSameScope() {
+        payment("10", "1", "room", "2024-02-01T12:00:00");
+        var renamed = payment("20", "1", "room", "2024-02-01T12:00:00");
+        lines.createUpdate()
+                .set("methodText", "历史现金名称")
+                .where("id", renamed.getId())
+                .execute()
+                .block(WAIT);
+        var i = input();
+        i.setMethodGroups(List.of(new ReportGroupKey("1", "历史现金名称")));
+        assertEquals("20.00", query(i).summary().netAmount());
+        assertEquals(1, query(i).page().getTotal());
+        assertEquals(
+                query(i).summary(),
+                reports.exportData(i).contextWrite(allowed).block(WAIT).summary());
+    }
+
+    @Test
+    void referencesAndRefundKindsFollowOriginalCashWithoutCountingOffsets() {
+        var normal = payment("100", "1", "room", "2024-02-01T12:00:00");
+        lines.createUpdate()
+                .set("receivableId", "YS-1")
+                .where("id", normal.getId())
+                .execute()
+                .block(WAIT);
+        refund(normal, "20", "CASH", "2024-03-02T12:00:00");
+        var temporary = payment("10", "1", "room", "2024-02-01T12:00:00");
+        lines.createUpdate()
+                .set("sourceType", "TEMPORARY")
+                .where("id", temporary.getId())
+                .execute()
+                .block(WAIT);
+        refund(temporary, "5", "CASH", "2024-03-02T12:00:00");
+        fund("100", "TOPUP", "ADVANCE", "2024-02-01T12:00:00");
+        fund("0", "OFFSET", "ADVANCE", "2024-02-02T12:00:00");
+        fund("-20", "REFUND", "ADVANCE", "2024-03-02T12:00:00");
+        fund("-7", "REFUND", "DEPOSIT", "2024-03-02T12:00:00");
+        var result = query(input());
+        assertEquals("158.00", result.summary().netAmount());
+        var row =
+                result.page().getData().stream()
+                        .filter(r -> normal.getId().equals(r.id()))
+                        .findFirst()
+                        .orElseThrow();
+        assertEquals("YS-1", row.receivableId());
+        assertEquals("RECEIVABLE-" + normal.getPaymentId(), row.sourceNo());
+        var i = input();
+        i.setPaymentNo(row.sourceNo());
+        assertEquals(1, query(i).page().getTotal());
+        i = input();
+        i.setReceivedDateStart("2024-03-01");
+        i.setSourceTypes(List.of("ADVANCE_REFUND", "DEPOSIT_REFUND", "TEMPORARY_REFUND"));
+        assertEquals("-32.00", query(i).summary().netAmount());
+        assertEquals(
+                query(i).summary(),
+                reports.exportData(i).contextWrite(allowed).block(WAIT).summary());
+    }
+
+    @Test
     void cashSourcesAndRefundDatesDoNotDoubleCountOffsetsOrMutableRefundedAmounts() {
         var p = payment("100.01", "1", "room", "2024-02-29T23:59:59");
         lines.createUpdate()
@@ -312,18 +371,31 @@ class ReceivedReportPersistenceTest {
     void receivedLedgerUsesPathProjectAndKeepsPositiveReceiptsAndNegativeRefunds() {
         var original = payment("100.01", "1", "room", "2024-02-15T12:00:00");
         refund(original, "10.01", "CASH", "2024-02-16T12:00:00");
-        var ledger = new org.jetlinks.pro.property.finance.web.ReceivedLedgerController(reports, exports);
-        var client = org.springframework.test.web.reactive.server.WebTestClient.bindToController(ledger)
-                .controllerAdvice(new TaxItemPersistenceTest.HttpErrors())
-                .webFilter((exchange, chain) -> chain.filter(exchange).contextWrite(allowed)).build();
+        var ledger =
+                new org.jetlinks.pro.property.finance.web.ReceivedLedgerController(
+                        reports, exports);
+        var client =
+                org.springframework.test.web.reactive.server.WebTestClient.bindToController(ledger)
+                        .controllerAdvice(new TaxItemPersistenceTest.HttpErrors())
+                        .webFilter(
+                                (exchange, chain) -> chain.filter(exchange).contextWrite(allowed))
+                        .build();
         var forged = input();
         forged.setProjectIds(List.of("foreign-project"));
         forged.setGroupBy("PROJECT");
-        client.post().uri("/property/finance/projects/" + project + "/received/_query")
-                .bodyValue(forged).exchange().expectStatus().isOk()
-                .expectBody().jsonPath("$.groupBy").isEqualTo("DETAIL")
-                .jsonPath("$.page.total").isEqualTo(2)
-                .jsonPath("$.summary.netAmount").isEqualTo("90.00");
+        client.post()
+                .uri("/property/finance/projects/" + project + "/received/_query")
+                .bodyValue(forged)
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody()
+                .jsonPath("$.groupBy")
+                .isEqualTo("DETAIL")
+                .jsonPath("$.page.total")
+                .isEqualTo(2)
+                .jsonPath("$.summary.netAmount")
+                .isEqualTo("90.00");
     }
 
     @Test
@@ -453,7 +525,7 @@ class ReceivedReportPersistenceTest {
                     org.apache.poi.ss.usermodel.CellType.STRING,
                     sheet.getRow(1).getCell(2).getCellType());
             assertTrue(sheet.getRow(1).getCell(2).getStringCellValue().startsWith("=SUM"));
-            assertEquals("100.01", sheet.getRow(1).getCell(14).getStringCellValue());
+            assertEquals("100.01", sheet.getRow(1).getCell(16).getStringCellValue());
         }
         var pdf = exports.export(input(), "pdf").contextWrite(allowed).block(WAIT);
         try (var doc = org.apache.pdfbox.pdmodel.PDDocument.load(pdf)) {

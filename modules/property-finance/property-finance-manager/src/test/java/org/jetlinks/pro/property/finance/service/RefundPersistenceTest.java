@@ -34,6 +34,7 @@ class RefundPersistenceTest {
     @Autowired CashierConfiguration configuration;
     @Autowired HouseArchiveSource archive;
     @Autowired RefundService refunds;
+    @Autowired RefundApplicationService applications;
     @Autowired RefundRecordService records;
     @Autowired ReactiveRepository<ReceivableEntity, String> bills;
     @Autowired ReactiveRepository<PaymentAllocationEntity, String> sources;
@@ -57,9 +58,7 @@ class RefundPersistenceTest {
     @Autowired HistoricalReceiptFixture historicalReceipts;
 
     CashierService.Detail collect(ReceivableEntity bill, String amount) {
-        return historicalReceipts.seed(bill, amount)
-                .contextWrite(fixture.allowed())
-                .block(WAIT);
+        return historicalReceipts.seed(bill, amount).contextWrite(fixture.allowed()).block(WAIT);
     }
 
     RefundInput input(List<PaymentAllocationEntity> lines, String amount) {
@@ -325,6 +324,9 @@ class RefundPersistenceTest {
     @Configuration
     @Import({
         CashierPersistenceTest.Config.class,
+        FundsPersistenceTest.Config.class,
+        RefundApplicationService.class,
+        org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration.class,
         RefundService.class,
         RefundSourceService.class,
         RefundLedger.class,
@@ -380,7 +382,7 @@ class RefundPersistenceTest {
         input.setRefundedAt(java.time.LocalDate.now() + "T12:00:00");
         var controller =
                 new org.jetlinks.pro.property.finance.web.RefundController(
-                        refunds, records, new BillingJobProperties());
+                        refunds, applications, records, new BillingJobProperties());
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(
                                 controller)
@@ -410,11 +412,23 @@ class RefundPersistenceTest {
                         .exchange()
                         .expectStatus()
                         .isOk()
-                        .expectBody(RefundService.Detail.class)
+                        .expectBody(RefundApplicationEntity.class)
                         .returnResult()
                         .getResponseBody();
+        assertEquals("PENDING", result.getStatus());
+        var approved =
+                applications
+                        .act(
+                                project,
+                                result.getId(),
+                                "APPROVE",
+                                new RefundApplicationService.Action(
+                                        UUID.randomUUID().toString(), result.getVersion(), "审核通过"),
+                                java.time.LocalDate.now())
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT);
         client.get()
-                .uri(path + "/" + result.refund().getId())
+                .uri(path + "/" + approved.getResultId())
                 .exchange()
                 .expectStatus()
                 .isOk()
@@ -452,11 +466,11 @@ class RefundPersistenceTest {
                 .jsonPath("$.total")
                 .isEqualTo(0);
         client.delete()
-                .uri(path + "/" + result.refund().getId())
+                .uri(path + "/" + approved.getResultId())
                 .exchange()
                 .expectStatus()
                 .is4xxClientError();
-        StepVerifier.create(refunds.detail(project, result.refund().getId()))
+        StepVerifier.create(refunds.detail(project, approved.getResultId()))
                 .expectError(
                         org.hswebframework.web.authorization.exception.UnAuthorizedException.class)
                 .verify(WAIT);

@@ -28,12 +28,13 @@ public class ReceiptDocumentController {
     private final DocumentCandidateService candidates;
     private final ReceiptVerificationService verification;
     private final BillingJobProperties properties;
+    private final DocumentFileService files;
 
     @PostMapping("/_query")
     @QueryAction
-    public Mono<PagerResult<DocumentEntity>> query(
+    public Mono<PagerResult<org.jetlinks.pro.property.finance.document.DocumentLedgerRow>> query(
             @PathVariable String projectId, @RequestBody QueryParamEntity input) {
-        return records.query(projectId, "RECEIPT", input);
+        return records.ledger(projectId, "RECEIPT", input);
     }
 
     @PostMapping("/{id}/logs/_query")
@@ -78,7 +79,7 @@ public class ReceiptDocumentController {
     @QueryAction
     public Mono<DocumentStore.Detail> detail(
             @PathVariable String projectId, @PathVariable String id) {
-        return issue.detail(projectId, "RECEIPT", id);
+        return records.detail(projectId, "RECEIPT", id);
     }
 
     @PostMapping("/{id}/_void")
@@ -101,5 +102,22 @@ public class ReceiptDocumentController {
             @PathVariable String projectId, @RequestBody ReceiptVerificationService.Input input) {
         return verification.verify(
                 projectId, input, LocalDateTime.now(ZoneId.of(properties.getZone())));
+    }
+
+    @PostMapping("/_export/excel")
+    @ResourceAction(id = "export", name = "导出台账")
+    public Mono<org.springframework.http.ResponseEntity<byte[]>> export(
+            @PathVariable String projectId, @RequestBody QueryParamEntity input) {
+        return files.excel(projectId, "RECEIPT", input)
+                .map(
+                        bytes ->
+                                org.springframework.http.ResponseEntity.ok()
+                                        .contentType(
+                                                org.springframework.http.MediaType.parseMediaType(
+                                                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                                        .header(
+                                                "Content-Disposition",
+                                                "attachment; filename=document-ledger.xlsx")
+                                        .body(bytes));
     }
 }

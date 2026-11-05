@@ -21,6 +21,8 @@ import javax.persistence.*;
         indexes =
                 @Index(name = "idx_pm_fin_handover_line", columnList = "projectId,batchId,spaceId"))
 public class HandoverLineEntity extends FinanceEntity {
+    @Transient private String receiptNumbers;
+
     @Column(length = 64, nullable = false)
     private String projectId;
 
@@ -38,6 +40,15 @@ public class HandoverLineEntity extends FinanceEntity {
 
     @Column(length = 64)
     private String receivableId;
+
+    @Column(length = 30)
+    private String businessType;
+
+    @Column(length = 10)
+    private String calcStartDate;
+
+    @Column(length = 10)
+    private String calcEndDate;
 
     @Column(length = 64, nullable = false)
     private String spaceId;

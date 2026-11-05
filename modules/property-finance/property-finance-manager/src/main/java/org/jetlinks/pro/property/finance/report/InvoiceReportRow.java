@@ -17,5 +17,30 @@ public record InvoiceReportRow(
         String invoiceType,
         String invoiceDate,
         String buyerName,
+        String invoiceContent,
+        String remark,
         long rowCount,
-        InvoiceReportAmounts amounts) {}
+        InvoiceReportAmounts amounts) {
+    public InvoiceReportRow withContent(String content) {
+        return new InvoiceReportRow(
+                id,
+                sourceType,
+                projectId,
+                projectName,
+                spaceId,
+                fullName,
+                customerName,
+                subjectId,
+                subjectName,
+                invoiceStatus,
+                documentId,
+                invoiceNo,
+                invoiceType,
+                invoiceDate,
+                buyerName,
+                content,
+                remark,
+                rowCount,
+                amounts);
+    }
+}

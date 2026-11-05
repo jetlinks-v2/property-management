@@ -54,7 +54,8 @@ class DocumentReopenPersistenceTest extends DocumentIssuePersistenceTest {
                         "重庆",
                         "银行",
                         "6222",
-                        null),
+                        null,
+                        "ENTERPRISE"),
                 "2",
                 "重新开具备注",
                 "购方抬头有误");
@@ -425,7 +426,7 @@ class DocumentReopenPersistenceTest extends DocumentIssuePersistenceTest {
                 new DocumentReopenService.Input(
                         blue.getVersion(),
                         new DocumentIssueInput.Buyer(
-                                "企业", null, null, null, null, null, null, null),
+                                "企业", null, null, null, null, null, null, null, "ENTERPRISE"),
                         "2",
                         null,
                         "更正专票");
@@ -499,7 +500,8 @@ class DocumentReopenPersistenceTest extends DocumentIssuePersistenceTest {
                                         null,
                                         null,
                                         reopen,
-                                        new BillingJobProperties()))
+                                        new BillingJobProperties(),
+                                        null))
                         .controllerAdvice(new TaxItemPersistenceTest.HttpErrors())
                         .webFilter(
                                 (exchange, chain) ->

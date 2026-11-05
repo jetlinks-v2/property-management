@@ -396,7 +396,8 @@ class FundDocumentPersistenceTest extends DocumentIssuePersistenceTest {
                                         null,
                                         candidates,
                                         null,
-                                        new BillingJobProperties()))
+                                        new BillingJobProperties(),
+                                        null))
                         .controllerAdvice(new TaxItemPersistenceTest.HttpErrors())
                         .webFilter(
                                 (exchange, chain) ->

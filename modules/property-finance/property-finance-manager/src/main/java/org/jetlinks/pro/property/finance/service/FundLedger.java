@@ -76,6 +76,10 @@ public class FundLedger {
         entry.setCashAmount(cash);
         entry.setBeforeBalance(a.getBalance());
         entry.setAfterBalance(a.getBalance().add(delta));
+        // 统一账本防止结转、撤销、划转等其他入口消耗待退款占用。
+        if (delta.signum() < 0
+                && entry.getAfterBalance().compareTo(a.getRefundReservedAmount()) < 0)
+            return Mono.error(FinanceScope.error("refund_reserved", 409));
         var newRow = a.getCreateTime() == null;
         Mono<?> persist;
         if (newRow) {

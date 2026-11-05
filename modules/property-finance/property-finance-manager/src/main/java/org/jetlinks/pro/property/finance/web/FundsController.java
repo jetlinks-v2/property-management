@@ -23,6 +23,7 @@ import java.util.*;
 public class FundsController {
     private final ReceivableService receivables;
     private final FundsService service;
+    private final RefundApplicationService refundApplications;
     private final HouseSettingService settings;
     private final BillingJobProperties properties;
 
@@ -141,10 +142,10 @@ public class FundsController {
 
     @PostMapping("/refund/_confirm")
     @ResourceAction(id = "refund", name = "退还")
-    public Mono<FundsService.Result> refundConfirm(
+    public Mono<org.jetlinks.pro.property.finance.entity.RefundApplicationEntity> refundConfirm(
             @PathVariable String projectId, @RequestBody FundsService.Submission input) {
         action("REFUND", input.input());
-        return service.execute(projectId, input, date());
+        return refundApplications.submitFund(projectId, input, date());
     }
 
     @PostMapping("/transfer/_preview")

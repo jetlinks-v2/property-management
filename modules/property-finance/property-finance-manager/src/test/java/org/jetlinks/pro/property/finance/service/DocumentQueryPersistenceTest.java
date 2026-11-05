@@ -27,6 +27,7 @@ import java.util.*;
 class DocumentQueryPersistenceTest extends DocumentIssuePersistenceTest {
     @Autowired DocumentRecordService history;
     @Autowired DocumentCandidateService candidates;
+    @Autowired DocumentFileService files;
     @Autowired org.hswebframework.ezorm.rdb.operator.DatabaseOperator database;
     @Autowired ReactiveRepository<DimensionAssetBindingEntity, String> assetBindings;
 
@@ -40,6 +41,133 @@ class DocumentQueryPersistenceTest extends DocumentIssuePersistenceTest {
     DocumentCandidateService.Input candidate(
             String type, String company, String customer, List<String> rooms) {
         return new DocumentCandidateService.Input(type, company, customer, rooms, null, 0, 12);
+    }
+
+    @Test
+    void ledgerSeparatesCurrentPaymentsFromIssueSnapshotAndExportsFrozenBusinessColumns()
+            throws Exception {
+        var bill = documentBill();
+        var input = input(List.of(item("RECEIVABLE", bill.getId(), "10")));
+        var receiptInput =
+                new DocumentIssueInput(
+                        "RECEIPT", input.companyId(), input.buyer(), null, "台账备注", input.items());
+        var receipt = issue(submission(receiptInput)).document();
+        var before =
+                history.ledger(project, "RECEIPT", page(0, 12))
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT)
+                        .getData()
+                        .get(0);
+        assertEquals("UNPAID", before.getPaymentStatus());
+        assertEquals("UNPAID", before.getIssuePaymentStatus());
+        assertEquals("ISSUED", before.getStatus());
+        cashier.collect(
+                        project,
+                        fixture.submission(
+                                fixture.input(bills.findById(bill.getId()).block(WAIT), "100.00")),
+                        DATE)
+                .contextWrite(fixture.allowed())
+                .block(WAIT);
+        bills.createUpdate()
+                .set("snapshotJson", "{}")
+                .where("id", bill.getId())
+                .execute()
+                .block(WAIT);
+        var after =
+                history.ledger(project, "RECEIPT", page(0, 12))
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT)
+                        .getData()
+                        .get(0);
+        var paidFilter = page(0, 1);
+        paidFilter.toQuery().and("paymentStatus", "PAID");
+        assertEquals(
+                1,
+                history.ledger(project, "RECEIPT", paidFilter)
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT)
+                        .getTotal());
+        var unpaidFilter = page(0, 1);
+        unpaidFilter.toQuery().and("paymentStatus", "UNPAID");
+        assertEquals(
+                0,
+                history.ledger(project, "RECEIPT", unpaidFilter)
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT)
+                        .getTotal());
+        assertEquals("PAID", after.getPaymentStatus());
+        assertEquals("100.00", after.getPaidAmount());
+        assertEquals("0.00", after.getIssuePaidAmount());
+        assertEquals("UNPAID", after.getIssuePaymentStatus());
+        assertEquals("园区/1栋/101", after.getFullName());
+        assertEquals("原物业服务", after.getSources().get(0).goodsName());
+        assertEquals(receipt.getDocumentNumber(), after.getDocumentNumber());
+        var q = page(0, 1);
+        q.toQuery().like("fullName", "%101%");
+        assertEquals(
+                1,
+                history.ledger(project, "RECEIPT", q)
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT)
+                        .getTotal());
+        var excel = files.excel(project, "RECEIPT", q).contextWrite(fixture.allowed()).block(WAIT);
+        try (var workbook =
+                new org.apache.poi.xssf.usermodel.XSSFWorkbook(
+                        new java.io.ByteArrayInputStream(excel))) {
+            var sheet = workbook.getSheetAt(0);
+            assertEquals("票据号", sheet.getRow(0).getCell(0).getStringCellValue());
+            assertEquals(
+                    receipt.getDocumentNumber(), sheet.getRow(1).getCell(0).getStringCellValue());
+            assertEquals("已收款", sheet.getRow(1).getCell(10).getStringCellValue());
+            assertEquals("未收款", sheet.getRow(1).getCell(12).getStringCellValue());
+            assertEquals("台账备注", sheet.getRow(1).getCell(19).getStringCellValue());
+        }
+        bills.createUpdate().set("deleted", true).where("id", bill.getId()).execute().block(WAIT);
+        var unknown =
+                history.ledger(project, "RECEIPT", page(0, 12))
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT)
+                        .getData()
+                        .get(0);
+        assertEquals("UNKNOWN", unknown.getPaymentStatus());
+        assertNull(unknown.getPaidAmount());
+        assertEquals("0.00", unknown.getIssuePaidAmount());
+    }
+
+    @Test
+    void simulatedInvoicePdfCarriesSimulationLabelAndHistoricalTax() throws Exception {
+        var bill = documentBill();
+        var blue =
+                issue(submission(input(List.of(item("RECEIVABLE", bill.getId(), "10")))))
+                        .document();
+        bills.createUpdate()
+                .set("snapshotJson", "{}")
+                .where("id", bill.getId())
+                .execute()
+                .block(WAIT);
+        var pdf =
+                files.invoicePdf(project, blue.getId()).contextWrite(fixture.allowed()).block(WAIT);
+        assertTrue(
+                new String(pdf, 0, 5, java.nio.charset.StandardCharsets.US_ASCII).equals("%PDF-"));
+        try (var parsed = org.apache.pdfbox.pdmodel.PDDocument.load(pdf)) {
+            var text =
+                    java.text.Normalizer.normalize(
+                                    new org.apache.pdfbox.text.PDFTextStripper().getText(parsed),
+                                    java.text.Normalizer.Form.NFKC)
+                            .replaceAll("\\s+", "");
+            var output = java.nio.file.Path.of("target", "document-preview");
+            java.nio.file.Files.createDirectories(output);
+            java.nio.file.Files.write(output.resolve("simulated-invoice.pdf"), pdf);
+            javax.imageio.ImageIO.write(
+                    new org.apache.pdfbox.rendering.PDFRenderer(parsed).renderImageWithDPI(0, 100),
+                    "png",
+                    output.resolve("simulated-invoice.png").toFile());
+            assertTrue(text.contains("模拟发票"));
+            assertTrue(text.contains("不作为税务发票使用"));
+            assertTrue(text.contains("原物业服务"));
+            assertTrue(text.contains(blue.getDocumentNumber()));
+        }
+        fixture.rejects(files.invoicePdf("forbidden", blue.getId()), 403);
     }
 
     @Test
@@ -514,7 +642,8 @@ class DocumentQueryPersistenceTest extends DocumentIssuePersistenceTest {
                                         history,
                                         candidates,
                                         null,
-                                        props),
+                                        props,
+                                        files),
                                 new org.jetlinks.pro.property.finance.web.ReceiptDocumentController(
                                         preparation,
                                         issue,
@@ -522,7 +651,8 @@ class DocumentQueryPersistenceTest extends DocumentIssuePersistenceTest {
                                         history,
                                         candidates,
                                         null,
-                                        props))
+                                        props,
+                                        files))
                         .controllerAdvice(new TaxItemPersistenceTest.HttpErrors())
                         .webFilter(
                                 (exchange, chain) ->
@@ -554,6 +684,23 @@ class DocumentQueryPersistenceTest extends DocumentIssuePersistenceTest {
                 .doesNotExist()
                 .jsonPath("$.data[0].requestFingerprint")
                 .doesNotExist();
+        client.get()
+                .uri(path + "/invoices/" + blue.getId() + "/pdf")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectHeader()
+                .contentType("application/pdf")
+                .expectBody()
+                .consumeWith(result -> assertTrue(result.getResponseBody().length > 100));
+        client.post()
+                .uri(path + "/invoices/_export/excel")
+                .bodyValue(page(0, 12))
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectHeader()
+                .contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         client.post()
                 .uri(path + "/receipts/_query")
                 .bodyValue(page(0, 12))
@@ -644,6 +791,7 @@ class DocumentQueryPersistenceTest extends DocumentIssuePersistenceTest {
         DocumentIssuePersistenceTest.Config.class,
         DocumentQueryScope.class,
         DocumentRecordService.class,
+        DocumentFileService.class,
         DocumentCandidateService.class
     })
     static class Config {}

@@ -36,7 +36,15 @@ class DocumentPreparationPersistenceTest extends DocumentSourcePersistenceTest {
                 "INVOICE",
                 "company",
                 new DocumentIssueInput.Buyer(
-                        "购方企业", "ABC123", "19123288779", "a@b.cn", "重庆", "银行", "6222", null),
+                        "购方企业",
+                        "ABC123",
+                        "19123288779",
+                        "a@b.cn",
+                        "重庆",
+                        "银行",
+                        "6222",
+                        null,
+                        "ENTERPRISE"),
                 "1",
                 "开票说明",
                 items);
@@ -122,8 +130,7 @@ class DocumentPreparationPersistenceTest extends DocumentSourcePersistenceTest {
                         i.remark(),
                         i.items());
         fixture.rejects(preparation.preview(project, i, NOW), 409);
-        var collected =
-                historicalPayment(a, "10.00");
+        var collected = historicalPayment(a, "10.00");
         fixture.rejects(
                 preparation.preview(
                         project,
@@ -138,8 +145,7 @@ class DocumentPreparationPersistenceTest extends DocumentSourcePersistenceTest {
     @Test
     void ruleAndSourceVersionsChangePreviewTokenAndCustomDaysExpireFromPayment() {
         var row = documentBill();
-        var collected =
-                historicalPayment(row, "10.00");
+        var collected = historicalPayment(row, "10.00");
         var input = input(List.of(item("RECEIVED", collected.lines().get(0).getId(), "10")));
         var initial = preview(input);
         var rule =
@@ -283,10 +289,24 @@ class DocumentPreparationPersistenceTest extends DocumentSourcePersistenceTest {
         var bill = documentBill();
         var invoiceController =
                 new org.jetlinks.pro.property.finance.web.InvoiceDocumentController(
-                        preparation, null, null, null, null, null, new BillingJobProperties());
+                        preparation,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        new BillingJobProperties(),
+                        null);
         var receiptController =
                 new org.jetlinks.pro.property.finance.web.ReceiptDocumentController(
-                        preparation, null, null, null, null, null, new BillingJobProperties());
+                        preparation,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        new BillingJobProperties(),
+                        null);
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(
                                 invoiceController, receiptController)

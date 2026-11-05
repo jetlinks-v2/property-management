@@ -12,6 +12,7 @@ public record ReceivableReportRow(
         String subjectName,
         String calcStartDate,
         String calcEndDate,
+        String receivableDate,
         String dueDate,
         String calculatedAsOfDate,
         String collectionStatus,

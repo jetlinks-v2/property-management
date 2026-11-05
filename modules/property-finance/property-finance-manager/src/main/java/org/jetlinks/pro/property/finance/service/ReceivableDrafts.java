@@ -48,6 +48,11 @@ final class ReceivableDrafts {
         row.setCalcEndDate(
                 period.coveredEnd(SettingRules.date(setting.getEffectiveEndDate(), false))
                         .toString());
+        // 当前标准没有旧系统的应收月份/日配置，使用其默认规则：计费开始月末。
+        row.setReceivableDate(
+                LocalDate.parse(row.getCalcStartDate())
+                        .with(java.time.temporal.TemporalAdjusters.lastDayOfMonth())
+                        .toString());
         row.setDueDate(row.getCalcEndDate());
         row.setPeriodStatus("OPEN");
         row.setSnapshotJson(setting.getSnapshotJson());

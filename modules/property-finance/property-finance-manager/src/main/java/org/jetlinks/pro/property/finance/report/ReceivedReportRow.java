@@ -4,6 +4,8 @@ package org.jetlinks.pro.property.finance.report;
 public record ReceivedReportRow(
         String id,
         String sourceId,
+        String sourceNo,
+        String receivableId,
         String projectId,
         String projectName,
         String spaceId,

@@ -27,12 +27,13 @@ public class InvoiceDocumentController {
     private final DocumentCandidateService candidates;
     private final DocumentReopenService reopen;
     private final BillingJobProperties properties;
+    private final DocumentFileService files;
 
     @PostMapping("/_query")
     @QueryAction
-    public Mono<PagerResult<DocumentEntity>> query(
+    public Mono<PagerResult<org.jetlinks.pro.property.finance.document.DocumentLedgerRow>> query(
             @PathVariable String projectId, @RequestBody QueryParamEntity input) {
-        return records.query(projectId, "INVOICE", input);
+        return records.ledger(projectId, "INVOICE", input);
     }
 
     @PostMapping("/{id}/logs/_query")
@@ -77,7 +78,7 @@ public class InvoiceDocumentController {
     @QueryAction
     public Mono<DocumentStore.Detail> detail(
             @PathVariable String projectId, @PathVariable String id) {
-        return issue.detail(projectId, "INVOICE", id);
+        return records.detail(projectId, "INVOICE", id);
     }
 
     @PostMapping("/{id}/_reverse")
@@ -112,5 +113,38 @@ public class InvoiceDocumentController {
             @RequestBody DocumentReopenService.Submission input) {
         return reopen.confirm(
                 projectId, id, input, LocalDateTime.now(ZoneId.of(properties.getZone())));
+    }
+
+    @PostMapping("/_export/excel")
+    @ResourceAction(id = "export", name = "导出台账")
+    public Mono<org.springframework.http.ResponseEntity<byte[]>> export(
+            @PathVariable String projectId, @RequestBody QueryParamEntity input) {
+        return files.excel(projectId, "INVOICE", input)
+                .map(
+                        bytes ->
+                                org.springframework.http.ResponseEntity.ok()
+                                        .contentType(
+                                                org.springframework.http.MediaType.parseMediaType(
+                                                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                                        .header(
+                                                "Content-Disposition",
+                                                "attachment; filename=document-ledger.xlsx")
+                                        .body(bytes));
+    }
+
+    @GetMapping("/{id}/pdf")
+    @QueryAction
+    public Mono<org.springframework.http.ResponseEntity<byte[]>> pdf(
+            @PathVariable String projectId, @PathVariable String id) {
+        return files.invoicePdf(projectId, id)
+                .map(
+                        bytes ->
+                                org.springframework.http.ResponseEntity.ok()
+                                        .contentType(
+                                                org.springframework.http.MediaType.APPLICATION_PDF)
+                                        .header(
+                                                "Content-Disposition",
+                                                "inline; filename=simulated-invoice.pdf")
+                                        .body(bytes));
     }
 }

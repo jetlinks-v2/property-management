@@ -32,7 +32,7 @@ public class DocumentInputRules {
         var invoiceType = invoice && input.invoiceType() == null ? "1" : input.invoiceType();
         if (invoice && !Set.of("1", "2").contains(Objects.toString(invoiceType, ""))
                 || !invoice && invoiceType != null) throw error("document_input_invalid", 400);
-        var buyer = buyer(input.buyer(), invoice && "2".equals(invoiceType));
+        var buyer = buyer(input.buyer(), invoice, invoice && "2".equals(invoiceType));
         var items = input.items().stream().map(item -> item(item, invoice)).toList();
         return new DocumentIssueInput(
                 input.documentType(),
@@ -43,10 +43,20 @@ public class DocumentInputRules {
                 items);
     }
 
-    private DocumentIssueInput.Buyer buyer(DocumentIssueInput.Buyer input, boolean special) {
+    private DocumentIssueInput.Buyer buyer(
+            DocumentIssueInput.Buyer input, boolean invoice, boolean special) {
         if (input == null) throw error("document_buyer_invalid", 400);
+        var titleType = text(input.titleType(), 16, invoice, "document_buyer_invalid");
+        if (titleType != null && !Set.of("ENTERPRISE", "PERSONAL").contains(titleType)
+                || special && !"ENTERPRISE".equals(titleType))
+            throw error("document_buyer_invalid", 400);
         var name = text(input.name(), 255, true, "document_buyer_invalid");
-        var tax = text(input.taxNum(), 50, special, "document_buyer_invalid");
+        var tax =
+                text(
+                        input.taxNum(),
+                        50,
+                        invoice && "ENTERPRISE".equals(titleType),
+                        "document_buyer_invalid");
         if (tax != null) {
             tax = tax.toUpperCase(Locale.ROOT);
             if (!tax.matches("[A-Z0-9]+")) throw error("document_buyer_invalid", 400);
@@ -62,7 +72,8 @@ public class DocumentInputRules {
                 text(input.address(), 500, false, "document_buyer_invalid"),
                 text(input.depositBank(), 100, false, "document_buyer_invalid"),
                 text(input.bankAccount(), 100, false, "document_buyer_invalid"),
-                text(input.extensionNumber(), 32, false, "document_buyer_invalid"));
+                text(input.extensionNumber(), 32, false, "document_buyer_invalid"),
+                titleType);
     }
 
     private DocumentIssueInput.Item item(DocumentIssueInput.Item item, boolean invoice) {

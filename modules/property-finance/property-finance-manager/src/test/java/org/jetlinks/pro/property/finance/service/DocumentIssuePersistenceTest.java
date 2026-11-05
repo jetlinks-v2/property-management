@@ -606,8 +606,7 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
         fixture.rejects(preparation.preview(project, receipt, NOW), 409);
         reverse(invoiceDoc, reversal(invoiceDoc, "退回额度"));
         var current = bills.findById(bill.getId()).block(WAIT);
-        var paid =
-                historicalPayment(current, "100.00");
+        var paid = historicalPayment(current, "100.00");
         for (var item :
                 List.of(
                         item("RECEIVABLE", bill.getId(), "10"),
@@ -628,12 +627,34 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
     @Test
     void httpRoutesEnforceTypeReadOnlyHistoryAndRequestReplay() {
         var props = new BillingJobProperties();
+        var history = mock(DocumentRecordService.class);
+        when(history.detail(anyString(), anyString(), anyString()))
+                .thenAnswer(
+                        call ->
+                                issue.detail(
+                                        call.getArgument(0),
+                                        call.getArgument(1),
+                                        call.getArgument(2)));
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(
                                 new org.jetlinks.pro.property.finance.web.InvoiceDocumentController(
-                                        preparation, issue, reverse, null, null, null, props),
+                                        preparation,
+                                        issue,
+                                        reverse,
+                                        history,
+                                        null,
+                                        null,
+                                        props,
+                                        null),
                                 new org.jetlinks.pro.property.finance.web.ReceiptDocumentController(
-                                        preparation, issue, reverse, null, null, null, props))
+                                        preparation,
+                                        issue,
+                                        reverse,
+                                        history,
+                                        null,
+                                        null,
+                                        props,
+                                        null))
                         .controllerAdvice(new TaxItemPersistenceTest.HttpErrors())
                         .webFilter(
                                 (exchange, chain) ->

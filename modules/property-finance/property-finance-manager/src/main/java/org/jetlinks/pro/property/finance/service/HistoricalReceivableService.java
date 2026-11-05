@@ -460,6 +460,8 @@ public class HistoricalReceivableService {
         row.setPeriodEnd(line.end().toString());
         row.setCalcStartDate(row.getPeriodStart());
         row.setCalcEndDate(row.getPeriodEnd());
+        // 模板第九列原名“应收日期”，必须落为业务日期，不能仅作为到期日使用。
+        row.setReceivableDate(line.due().toString());
         row.setDueDate(line.due().toString());
         row.setAccruedAsOfDate(line.end().toString());
         row.setCalculatedAsOfDate(LocalDate.now().toString());

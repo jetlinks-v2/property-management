@@ -82,6 +82,24 @@ class ReceivableReportPersistenceTest {
     }
 
     @Test
+    void drillMatchesExactGroupingSnapshotAndExportUsesSameScope() {
+        bill("10", "1");
+        var renamed = bill("20", "2");
+        bills.createUpdate()
+                .set("subjectName", "历史新名")
+                .where("id", renamed.getId())
+                .execute()
+                .block(WAIT);
+        var i = input();
+        i.setSubjectGroups(List.of(new ReportGroupKey("subject", "历史新名")));
+        assertEquals("20.00", query(i).summary().netAmount());
+        assertEquals(1, query(i).page().getTotal());
+        assertEquals(
+                query(i).summary(),
+                reports.exportData(i).contextWrite(allowed).block(WAIT).summary());
+    }
+
+    @Test
     void summaryUsesAllFilteredRowsAndIsExactWhilePagingStaysStable() {
         var a = bill("9999999999999999.99", "10.01");
         var b = bill("100.01", "50.00");
@@ -120,6 +138,40 @@ class ReceivableReportPersistenceTest {
         assertEquals("65.00", r.summary().arrearsAmount());
         assertEquals("23.53", r.summary().collectionRate());
         assertEquals(r.summary(), r.page().getData().get(0).amounts());
+    }
+
+    @Test
+    void businessDateIsIndependentAndOutstandingIsFlooredPerBill() {
+        var b = bill("90", "30");
+        bills.createUpdate()
+                .set("receivableDate", "2023-12-31")
+                .set("dueDate", "2024-02-29")
+                .set("arrears", new BigDecimal("999"))
+                .set("feeReductionAmount", new BigDecimal("10"))
+                .where("id", b.getId())
+                .execute()
+                .block(WAIT);
+        bill("10", "20");
+        var all = query(input());
+        assertEquals("60.00", all.summary().unreceivedAmount());
+        assertEquals("60.00", all.summary().arrearsAmount());
+        assertEquals("50.00", all.summary().collectionRate());
+        var i = input();
+        i.setReceivableDateStart("2023-12-31");
+        i.setReceivableDateEnd("2023-12-31");
+        var result = query(i);
+        assertEquals(1, result.page().getTotal());
+        assertEquals("2024-02-29", result.page().getData().get(0).dueDate());
+        assertEquals("2023-12-31", result.page().getData().get(0).receivableDate());
+        assertEquals("100.00", result.summary().receivableAmount());
+        assertEquals("90.00", result.summary().netAmount());
+        assertEquals("33.33", result.summary().collectionRate());
+        assertEquals(
+                result.summary(),
+                reports.exportData(i).contextWrite(allowed).block(WAIT).summary());
+        i.setReceivableDateStart(null);
+        i.setReceivableDateEnd("2023-12-30");
+        assertEquals(0, query(i).page().getTotal());
     }
 
     @Test
@@ -375,7 +427,7 @@ class ReceivableReportPersistenceTest {
                     org.apache.poi.ss.usermodel.CellType.STRING,
                     sheet.getRow(1).getCell(2).getCellType());
             assertTrue(sheet.getRow(1).getCell(2).getStringCellValue().startsWith("=SUM"));
-            assertEquals("100.01", sheet.getRow(1).getCell(11).getStringCellValue());
+            assertEquals("100.01", sheet.getRow(1).getCell(13).getStringCellValue());
         }
         var pdf = exports.export(input(), "pdf").contextWrite(allowed).block(WAIT);
         try (var document = org.apache.pdfbox.pdmodel.PDDocument.load(pdf)) {

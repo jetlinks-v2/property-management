@@ -36,6 +36,7 @@ public class ReceivableReportService {
         "subjectName",
         "calcStartDate",
         "calcEndDate",
+        "receivableDate",
         "dueDate",
         "calculatedAsOfDate",
         "actualReceivableAmount",
@@ -43,7 +44,6 @@ public class ReceivableReportService {
         "accruedLateFeeAmount",
         "lateFeeReductionAmount",
         "paidAmount",
-        "arrears",
         "remark"
     };
     // 所有表达式仅引用固定列名；用户筛选参数由官方QueryParam绑定，不能进入SQL文本。
@@ -51,8 +51,8 @@ public class ReceivableReportService {
     private static final String PAID = "\"paidAmount\"";
     private static final String REMISSION =
             "(\"feeReductionAmount\" + case when \"lateFeeReductionAmount\" <"
-                + " \"accruedLateFeeAmount\" then \"lateFeeReductionAmount\" else"
-                + " \"accruedLateFeeAmount\" end)";
+                    + " \"accruedLateFeeAmount\" then \"lateFeeReductionAmount\" else"
+                    + " \"accruedLateFeeAmount\" end)";
     private static final String STATUS =
             "case when "
                     + PAID
@@ -61,6 +61,9 @@ public class ReceivableReportService {
                     + " then 'PAID' when "
                     + PAID
                     + " <= 0 then 'UNPAID' else 'PARTIAL' end";
+    // 未收与旧口径欠款均为逐单净应收减已收后封底；不是按到期日判断的逾期欠费。
+    private static final String OUTSTANDING =
+            "case when " + NET + " > " + PAID + " then " + NET + " - " + PAID + " else 0 end";
     private static final String SUMS =
             "count(*) as bills, sum("
                     + NET
@@ -68,7 +71,9 @@ public class ReceivableReportService {
                     + PAID
                     + ") as paid, sum("
                     + REMISSION
-                    + ") as remission, sum(\"arrears\") as arrears";
+                    + ") as remission, sum("
+                    + OUTSTANDING
+                    + ") as arrears";
     private final ReactiveRepository<ReceivableEntity, String> bills;
     private final FinanceScope scope;
     private final DatabaseOperator database;
@@ -147,6 +152,22 @@ public class ReceivableReportService {
                                                                     params.add(
                                                                             input
                                                                                     .getCollectionStatus());
+                                                                var where = new ArrayList<String>();
+                                                                ReportGroupKey.filter(
+                                                                        where,
+                                                                        params,
+                                                                        input.getSubjectGroups(),
+                                                                        "subjectId",
+                                                                        "subjectName");
+                                                                if (!where.isEmpty())
+                                                                    source =
+                                                                            "(select * from "
+                                                                                    + source
+                                                                                    + " where "
+                                                                                    + String.join(
+                                                                                            " and ",
+                                                                                            where)
+                                                                                    + ") drilled_source";
                                                                 return new Prepared(
                                                                         source,
                                                                         params.toArray(),
@@ -171,6 +192,10 @@ public class ReceivableReportService {
                         .end();
         if (!input.getSpaceIds().isEmpty()) terms.in("spaceId", input.getSpaceIds());
         if (!input.getSubjectIds().isEmpty()) terms.in("subjectId", input.getSubjectIds());
+        if (input.getReceivableDateStart() != null)
+            terms.gte("receivableDate", input.getReceivableDateStart());
+        if (input.getReceivableDateEnd() != null)
+            terms.lte("receivableDate", input.getReceivableDateEnd());
         if (input.getDueDateStart() != null) terms.gte("dueDate", input.getDueDateStart());
         if (input.getDueDateEnd() != null) terms.lte("dueDate", input.getDueDateEnd());
         if (input.getCustomerName() != null && !input.getCustomerName().isBlank())
@@ -274,6 +299,8 @@ public class ReceivableReportService {
                             + " as paid, "
                             + REMISSION
                             + " as remission, "
+                            + OUTSTANDING
+                            + " as arrears, "
                             + STATUS
                             + " as status, 1 as bills from "
                             + source
@@ -319,6 +346,7 @@ public class ReceivableReportService {
                 text(row, "subjectName"),
                 text(row, "calcStartDate"),
                 text(row, "calcEndDate"),
+                text(row, "receivableDate"),
                 text(row, "dueDate"),
                 text(row, "calculatedAsOfDate"),
                 text(row, "status"),

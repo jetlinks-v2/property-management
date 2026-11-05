@@ -40,6 +40,44 @@ class InvoiceReportPersistenceTest extends DocumentQueryPersistenceTest {
     }
 
     @Test
+    void drillMatchesExactGroupingSnapshotAndExportUsesSameScope() {
+        documentBill();
+        var renamed = documentBill();
+        bills.createUpdate()
+                .set("subjectName", "历史新名")
+                .where("id", renamed.getId())
+                .execute()
+                .block(WAIT);
+        var i = reportInput();
+        i.setSubjectGroups(List.of(new ReportGroupKey("subject", "历史新名")));
+        assertEquals("100.00", report(i).summary().receivableAmount());
+        assertEquals(1, report(i).page().getTotal());
+        assertEquals(
+                report(i).summary(),
+                reports.exportData(i).contextWrite(fixture.allowed()).block(WAIT).summary());
+    }
+
+    @Test
+    void relatedInvoicesIncludeBlueRedAndContentWithoutMultiplyingBasis() {
+        var bill = documentBill();
+        var first =
+                issue(submission(input(List.of(item("RECEIVABLE", bill.getId(), "20")))))
+                        .document();
+        issue(submission(input(List.of(item("RECEIVABLE", bill.getId(), "30")))));
+        reverse(first, reversal(first, "红冲核对"));
+        var report = report(reportInput());
+        assertEquals("100.00", report.summary().receivableAmount());
+        assertEquals("30.00", report.summary().invoicedAmount());
+        assertFalse(report.page().getData().get(0).invoiceContent().isBlank());
+        var related =
+                reports.related(project, "RECEIVABLE", bill.getId())
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT);
+        assertEquals(3, related.size());
+        assertTrue(related.stream().anyMatch(d -> d.amount().startsWith("-")));
+    }
+
+    @Test
     void reportIncludesUnissuedAndIgnoresReceiptOccupation() {
         var a = documentBill();
         var invoice = input(List.of(item("RECEIVABLE", a.getId(), "20")));
@@ -243,6 +281,12 @@ class InvoiceReportPersistenceTest extends DocumentQueryPersistenceTest {
             assertNull(result.page().getData().get(0).invoiceNo());
             assertNull(result.page().getData().get(0).buyerName());
             assertNull(result.page().getData().get(0).documentId());
+            assertEquals(
+                    0,
+                    reports.related(project, "RECEIVABLE", a.getId())
+                            .contextWrite(restricted)
+                            .block(WAIT)
+                            .size());
             var q = reportInput();
             q.setInvoiceNo(blue.getDocumentNumber());
             assertEquals(
@@ -256,6 +300,12 @@ class InvoiceReportPersistenceTest extends DocumentQueryPersistenceTest {
             assertEquals(2, all.page().getTotal());
             assertEquals("30.00", all.summary().invoicedAmount());
             assertEquals(blue.getDocumentNumber(), all.page().getData().get(0).invoiceNo());
+            assertEquals(
+                    1,
+                    reports.related(project, "RECEIVABLE", a.getId())
+                            .contextWrite(full)
+                            .block(WAIT)
+                            .size());
         } finally {
             authority.close();
         }
@@ -356,7 +406,7 @@ class InvoiceReportPersistenceTest extends DocumentQueryPersistenceTest {
             assertEquals(
                     "=SUM(1,2)<script>evil</script>",
                     sheet.getRow(1).getCell(2).getStringCellValue());
-            assertEquals("9999999999999999.99", sheet.getRow(1).getCell(11).getStringCellValue());
+            assertEquals("9999999999999999.99", sheet.getRow(1).getCell(13).getStringCellValue());
         }
         var pdf = exports.export(reportInput(), "pdf").contextWrite(fixture.allowed()).block(WAIT);
         try (var doc = org.apache.pdfbox.pdmodel.PDDocument.load(pdf)) {

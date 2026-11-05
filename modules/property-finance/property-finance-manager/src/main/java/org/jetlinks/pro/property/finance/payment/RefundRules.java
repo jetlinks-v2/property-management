@@ -97,7 +97,12 @@ public final class RefundRules {
                     || row.getRefundedAmount() == null
                     || row.getRefundedAmount().signum() < 0)
                 throw error("refund_source_blocked", 409);
-            var available = row.getAmount().subtract(row.getRefundedAmount());
+            // 一条实收明细仅允许一个待处理申请，避免审核时重新分配已占用的分币。
+            if (row.getRefundReservedAmount().signum() > 0) throw error("refund_reserved", 409);
+            var available =
+                    row.getAmount()
+                            .subtract(row.getRefundedAmount())
+                            .subtract(row.getRefundReservedAmount());
             if (available.signum() <= 0) throw error("refund_exceeds_balance", 409);
             remaining.add(available.movePointRight(2).toBigIntegerExact());
         }

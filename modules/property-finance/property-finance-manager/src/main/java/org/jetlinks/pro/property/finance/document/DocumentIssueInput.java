@@ -18,7 +18,8 @@ public record DocumentIssueInput(
             String address,
             String depositBank,
             String bankAccount,
-            String extensionNumber) {}
+            String extensionNumber,
+            String titleType) {}
 
     public record Item(
             String sourceType,

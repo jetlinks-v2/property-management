@@ -21,7 +21,95 @@ import java.time.*;
 public class HandoverController {
     private final HandoverService service;
     private final HandoverRecords records;
+    private final HandoverBatchService batchService;
+    private final HandoverStatementService statements;
     private final BillingJobProperties properties;
+
+    @GetMapping("/{id}/statement")
+    @QueryAction
+    public Mono<HandoverStatementService.Statement> statement(
+            @PathVariable String projectId, @PathVariable String id) {
+        return statements.statement(projectId, id);
+    }
+
+    @GetMapping("/{id}/statement/{format}")
+    @QueryAction
+    public Mono<org.springframework.http.ResponseEntity<byte[]>> statementFile(
+            @PathVariable String projectId, @PathVariable String id, @PathVariable String format) {
+        return statements
+                .export(projectId, id, format)
+                .map(
+                        bytes ->
+                                org.springframework.http.ResponseEntity.ok()
+                                        .contentType(
+                                                org.springframework.http.MediaType.parseMediaType(
+                                                        "pdf".equals(format)
+                                                                ? "application/pdf"
+                                                                : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                                        .header(
+                                                "Content-Disposition",
+                                                "attachment; filename=handover."
+                                                        + ("pdf".equals(format) ? "pdf" : "xlsx"))
+                                        .body(bytes));
+    }
+
+    @PostMapping("/details/_export/{format}")
+    @QueryAction
+    public Mono<org.springframework.http.ResponseEntity<byte[]>> exportDetails(
+            @PathVariable String projectId,
+            @PathVariable String format,
+            @RequestBody HandoverRecords.DetailQuery input) {
+        return statements
+                .exportDetails(projectId, input, format)
+                .map(
+                        bytes ->
+                                org.springframework.http.ResponseEntity.ok()
+                                        .contentType(
+                                                org.springframework.http.MediaType.parseMediaType(
+                                                        "pdf".equals(format)
+                                                                ? "application/pdf"
+                                                                : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                                        .header(
+                                                "Content-Disposition",
+                                                "attachment; filename=handover-details."
+                                                        + ("pdf".equals(format) ? "pdf" : "xlsx"))
+                                        .body(bytes));
+    }
+
+    @PostMapping("/details/_query")
+    @QueryAction
+    public Mono<PagerResult<HandoverRecords.DetailRow>> details(
+            @PathVariable String projectId, @RequestBody HandoverRecords.DetailQuery input) {
+        return records.details(projectId, input);
+    }
+
+    @PostMapping("/batch/_approve/preview")
+    @ResourceAction(id = "approve", name = "审核")
+    public Mono<java.util.List<HandoverBatchService.Result>> previewApprove(
+            @PathVariable String projectId, @RequestBody HandoverBatchService.Input input) {
+        return batchService.preview(projectId, "APPROVE", input);
+    }
+
+    @PostMapping("/batch/_approve")
+    @ResourceAction(id = "approve", name = "审核")
+    public Mono<java.util.List<HandoverBatchService.Result>> batchApprove(
+            @PathVariable String projectId, @RequestBody HandoverBatchService.Input input) {
+        return batchService.execute(projectId, "APPROVE", input, now());
+    }
+
+    @PostMapping("/batch/_unapprove/preview")
+    @ResourceAction(id = "unapprove", name = "反审核")
+    public Mono<java.util.List<HandoverBatchService.Result>> previewUnapprove(
+            @PathVariable String projectId, @RequestBody HandoverBatchService.Input input) {
+        return batchService.preview(projectId, "UNAPPROVE", input);
+    }
+
+    @PostMapping("/batch/_unapprove")
+    @ResourceAction(id = "unapprove", name = "反审核")
+    public Mono<java.util.List<HandoverBatchService.Result>> batchUnapprove(
+            @PathVariable String projectId, @RequestBody HandoverBatchService.Input input) {
+        return batchService.execute(projectId, "UNAPPROVE", input, now());
+    }
 
     @PostMapping("/sources/{type}/_query")
     @ResourceAction(id = "create", name = "交账")

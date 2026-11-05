@@ -27,14 +27,27 @@ public class ReceivedReportInput {
     private String groupBy = "DETAIL";
     private int pageIndex, pageSize = 12;
 
+    private List<ReportGroupKey> subjectGroups = List.of();
+    private List<ReportGroupKey> methodGroups = List.of();
+
     public void validate() {
+        ReportGroupKey.validate(subjectGroups);
+        ReportGroupKey.validate(methodGroups);
         ids(projectIds, 100, true);
         ids(spaceIds, 1000, false);
         ids(subjectIds, 1000, false);
         ids(paymentMethods, 4, false);
-        ids(sourceTypes, 5, false);
+        ids(sourceTypes, 8, false);
         if (!Set.of("1", "2", "3", "4").containsAll(paymentMethods)
-                || !Set.of("RECEIVABLE", "TEMPORARY", "REFUND", "ADVANCE", "DEPOSIT")
+                || !Set.of(
+                                "RECEIVABLE",
+                                "TEMPORARY",
+                                "REFUND",
+                                "TEMPORARY_REFUND",
+                                "ADVANCE",
+                                "DEPOSIT",
+                                "ADVANCE_REFUND",
+                                "DEPOSIT_REFUND")
                         .containsAll(sourceTypes)
                 || !Set.of("DETAIL", "PROJECT", "SUBJECT", "METHOD", "SOURCE")
                         .contains(Objects.toString(groupBy, ""))

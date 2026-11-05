@@ -175,6 +175,17 @@ public class HandoverSources {
                                                                                             "handover_source_invalid",
                                                                                             409);
                                                                                 line
+                                                                                        .setBusinessType(
+                                                                                                r
+                                                                                                        .getSourceType());
+                                                                                line
+                                                                                        .setCalcStartDate(
+                                                                                                r
+                                                                                                        .getCalcStartDate());
+                                                                                line.setCalcEndDate(
+                                                                                        r
+                                                                                                .getCalcEndDate());
+                                                                                line
                                                                                         .setReceivableId(
                                                                                                 r
                                                                                                         .getReceivableId());
@@ -252,6 +263,9 @@ public class HandoverSources {
                                                                                                         .getRefundedAt(),
                                                                                                 r.getAmount()
                                                                                                         .negate());
+                                                                                line
+                                                                                        .setBusinessType(
+                                                                                                "REFUND");
                                                                                 line.setCashAmount(
                                                                                         "CASH"
                                                                                                         .equals(
@@ -304,6 +318,9 @@ public class HandoverSources {
                                             e.getBankName(),
                                             e.getOccurredAt(),
                                             e.getAmount());
+                            line.setBusinessType(e.getAction());
+                            line.setCalcStartDate(e.getCalcStartDate());
+                            line.setCalcEndDate(e.getCalcEndDate());
                             line.setCashAmount(e.getCashAmount());
                             return new Source("FUND", id, e.getVersion(), List.of(line));
                         });
