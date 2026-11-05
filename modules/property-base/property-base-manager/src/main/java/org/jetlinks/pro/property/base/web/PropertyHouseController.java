@@ -1,6 +1,10 @@
 package org.jetlinks.pro.property.base.web;
 
 import lombok.RequiredArgsConstructor;
+import org.jetlinks.pro.property.base.command.PropertyHouseholdCommandSupport;
+import org.jetlinks.pro.property.base.command.QueryPropertyHouseholdsCommand;
+import org.jetlinks.pro.property.base.house.PropertyHouseholdInfo;
+import reactor.core.publisher.Flux;
 
 import org.hswebframework.web.api.crud.entity.PagerResult;
 import org.hswebframework.web.api.crud.entity.QueryParamEntity;
@@ -25,6 +29,19 @@ import reactor.core.publisher.Mono;
 public class PropertyHouseController {
     private final PropertyHouseService houses;
     private final ArchiveExcelService excel;
+    private final PropertyHouseholdCommandSupport households;
+
+    /** 双向只读关系查询与业务RPC共用权限、历史及逻辑删除过滤。 */
+    @GetMapping("/{spaceId}/customers")
+    @ResourceAction(id = "query", name = "查询")
+    public Flux<PropertyHouseholdInfo> customers(
+            @RequestParam String projectId, @PathVariable String spaceId) {
+        var command = new QueryPropertyHouseholdsCommand();
+        command.setProjectId(projectId);
+        command.setSpaceId(spaceId);
+        return households.query(command);
+    }
+
 
     @PostMapping("/_query")
     @ResourceAction(id = "query", name = "查询")
