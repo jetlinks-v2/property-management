@@ -11,7 +11,7 @@ import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.assets.scope.AssetScopeContext;
 import org.jetlinks.pro.authorize.BusinessApplicationDimension;
-import org.jetlinks.pro.smartpark.handover.entity.HandoverEntity;
+import org.jetlinks.pro.smartpark.handover.entity.HandoverApplicationEntity;
 import org.jetlinks.pro.tenant.assets.TenantAssetsHolder;
 import org.jetlinks.pro.tenant.holder.TenantHolder;
 import org.springframework.stereotype.Component;
@@ -83,13 +83,13 @@ public class HandoverScope {
                 .thenReturn(mandatory(input, context, projectId));
     }
 
-    public void owned(HandoverEntity row, HandoverContext context) {
+    public void owned(HandoverApplicationEntity row, HandoverContext context) {
         if (!Objects.equals(row.getTenantId(), context.tenantId())
                 || !Objects.equals(row.getApplicationId(), context.applicationId())
                 || Boolean.TRUE.equals(row.getDeleted())) throw new AccessDenyException();
     }
 
-    public void initialize(HandoverEntity row, HandoverContext context) {
+    public void initialize(HandoverApplicationEntity row, HandoverContext context) {
         row.setTenantId(context.tenantId());
         row.setApplicationId(context.applicationId());
         row.setDeleted(false);

@@ -34,7 +34,7 @@ public class HandoverExcelService {
     public Flux<DataBuffer> template(String kind, String projectId, String source, String stage) {
         HandoverExcelSchema.validateSelector(kind, source, stage);
         return HandoverExcelPermission.assertImport(kind)
-                .then(catalog.load(projectId, source))
+                .then(catalog.load(projectId, source, kind))
                 .flatMapMany(options -> HandoverWorkbook.template(kind, options.options()));
     }
 
@@ -44,7 +44,7 @@ public class HandoverExcelService {
         if (!file.filename().toLowerCase(java.util.Locale.ROOT).endsWith(".xlsx"))
             return Mono.error(HandoverWorkbook.invalid(1, "文件", "请上传.xlsx文件"));
         return HandoverExcelPermission.assertImport(kind)
-                .then(catalog.load(projectId, source))
+                .then(catalog.load(projectId, source, kind))
                 .flatMap(
                         options ->
                                 read(file)

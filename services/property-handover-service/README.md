@@ -54,3 +54,9 @@ JMX `org.jetlinks:type=HandoverExport,name=worker` 提供本节点的 `Active`�
 ## 验证边界
 
 模块装配测试检查独立类路径、认证路由、调度启用和 YAML 绑定路径；业务测试在临时 PostgreSQL 验证事务、CAS 和权限。完整上线验收仍需在目标 SaaS 环境执行真实登录、跨服务目录、文件、PC/H5 以及报事提供方的联调。
+
+## 分类接口与既有数据升级
+
+`/property/handover/category` 是当前租户、应用共享的两级资料目录，不要求项目参数；`/category/tree` 返回完整树，`/_query` 分页查询，`/{id}` 详情，POST 保存，DELETE 带 version 逻辑删除。`/property/handover/problem-category` 保留项目问题分类，项目、资产范围和版本校验不变。资料记录、模板与导入使用共享资料分类；问题和前介台账使用项目问题分类。启停不改变历史分类名称，停用项不可用于新记录。分类维护继续使用 `handover-config` 资源的保存/删除权限，菜单动作 ID 不变。
+
+既有环境先备份业务 schema，再执行 [只读分类盘点](../../modules/property-handover/docs/sql/01-material-category-inventory.sql)。部署新实体完成建表后，暂停查验写入，在业务 schema 下执行 [资料分类迁移](../../modules/property-handover/docs/sql/02-material-category-migrate.sql)。脚本复制资料使用的分类及父级，保存独立 ID 映射和原记录版本，保留原问题引用。跨项目同级重名、未知分类应先人工确认，脚本不会自动合并。对账为零且引用数量一致后恢复服务。需要回退时先停写并回退应用，再执行 [保护性回滚](../../modules/property-handover/docs/sql/03-material-category-rollback.sql)；迁移后已编辑或新增资料则明确拒绝自动回滚，保留备份人工处理。全新环境不需要执行迁移。

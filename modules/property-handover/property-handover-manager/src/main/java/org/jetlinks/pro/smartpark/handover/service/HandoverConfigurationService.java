@@ -26,6 +26,7 @@ public class HandoverConfigurationService {
     private final HandoverFiles files;
     private final HandoverProcessService processes;
     private final HandoverCategoryRepository categories;
+    private final HandoverMaterialCategoryService materialCategories;
     private final HandoverResponsibilityRepository responsibilities;
     private final HandoverItemRepository items;
     private final HandoverProblemRepository problems;
@@ -151,7 +152,7 @@ public class HandoverConfigurationService {
             HandoverRules.require(HandoverRules.hasText(record.getTitle()), "title_required");
             check = check.then(processes.assertAvailable(row.getProjectId(), record.getStage()));
             check =
-                    check.then(category(row.getProjectId(), record.getCategoryId()))
+                    check.then(materialCategories.selectable(record.getCategoryId()))
                             .then(files.validate(record.getFiles()));
             List<String> persons =
                     record.getPersonIds() == null ? List.of() : record.getPersonIds();
@@ -172,7 +173,8 @@ public class HandoverConfigurationService {
 
     private Mono<Void> stageWrite(HandoverEntity row) {
         if (row instanceof HandoverRecordEntity record)
-            return processes.writeStage(row.getProjectId(), record.getStage());
+            return processes.writeStage(row.getProjectId(), record.getStage())
+                    .then(materialCategories.reserveForRecord(record.getCategoryId()));
         if (row instanceof HandoverItemEntity item)
             return processes.writeStage(row.getProjectId(), stage(item.getSource()));
         return Mono.empty();

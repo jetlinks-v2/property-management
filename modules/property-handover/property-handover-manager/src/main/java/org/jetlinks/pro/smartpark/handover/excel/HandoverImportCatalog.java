@@ -26,6 +26,7 @@ public class HandoverImportCatalog {
     private final HandoverScope scope;
     private final HandoverDirectory directory;
     private final HandoverCategoryRepository categories;
+    private final HandoverMaterialCategoryRepository materialCategories;
     private final HandoverResponsibilityRepository organizations;
     private final HandoverItemRepository items;
 
@@ -82,6 +83,10 @@ public class HandoverImportCatalog {
     }
 
     public Mono<Catalog> load(String projectId, String source) {
+        return load(projectId, source, null);
+    }
+
+    public Mono<Catalog> load(String projectId, String source, String kind) {
         return directory
                 .employee()
                 .then(scope.project(projectId, CrudAssetPermission.save))
@@ -89,7 +94,7 @@ public class HandoverImportCatalog {
                 .flatMap(
                         context ->
                                 Mono.zip(
-                                                read(categories, context, projectId),
+                                                "record".equals(kind) ? materialOptions(context) : read(categories, context, projectId),
                                                 read(organizations, context, projectId),
                                                 read(items, context, projectId)
                                                         .map(
@@ -110,6 +115,25 @@ public class HandoverImportCatalog {
                                                         new Catalog(
                                                                 t.getT1(), t.getT2(), t.getT3(),
                                                                 t.getT4())));
+    }
+
+    // 仅将共享资料目录投影为模板选项，绝不写回项目问题分类表。
+    private Mono<List<HandoverCategoryEntity>> materialOptions(HandoverContext context) {
+        return materialCategories.createQuery()
+                .setParam(scope.mandatory(new QueryParamEntity(), context, null)).fetch()
+                .take(REFERENCE_LIMIT + 1L).collectList().map(rows -> {
+                    HandoverRules.require(rows.size() <= REFERENCE_LIMIT, "excel_reference_limit");
+                    var enabled = rows.stream().filter(row -> Boolean.TRUE.equals(row.getEnabled()))
+                            .map(HandoverMaterialCategoryEntity::getId).collect(java.util.stream.Collectors.toSet());
+                    return rows.stream().filter(row -> enabled.contains(row.getId())
+                            && (row.getParentId() == null || enabled.contains(row.getParentId())))
+                            .map(row -> {
+                                var option = new HandoverCategoryEntity();
+                                option.setId(row.getId()); option.setName(row.getName());
+                                option.setParentId(row.getParentId()); option.setEnabled(row.getEnabled());
+                                return option;
+                            }).toList();
+                });
     }
 
     private <E extends HandoverEntity> Mono<List<E>> read(

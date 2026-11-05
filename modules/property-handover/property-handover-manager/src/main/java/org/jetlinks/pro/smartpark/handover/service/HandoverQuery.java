@@ -12,6 +12,10 @@ import java.util.List;
 @Setter
 public class HandoverQuery {
     private String projectId;
+    private Boolean enabled;
+    private String operator;
+    private Long modifyTimeFrom;
+    private Long modifyTimeTo;
     private int pageIndex = 0;
     private int pageSize = 12;
     private String keyword;

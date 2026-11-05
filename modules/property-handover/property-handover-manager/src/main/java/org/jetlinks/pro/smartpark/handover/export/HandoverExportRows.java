@@ -42,6 +42,7 @@ public class HandoverExportRows {
     private final HandoverProblemService problems;
     private final HandoverProblemRepository problemRepository;
     private final HandoverCategoryRepository categories;
+    private final HandoverMaterialCategoryRepository materialCategories;
     private final HandoverLedgerRepository ledgers;
     private final HandoverEquipmentRepository equipment;
     private final HandoverRecordRepository records;
@@ -185,9 +186,9 @@ public class HandoverExportRows {
         String category = Objects.toString(value.get("categoryId"), "");
         if (!category.isEmpty())
             related =
-                    categories
-                            .findById(category)
-                            .doOnNext(c -> value.put("categoryName", c.getName()));
+                    row instanceof HandoverRecordEntity
+                            ? materialCategories.findById(category).doOnNext(c -> value.put("categoryName", c.getName()))
+                            : categories.findById(category).doOnNext(c -> value.put("categoryName", c.getName()));
         String parent = Objects.toString(value.get("parentId"), "");
         if (!parent.isEmpty())
             related =

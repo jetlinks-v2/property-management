@@ -149,6 +149,8 @@ public final class HandoverPersistenceFixture {
     @EnableEasyormRepository("org.jetlinks.pro.smartpark.handover.entity")
     @Import({
         HandoverCategoryRepository.class,
+        HandoverMaterialCategoryRepository.class,
+        HandoverMaterialCategoryService.class,
         HandoverResponsibilityRepository.class,
         HandoverLedgerRepository.class,
         HandoverEquipmentRepository.class,
