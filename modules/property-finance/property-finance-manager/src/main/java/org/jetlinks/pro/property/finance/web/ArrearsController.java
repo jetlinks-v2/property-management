@@ -8,6 +8,7 @@ import org.jetlinks.pro.property.base.dictionary.PropertyDictionaryOption;
 import org.jetlinks.pro.property.finance.entity.ArrearsConfigEntity;
 import org.jetlinks.pro.property.finance.service.ArrearsService;
 import org.jetlinks.pro.property.finance.service.SubjectDictionaryService;
+import org.jetlinks.pro.property.finance.subject.ArrearsConfigView;
 import org.jetlinks.pro.property.finance.subject.ArrearsInput;
 import org.springframework.web.bind.annotation.*;
 
@@ -27,7 +28,7 @@ public class ArrearsController {
 
     @PostMapping("/_query")
     @ResourceAction(id = "query", name = "查询")
-    public Mono<PagerResult<ArrearsConfigEntity>> query(@RequestBody QueryParamEntity input) {
+    public Mono<PagerResult<ArrearsConfigView>> query(@RequestBody QueryParamEntity input) {
         return service.query(input);
     }
 

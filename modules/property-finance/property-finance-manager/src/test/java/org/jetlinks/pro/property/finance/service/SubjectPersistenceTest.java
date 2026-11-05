@@ -235,6 +235,54 @@ class SubjectPersistenceTest {
     }
 
     @Test
+    void arrearsListIncludesOnlyCurrentRulesAndKeepsPagination() {
+        arrears.update(
+                        arrearsId,
+                        arrearsInput(
+                                0L,
+                                "催缴",
+                                List.of(
+                                        new ArrearsInput.Rule(null, 90, "2"),
+                                        new ArrearsInput.Rule(null, 10, "1"))))
+                .contextWrite(auth())
+                .block(WAIT);
+        var other =
+                arrears.create(
+                                arrearsInput(
+                                        null, "其他通知", List.of(new ArrearsInput.Rule(null, 5, "2"))))
+                        .contextWrite(auth())
+                        .block(WAIT);
+        var query = new QueryParamEntity();
+        query.setPageSize(1);
+        query.orderBy("id");
+        var seen = new HashSet<String>();
+        for (int index = 0; index < 2; index++) {
+            query.setPageIndex(index);
+            var page = arrears.query(query).contextWrite(auth()).block(WAIT);
+            assertEquals(2, page.getTotal());
+            assertEquals(index, page.getPageIndex());
+            assertEquals(1, page.getData().size());
+            var row = page.getData().get(0);
+            assertTrue(seen.add(row.getId()));
+            assertEquals(row.getId(), row.getRules().get(0).getConfigId());
+            assertEquals(
+                    row.getId().equals(arrearsId) ? List.of(10, 90) : List.of(5),
+                    row.getRules().stream().map(ArrearsRuleEntity::getOverdueDays).toList());
+            assertTrue(row.getRules().stream().noneMatch(ArrearsRuleEntity::getDeleted));
+            assertEquals(
+                    row.getId().equals(arrearsId) ? List.of("1", "2") : List.of("2"),
+                    row.getRules().stream().map(ArrearsRuleEntity::getLevelCode).toList());
+        }
+        arrears.delete(other.config().getId(), 0).contextWrite(auth()).block(WAIT);
+        query.setPageIndex(0);
+        var remaining = arrears.query(query).contextWrite(auth()).block(WAIT);
+        assertEquals(1, remaining.getTotal());
+        assertEquals(arrearsId, remaining.getData().get(0).getId());
+        query.toQuery().and("name", "不存在的配置");
+        assertTrue(arrears.query(query).contextWrite(auth()).block(WAIT).getData().isEmpty());
+    }
+
+    @Test
     void arrearsRulesAreSortedValidatedVersionedAndReferencedDeletionRejected() {
         var input =
                 arrearsInput(

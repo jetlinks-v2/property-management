@@ -11,6 +11,7 @@ import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.authorization.Authentication;
 import org.hswebframework.web.crud.query.QueryHelper;
 import org.jetlinks.pro.property.finance.entity.*;
+import org.jetlinks.pro.property.finance.subject.ArrearsConfigView;
 import org.jetlinks.pro.property.finance.subject.ArrearsInput;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,14 +31,46 @@ public class ArrearsService {
     private final ReactiveRepository<ArrearsRuleEntity, String> rules;
     private final ReactiveRepository<SubjectEntity, String> subjects;
 
-    public Mono<PagerResult<ArrearsConfigEntity>> query(QueryParamEntity input) {
+    public Mono<PagerResult<ArrearsConfigView>> query(QueryParamEntity input) {
         return scope.authenticated()
                 .flatMap(
                         auth -> {
                             var query = SubjectService.page(input);
                             query.toNestQuery(nested -> nested.and("deleted", false));
-                            return QueryHelper.queryPager(query, configs::createQuery);
+                            return QueryHelper.queryPager(query, configs::createQuery)
+                                    .flatMap(page -> withRules(page, query));
                         });
+    }
+
+    private Mono<PagerResult<ArrearsConfigView>> withRules(
+            PagerResult<ArrearsConfigEntity> page, QueryParamEntity query) {
+        if (page.getData().isEmpty())
+            return Mono.just(PagerResult.of(page.getTotal(), List.of(), query));
+        // 只批量读取本页配置的有效规则，避免逐条详情查询，也不展示已替换的历史阈值。
+        var ids = page.getData().stream().map(ArrearsConfigEntity::getId).toList();
+        var ruleQuery = new QueryParamEntity();
+        ruleQuery.setPaging(false);
+        ruleQuery.orderBy("overdueDays");
+        return rules.createQuery()
+                .setParam(ruleQuery)
+                .in("configId", ids)
+                .and("deleted", false)
+                .fetch()
+                .collect(java.util.stream.Collectors.groupingBy(ArrearsRuleEntity::getConfigId))
+                .map(
+                        values ->
+                                PagerResult.of(
+                                        page.getTotal(),
+                                        page.getData().stream()
+                                                .map(
+                                                        row ->
+                                                                ArrearsConfigView.of(
+                                                                        row,
+                                                                        values.getOrDefault(
+                                                                                row.getId(),
+                                                                                List.of())))
+                                                .toList(),
+                                        query));
     }
 
     public Flux<ArrearsConfigEntity> options() {
