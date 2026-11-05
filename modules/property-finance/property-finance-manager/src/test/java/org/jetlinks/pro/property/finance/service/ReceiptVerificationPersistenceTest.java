@@ -55,6 +55,46 @@ class ReceiptVerificationPersistenceTest extends DocumentIssuePersistenceTest {
     }
 
     @Test
+    void closedOperationDateBlocksNewVerificationButReplayAndNextOpenDayStillWork() {
+        var first = receipt();
+        var original = verification(first);
+        verify(original);
+        var next = receipt();
+        var request = verification(next);
+        periods.close(project, NOW.toLocalDate()).contextWrite(fixture.allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                verification
+                        .verify(project, request, NOW.plusHours(1))
+                        .contextWrite(fixture.allowed()));
+        assertTrue(verify(original).get(0).document().getVerified());
+        assertFalse(
+                Boolean.TRUE.equals(documentRows.findById(next.getId()).block(WAIT).getVerified()));
+        assertEquals(
+                1,
+                operations
+                        .createQuery()
+                        .where("projectId", project)
+                        .and("action", "VERIFY")
+                        .count()
+                        .block(WAIT));
+        var completed =
+                verification
+                        .verify(project, request, NOW.plusDays(1))
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT);
+        assertTrue(completed.get(0).document().getVerified());
+        assertEquals(
+                2,
+                operations
+                        .createQuery()
+                        .where("projectId", project)
+                        .and("action", "VERIFY")
+                        .count()
+                        .block(WAIT));
+        assertEquals(2, documentRows.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    @Test
     void batchRegistersOperatorWithoutChangingMoneyAndRetryRecoversAcrossDay() {
         var a = receipt();
         var b = receipt();
@@ -211,7 +251,7 @@ class ReceiptVerificationPersistenceTest extends DocumentIssuePersistenceTest {
                         .orElseThrow();
         sql(
                 "alter table pm_fin_doc_operation add constraint reject_verify check (document_id"
-                    + " <> '"
+                        + " <> '"
                         + last
                         + "' or action <> 'VERIFY')");
         try {

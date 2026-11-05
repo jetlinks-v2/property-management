@@ -77,6 +77,38 @@ class DocumentReopenPersistenceTest extends DocumentIssuePersistenceTest {
     }
 
     @Test
+    void closedOperationDateBlocksNewReopenButRecoversSuccessfulReplacement() {
+        maximum(2);
+        var first = blue();
+        var original = request(first);
+        var replacement = execute(first, original);
+        var next = blue();
+        var request = request(next);
+        periods.close(project, NOW.toLocalDate()).contextWrite(fixture.allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                reopen.confirm(project, next.getId(), request, NOW.plusHours(2))
+                        .contextWrite(fixture.allowed()));
+        assertEquals(replacement.document().getId(), execute(first, original).document().getId());
+        assertEquals(
+                "SIMULATED_ISSUED", documentRows.findById(next.getId()).block(WAIT).getStatus());
+        assertEquals(4, documentRows.createQuery().where("projectId", project).count().block(WAIT));
+        var now = NOW.plusDays(1).plusHours(2);
+        var preview =
+                reopen.preview(project, next.getId(), request.input(), now)
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT);
+        var nextRequest =
+                new DocumentReopenService.Submission(
+                        UUID.randomUUID().toString(), preview.token(), request.input());
+        var reopened =
+                reopen.confirm(project, next.getId(), nextRequest, now)
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT);
+        assertEquals(now.toString(), reopened.document().getIssuedAt());
+        assertEquals(6, documentRows.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    @Test
     void previewIsReadOnlyAndConfirmationAtomicallyBuildsRedAndReplacement() {
         maximum(1);
         var blue = blue();
@@ -265,7 +297,7 @@ class DocumentReopenPersistenceTest extends DocumentIssuePersistenceTest {
         var request = request(blue);
         sqlReopen(
                 "alter table pm_fin_doc_operation add constraint reject_reopen_end check"
-                    + " (project_id <> '"
+                        + " (project_id <> '"
                         + project
                         + "' or action <> 'REOPEN')");
         try {
@@ -427,7 +459,7 @@ class DocumentReopenPersistenceTest extends DocumentIssuePersistenceTest {
         var request = request(blue);
         sqlReopen(
                 "alter table pm_fin_document add constraint reject_replacement check (project_id <>"
-                    + " '"
+                        + " '"
                         + project
                         + "' or previous_document_id is null)");
         try {

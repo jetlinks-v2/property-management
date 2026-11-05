@@ -28,6 +28,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class DocumentReopenService {
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final DocumentRules rules;
     private final DocumentPreparationService preparation;
     private final DocumentReverseService reverse;
@@ -88,25 +89,26 @@ public class DocumentReopenService {
                                                                                 "REOPEN",
                                                                                 request
                                                                                         .requestId());
-                                                                // 成功结果先恢复，不能因自己的后继、已消耗次数、跨日或新额度而重做红冲。
-                                                                return store.replay(
+                                                                // 最外层先锁期间再锁公司，嵌套红冲沿用此事务；原成功结果优先恢复，不重复消耗次数或额度。
+                                                                return periodGate.inOpenPeriod(
+                                                                        project,
+                                                                        now.toLocalDate(),
+                                                                        store.replay(
                                                                                 project,
                                                                                 "INVOICE",
                                                                                 id,
                                                                                 tenant,
-                                                                                fingerprint)
-                                                                        .switchIfEmpty(
-                                                                                Mono.defer(
-                                                                                        () ->
-                                                                                                lockAndConfirm(
-                                                                                                        project,
-                                                                                                        original,
-                                                                                                        request,
-                                                                                                        now,
-                                                                                                        auth,
-                                                                                                        tenant,
-                                                                                                        id,
-                                                                                                        fingerprint)));
+                                                                                fingerprint),
+                                                                        () ->
+                                                                                lockAndConfirm(
+                                                                                        project,
+                                                                                        original,
+                                                                                        request,
+                                                                                        now,
+                                                                                        auth,
+                                                                                        tenant,
+                                                                                        id,
+                                                                                        fingerprint));
                                                             });
                                         }))
                 .onErrorMap(DocumentIssueService::duplicate)

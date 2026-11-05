@@ -24,6 +24,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class DocumentIssueService {
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final DocumentInputRules rules;
     private final DocumentPreparationService preparation;
     private final InvoiceCompanyService companies;
@@ -81,32 +82,33 @@ public class DocumentIssueService {
         var id =
                 DocumentStore.requestKey(
                         tenant, project, auth, input.documentType(), "ISSUE", request.requestId());
-        // 必须先恢复成功事实，否则本请求自己的占用会使重试预览失败。公司锁后二查消除并发窗口。
-        return store.replay(project, input.documentType(), id, tenant, fingerprint)
-                .switchIfEmpty(
-                        Mono.defer(
-                                () ->
-                                        companies
-                                                .company(input.companyId(), true)
-                                                .then(
-                                                        store.replay(
+        // 本次开具日期进入期间锁，原成功事实优先恢复；不能因自己的额度占用或后续月结而重复开具。
+        return periodGate.inOpenPeriod(
+                project,
+                now.toLocalDate(),
+                store.replay(project, input.documentType(), id, tenant, fingerprint),
+                () ->
+                        companies
+                                .company(input.companyId(), true)
+                                .then(
+                                        store.replay(
+                                                project,
+                                                input.documentType(),
+                                                id,
+                                                tenant,
+                                                fingerprint))
+                                .switchIfEmpty(
+                                        Mono.defer(
+                                                () ->
+                                                        prepareAndPersist(
                                                                 project,
-                                                                input.documentType(),
                                                                 id,
                                                                 tenant,
-                                                                fingerprint))
-                                                .switchIfEmpty(
-                                                        Mono.defer(
-                                                                () ->
-                                                                        prepareAndPersist(
-                                                                                project,
-                                                                                id,
-                                                                                tenant,
-                                                                                request.token(),
-                                                                                input,
-                                                                                fingerprint,
-                                                                                auth,
-                                                                                now)))));
+                                                                request.token(),
+                                                                input,
+                                                                fingerprint,
+                                                                auth,
+                                                                now))));
     }
 
     private Mono<DocumentStore.Detail> prepareAndPersist(

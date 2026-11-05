@@ -32,6 +32,8 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
     @Autowired ReactiveRepository<DocumentOperationEntity, String> operations;
     @Autowired ReactiveRepository<DocumentOccupationEntity, String> occupationRows;
     @Autowired ReactiveRepository<FinanceCompanyEntity, String> companyRows;
+    @Autowired FinancialPeriodTestSupport periods;
+    @Autowired ReactiveRepository<FinancialPeriodControlEntity, String> periodRows;
 
     @BeforeEach
     void createCompany() {
@@ -69,6 +71,157 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
         return reverse.reverse(project, d.getDocumentType(), d.getId(), i, NOW.plusHours(1))
                 .contextWrite(fixture.allowed())
                 .block(WAIT);
+    }
+
+    @Test
+    void closedOperationDateBlocksNewIssueButRestoresSuccessfulOriginal() {
+        var firstBill = documentBill();
+        var first = submission(input(List.of(item("RECEIVABLE", firstBill.getId(), "50"))));
+        var saved = issue(first);
+        var nextBill = documentBill();
+        var next = submission(input(List.of(item("RECEIVABLE", nextBill.getId(), "50"))));
+        periods.close(project, NOW.toLocalDate()).contextWrite(fixture.allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                issue.confirm(project, next, NOW).contextWrite(fixture.allowed()));
+        assertEquals(saved.document().getId(), issue(first).document().getId());
+        assertEquals(1, documentRows.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(1, operations.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(
+                new BigDecimal("0.00"),
+                bills.findById(nextBill.getId()).block(WAIT).getInvoiceOccupiedAmount());
+    }
+
+    @Test
+    void closedOperationDateBlocksRedButOpenDayCanReverseHistoricalInvoice() {
+        var bill = documentBill();
+        var saved = issue(submission(input(List.of(item("RECEIVABLE", bill.getId(), "50")))));
+        var request = reversal(saved.document(), "跨期纠正");
+        bills.createUpdate()
+                .set("financialClosed", true)
+                .where("id", bill.getId())
+                .execute()
+                .block(WAIT);
+        periods.close(project, NOW.toLocalDate()).contextWrite(fixture.allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                reverse.reverse(
+                                project,
+                                "INVOICE",
+                                saved.document().getId(),
+                                request,
+                                NOW.plusHours(1))
+                        .contextWrite(fixture.allowed()));
+        assertEquals(
+                "SIMULATED_ISSUED",
+                documentRows.findById(saved.document().getId()).block(WAIT).getStatus());
+        assertEquals(
+                new BigDecimal("50.00"),
+                bills.findById(bill.getId()).block(WAIT).getInvoiceOccupiedAmount());
+        var red =
+                reverse.reverse(
+                                project,
+                                "INVOICE",
+                                saved.document().getId(),
+                                request,
+                                NOW.plusDays(1))
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT);
+        assertEquals("-50.00", red.document().getAmount().toPlainString());
+        assertEquals(NOW.plusDays(1).toString(), red.document().getIssuedAt());
+        assertTrue(bills.findById(bill.getId()).block(WAIT).getFinancialClosed());
+        assertEquals(
+                new BigDecimal("0.00"),
+                bills.findById(bill.getId()).block(WAIT).getInvoiceOccupiedAmount());
+    }
+
+    @Test
+    void closedOperationDateBlocksReceiptVoidButOpenDayCanVoidUnpaidReceipt() {
+        var bill = documentBill();
+        var invoice = input(List.of(item("RECEIVABLE", bill.getId(), "50")));
+        var input =
+                new DocumentIssueInput(
+                        "RECEIPT",
+                        invoice.companyId(),
+                        invoice.buyer(),
+                        null,
+                        invoice.remark(),
+                        invoice.items());
+        var receipt = issue(submission(input)).document();
+        var request = reversal(receipt, "误开收据");
+        periods.close(project, NOW.toLocalDate()).contextWrite(fixture.allowed()).block(WAIT);
+        FinancialPeriodTestSupport.rejectsClosed(
+                reverse.reverse(project, "RECEIPT", receipt.getId(), request, NOW.plusHours(1))
+                        .contextWrite(fixture.allowed()));
+        assertEquals("ISSUED", documentRows.findById(receipt.getId()).block(WAIT).getStatus());
+        assertEquals(
+                new BigDecimal("50.00"),
+                bills.findById(bill.getId()).block(WAIT).getInvoiceOccupiedAmount());
+        var voided =
+                reverse.reverse(project, "RECEIPT", receipt.getId(), request, NOW.plusDays(1))
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT);
+        assertEquals("VOIDED", voided.document().getStatus());
+        assertEquals(
+                new BigDecimal("0.00"),
+                bills.findById(bill.getId()).block(WAIT).getInvoiceOccupiedAmount());
+    }
+
+    @Test
+    void successfulReverseRecoversAfterItsOperationPeriodCloses() {
+        var bill = documentBill();
+        var blue =
+                issue(submission(input(List.of(item("RECEIVABLE", bill.getId(), "50")))))
+                        .document();
+        var request = reversal(blue, "原红冲恢复");
+        var red = reverse(blue, request);
+        periods.close(project, NOW.toLocalDate()).contextWrite(fixture.allowed()).block(WAIT);
+        assertEquals(red.document().getId(), reverse(blue, request).document().getId());
+        assertEquals(2, documentRows.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(
+                new BigDecimal("0.00"),
+                bills.findById(bill.getId()).block(WAIT).getInvoiceOccupiedAmount());
+    }
+
+    @Test
+    void openOperationDayCanIssueForHistoricalClosedReceivable() {
+        var bill = documentBill();
+        bills.createUpdate()
+                .set("financialClosed", true)
+                .where("id", bill.getId())
+                .execute()
+                .block(WAIT);
+        periods.close(project, NOW.toLocalDate()).contextWrite(fixture.allowed()).block(WAIT);
+        var input = input(List.of(item("RECEIVABLE", bill.getId(), "50")));
+        var now = NOW.plusDays(1);
+        var preview =
+                preparation
+                        .preview(project, input, now)
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT);
+        var request =
+                new DocumentIssueService.Submission(
+                        UUID.randomUUID().toString(), preview.token(), input);
+        var saved =
+                issue.confirm(project, request, now).contextWrite(fixture.allowed()).block(WAIT);
+        assertEquals(now.toString(), saved.document().getIssuedAt());
+        assertEquals("50.00", saved.document().getAmount().toPlainString());
+        assertTrue(bills.findById(bill.getId()).block(WAIT).getFinancialClosed());
+    }
+
+    @Test
+    void previewDoesNotInitializeFinancialPeriodAndFailedIssueRollsBackInitialization() {
+        var bill = documentBill();
+        var input = input(List.of(item("RECEIVABLE", bill.getId(), "50")));
+        var before = periodRows.createQuery().where("projectId", project).count().block(WAIT);
+        preview(input);
+        assertEquals(
+                before, periodRows.createQuery().where("projectId", project).count().block(WAIT));
+        var stale =
+                new DocumentIssueService.Submission(
+                        UUID.randomUUID().toString(), "0".repeat(64), input);
+        fixture.rejects(issue.confirm(project, stale, NOW), 409);
+        assertEquals(
+                before, periodRows.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(0, documentRows.createQuery().where("projectId", project).count().block(WAIT));
     }
 
     @Test

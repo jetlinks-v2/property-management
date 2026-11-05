@@ -25,6 +25,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class DocumentReverseService {
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final InvoiceCompanyService companies;
     private final DocumentSourceService sources;
     private final DocumentOccupationLedger ledger;
@@ -94,20 +95,21 @@ public class DocumentReverseService {
             LocalDateTime now) {
         var operation =
                 DocumentStore.requestKey(tenant, project, auth, type, "REVERSE", input.requestId());
-        return store.operationReplay(project, type, operation, id, tenant, fingerprint)
-                .switchIfEmpty(
-                        Mono.defer(
-                                () ->
-                                        lockCompanyAndReverse(
-                                                project,
-                                                type,
-                                                id,
-                                                tenant,
-                                                operation,
-                                                fingerprint,
-                                                input,
-                                                now,
-                                                auth)));
+        return periodGate.inOpenPeriod(
+                project,
+                now.toLocalDate(),
+                store.operationReplay(project, type, operation, id, tenant, fingerprint),
+                () ->
+                        lockCompanyAndReverse(
+                                project,
+                                type,
+                                id,
+                                tenant,
+                                operation,
+                                fingerprint,
+                                input,
+                                now,
+                                auth));
     }
 
     private Mono<DocumentStore.Detail> lockCompanyAndReverse(

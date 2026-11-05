@@ -25,6 +25,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class ReceiptVerificationService {
     private final FinanceScope scope;
+    private final FinancialPeriodGate periodGate;
     private final DocumentStore store;
     private final ReactiveRepository<DocumentEntity, String> documents;
     private final ReactiveRepository<DocumentOperationEntity, String> operations;
@@ -57,23 +58,24 @@ public class ReceiptVerificationService {
                                                                                         List.of(
                                                                                                 key,
                                                                                                 normalized)));
-                                                                return replay(
+                                                                return periodGate.inOpenPeriod(
+                                                                        project,
+                                                                        now.toLocalDate(),
+                                                                        replay(
                                                                                 project,
                                                                                 tenant,
                                                                                 key,
                                                                                 fingerprint,
-                                                                                normalized)
-                                                                        .switchIfEmpty(
-                                                                                Mono.defer(
-                                                                                        () ->
-                                                                                                lockAndVerify(
-                                                                                                        project,
-                                                                                                        tenant,
-                                                                                                        key,
-                                                                                                        fingerprint,
-                                                                                                        normalized,
-                                                                                                        now,
-                                                                                                        auth)));
+                                                                                normalized),
+                                                                        () ->
+                                                                                lockAndVerify(
+                                                                                        project,
+                                                                                        tenant,
+                                                                                        key,
+                                                                                        fingerprint,
+                                                                                        normalized,
+                                                                                        now,
+                                                                                        auth));
                                                             });
                                         }))
                 .onErrorMap(DocumentIssueService::duplicate)
@@ -88,7 +90,7 @@ public class ReceiptVerificationService {
             Input input,
             LocalDateTime now,
             Authentication auth) {
-        // 只锁主单且按ID排序，不再取得公司/来源锁；作废在锁主单后复查核销，冲突会回滚其额度释放。
+        // 外层已取得期间锁；主单按ID排序且不再取得公司/来源锁，作废仍在主单锁后复查核销。
         return Flux.fromIterable(input.items())
                 .concatMap(
                         item ->
