@@ -63,6 +63,11 @@ class UserPersistenceTest {
                 .block(WAIT);
         reset(source);
         when(source.find(anyString())).thenReturn(Mono.just(Optional.empty()));
+        when(source.authorizedIds(anyList())).thenAnswer(call ->
+            AssetsHolder.filterAssets(Flux.fromIterable(call.<List<String>>getArgument(0))
+                .map(id -> { var row = new PropertyUserEntity(); row.setId(id); return row; }),
+                org.jetlinks.pro.assets.AssetType.of("user"), PropertyUserEntity::getId,
+                org.jetlinks.pro.assets.crud.CrudAssetPermission.read).map(PropertyUserEntity::getId));
     }
 
     @Test
@@ -422,7 +427,7 @@ class UserPersistenceTest {
         users.createUpdate().set("employee", true).in("id", List.of("staff", "hidden")).execute().block(WAIT);
         when(source.authorizedIds(anyList())).thenAnswer(call ->
                 Flux.fromIterable(call.<List<String>>getArgument(0)).filter(id -> Set.of("staff", "customer").contains(id)));
-        var provider = new org.jetlinks.pro.property.base.command.PropertyEmployeeCommandSupport(users, orgs, new PropertyUserScope(users));
+        var provider = new org.jetlinks.pro.property.base.command.PropertyEmployeeCommandSupport(users, orgs, new PropertyUserScope(users, source));
         var command = new org.jetlinks.pro.property.base.command.QueryPropertyEmployeePageCommand();
         command.setQuery(QueryParamEntity.newQuery().is("id", "staff").or().is("id", "hidden").orderByAsc("id").getParam());
         var roundTrip = new org.jetlinks.pro.property.base.command.QueryPropertyEmployeePageCommand();

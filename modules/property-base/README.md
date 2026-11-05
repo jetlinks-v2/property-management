@@ -66,7 +66,7 @@ return CommandSupportManagerProviders
 
 用户管理实现位于 manager 的 `service/*User*`、`entity/PropertyUser*`、`entity/UserSyncStateEntity`、`web/PropertyUserController`，设计以相邻 `../../../设计文档/用户管理设计.md` 为准。SaaS 账号资料只读，物业身份可以同时为客户、员工，也可清空；身份不等于 SaaS 角色或房屋关系。客户身份保留原 `owner` 编码及数据库列，房屋关系中的“业主”性质含义不变。
 
-`/property/user` 提供 `_query`、`_counts`、`{id}`、`_identities`、`{id}/identities`、`_sync`、`_sync/status`，资源 `property-user`，动作 `query/save/sync`。分页及计数先通过原 `user` 的 AssetsHolder 解析授权 ID，再与 `pm_user` 筛选取交集；不在镜像库执行依赖 Cloud `s_user` 的权限 SQL；详情与标注分别校验 read/save。标注提交完整集合和 version，冲突拒绝覆盖；没有通用账号保存或删除接口。
+`/property/user` 提供 `_query`、`_counts`、`{id}`、`_identities`、`{id}/identities`、`_sync`、`_sync/status`，资源 `property-user`，动作 `query/save/sync`。分页及计数先通过认证服务 `authService:user-directory` 标准 `QueryListCommand<UserInfo>`（200 ID/批）解析原 `user/read` 的 AssetsHolder 授权 ID，再与 `pm_user` 筛选取交集；不在镜像库执行依赖 Cloud `s_user` 的权限 SQL；该只读命令不要求系统用户管理动作；认证服务负责人员资产条件，保留调用者认证、租户和应用 Scope，故障明确传播。详情与标注分别校验 read/save。标注提交完整集合和 version，冲突拒绝覆盖；没有通用账号保存或删除接口。
 
 全量同步通过 `authService:user` 显式 SDK 命令执行，分页暂存、校验和缺失 ID 复核后统一事务落库，保留本地身份、版本和标注审计；异常空来源、分页变化、重复 ID 或复核失败均不提交。SaaS 删除仅逻辑删除，同 ID 恢复保留身份。
 
