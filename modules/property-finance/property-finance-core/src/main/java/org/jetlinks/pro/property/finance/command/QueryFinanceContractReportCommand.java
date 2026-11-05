@@ -23,6 +23,7 @@ import java.io.Serial;
 public class QueryFinanceContractReportCommand
         extends AbstractCommand<Mono<ContractReportResult>, QueryFinanceContractReportCommand> {
     @Serial private static final long serialVersionUID = 1L;
-    public static final String SERVICE_ID = "propertyService:finance-contract-report";
+    // 与收费写命令共用独立 provider，不占用基础服务的 propertyService。
+    public static final String SERVICE_ID = "financeService:finance-contract-report";
     private ContractReportInput query;
 }

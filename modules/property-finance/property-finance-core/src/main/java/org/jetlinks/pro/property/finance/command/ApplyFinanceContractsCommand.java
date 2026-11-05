@@ -23,7 +23,8 @@ import java.util.List;
 public class ApplyFinanceContractsCommand
         extends AbstractCommand<Mono<ContractSyncResult>, ApplyFinanceContractsCommand> {
     @Serial private static final long serialVersionUID = 1L;
-    public static final String SERVICE_ID = "propertyService:finance-contract";
+    // 注册器按冒号前的 provider 分组，收费必须独立，避免遮蔽远程基础项目等命令。
+    public static final String SERVICE_ID = "financeService:finance-contract";
     private String projectId;
     private Long expectedVersion;
     private List<ContractMirrorInput> contracts;

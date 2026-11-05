@@ -365,7 +365,7 @@ Excel/PDF最多10000条明细或分组行，超限拒绝无截断；沿用 `Fina
 
 ## 合同来源与镜像
 
-财务独立保存合同镜像，跨模块只依赖 `property-finance-core` 的 `ApplyFinanceContractsCommand` 及快照 DTO，命令服务为 `propertyService:finance-contract`。调用需要 `property-finance-contracts:sync`、项目及整批新旧房屋的 `save` 权限，保留调用者租户，不提供免鉴权入口；其他 manager 不得直接读写镜像表。
+财务独立保存合同镜像，跨模块只依赖 `property-finance-core` 的 `ApplyFinanceContractsCommand` 及快照 DTO，命令服务为 `financeService:finance-contract`。调用需要 `property-finance-contracts:sync`、项目及整批新旧房屋的 `save` 权限，保留调用者租户，不提供免鉴权入口；其他 manager 不得直接读写镜像表。
 
 合同来源身份 `sourceId` 和同项目合同编码建立后不能改成其他合同，逻辑删除后也不释放编码。增量仅按上游显式删除标记逻辑删除，本次未返回的合同继续保留；同身份可恢复，原创建时间和历史账单不变。全部字段、权限、来源空间和唯一性先校验，再与同步版本、批次审计同事务写入。未变化的已有快照不制造修改时间或提高版本，过期版本和并发冲突返回409，拒绝静默覆盖。首次预期版本为 `null` 或 `-1`，后续使用上次同步结果或 HTTP 适配器在下载前读取的版本。
 
@@ -393,7 +393,7 @@ Excel/PDF最多10000条明细或分组行，超限拒绝无截断；沿用 `Fina
 
 HTTP入口为 `POST /property/finance/reports/contracts/_query`、`POST /property/finance/reports/contracts/{contractId}/{metric}/_details` 和 `POST /property/finance/reports/contracts/_export/{format}`。前两者使用 `query` 权限，文件使用独立 `export` 权限；`format` 仅允许 `excel`、`pdf`。请求使用 `ContractReportInput` 的 `projectId/month/keyword/startDate/endDate/spaceIds/subjectIds/pageIndex/pageSize`，月份为 `yyyy-MM`，履约日期为 `yyyy-MM-dd`；分页默认0、12，最多200。下钻 `metric` 为六项金额的公开字段名，负数净实收仍返回。返回项目名称及精确金额字符串，不提供通用修改或删除入口。
 
-跨模块消费者依赖 `property-finance-core` 中的请求、结果及 `QueryFinanceContractReportCommand`、`QueryFinanceContractReportDetailsCommand`，通过命令服务 `propertyService:finance-contract-report` 查询，不能引用 manager 内部服务或表。命令和HTTP共用同一权限与事务入口，不接受后台特权身份。Excel与PDF使用完整筛选范围数据和合计，包含项目名称及统计月份；金额保持文本精度，用户文本不执行公式或HTML，PDF禁止访问外部资源。文件排版在只读数据事务结束后的 `boundedElastic` 上执行，不长时间占用数据库事务。
+跨模块消费者依赖 `property-finance-core` 中的请求、结果及 `QueryFinanceContractReportCommand`、`QueryFinanceContractReportDetailsCommand`，通过命令服务 `financeService:finance-contract-report` 查询，不能引用 manager 内部服务或表。命令和HTTP共用同一权限与事务入口，不接受后台特权身份。Excel与PDF使用完整筛选范围数据和合计，包含项目名称及统计月份；金额保持文本精度，用户文本不执行公式或HTML，PDF禁止访问外部资源。文件排版在只读数据事务结束后的 `boundedElastic` 上执行，不长时间占用数据库事务。
 
 ## 独立基础服务依赖
 
