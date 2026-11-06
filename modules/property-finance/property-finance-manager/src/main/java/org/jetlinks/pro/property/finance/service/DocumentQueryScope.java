@@ -1,14 +1,11 @@
 package org.jetlinks.pro.property.finance.service;
 
-import static org.jetlinks.pro.property.finance.service.FinanceScope.error;
-
 import lombok.RequiredArgsConstructor;
 
 import org.hswebframework.ezorm.core.param.SqlTerm;
 import org.hswebframework.ezorm.rdb.executor.SqlRequest;
 import org.hswebframework.ezorm.rdb.mapping.ReactiveRepository;
 import org.hswebframework.web.api.crud.entity.QueryParamEntity;
-import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.finance.entity.*;
 import org.springframework.stereotype.Component;
@@ -32,10 +29,11 @@ class DocumentQueryScope {
         return allRelated(paymentLines, "paymentId", project, CrudAssetPermission.save);
     }
 
-    Mono<QueryParamEntity> inject(QueryParamEntity query, CrudAssetPermission permission) {
-        return AssetsHolder.currentReactive()
-                .switchIfEmpty(Mono.error(error("permission_denied", 403)))
-                .flatMap(holder -> holder.injectQuery(query, "space", "spaceId", permission));
+    <T> Mono<QueryParamEntity> inject(
+            QueryParamEntity query,
+            ReactiveRepository<T, String> rows,
+            CrudAssetPermission permission) {
+        return FinanceSpaceQuery.inject(query, rows, permission);
     }
 
     <T> Mono<SqlTerm> allRelated(
@@ -46,7 +44,7 @@ class DocumentQueryScope {
         var base = new QueryParamEntity();
         base.setPaging(false);
         base.toQuery().and("projectId", project).and("deleted", false);
-        return inject(base.clone(), permission)
+        return inject(base.clone(), rows, permission)
                 .map(
                         secured -> {
                             var visible =

@@ -205,12 +205,7 @@ public class ReceivableReportService {
         if (input.getReceivableNo() != null && !input.getReceivableNo().isBlank())
             terms.like("id", "%" + input.getReceivableNo().trim() + "%");
         // 权限先进入来源SQL，所有汇总、count、分组与导出均不可见无权房屋。
-        return AssetsHolder.currentReactive()
-                .switchIfEmpty(Mono.error(error("permission_denied", 403)))
-                .flatMap(
-                        holder ->
-                                holder.injectQuery(
-                                        q, "space", "spaceId", CrudAssetPermission.read));
+        return FinanceSpaceQuery.inject(q, bills, CrudAssetPermission.read);
     }
 
     private Mono<ReceivableReportResult> load(

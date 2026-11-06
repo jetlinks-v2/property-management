@@ -380,6 +380,8 @@ class ContractMirrorPersistenceTest extends InvoiceCompanyPersistenceTest {
                                                         .DimensionAssetBindingEntity
                                                 ::getId))
                 .block(WAIT);
+        // 本地SQL绑定与平台资产接口的测试存储同时撤销 room2。
+        assets.rights.put(reader, Set.of("room"));
         var page = mirror.query(project, null, 0, 1).contextWrite(permitted).block(WAIT);
         assertEquals(1, page.getTotal());
         assertEquals("C01", page.getData().get(0).code());

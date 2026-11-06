@@ -51,7 +51,8 @@ public class HistoricalImportAuditService {
                                                             .and("deleted", false));
                                     query.toQuery().orderByAsc("lineNumber");
                                     // 自定义明细查询仍通过统一空间资产权限过滤，不依赖前端筛选。
-                                    return AssetsHolder.injectQueryParam(query, SPACE, "spaceId")
+                                    return FinanceSpaceQuery.inject(
+                                                    query, drafts, CrudAssetPermission.read)
                                             .flatMap(
                                                     q ->
                                                             org.hswebframework.web.crud.query

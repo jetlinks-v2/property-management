@@ -244,9 +244,9 @@ public class InvoiceReportService {
                 .in("method", PaymentRules.MANUAL_METHODS);
         // 每个来源先做空间授权。临时主单及票据的完整权限另外在主单SQL中约束。
         return visibility
-                .inject(b, CrudAssetPermission.read)
-                .then(visibility.inject(l, CrudAssetPermission.read))
-                .then(visibility.inject(e, CrudAssetPermission.read))
+                .inject(b, bills, CrudAssetPermission.read)
+                .then(visibility.inject(l, paymentLines, CrudAssetPermission.read))
+                .then(visibility.inject(e, entries, CrudAssetPermission.read))
                 .thenMany(
                         Flux.fromIterable(names.keySet())
                                 .concatMap(

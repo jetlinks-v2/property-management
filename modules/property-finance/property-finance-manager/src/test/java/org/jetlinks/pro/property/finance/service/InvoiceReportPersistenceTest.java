@@ -20,6 +20,8 @@ import java.util.*;
         webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class InvoiceReportPersistenceTest extends DocumentQueryPersistenceTest {
     @Autowired InvoiceReportService reports;
+    @Autowired ReceivableService receivableRecords;
+    @Autowired PaymentRecordService paymentRecords;
     @Autowired InvoiceReportExportService exports;
     @Autowired org.jetlinks.pro.property.finance.web.InvoiceReportController controller;
 
@@ -467,6 +469,83 @@ class InvoiceReportPersistenceTest extends DocumentQueryPersistenceTest {
         assertEquals(1, result.page().getTotal());
         assertEquals(10001L, result.page().getData().get(0).rowCount());
         assertEquals("1000100.00", result.summary().receivableAmount());
+    }
+
+    @Test
+    void creatorPermissionProtectsInvoiceSourcesSummaryAndExportWithoutSaasTables() {
+        documentBill();
+        var hidden = documentBill();
+        bills.createUpdate()
+                .set("spaceId", "secret-room")
+                .where("id", hidden.getId())
+                .execute()
+                .block(WAIT);
+        // 临时收款走 payment_line 权限分支，即本次线上报错的列。
+        collect(input());
+        var context = creatorScope(Set.of("room"));
+        assertEquals(
+                1,
+                receivableRecords
+                        .query(project, page(0, 1))
+                        .contextWrite(context)
+                        .block(WAIT)
+                        .getTotal());
+        assertEquals(
+                2,
+                paymentRecords
+                        .query(project, page(0, 1))
+                        .contextWrite(context)
+                        .block(WAIT)
+                        .getTotal());
+        var result = reports.query(reportInput()).contextWrite(context).block(WAIT);
+        assertEquals(2, result.page().getTotal());
+        assertEquals("200.01", result.summary().receivableAmount());
+        assertEquals(
+                result.summary(),
+                reports.exportData(reportInput()).contextWrite(context).block(WAIT).summary());
+        assertEquals(
+                0,
+                reports.query(reportInput())
+                        .contextWrite(creatorScope(Set.of()))
+                        .block(WAIT)
+                        .page()
+                        .getTotal());
+        var authority = new CarryForwardAuthorityTest();
+        authority.holders();
+        try {
+            var dimension =
+                    authorized(
+                            authority,
+                            Set.of("secret-room"),
+                            org.jetlinks.pro.assets.crud.CrudAssetPermission.read.getMask());
+            var creatorProvider =
+                    org.jetlinks.pro.assets.AssetsHolderHolder.registerProvider(
+                            auth ->
+                                    reactor.core.publisher.Mono.just(
+                                            context.get(
+                                                    org.jetlinks.pro.assets.AssetsHolder.class)));
+            try {
+                var combined =
+                        org.jetlinks.pro.assets.AssetsHolder.fromAuth(
+                                        dimension.get(
+                                                org.hswebframework.web.authorization.Authentication
+                                                        .class))
+                                .block(WAIT);
+                var union =
+                        reports.query(reportInput())
+                                .contextWrite(
+                                        context.put(
+                                                org.jetlinks.pro.assets.AssetsHolder.class,
+                                                combined))
+                                .block(WAIT);
+                assertEquals(3, union.page().getTotal());
+                assertEquals("300.01", union.summary().receivableAmount());
+            } finally {
+                creatorProvider.dispose();
+            }
+        } finally {
+            authority.close();
+        }
     }
 
     @Configuration

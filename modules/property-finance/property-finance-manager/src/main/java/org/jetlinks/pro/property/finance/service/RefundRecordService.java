@@ -35,8 +35,8 @@ public class RefundRecordService {
                                                             .and("deleted", false));
                                     if (query.getSorts().isEmpty())
                                         query.toQuery().orderByDesc("createTime").orderByDesc("id");
-                                    return AssetsHolder.injectQueryParam(
-                                                    query, AssetType.of("space"), "spaceId")
+                                    return FinanceSpaceQuery.inject(
+                                                    query, lines, CrudAssetPermission.read)
                                             .flatMap(
                                                     secured ->
                                                             QueryHelper.transformPageResult(

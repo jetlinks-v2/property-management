@@ -10,7 +10,6 @@ import org.hswebframework.ezorm.rdb.mapping.ReactiveRepository;
 import org.hswebframework.ezorm.rdb.operator.DatabaseOperator;
 import org.hswebframework.web.api.crud.entity.*;
 import org.jetlinks.core.trace.MonoTracer;
-import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.finance.entity.*;
 import org.jetlinks.pro.property.finance.payment.PaymentRules;
@@ -68,26 +67,11 @@ public class ReceivedReportService {
                     return Flux.fromIterable(new LinkedHashSet<>(input.getProjectIds()))
                             .concatMap(id -> scope.project(id, CrudAssetPermission.read))
                             .collectMap(p -> p.id(), p -> p.name(), LinkedHashMap::new)
-                            .flatMap(
-                                    names ->
-                                            AssetsHolder.currentReactive()
-                                                    .switchIfEmpty(
-                                                            Mono.error(
-                                                                    error(
-                                                                            "permission_denied",
-                                                                            403)))
-                                                    .flatMap(
-                                                            holder ->
-                                                                    source(input, holder)
-                                                                            .map(
-                                                                                    sql ->
-                                                                                            new Prepared(
-                                                                                                    sql,
-                                                                                                    names))));
+                            .flatMap(names -> source(input).map(sql -> new Prepared(sql, names)));
                 });
     }
 
-    private Mono<Sql> source(ReceivedReportInput i, AssetsHolder holder) {
+    private Mono<Sql> source(ReceivedReportInput i) {
         var p = baseQuery(i);
         p.toQuery().and("status", "SUCCEEDED");
         var l = baseQuery(i);
@@ -98,9 +82,9 @@ public class ReceivedReportService {
         var e = baseQuery(i);
         e.toQuery().not("cashAmount", 0);
         // 逐来源行先注入空间权限；只返回该行金额，不能从主单汇总泄漏同单其他房屋。
-        return holder.injectQuery(l, "space", "spaceId", CrudAssetPermission.read)
-                .then(holder.injectQuery(rl, "space", "spaceId", CrudAssetPermission.read))
-                .then(holder.injectQuery(e, "space", "spaceId", CrudAssetPermission.read))
+        return FinanceSpaceQuery.inject(l, lines, CrudAssetPermission.read)
+                .then(FinanceSpaceQuery.inject(rl, refundLines, CrudAssetPermission.read))
+                .then(FinanceSpaceQuery.inject(e, entries, CrudAssetPermission.read))
                 .map(
                         ignored -> {
                             return buildSource(i, p, l, r, rl, e);

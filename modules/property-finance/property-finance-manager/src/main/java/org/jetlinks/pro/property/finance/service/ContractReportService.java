@@ -156,7 +156,7 @@ public class ContractReportService {
         q.orderBy("code");
         q.orderBy("id");
         return visibility
-                .inject(q, CrudAssetPermission.read)
+                .inject(q, contracts, CrudAssetPermission.read)
                 .flatMapMany(secured -> contracts.createQuery().setParam(secured).fetch())
                 .collectList()
                 .map(ContractReportService::withinLimit);

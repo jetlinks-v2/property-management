@@ -408,8 +408,8 @@ public class FundsService {
                                     var q = SubjectService.page(input);
                                     q.toNestQuery(
                                             n -> n.and("projectId", project).and("deleted", false));
-                                    return AssetsHolder.injectQueryParam(
-                                                    q, AssetType.of("space"), "spaceId")
+                                    return FinanceSpaceQuery.inject(
+                                                    q, accounts, CrudAssetPermission.read)
                                             .flatMap(
                                                     secured ->
                                                             QueryHelper.queryPager(

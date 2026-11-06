@@ -62,7 +62,8 @@ public class CarryForwardRunAccessService {
                                     var q = page(input);
                                     q.toNestQuery(
                                             n -> n.and("projectId", project).and("runId", run));
-                                    return AssetsHolder.injectQueryParam(q, SPACE, "spaceId")
+                                    return FinanceSpaceQuery.inject(
+                                                    q, works, CrudAssetPermission.read)
                                             .flatMap(
                                                     secured ->
                                                             QueryHelper.queryPager(

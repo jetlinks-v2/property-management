@@ -23,6 +23,7 @@ import java.util.*;
 class CarryForwardAuthorityTest {
     Disposable provider, materializers;
     final Map<String, Set<String>> rights = new HashMap<>();
+    final Map<String, Long> masks = new HashMap<>();
 
     @BeforeEach
     void holders() {
@@ -84,7 +85,10 @@ class CarryForwardAuthorityTest {
                                                                 dimension,
                                                                 type,
                                                                 id,
-                                                                CrudAssetPermission.all_mask,
+                                                                masks.getOrDefault(
+                                                                        dimension,
+                                                                        CrudAssetPermission
+                                                                                .all_mask),
                                                                 null)));
     }
 

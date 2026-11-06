@@ -175,7 +175,8 @@ public class ReceivableChangeAuditService {
                                     query.toNestQuery(
                                             n -> n.and("projectId", project).and("deleted", false));
                                     query.toQuery().orderByDesc("createTime");
-                                    return AssetsHolder.injectQueryParam(query, SPACE, "spaceId")
+                                    return FinanceSpaceQuery.inject(
+                                                    query, changes, CrudAssetPermission.read)
                                             .flatMap(
                                                     q ->
                                                             QueryHelper.queryPager(

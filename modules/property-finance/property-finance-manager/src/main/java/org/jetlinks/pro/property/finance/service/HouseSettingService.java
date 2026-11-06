@@ -51,7 +51,8 @@ public class HouseSettingService {
                                                     nested.and("projectId", project)
                                                             .and("deleted", false));
                                     // 项目和房屋是两级授权；不把“项目可见”当作该项目所有房屋均可见。
-                                    return AssetsHolder.injectQueryParam(query, SPACE, "spaceId")
+                                    return FinanceSpaceQuery.inject(
+                                                    query, settings, CrudAssetPermission.read)
                                             .flatMap(
                                                     secured ->
                                                             QueryHelper.queryPager(

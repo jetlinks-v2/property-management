@@ -82,7 +82,7 @@ public class ContractMirrorService {
                                                 q.orderBy("code");
                                                 q.orderBy("id");
                                                 return visibility
-                                                        .inject(q, CrudAssetPermission.read)
+                                                        .inject(q, rows, CrudAssetPermission.read)
                                                         .flatMap(
                                                                 secured ->
                                                                         QueryHelper.queryPager(

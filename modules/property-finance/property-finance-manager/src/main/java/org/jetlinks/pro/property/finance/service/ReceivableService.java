@@ -70,7 +70,7 @@ public class ReceivableService {
                                             .end());
                     if (query.getSorts().isEmpty())
                         query.toQuery().orderByDesc("createTime").orderByDesc("id");
-                    return AssetsHolder.injectQueryParam(query, SPACE, "spaceId");
+                    return FinanceSpaceQuery.inject(query, bills, CrudAssetPermission.read);
                 });
     }
 

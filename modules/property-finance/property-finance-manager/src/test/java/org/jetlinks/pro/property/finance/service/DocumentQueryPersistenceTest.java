@@ -760,12 +760,107 @@ class DocumentQueryPersistenceTest extends DocumentIssuePersistenceTest {
                 bills.findById(bill.getId()).block(WAIT).getInvoiceOccupiedAmount());
     }
 
+    /** 使用正式创建人 holder，空间资产来自资产管理器，不依赖收费库存在 SaaS 空间表。 */
+    reactor.util.context.Context creatorScope(Set<String> owned) {
+        var manager = org.mockito.Mockito.mock(AssetManager.class);
+        org.mockito.Mockito.when(
+                        manager.getAssets(
+                                org.mockito.ArgumentMatchers.any(AssetType.class),
+                                org.mockito.ArgumentMatchers.anyCollection()))
+                .thenAnswer(
+                        call ->
+                                reactor.core.publisher.Flux.fromIterable(
+                                                (Collection<?>) call.getArgument(1))
+                                        .map(
+                                                id ->
+                                                        new Asset() {
+                                                            public String getId() {
+                                                                return id.toString();
+                                                            }
+
+                                                            public String getName() {
+                                                                return id.toString();
+                                                            }
+
+                                                            public AssetType getType() {
+                                                                return AssetType.of("space");
+                                                            }
+
+                                                            public Map<String, Object>
+                                                                    getOptions() {
+                                                                return Map.of(
+                                                                        Asset.OPTION_CREATOR_ID,
+                                                                        owned.contains(
+                                                                                        id
+                                                                                                .toString())
+                                                                                ? "space-creator"
+                                                                                : "someone-else");
+                                                            }
+                                                        }));
+        var user = new org.hswebframework.web.authorization.simple.SimpleUser();
+        user.setId("space-creator");
+        var holder = new org.jetlinks.pro.assets.impl.CreatorAssetsHolder(user, manager);
+        return fixture.allowed().put(AssetsHolder.class, holder);
+    }
+
+    @Test
+    void creatorPermissionFiltersWholeReceiptBeforePagingWithoutSaasTables() {
+        var a = documentBill();
+        var b = documentBill();
+        bills.createUpdate()
+                .set("spaceId", "secret-room")
+                .where("id", b.getId())
+                .execute()
+                .block(WAIT);
+        var first = input(List.of(item("RECEIVABLE", a.getId(), "10")));
+        var receipt =
+                issue(
+                                submission(
+                                        new DocumentIssueInput(
+                                                "RECEIPT",
+                                                "company",
+                                                first.buyer(),
+                                                null,
+                                                null,
+                                                first.items())))
+                        .document();
+        var mixed =
+                input(
+                        List.of(
+                                item("RECEIVABLE", a.getId(), "10"),
+                                item("RECEIVABLE", b.getId(), "10")));
+        issue(
+                submission(
+                        new DocumentIssueInput(
+                                "RECEIPT", "company", mixed.buyer(), null, null, mixed.items())));
+        var q = page(0, 1);
+        var result =
+                history.query(project, "RECEIPT", q)
+                        .contextWrite(creatorScope(Set.of("room")))
+                        .block(WAIT);
+        assertEquals(1, result.getTotal());
+        assertEquals(receipt.getId(), result.getData().get(0).getId());
+        assertEquals(
+                0,
+                history.query(project, "RECEIPT", q)
+                        .contextWrite(creatorScope(Set.of()))
+                        .block(WAIT)
+                        .getTotal());
+        assertEquals(
+                2,
+                history.query(project, "RECEIPT", q)
+                        .contextWrite(creatorScope(Set.of("room", "secret-room")))
+                        .block(WAIT)
+                        .getTotal());
+    }
+
     reactor.util.context.Context authorized(
             CarryForwardAuthorityTest authority, Set<String> rooms, long permission) {
         database.getMetadata()
                 .addFeature(new org.jetlinks.pro.assets.impl.terms.DimensionAssetsTermBuilder());
         var reader = "document-reader-" + UUID.randomUUID();
         authority.rights.put(reader, rooms);
+        authority.masks.put(reader, permission);
         var auth = authority.auth(reader);
         var holder = AssetsHolder.fromAuth(auth).block(WAIT);
         for (var room : rooms) {

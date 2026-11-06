@@ -229,6 +229,7 @@ class HouseSettingPersistenceTest {
 
     Context allowed() {
         var holder = mock(AssetsHolder.class);
+        when(holder.isScopeIgnored(any(org.jetlinks.pro.assets.AssetType.class))).thenReturn(Mono.just(false));
         when(holder.assertPermission(anyString(), anyCollection(), any())).thenReturn(Mono.empty());
         when(holder.injectQuery(
                         any(org.hswebframework.web.api.crud.entity.QueryParamEntity.class),
@@ -247,6 +248,11 @@ class HouseSettingPersistenceTest {
                                                     List.of("room", "job", "failed-job")));
                             return Mono.just(query);
                         });
+        when(holder.filter(any(Flux.class), any(org.jetlinks.pro.assets.AssetType.class),
+                        any(java.util.function.Function.class), any(org.jetlinks.pro.assets.AssetPermission[].class)))
+                .thenAnswer(call -> ((Flux<?>) call.getArgument(0)).filter(value ->
+                        List.of("room", "job", "failed-job").contains(
+                                ((java.util.function.Function<Object, ?>) call.getArgument(2)).apply(value))));
         return auth().put(AssetsHolder.class, holder);
     }
 

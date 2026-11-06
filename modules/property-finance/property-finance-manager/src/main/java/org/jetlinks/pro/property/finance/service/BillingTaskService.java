@@ -248,7 +248,8 @@ public class BillingTaskService {
                                 () -> {
                                     var query = SubjectService.page(input);
                                     query.toNestQuery(nested -> nested.and("projectId", project));
-                                    return AssetsHolder.injectQueryParam(query, SPACE, "spaceId")
+                                    return FinanceSpaceQuery.inject(
+                                                    query, tasks, CrudAssetPermission.read)
                                             .flatMap(
                                                     secured ->
                                                             QueryHelper.queryPager(

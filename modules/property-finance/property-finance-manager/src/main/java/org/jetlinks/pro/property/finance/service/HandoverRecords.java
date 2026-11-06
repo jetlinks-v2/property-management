@@ -157,7 +157,10 @@ public class HandoverRecords {
                                                                                     row
                                                                                             .getVersion())),
                                                     permissions
-                                                            .inject(f, CrudAssetPermission.read)
+                                                            .inject(
+                                                                    f,
+                                                                    entries,
+                                                                    CrudAssetPermission.read)
                                                             .flatMapMany(
                                                                     secured ->
                                                                             entries.createQuery()
@@ -523,7 +526,10 @@ public class HandoverRecords {
                                                             .isNull("paymentId")
                                                             .isNull("refundId");
                                                     yield permissions
-                                                            .inject(q, CrudAssetPermission.save)
+                                                            .inject(
+                                                                    q,
+                                                                    entries,
+                                                                    CrudAssetPermission.save)
                                                             .flatMap(
                                                                     secured ->
                                                                             pageCandidates(

@@ -88,7 +88,7 @@ public class DocumentCandidateService {
                                             + " ?",
                                     input.companyId()));
         return visibility
-                .inject(q, CrudAssetPermission.save)
+                .inject(q, bills, CrudAssetPermission.save)
                 .flatMap(
                         secured ->
                                 QueryHelper.transformPageResult(
@@ -211,7 +211,7 @@ public class DocumentCandidateService {
                                         + " original_amount)",
                                 project));
         return visibility
-                .inject(q, CrudAssetPermission.save)
+                .inject(q, fundEntries, CrudAssetPermission.save)
                 .flatMap(
                         secured ->
                                 QueryHelper.transformPageResult(
