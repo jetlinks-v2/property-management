@@ -57,6 +57,11 @@ public class RepairOrderController implements CorrelatesAssetsHolderQueryControl
  public Flux<RepairReportRow> statistics(@RequestBody QueryParamEntity query){
   return injectQueryParam(query).flatMapMany(reports::summary);
  }
+ /** 页签统计沿用列表的完整应用、租户、资产条件注入。 */
+ @PostMapping("/_status-counts") @QueryAction
+ public Flux<RepairReportRow> statusCounts(@RequestBody QueryParamEntity query){
+  return injectQueryParam(query).flatMapMany(reports::statusCounts);
+ }
  @PostMapping("/_reviews/_query") @QueryAction
  public Mono<org.hswebframework.web.api.crud.entity.PagerResult<RepairReviewOrderRow>> queryReviews(@RequestBody QueryParamEntity query,
    @RequestParam(required=false) Integer reviewStatus,@RequestParam(required=false) String reviewKind){
@@ -77,7 +82,7 @@ public class RepairOrderController implements CorrelatesAssetsHolderQueryControl
  @GetMapping("/{id}/history") @QueryAction
  public Flux<RepairProcessEntity> history(@PathVariable String id){return manager.history(id);}
  @GetMapping("/{id}/assignees") @ResourceAction(id="dispatch",name="分派")
- public Flux<RepairAssignee> assignees(@PathVariable String id){return manager.assignees(id);}
+ public Flux<RepairAssignee> assignees(@PathVariable String id,@RequestParam(defaultValue="") String search,@RequestParam(defaultValue="0") int limit){return manager.assignees(id,search,limit);}
  @PostMapping("/{id}/actions/dispatch") @ResourceAction(id="dispatch",name="分派")
  public Mono<RepairOrderEntity> dispatch(@PathVariable String id,@jakarta.validation.Valid @RequestBody RepairActionRequest request){return manager.action(id,"dispatch",request);}
  @PostMapping("/{id}/actions/accept") @ResourceAction(id="accept",name="接单")
@@ -91,7 +96,7 @@ public class RepairOrderController implements CorrelatesAssetsHolderQueryControl
  @GetMapping("/{id}/reviews") @QueryAction
  public Flux<RepairReviewEntity> reviews(@PathVariable String id){return manager.reviews(id);}
  @GetMapping("/{id}/transfer-assignees") @ResourceAction(id="transfer",name="转派")
- public Flux<RepairAssignee> transferAssignees(@PathVariable String id){return manager.assignees(id);}
+ public Flux<RepairAssignee> transferAssignees(@PathVariable String id,@RequestParam(defaultValue="") String search,@RequestParam(defaultValue="0") int limit){return manager.assignees(id,search,limit);}
  @PostMapping("/{id}/actions/transfer") @ResourceAction(id="transfer",name="转派")
  public Mono<RepairOrderEntity> transfer(@PathVariable String id,@jakarta.validation.Valid @RequestBody RepairActionRequest request){return manager.action(id,"transfer",request);}
  @PostMapping("/{id}/actions/grab") @ResourceAction(id="grab",name="抢单")

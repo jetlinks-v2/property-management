@@ -16,7 +16,7 @@ select
   sum(case when accept_time is not null then 1 else 0 end) as "accepted",
   sum(case when status <> 3 and finish_time is not null then 1 else 0 end) as "completed",
   coalesce(avg(case when finish_time is not null then trunc((finish_time - create_time) / 60000.0) end),0) as "averageProcessingMinutes",
-  sum(case when accept_time is not null and accept_time - coalesce((select max(p.create_time) from sp_repair_process p where p.order_id = sp_repair_order.id and p.action in ('dispatch','transfer','autoDispatch') and p.create_time <= sp_repair_order.accept_time), create_time) < 960000 then 1 else 0 end) as "timelyAccepted",
+  sum(case when accept_time is not null and accept_time - coalesce(dispatch.last_dispatch_time, create_time) < 960000 then 1 else 0 end) as "timelyAccepted",
   sum(case when finish_time is not null and finish_deadline is not null then 1 else 0 end) as "withDeadline",
   sum(case when finish_time is not null and finish_deadline is not null and finish_time <= finish_deadline then 1 else 0 end) as "timelyCompleted",
   sum(case when owner_evaluated = true then 1 else 0 end) as "ownerEvaluated",
@@ -40,5 +40,13 @@ select
   sum(case when paid = true and staff_evaluated = true then 1 else 0 end) + sum(case when paid = true and owner_evaluated = true then 1 else 0 end) as "paidReviews",
   sum(case when paid = true and staff_evaluated = true and staff_satisfaction >= 3 then 1 else 0 end) + sum(case when paid = true and owner_evaluated = true and owner_satisfaction >= 3 then 1 else 0 end) as "paidPositive"
 from sp_repair_order
+-- 同次聚合按工单计算接单前的最后一次分派，避免逐工单重复探测过程索引。
+left join (
+ select p.order_id,max(p.create_time) as last_dispatch_time
+ from sp_repair_process p
+ join sp_repair_order timing_order on timing_order.id=p.order_id and p.create_time<=timing_order.accept_time
+ where p.action in ('dispatch','transfer','autoDispatch')
+ group by p.order_id
+) dispatch on dispatch.order_id=sp_repair_order.id
 group by business_project_id
 order by "projectName", "projectId"

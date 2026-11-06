@@ -37,7 +37,7 @@ class RepairExportScopeTest {
         try(var commands=mockStatic(CommandServices.class);var assets=mockStatic(AssetsHolder.class)) {
             commands.when(() -> CommandServices.getReactive(SdkServices.authService)).thenReturn(Mono.just(support));
             assets.when(() -> AssetsHolder.fromAuth(authentication,active.context())).thenReturn(Mono.just(holder));
-            var service=new RepairExportScope(resolver);
+            var service=new RepairExportScope(resolver,mock(RepairExportRepository.class));
             StepVerifier.create(service.holder(context)).expectNext(holder).verifyComplete();
             when(authentication.hasPermission("repair-order","export")).thenReturn(false);
             StepVerifier.create(service.holder(context)).expectError(AccessDenyException.class).verify();
@@ -50,7 +50,7 @@ class RepairExportScopeTest {
         try(var commands=mockStatic(CommandServices.class)) {
             commands.when(() -> CommandServices.getReactive(SdkServices.authService))
                 .thenReturn(Mono.error(new IllegalStateException("auth unavailable")));
-            StepVerifier.create(new RepairExportScope(resolver).holder(context)).expectErrorMessage("auth unavailable").verify();
+            StepVerifier.create(new RepairExportScope(resolver,mock(RepairExportRepository.class)).holder(context)).expectErrorMessage("auth unavailable").verify();
             verifyNoInteractions(resolver);
         }
     }

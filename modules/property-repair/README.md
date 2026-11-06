@@ -20,7 +20,7 @@
 
 ## 前端
 
-业务前端仓库为 [report-saas-ui](https://github.com/jetlinks-v2/report-saas-ui)，分支 `2.20`，PC 模块由 `saas-runtime-ui` 的 `property/2.20-dev` 分支以 `modules/report-repair-ui` 子模块接入。模块通过应用模板的 `componentCode` 注册报修页面，`baseMenu.json` 提供系统管理五个页面。组织配置、用户管理、空间管理、客户管理和字典配置独立复制到本前端的 `system-management` 目录，访问基础模块 `/property/**`，不引用其他业务前端的私有实现。既有环境应将这些菜单同步到模板、服务套餐、订阅快照和应用角色，并隐藏旧公共资料菜单；保留原资产范围。
+业务前端仓库为 [report-saas-ui](https://github.com/jetlinks-v2/report-saas-ui)，PC 模块由 `saas-runtime-ui` 以 `modules/report-repair-ui` 子模块接入。模块通过应用模板的 `componentCode` 注册报修业务页面；组织、用户、空间、客户和字典统一由 `property-base-ui` 提供，不维护基础管理页面或菜单副本。公共基础管理授权迁移见 `deploy/property-base/README.md`，迁移时保留既有角色与资产范围。
 
 员工 H5 在业务前端仓库的 `employee-h5/` 独立构建，复用同一网关、应用、工单及权限；部署配置与构建命令见其 README。后端仓库只保留后端模块和应用模板。
 
@@ -31,3 +31,12 @@
 保留原迁移边界：业主独立入口、外部系统联动、完整旧接口分支及数据库 20 万条导出负载仍需后续验收。
 
 报修服务的界面异常与通知资源位于 `property-repair-manager/src/main/resources/i18n/smart-park-repair/`，中文与英文分别维护在 `messages_zh.properties`、`messages_en.properties`，沿用平台请求语言解析。公开二维码表单也发送 `Accept-Language`，不发送登录令牌、租户或应用认证头。菜单与按钮的中英文元数据位于 `deploy/repair`。
+
+
+## 统计、候选人与导出查询
+
+列表页签使用 `/repair/orders/_status-counts` 轻量计数接口，查询范围仍由工单资产权限注入。汇总统计将派单过程按工单预聚合，分类分布通过层级关联读取首级分类；分类已删除时保留工单分类名称快照。接单及时率查询的 PostgreSQL 索引及回退脚本位于 `deploy/repair/migrations/20261106-accept-timing.*.sql`，须在报修业务库独立执行，不能放入事务。
+
+分派和转派候选接口支持 `search` 与 `limit`，先按姓名或ID筛选，再以受控并发逐人检查目标工单的处理授权；有界请求最多返回50人，未指定限制的既有调用保留全量语义。处置提交仍重新检查目标人员权限。
+
+导出记录按当前租户和应用读取创建人，并通过认证服务的 `authService:user-directory` 命令分批核验组织及用户资产范围，不在报修数据库查询认证表。认证服务不可用时明确失败，空授权生成空查询范围；下载时继续逐批复核文件内工单权限。组织及上下级资产提供者在没有有效组织维度时仅关闭组织分支，避免构造无目标条件而使导出页面报错。
