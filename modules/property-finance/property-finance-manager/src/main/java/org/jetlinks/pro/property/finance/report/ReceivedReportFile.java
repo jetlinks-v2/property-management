@@ -18,6 +18,10 @@ public class ReceivedReportFile {
     private static final Map<String, String> ZH =
             Map.ofEntries(
                     Map.entry("title", "实收统计"),
+                    Map.entry("handoverState", "交账状态"),
+                    Map.entry("UNHANDED", "已收未交账"),
+                    Map.entry("PENDING", "已收未入账"),
+                    Map.entry("APPROVED", "已入账"),
                     Map.entry(
                             "scope",
                             "按实际现金收支统计，退款按退款日列负额；余额冲抵和内部转存不重复计现。往期包含跨期及无费用期间的流水；无日期条件时当期/往期未统计。"),
@@ -53,6 +57,10 @@ public class ReceivedReportFile {
     private static final Map<String, String> EN =
             Map.ofEntries(
                     Map.entry("title", "Received report"),
+                    Map.entry("handoverState", "Handover status"),
+                    Map.entry("UNHANDED", "Received, not handed over"),
+                    Map.entry("PENDING", "Received, not posted"),
+                    Map.entry("APPROVED", "Posted"),
                     Map.entry(
                             "scope",
                             "Cash movements only; excludes balance offsets and internal transfers."
@@ -102,6 +110,7 @@ public class ReceivedReportFile {
                             "calcEndDate",
                             "methodText",
                             "sourceType",
+                            "handoverState",
                             "collectorName",
                             "remark"));
         else
@@ -144,6 +153,7 @@ public class ReceivedReportFile {
         v.put("calcEndDate", text(r.calcEndDate()));
         v.put("methodText", text(r.methodText()));
         v.put("sourceType", r.sourceType() == null ? "" : label(r.sourceType(), locale));
+        v.put("handoverState", r.handoverState() == null ? "" : label(r.handoverState(), locale));
         v.put("collectorName", text(r.collectorName()));
         v.put("remark", text(r.remark()));
         v.put("rowCount", Long.toString(r.rowCount()));

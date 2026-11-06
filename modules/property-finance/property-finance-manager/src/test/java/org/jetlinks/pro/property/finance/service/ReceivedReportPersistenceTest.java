@@ -37,6 +37,86 @@ class ReceivedReportPersistenceTest {
     @Autowired ReactiveRepository<RefundAllocationEntity, String> refundLines;
     @Autowired ReactiveRepository<FundEntryEntity, String> entries;
     @Autowired ReactiveRepository<FundAccountEntity, String> accounts;
+    @Autowired ReactiveRepository<HandoverEntity, String> handovers;
+    @Autowired ReactiveRepository<HandoverSourceEntity, String> handoverSources;
+
+    HandoverEntity bindHandover(String type, String id, String state, String tenant) {
+        var b = new HandoverEntity();
+        b.setId(UUID.randomUUID().toString());
+        b.setTenantId(tenant);
+        b.setProjectId(project);
+        b.setRequestFingerprint("fixture");
+        b.setStatus(state);
+        b.setClosingDate("2024-02-01");
+        b.setSubmittedAt("2024-02-01T10:00:00");
+        b.setSubmittedBy("fixture");
+        b.setSourceCount(1);
+        b.setAmount(BigDecimal.TEN);
+        b.setCashAmount(BigDecimal.TEN);
+        StandardPersistenceTest.initialize(b);
+        handovers.insert(b).block(WAIT);
+        var s = new HandoverSourceEntity();
+        s.setId(UUID.randomUUID().toString());
+        s.setTenantId(tenant);
+        s.setProjectId(project);
+        s.setSourceType(type);
+        s.setSourceId(id);
+        s.setBatchId(b.getId());
+        StandardPersistenceTest.initialize(s);
+        handoverSources.insert(s).block(WAIT);
+        return b;
+    }
+
+    @Test
+    void handoverFiltersAllCashSourcesBeforePagingSummaryAndExport() throws Exception {
+        var p = payment("10", "1", "room", "2024-02-01T10:00:00");
+        var extra = new PaymentAllocationEntity();
+        org.springframework.beans.BeanUtils.copyProperties(p, extra);
+        extra.setId(UUID.randomUUID().toString());
+        lines.insert(extra).block(WAIT);
+        var r = refund(p, "2", "CASH", "2024-02-02T10:00:00");
+        var advance = fund("30", "TOPUP", "ADVANCE", "2024-02-03T10:00:00");
+        var deposit = fund("40", "TOPUP", "DEPOSIT", "2024-02-04T10:00:00");
+        bindHandover("PAYMENT", p.getPaymentId(), "PENDING", "");
+        bindHandover("REFUND", r.getId(), "APPROVED", "");
+        bindHandover("FUND", advance.getId(), "APPROVED", "");
+        // 同一业务ID在其他租户的绑定不能污染当前租户的投影。
+        bindHandover("FUND", deposit.getId(), "APPROVED", "foreign-tenant");
+        var i = input();
+        var all = query(i);
+        assertEquals(5, all.page().getTotal());
+        assertEquals("88.00", all.summary().netAmount());
+        i.setHandoverState("PENDING");
+        i.setPageSize(1);
+        var first = query(i);
+        assertEquals(2, first.page().getTotal());
+        assertEquals(1, first.page().getData().size());
+        assertEquals("20.00", first.summary().netAmount());
+        assertEquals("PENDING", first.page().getData().get(0).handoverState());
+        i.setPageIndex(1);
+        assertNotEquals(first.page().getData().get(0).id(), query(i).page().getData().get(0).id());
+        var exported = reports.exportData(i).contextWrite(allowed).block(WAIT);
+        assertEquals(2, exported.page().getData().size());
+        assertEquals(first.summary(), exported.summary());
+        var bytes = new ReceivedReportFile().write(exported, "excel", Locale.SIMPLIFIED_CHINESE);
+        try (var workbook =
+                new org.apache.poi.xssf.usermodel.XSSFWorkbook(
+                        new java.io.ByteArrayInputStream(bytes))) {
+            var text = new org.apache.poi.xssf.extractor.XSSFExcelExtractor(workbook);
+            assertTrue(text.getText().contains("交账状态"));
+            assertTrue(text.getText().contains("已收未入账"));
+        }
+        i.setPageIndex(0);
+        i.setHandoverState("APPROVED");
+        assertEquals(2, query(i).page().getTotal());
+        assertEquals("28.00", query(i).summary().netAmount());
+        i.setHandoverState("UNHANDED");
+        assertEquals(deposit.getId(), query(i).page().getData().get(0).id());
+        assertEquals("40.00", query(i).summary().netAmount());
+        i.setHandoverState("' OR 1=1 --");
+        rejects(i, 400);
+    }
+
     String project;
     Context allowed;
 
@@ -662,7 +742,7 @@ class ReceivedReportPersistenceTest {
                     org.apache.poi.ss.usermodel.CellType.STRING,
                     sheet.getRow(1).getCell(2).getCellType());
             assertTrue(sheet.getRow(1).getCell(2).getStringCellValue().startsWith("=SUM"));
-            assertEquals("100.01", sheet.getRow(1).getCell(13).getStringCellValue());
+            assertEquals("100.01", sheet.getRow(1).getCell(14).getStringCellValue());
         }
         var pdf = exports.export(input(), "pdf").contextWrite(allowed).block(WAIT);
         try (var doc = org.apache.pdfbox.pdmodel.PDDocument.load(pdf)) {
@@ -721,6 +801,7 @@ class ReceivedReportPersistenceTest {
             "org.jetlinks.pro.assets.impl.entity")
     @Import({
         InvoiceCompanyPersistenceTest.Config.class,
+        HandoverStateQuery.class,
         ReceivedReportService.class,
         ReceivedReportFile.class,
         ReceivedReportExportService.class,

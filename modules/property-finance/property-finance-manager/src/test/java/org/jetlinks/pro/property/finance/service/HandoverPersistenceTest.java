@@ -42,6 +42,58 @@ class HandoverPersistenceTest extends CashierPersistenceTest {
     @Autowired ReactiveRepository<DocumentLineEntity, String> documentLines;
 
     @Autowired HistoricalReceiptFixture historicalReceipts;
+    @Autowired ReceivedReportService receivedReports;
+
+    @Test
+    void receivedStatusTracksReviewReleaseAndResubmissionWithoutHidingPayments() {
+        var payment = paid("handover-status", "10");
+        // 本测试验证交账投影；历史流水缺少操作人ID时无需访问外部用户目录。
+        payments.createUpdate()
+                .setNull("modifierId")
+                .where("id", payment.getId())
+                .execute()
+                .block(WAIT);
+        assertReceivedState("UNHANDED");
+        var pending = confirm(request(handoverInput(payment))).batch();
+        assertReceivedState("PENDING");
+        var approved = act(pending, "APPROVE").batch();
+        assertReceivedState("APPROVED");
+        var reversed = act(approved, "UNAPPROVE").batch();
+        assertReceivedState("PENDING");
+        act(reversed, "REJECT");
+        assertReceivedState("UNHANDED");
+        var next = confirm(request(handoverInput(payment))).batch();
+        assertReceivedState("PENDING");
+        act(next, "CANCEL");
+        assertReceivedState("UNHANDED");
+        assertEquals(2, handovers.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    void assertReceivedState(String expected) {
+        var input = new org.jetlinks.pro.property.finance.report.ReceivedReportInput();
+        input.setProjectIds(List.of(project));
+        var report = receivedReports.query(input).contextWrite(allowed()).block(WAIT);
+        assertEquals(1, report.page().getTotal());
+        assertEquals(expected, report.page().getData().get(0).handoverState());
+        assertEquals("10.00", report.summary().netAmount());
+        for (String state : List.of("UNHANDED", "PENDING", "APPROVED")) {
+            input.setHandoverState(state);
+            int count = expected.equals(state) ? 1 : 0;
+            assertEquals(
+                    count,
+                    receivedReports
+                            .query(input)
+                            .contextWrite(allowed())
+                            .block(WAIT)
+                            .page()
+                            .getTotal());
+            var original = new QueryParamEntity();
+            original.toQuery().nest().and("handoverState", state).end();
+            var page = records.query(project, original).contextWrite(allowed()).block(WAIT);
+            assertEquals(count, page.getTotal());
+            if (count > 0) assertEquals(expected, page.getData().get(0).handoverState());
+        }
+    }
 
     PaymentEntity paid(String name, String amount) {
         var row = bill(name);
@@ -703,6 +755,7 @@ class HandoverPersistenceTest extends CashierPersistenceTest {
     @Configuration
     @Import({
         CashierPersistenceTest.Config.class,
+        ReceivedReportService.class,
         HandoverSources.class,
         HandoverRecords.class,
         HandoverService.class,

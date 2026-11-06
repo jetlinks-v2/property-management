@@ -21,5 +21,6 @@ public record ReceivedReportRow(
         String sourceType,
         String collectorName,
         String remark,
+        String handoverState,
         long rowCount,
         ReceivedReportAmounts amounts) {}

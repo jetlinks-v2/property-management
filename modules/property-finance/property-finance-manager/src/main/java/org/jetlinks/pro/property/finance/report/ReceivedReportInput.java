@@ -24,6 +24,7 @@ public class ReceivedReportInput {
             collectorName,
             receivedDateStart,
             receivedDateEnd;
+    private String handoverState;
     private String groupBy = "DETAIL";
     private int pageIndex, pageSize = 12;
 
@@ -31,6 +32,9 @@ public class ReceivedReportInput {
     private List<ReportGroupKey> methodGroups = List.of();
 
     public void validate() {
+        if (handoverState != null
+                && !Set.of("UNHANDED", "PENDING", "APPROVED").contains(handoverState))
+            throw error("report_query_invalid", 400);
         ReportGroupKey.validate(subjectGroups);
         ReportGroupKey.validate(methodGroups);
         ids(projectIds, 100, true);

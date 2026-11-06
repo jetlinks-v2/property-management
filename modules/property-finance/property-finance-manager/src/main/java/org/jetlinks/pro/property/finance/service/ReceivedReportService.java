@@ -27,6 +27,7 @@ import java.util.*;
 public class ReceivedReportService {
     public static final int EXPORT_LIMIT = 10000;
     private final FinanceScope scope;
+    private final HandoverStateQuery handoverStates;
     private final DatabaseOperator database;
     private final ReactiveRepository<PaymentEntity, String> payments;
     private final ReactiveRepository<PaymentAllocationEntity, String> lines;
@@ -85,7 +86,8 @@ public class ReceivedReportService {
         return FinanceSpaceQuery.inject(l, lines, CrudAssetPermission.read)
                 .then(FinanceSpaceQuery.inject(rl, refundLines, CrudAssetPermission.read))
                 .then(FinanceSpaceQuery.inject(e, entries, CrudAssetPermission.read))
-                .map(ignored -> buildSource(i, p, l, r, rl, e))
+                .then(handoverStates.active(i.getProjectIds()))
+                .map(states -> buildSource(i, p, l, r, rl, e, states))
                 .flatMap(sql -> collectorNames(sql).map(names -> filterSource(i, sql, names)));
     }
 
@@ -95,7 +97,8 @@ public class ReceivedReportService {
             QueryParamEntity l,
             QueryParamEntity r,
             QueryParamEntity rl,
-            QueryParamEntity e) {
+            QueryParamEntity e,
+            HandoverStateQuery.Snapshot states) {
         var params = new ArrayList<Object>();
         String with =
                 "with p as ("
@@ -239,6 +242,23 @@ public class ReceivedReportService {
                         + " union all "
                         + fund
                         + ") report_source) numbered_source";
+        // 资金流水的交账身份是entry.id，展示的transactionId不能拿来关联交账。
+        source =
+                "(select numbered_source.*, coalesce(hs.\"handoverState\", 'UNHANDED') as"
+                    + " \"handoverState\" from "
+                        + source
+                        + " left join handover_states hs on"
+                        + " hs.\"projectId\"=numbered_source.\"projectId\" and"
+                        + " hs.\"sourceType\"=case when numbered_source.\"sourceType\" in"
+                        + " ('RECEIVABLE','TEMPORARY') then 'PAYMENT' when"
+                        + " numbered_source.\"sourceType\" in ('REFUND','TEMPORARY_REFUND') then"
+                        + " 'REFUND' else 'FUND' end and hs.\"sourceId\"=case when"
+                        + " numbered_source.\"sourceType\" in"
+                        + " ('RECEIVABLE','TEMPORARY','REFUND','TEMPORARY_REFUND') then"
+                        + " numbered_source.\"sourceId\" else numbered_source.\"id\" end)"
+                        + " handover_source";
+        with = with.stripTrailing() + ", handover_states as (" + states.sql() + ") ";
+        params.addAll(Arrays.asList(states.parameters()));
         return new Sql(with, source, params.toArray());
     }
 
@@ -291,7 +311,7 @@ public class ReceivedReportService {
         }
         // 在筛选、摘要及分页之前统一显示姓名；查不到的历史账号保留流水快照，不改写账务数据。
         String source =
-                "(select numbered_source.*, "
+                "(select handover_source.*, "
                         + display
                         + " as \"collectorName\" from "
                         + sql.source()
@@ -303,6 +323,8 @@ public class ReceivedReportService {
         ReportGroupKey.filter(where, params, i.getMethodGroups(), "method", "methodText");
         in(where, params, "method", i.getPaymentMethods());
         in(where, params, "sourceType", i.getSourceTypes());
+        if (i.getHandoverState() != null)
+            in(where, params, "handoverState", List.of(i.getHandoverState()));
         like(where, params, "customerName", i.getCustomerName());
         like(where, params, "fullName", i.getFullName());
         like(where, params, "sourceNo", i.getPaymentNo());
@@ -517,6 +539,7 @@ public class ReceivedReportService {
                 text(r, "sourceType"),
                 text(r, "collectorName"),
                 text(r, "remark"),
+                text(r, "handoverState"),
                 ((Number) r.get("rows")).longValue(),
                 ReceivedReportAmounts.of(r, period));
     }

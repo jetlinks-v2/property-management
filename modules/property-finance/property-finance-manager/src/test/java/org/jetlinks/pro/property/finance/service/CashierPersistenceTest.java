@@ -757,6 +757,7 @@ class CashierPersistenceTest {
         HistoricalReceiptFixture.class,
         PaymentLedger.class,
         PaymentRules.class,
+        HandoverStateQuery.class,
         PaymentRecordService.class
     })
     static class Config {
