@@ -172,10 +172,7 @@ public class ReceiptVerificationService {
                         .set("verifiedBy", auth.getUser().getId())
                         .set(
                                 "verifiedName",
-                                auth.getUser().getName() == null
-                                                || auth.getUser().getName().isBlank()
-                                        ? auth.getUser().getUsername()
-                                        : auth.getUser().getName());
+                                FinanceScope.operatorName(auth));
         if (remark == null) update.setNull("verificationRemark");
         else update.set("verificationRemark", remark);
         return update.where("id", row.getId())

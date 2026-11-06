@@ -149,7 +149,7 @@ public class ReceivableChangeAuditService {
                                                 row.setStatus("PENDING");
                                                 row.setReason(reason.trim());
                                                 row.setApplicantId(auth.getUser().getId());
-                                                row.setApplicantName(auth.getUser().getUsername());
+                                                row.setApplicantName(FinanceScope.operatorName(auth));
                                                 row.setInputJson(payload);
                                                 row.setPreviewJson(preview.toJSONString());
                                                 row.setBeforeJson(JSON.toJSONString(source));
@@ -299,7 +299,7 @@ public class ReceivableChangeAuditService {
                 .set("status", status)
                 .set("reviewReason", input.reason().trim())
                 .set("reviewedBy", auth.getUser().getId())
-                .set("reviewedName", auth.getUser().getUsername())
+                .set("reviewedName", FinanceScope.operatorName(auth))
                 .set("reviewedAt", now)
                 .where("id", row.getId())
                 .and("projectId", row.getProjectId())
@@ -327,7 +327,7 @@ public class ReceivableChangeAuditService {
         log.setOperation(action);
         log.setReason(reason);
         log.setOperatorId(auth.getUser().getId());
-        log.setOperatorName(auth.getUser().getUsername());
+        log.setOperatorName(FinanceScope.operatorName(auth));
         log.setCreateTime(System.currentTimeMillis());
         log.setDetailJson(
                 JSON.toJSONString(

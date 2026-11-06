@@ -131,8 +131,7 @@ public class PaymentLedger {
                                                                                 auth.getUser()
                                                                                         .getId());
                                                                         log.setOperatorName(
-                                                                                auth.getUser()
-                                                                                        .getUsername());
+                                                                                FinanceScope.operatorName(auth));
                                                                         log.setCreateTime(
                                                                                 System
                                                                                         .currentTimeMillis());

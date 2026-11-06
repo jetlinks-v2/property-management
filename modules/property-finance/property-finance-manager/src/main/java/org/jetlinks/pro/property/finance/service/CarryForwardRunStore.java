@@ -374,7 +374,7 @@ public class CarryForwardRunStore {
                 JSON.toJSONString(Map.of("runId", run.getId(), "status", run.getStatus())));
         log.setAfterJson(JSON.toJSONString(Map.of("runId", run.getId(), "status", "PENDING")));
         log.setOperatorId(auth.getUser().getId());
-        log.setOperatorName(auth.getUser().getUsername());
+        log.setOperatorName(FinanceScope.operatorName(auth));
         log.setCreateTime(System.currentTimeMillis());
         return logs.insert(log).then();
     }

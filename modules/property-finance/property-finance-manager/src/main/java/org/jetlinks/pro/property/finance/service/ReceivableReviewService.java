@@ -188,7 +188,7 @@ public class ReceivableReviewService {
         log.setOperation(input.action());
         log.setReason(input.reason());
         log.setOperatorId(auth.getUser().getId());
-        log.setOperatorName(auth.getUser().getUsername());
+        log.setOperatorName(FinanceScope.operatorName(auth));
         log.setCreateTime(System.currentTimeMillis());
         log.setBeforeVersion(row.getVersion());
         log.setBeforeJson(ReceivableService.auditSnapshot(row));
@@ -202,14 +202,12 @@ public class ReceivableReviewService {
         row.setReviewedOn(date.toString());
         row.setReviewedBy(auth.getUser().getId());
         row.setReviewedName(
-                auth.getUser().getName() == null
-                        ? auth.getUser().getUsername()
-                        : auth.getUser().getName());
+                FinanceScope.operatorName(auth));
         row.setReviewReason(input.reason());
         row.setVersion(beforeVersion + 1);
         row.setModifyTime(log.getCreateTime());
         row.setModifierId(auth.getUser().getId());
-        row.setModifierName(auth.getUser().getUsername());
+        row.setModifierName(FinanceScope.operatorName(auth));
         log.setAfterVersion(row.getVersion());
         log.setAfterJson(ReceivableService.auditSnapshot(row));
         var result = new Result();

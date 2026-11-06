@@ -223,7 +223,7 @@ public class ReceivableSplitService {
         log.setReason(input.reason().trim());
         log.setCreateTime(System.currentTimeMillis());
         log.setOperatorId(auth.getUser().getId());
-        log.setOperatorName(auth.getUser().getUsername());
+        log.setOperatorName(FinanceScope.operatorName(auth));
         log.setBeforeVersion(source.getVersion());
         log.setBeforeJson(before);
         source.setSplit(true);

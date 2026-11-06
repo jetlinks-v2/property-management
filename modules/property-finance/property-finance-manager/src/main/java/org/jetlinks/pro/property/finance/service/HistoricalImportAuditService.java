@@ -261,7 +261,7 @@ public class HistoricalImportAuditService {
             bill.setReviewState("APPROVED");
             bill.setReviewedOn(LocalDate.now().toString());
             bill.setReviewedBy(auth.getUser().getId());
-            bill.setReviewedName(auth.getUser().getUsername());
+            bill.setReviewedName(FinanceScope.operatorName(auth));
             bill.setReviewReason(reason);
             // 原账期唯一身份继续兜底并发重复导入；任意冲突令整次审核回滚。
             publish =
@@ -301,7 +301,7 @@ public class HistoricalImportAuditService {
                                 .set("status", decision)
                                 .set("reviewReason", reason)
                                 .set("reviewedBy", auth.getUser().getId())
-                                .set("reviewedName", auth.getUser().getUsername())
+                                .set("reviewedName", FinanceScope.operatorName(auth))
                                 .set("reviewedAt", System.currentTimeMillis())
                                 .where("id", draft.getId())
                                 .and("projectId", project)

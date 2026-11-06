@@ -475,7 +475,7 @@ public class InvoiceCompanyService {
         entity.setCreateTime(System.currentTimeMillis());
         entity.setModifyTime(entity.getCreateTime());
         entity.setModifierId(auth.getUser().getId());
-        entity.setModifierName(auth.getUser().getUsername());
+        entity.setModifierName(FinanceScope.operatorName(auth));
     }
 
     static <T> ReactiveUpdate<T> audit(
@@ -483,7 +483,7 @@ public class InvoiceCompanyService {
         return update.set("version", version + 1)
                 .set("modifyTime", System.currentTimeMillis())
                 .set("modifierId", auth.getUser().getId())
-                .set("modifierName", auth.getUser().getUsername());
+                .set("modifierName", FinanceScope.operatorName(auth));
     }
 
     private Throwable duplicate(Throwable error) {

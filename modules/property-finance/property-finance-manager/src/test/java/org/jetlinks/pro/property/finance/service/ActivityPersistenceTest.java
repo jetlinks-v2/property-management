@@ -98,6 +98,27 @@ class ActivityPersistenceTest {
     }
 
     @Test
+    void activityCreateAndUpdatePersistDisplayNameInRecordAndHistory() {
+        var context = fixture.allowed().put(
+                org.hswebframework.web.authorization.Authentication.class,
+                FinanceOperatorNameTest.actor("龚超"));
+        var created = service.save(fixture.project, null, input()).contextWrite(context).block(WAIT);
+        assertEquals("龚超", created.activity().getModifierName());
+        assertEquals("operator-id", created.activity().getModifierId());
+        var edit = input();
+        edit.setVersion(created.activity().getVersion());
+        edit.setName("更新后的活动");
+        var updated = service.save(fixture.project, created.activity().getId(), edit)
+                .contextWrite(context).block(WAIT);
+        assertEquals("龚超", updated.activity().getModifierName());
+        var history = service.history(fixture.project, created.activity().getId(), new QueryParamEntity())
+                .contextWrite(context).block(WAIT);
+        assertEquals(2, history.getTotal());
+        assertTrue(history.getData().stream().allMatch(log ->
+                "龚超".equals(log.getOperatorName()) && "operator-id".equals(log.getOperatorId())));
+    }
+
+    @Test
     void directCreateResolvesServerNamesAndNeedsNoWorkflow() {
         var d = create();
         assertTrue(d.activity().getEnabled());

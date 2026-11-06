@@ -2,6 +2,8 @@
 
 业务由独立 services/property-finance-service 装配，使用 JetLinks 2.20 响应式服务、SaaS登录和菜单动作权限。项目业务同时检查 organization 资产；基础数据只通过 property-base-core 的公开命令读取，不依赖基础 manager 或跨表访问。
 
+操作人、修改人、收款员及审核人姓名保存操作当时认证用户的姓名，未维护姓名时回退为登录账号；身份与授权仍使用用户 ID。历史记录保留原姓名快照，用户后续改名不会批量改写审计记录。
+
 ## 本地与部署初始化
 
 1. 按物业仓库说明配置被忽略的 application-local.yml，启动后由 EasyORM 创建业务表。

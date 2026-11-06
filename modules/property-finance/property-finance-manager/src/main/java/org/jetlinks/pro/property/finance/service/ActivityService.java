@@ -326,7 +326,7 @@ public class ActivityService {
         next.setVersion(old.getVersion() + 1);
         next.setModifyTime(System.currentTimeMillis());
         next.setModifierId(auth.getUser().getId());
-        next.setModifierName(auth.getUser().getUsername());
+        next.setModifierName(FinanceScope.operatorName(auth));
         return permissions(config(old), CrudAssetPermission.save)
                 .then(
                         "UPDATE".equals(operation)
@@ -419,7 +419,7 @@ public class ActivityService {
                                                     next.setModifyTime(next.getDeletedTime());
                                                     next.setModifierId(auth.getUser().getId());
                                                     next.setModifierName(
-                                                            auth.getUser().getUsername());
+                                                            FinanceScope.operatorName(auth));
                                                     return permissions(
                                                                     config(old),
                                                                     CrudAssetPermission.save)
@@ -508,7 +508,7 @@ public class ActivityService {
         log.setAfterJson(encode(view(after)));
         log.setCreateTime(System.currentTimeMillis());
         log.setOperatorId(auth.getUser().getId());
-        log.setOperatorName(auth.getUser().getUsername());
+        log.setOperatorName(FinanceScope.operatorName(auth));
         return logs.insert(log).then();
     }
 

@@ -209,8 +209,7 @@ public class ReceivableService {
                                                                                                                         .getId());
                                                                                                 log
                                                                                                         .setOperatorName(
-                                                                                                                auth.getUser()
-                                                                                                                        .getUsername());
+                                                                                                                FinanceScope.operatorName(auth));
                                                                                                 log
                                                                                                         .setCreateTime(
                                                                                                                 System

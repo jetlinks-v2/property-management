@@ -168,6 +168,26 @@ class CashierPersistenceTest {
     }
 
     @Test
+    void collectionAndReceivableLogPersistNameInsteadOfAccount() {
+        var row = bill("named-operator");
+        var input = input(row, "100.00");
+        var context = allowed().put(
+                org.hswebframework.web.authorization.Authentication.class,
+                FinanceOperatorNameTest.actor("龚超"));
+        var preview = cashier.preview(project, input, DATE).contextWrite(context).block(WAIT);
+        var request = new CashierService.Submission(UUID.randomUUID().toString(), preview.token(), input);
+        var detail = cashier.collect(project, request, DATE).contextWrite(context).block(WAIT);
+        var saved = payments.findById(detail.payment().getId()).block(WAIT);
+        assertEquals("龚超", saved.getModifierName());
+        assertEquals("operator-id", saved.getModifierId());
+        var history = logs.createQuery().where("receivableId", row.getId())
+                .and("operation", "COLLECT").fetch().collectList().block(WAIT);
+        assertEquals(1, history.size());
+        assertEquals("龚超", history.get(0).getOperatorName());
+        assertEquals("operator-id", history.get(0).getOperatorId());
+    }
+
+    @Test
     void previewDoesNotWriteAndFullCollectionIsAtomicAndRetryIsIdempotent() {
         var row = bill("one");
         var input = input(row, "100.00");

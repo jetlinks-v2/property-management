@@ -151,7 +151,7 @@ public class HistoricalReceivableService {
                             record.setErrorCount(0);
                             record.setRejectedCount(0);
                             record.setOperatorId(auth.getUser().getId());
-                            record.setOperatorName(auth.getUser().getUsername());
+                            record.setOperatorName(FinanceScope.operatorName(auth));
                             // 批次必须先独立落库；只有业务处理失败才写失败结果，批次本身写失败直接返回异常。
                             return records.insert(record)
                                     .then(
@@ -537,7 +537,7 @@ public class HistoricalReceivableService {
         log.setAfterJson(ReceivableService.auditSnapshot(row));
         log.setDetailJson(JSON.toJSONString(Map.of("importId", row.getImportId())));
         log.setOperatorId(auth.getUser().getId());
-        log.setOperatorName(auth.getUser().getUsername());
+        log.setOperatorName(FinanceScope.operatorName(auth));
         log.setCreateTime(System.currentTimeMillis());
         return log;
     }

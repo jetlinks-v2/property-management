@@ -236,7 +236,7 @@ public class CarryForwardPlanService {
         after.setVersion(before.getVersion() + 1);
         after.setModifyTime(System.currentTimeMillis());
         after.setModifierId(auth.getUser().getId());
-        after.setModifierName(auth.getUser().getUsername());
+        after.setModifierName(FinanceScope.operatorName(auth));
         after.setName(input.getName());
         after.setEnabled(input.getEnabled());
         input.setVersion(after.getVersion());
@@ -300,7 +300,7 @@ public class CarryForwardPlanService {
         after.setEnabled(false);
         after.setVersion(version + 1);
         after.setModifierId(auth.getUser().getId());
-        after.setModifierName(auth.getUser().getUsername());
+        after.setModifierName(FinanceScope.operatorName(auth));
         after.setModifyTime(after.getDeletedTime());
         return audit(plans.createUpdate(), auth, version)
                 .set("deleted", true)
@@ -400,7 +400,7 @@ public class CarryForwardPlanService {
                         .set("deleted", true)
                         .set("deletedTime", System.currentTimeMillis())
                         .set("modifierId", auth.getUser().getId())
-                        .set("modifierName", auth.getUser().getUsername())
+                        .set("modifierName", FinanceScope.operatorName(auth))
                         .set("modifyTime", System.currentTimeMillis())
                         .setNull("activeKey")
                         .where("projectId", project)
@@ -423,7 +423,7 @@ public class CarryForwardPlanService {
         if (before != null) log.setBeforeJson(snapshot(before));
         log.setAfterJson(snapshot(after));
         log.setOperatorId(auth.getUser().getId());
-        log.setOperatorName(auth.getUser().getUsername());
+        log.setOperatorName(FinanceScope.operatorName(auth));
         log.setCreateTime(System.currentTimeMillis());
         return logs.insert(log).then();
     }

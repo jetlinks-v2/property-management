@@ -143,7 +143,7 @@ public class ReceivableAdjustmentService {
         log.setOperation("ADJUST");
         log.setReason(input.getReason().trim());
         log.setOperatorId(auth.getUser().getId());
-        log.setOperatorName(auth.getUser().getUsername());
+        log.setOperatorName(FinanceScope.operatorName(auth));
         log.setCreateTime(System.currentTimeMillis());
         log.setBeforeVersion(before.getVersion());
         log.setBeforeJson(ReceivableService.auditSnapshot(before));

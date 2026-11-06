@@ -152,9 +152,7 @@ public class HouseSettingReviewService {
                                                 .set("reviewedBy", auth.getUser().getId())
                                                 .set(
                                                         "reviewedName",
-                                                        auth.getUser().getName() == null
-                                                                ? auth.getUser().getUsername()
-                                                                : auth.getUser().getName())
+                                                        FinanceScope.operatorName(auth))
                                                 .set("reviewedAt", System.currentTimeMillis())
                                                 .set("reviewReason", reason)
                                                 .where("id", row.getId())

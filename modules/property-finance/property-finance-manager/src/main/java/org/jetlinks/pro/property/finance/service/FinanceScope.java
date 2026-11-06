@@ -28,6 +28,14 @@ public class FinanceScope {
                 .switchIfEmpty(Mono.error(UnAuthorizedException.NoStackTrace::new));
     }
 
+    /** 审计姓名保存操作当时的显示名；账号仅作缺失姓名时的兜底，授权始终使用用户 ID。 */
+    static String operatorName(Authentication auth) {
+        var user = auth.getUser();
+        return user.getName() == null || user.getName().isBlank()
+                ? user.getUsername()
+                : user.getName();
+    }
+
     public Mono<PropertyProjectInfo> project(String id, CrudAssetPermission permission) {
         if (id == null || id.isBlank()) return Mono.error(error("project_required", 400));
         return authenticated()

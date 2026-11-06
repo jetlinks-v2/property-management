@@ -612,9 +612,7 @@ public class MonthClosingService {
                     .set("closedBy", auth.getUser().getId())
                     .set(
                             "closedName",
-                            auth.getUser().getName() == null
-                                    ? auth.getUser().getUsername()
-                                    : auth.getUser().getName());
+                            FinanceScope.operatorName(auth));
         else
             update.setNull("closingOperationId")
                     .setNull("closedOn")

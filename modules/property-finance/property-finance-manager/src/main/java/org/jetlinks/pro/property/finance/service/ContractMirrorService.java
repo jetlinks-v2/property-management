@@ -331,7 +331,7 @@ public class ContractMirrorService {
                                 .set("version", next)
                                 .set("modifyTime", System.currentTimeMillis())
                                 .set("modifierId", auth.getUser().getId())
-                                .set("modifierName", auth.getUser().getUsername())
+                                .set("modifierName", FinanceScope.operatorName(auth))
                                 .where("id", state.getId())
                                 .and("version", state.getVersion())
                                 .execute())
@@ -384,7 +384,7 @@ public class ContractMirrorService {
         row.setCreateTime(now);
         row.setModifyTime(now);
         row.setModifierId(auth.getUser().getId());
-        row.setModifierName(auth.getUser().getUsername());
+        row.setModifierName(FinanceScope.operatorName(auth));
     }
 
     static String key(String... parts) {

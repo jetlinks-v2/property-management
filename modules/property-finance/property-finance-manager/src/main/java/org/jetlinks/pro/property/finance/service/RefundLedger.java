@@ -113,7 +113,7 @@ public class RefundLedger {
         log.setOperation("BALANCE".equals(refund.getDestination()) ? "RETURN_BALANCE" : "REFUND");
         log.setReason(refund.getId());
         log.setOperatorId(auth.getUser().getId());
-        log.setOperatorName(auth.getUser().getUsername());
+        log.setOperatorName(FinanceScope.operatorName(auth));
         log.setCreateTime(System.currentTimeMillis());
         log.setBeforeVersion(before.getVersion());
         log.setAfterVersion(row.getVersion());

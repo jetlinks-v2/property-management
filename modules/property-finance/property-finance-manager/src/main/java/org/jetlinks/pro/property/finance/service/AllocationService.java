@@ -175,7 +175,7 @@ public class AllocationService {
                 template.input().startNumber() + (long) index * template.input().numberCount());
         row.setEndNumber(row.getStartNumber() + row.getNumberCount() - 1);
         row.setCreatorId(actor.auth().getUser().getId());
-        row.setCreatorName(actor.auth().getUser().getUsername());
+        row.setCreatorName(FinanceScope.operatorName(actor.auth()));
         return books.insert(row)
                 .then(insertNumbers(row, actor.auth()))
                 .then(log(row, null, "CREATE", actor.auth()))
@@ -335,7 +335,7 @@ public class AllocationService {
                                     row.setEnabled(input.enabled());
                                     row.setModifyTime(System.currentTimeMillis());
                                     row.setModifierId(auth.getUser().getId());
-                                    row.setModifierName(auth.getUser().getUsername());
+                                    row.setModifierName(FinanceScope.operatorName(auth));
                                     return numberLog(book, before, row, input.reason(), auth)
                                             .thenReturn(row);
                                 }));
@@ -470,7 +470,7 @@ public class AllocationService {
                 .setNull("activeKey")
                 .set("deletedTime", System.currentTimeMillis())
                 .set("modifierId", auth.getUser().getId())
-                .set("modifierName", auth.getUser().getUsername())
+                .set("modifierName", FinanceScope.operatorName(auth))
                 .set("modifyTime", System.currentTimeMillis())
                 .where("bookId", id)
                 .and("deleted", false)

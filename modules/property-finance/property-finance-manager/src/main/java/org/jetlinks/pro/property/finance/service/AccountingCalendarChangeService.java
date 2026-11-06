@@ -156,7 +156,7 @@ public class AccountingCalendarChangeService {
         after.setVersion(before.getVersion() + 1);
         after.setModifyTime(System.currentTimeMillis());
         after.setModifierId(auth.getUser().getId());
-        after.setModifierName(auth.getUser().getUsername());
+        after.setModifierName(FinanceScope.operatorName(auth));
         return InvoiceCompanyService.audit(periods.createUpdate(), auth, before.getVersion())
                 .set("modifyTime", after.getModifyTime())
                 .set("startDate", after.getStartDate())

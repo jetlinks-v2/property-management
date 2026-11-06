@@ -522,7 +522,7 @@ public class RefundApplicationService {
                 .set("status", status)
                 .set("resultId", result)
                 .set("reviewedBy", auth.getUser().getId())
-                .set("reviewerName", auth.getUser().getUsername())
+                .set("reviewerName", FinanceScope.operatorName(auth))
                 .set("reviewedAt", System.currentTimeMillis())
                 .set("reviewReason", input.reason().trim())
                 .set("actionRequestId", input.requestId())
