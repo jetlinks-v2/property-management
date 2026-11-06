@@ -39,6 +39,35 @@ class ReceivedReportPersistenceTest {
     @Autowired ReactiveRepository<FundAccountEntity, String> accounts;
     @Autowired ReactiveRepository<HandoverEntity, String> handovers;
     @Autowired ReactiveRepository<HandoverSourceEntity, String> handoverSources;
+    @Autowired org.hswebframework.ezorm.rdb.operator.DatabaseOperator overviewDatabase;
+
+    @Test
+    void overviewCashUsesOwnRefundDateExcludesOffsetsAndKeepsCurrentBalances() {
+        var p = payment("100", "1", "room", "2024-02-01T12:00:00");
+        refund(p, "20", "CASH", "2024-03-02T12:00:00");
+        fund("50", "TOPUP", "ADVANCE", "2024-02-02T12:00:00");
+        fund("0", "OFFSET", "ADVANCE", "2024-02-02T13:00:00");
+        fund("60", "TOPUP", "DEPOSIT", "2024-02-03T12:00:00");
+        var i = input();
+        i.setReceivedDateStart("2024-02-01");
+        i.setReceivedDateEnd("2024-02-29");
+        var feb = reports.overview(i, "DAY").contextWrite(allowed).block(WAIT);
+        assertEquals("210.00", feb.summary().incomeAmount());
+        assertEquals("0.00", feb.summary().refundAmount());
+        assertEquals(3, feb.trend().size());
+        assertEquals(query(i).summary().netAmount(), feb.summary().netAmount());
+        i.setReceivedDateEnd("2024-03-31");
+        var months = reports.overview(i, "MONTH").contextWrite(allowed).block(WAIT);
+        assertEquals(
+                List.of("2024-02", "2024-03"),
+                months.trend().stream().map(row -> row.period()).toList());
+        assertEquals("-20.00", months.trend().get(1).netAmount());
+        var service =
+                new FinanceOverviewService(null, null, null, null, accounts, overviewDatabase);
+        var balance = service.balances(List.of(project)).contextWrite(allowed).block(WAIT);
+        assertEquals("200.00", balance.advanceAmount());
+        assertEquals("100.00", balance.depositAmount());
+    }
 
     HandoverEntity bindHandover(String type, String id, String state, String tenant) {
         var b = new HandoverEntity();

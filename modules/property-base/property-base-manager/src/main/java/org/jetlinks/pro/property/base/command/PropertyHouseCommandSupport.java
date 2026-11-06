@@ -43,6 +43,12 @@ public class PropertyHouseCommandSupport {
     private final PropertyCustomerService customers;
     private final ArchiveScope scope;
 
+    @CommandHandler(name = "汇总授权房屋", description = "按当前组织及空间权限统计末级房屋、面积及字典房态，不触发同步")
+    public Mono<org.jetlinks.pro.property.base.archive.PropertyHouseSummary> queryHouseSummary(
+            QueryPropertyHouseSummaryCommand command) {
+        return houses.summary(command.getProjectIds());
+    }
+
     @CommandHandler(name = "查询可用房屋", description = "返回当前授权项目及空间范围中已完善资料的末端房屋分页")
     public Mono<PropertyHousePage> queryHouses(QueryPropertyHousesCommand command) {
         return Mono.defer(

@@ -73,6 +73,42 @@ class ArchivePersistenceTest {
     @Autowired SpaceOrganizationAssets organizationAssets;
 
     @Test
+    void overviewCountsOnlyAuthorizedTrueLeavesAndRejectsMixedProjectScope() {
+        houseService
+                .save("project", "single", write("single", 0L, "123.45"))
+                .contextWrite(all())
+                .block(WAIT);
+        var command = new QueryPropertyHouseSummaryCommand();
+        command.setProjectIds(List.of("project", "project"));
+        var result =
+                financeHouseCommands.queryHouseSummary(command).contextWrite(all()).block(WAIT);
+        assertEquals(2, result.houseCount());
+        assertEquals(1, result.incompleteCount());
+        assertEquals("123.45", result.billingArea());
+        assertEquals(2, result.states().stream().mapToLong(s -> s.count()).sum());
+        var limited =
+                financeHouseCommands
+                        .queryHouseSummary(command)
+                        .contextWrite(access(Set.of("room"), Set.of("project")))
+                        .block(WAIT);
+        assertEquals(1, limited.houseCount());
+        assertEquals(1, limited.incompleteCount());
+        assertEquals("0.00", limited.billingArea());
+        command.setProjectIds(List.of("project", "other-project"));
+        StepVerifier.create(
+                        financeHouseCommands
+                                .queryHouseSummary(command)
+                                .contextWrite(access(SPACE_IDS, Set.of("project"))))
+                .expectError(AccessDenyException.class)
+                .verify(WAIT);
+        command.setProjectIds(List.of());
+        StepVerifier.create(financeHouseCommands.queryHouseSummary(command).contextWrite(all()))
+                .expectErrorMatches(error -> status(error, 400))
+                .verify(WAIT);
+    }
+
+
+    @Test
     void failedOrganizationAssetRegistrationRollsBackBusinessBinding() {
         when(organizationAssets.change(eq("single"), eq("project"), isNull()))
                 .thenReturn(Mono.error(new BusinessException.NoStackTrace("资产登记失败", 503)));

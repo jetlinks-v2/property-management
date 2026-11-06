@@ -100,6 +100,45 @@ class ReceivableReportPersistenceTest {
     }
 
     @Test
+    void overviewUsesExactApprovedScopeAndNonOverlappingAgeBoundaries() {
+        var today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        for (int days : List.of(1, 30, 31, 90, 91, 180, 181, 365, 366)) {
+            var b = bill("10", "0");
+            bills.createUpdate()
+                    .set("dueDate", today.minusDays(days).toString())
+                    .where("id", b.getId())
+                    .execute()
+                    .block(WAIT);
+        }
+        var dueToday = bill("10", "0");
+        bills.createUpdate()
+                .set("dueDate", today.toString())
+                .where("id", dueToday.getId())
+                .execute()
+                .block(WAIT);
+        var pending = bill("999", "0");
+        bills.createUpdate()
+                .set("reviewState", "PENDING")
+                .where("id", pending.getId())
+                .execute()
+                .block(WAIT);
+        var split = bill("999", "0");
+        bills.createUpdate().set("split", true).where("id", split.getId()).execute().block(WAIT);
+        var result = reports.overview(input()).contextWrite(allowed).block(WAIT);
+        assertEquals(query(input()).summary(), result.summary());
+        assertEquals("100.00", result.summary().netAmount());
+        assertEquals("90.00", result.summary().overdueAmount());
+        assertEquals(
+                List.of("20.00", "20.00", "20.00", "20.00", "10.00"),
+                result.ageBuckets().stream().map(row -> row.amount()).toList());
+        assertEquals(1, result.overdueHouseCount());
+        assertEquals("100.00", result.subjects().get(0).amounts().netAmount());
+        var forbidden = input();
+        forbidden.setProjectIds(List.of(project, "forbidden"));
+        rejects(reports.overview(forbidden), 403);
+    }
+
+    @Test
     void summaryUsesAllFilteredRowsAndIsExactWhilePagingStaysStable() {
         var a = bill("9999999999999999.99", "10.01");
         var b = bill("100.01", "50.00");

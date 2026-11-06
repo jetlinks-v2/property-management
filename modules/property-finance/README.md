@@ -28,6 +28,14 @@ psql -h <数据库地址> -p <端口> -U <用户名> -d <数据库> -W -v ON_ERR
 
 税目和收费科目的Excel模板、解析及校验由后端提供，只接受Excel；先全量校验，再事务写入，失败包含行号、字段和原因。关键写入与算费使用MonoTracer。
 
+## 收费概览
+
+`POST /property/finance/overview/_query` 使用 `property-finance-overview:query` 功能权限，同时逐项校验项目 organization read 和空间 read 权限。请求为 `projectIds`（1～100个）、`startDate`、`endDate`（严格 `YYYY-MM-DD`，含首尾最多366天）；混入无权项目时整个请求失败，不返回部分汇总。
+
+返回 `houses`（真末级空间、面积及字典房态）、`receivables`（摘要、科目、逾期账龄及欠费房屋数）、`cash`（收款与退款趋势）、`balances`（预收与押金当前余额）、`handover`（当前交账状态金额）及 `asOfDate`。金额是精确十进制字符串。日期仅筛选应收日期与现金业务日期，房态、余额和交账始终为当前值。超过90天的趋势按月，其余按日；图中缺失日期由前端补零。
+
+财务统计复用应收/实收报表的正式来源、退款日期和冲抵口径，账户额外注入空间资产权限。基础房屋通过 `QueryPropertyHouseSummaryCommand` 获取，不跨库。财务查询串行运行于只读快照；基础服务有自己的只读快照，不承诺跨服务原子快照。任何来源失败直接报错，不能降级为零。此功能只读，无需升级 SQL；部署时同时更新基础服务 core/manager 和收费服务，并初始化概览菜单及授权。
+
 ## 活动设置
 
 `/property/finance/projects/{projectId}/activities` 提供活动的直接新增、编辑、只读详情和逻辑删除，采用按钮审批，不接工作流。权限资源 `property-finance-activity` 的 `query/save/state/date/delete/approve/reject` 分别控制查询、配置、启停、延期或提前结束、删除及审批通过/驳回；写入需要项目及全部优惠空间的资产权限，版本冲突返回409。

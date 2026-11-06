@@ -22,6 +22,10 @@
 
 基础服务须配置 `property.files.server-id`，或环境变量 `PROPERTY_FILES_SERVER_ID`，指向现有公共文件节点；未配置时明确拒绝上传，不回退本机文件。装修通过组织命令服务的 `GetPropertyProjectSealCommand` 按项目读取，保留当前认证和资产上下文，不跨库、不接受客户端章 URL。
 
+## 房屋汇总公开命令
+
+房屋汇总公开命令 `QueryPropertyHouseSummaryCommand` 使用 `propertyService:house`，输入 `projectIds`（1～100个），返回 `Mono<PropertyHouseSummary>`。按调用者项目及空间 read 权限统计未删除的真末级空间；未完善的末级空间仍计入总数和待完善数，面积仅取已完善资料。房态按 `house-state` 字典顺序展示，启用项含零值，有引用的停用项保留，未标注房态单独计数。多项目去重，任一项目非法或无权则整请求失败；不触发同步，不允许覆盖调用者身份。
+
 ## 员工公开命令
 
 服务标识 `propertyService:employee`，仅只读，不触发同步或改变员工身份。

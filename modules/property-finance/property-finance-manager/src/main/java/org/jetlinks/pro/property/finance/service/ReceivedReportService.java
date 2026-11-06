@@ -51,6 +51,92 @@ public class ReceivedReportService {
                     + ")) as \"otherAmount\", "
                     + HANDOVER_SUMS;
 
+    /** 复用现金来源集，退款按自身发生日记负向现金；预收冲抵不会再次计入收入。 */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Mono<org.jetlinks.pro.property.finance.overview.OverviewResult.Cash> overview(
+            ReceivedReportInput input, String grain) {
+        int length = "MONTH".equals(grain) ? 7 : 10;
+        return prepare(input)
+                .flatMap(
+                        p -> {
+                            String period = "substring(\"receivedAt\" from 1 for " + length + ")";
+                            return select(
+                                            p.sql(),
+                                            "select " + SUMS + " from " + p.sql().source(),
+                                            List.of())
+                                    .single()
+                                    .flatMap(
+                                            summary ->
+                                                    select(
+                                                                    p.sql(),
+                                                                    "select "
+                                                                            + period
+                                                                            + " as period, "
+                                                                            + SUMS
+                                                                            + " from "
+                                                                            + p.sql().source()
+                                                                            + " group by "
+                                                                            + period
+                                                                            + " order by "
+                                                                            + period,
+                                                                    List.of())
+                                                            .map(
+                                                                    row ->
+                                                                            new org.jetlinks.pro
+                                                                                    .property
+                                                                                    .finance
+                                                                                    .overview
+                                                                                    .OverviewResult
+                                                                                    .TrendPoint(
+                                                                                    text(
+                                                                                            row,
+                                                                                            "period"),
+                                                                                    ReceivedReportAmounts
+                                                                                            .of(
+                                                                                                    row,
+                                                                                                    false)
+                                                                                            .incomeAmount(),
+                                                                                    ReceivedReportAmounts
+                                                                                            .of(
+                                                                                                    row,
+                                                                                                    false)
+                                                                                            .refundAmount(),
+                                                                                    ReceivedReportAmounts
+                                                                                            .of(
+                                                                                                    row,
+                                                                                                    false)
+                                                                                            .netAmount()))
+                                                            .collectList()
+                                                            .map(
+                                                                    rows ->
+                                                                            new org.jetlinks.pro
+                                                                                    .property
+                                                                                    .finance
+                                                                                    .overview
+                                                                                    .OverviewResult
+                                                                                    .Cash(
+                                                                                    ReceivedReportAmounts
+                                                                                            .of(
+                                                                                                    summary,
+                                                                                                    false),
+                                                                                    rows,
+                                                                                    grain)));
+                        });
+    }
+
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Mono<ReceivedReportAmounts> overviewHandover(ReceivedReportInput input) {
+        return prepare(input)
+                .flatMap(
+                        p ->
+                                select(
+                                                p.sql(),
+                                                "select " + SUMS + " from " + p.sql().source(),
+                                                List.of())
+                                        .single()
+                                        .map(row -> ReceivedReportAmounts.of(row, false)));
+    }
+
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Mono<ReceivedReportResult> query(ReceivedReportInput input) {
         return prepare(input)

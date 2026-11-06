@@ -82,6 +82,138 @@ public class ReceivableReportService {
     private final FinanceScope scope;
     private final DatabaseOperator database;
 
+    /** 概览与报表共用正式账单源和空间权限；直接聚合全范围，不通过分页或导出上限截取。 */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Mono<org.jetlinks.pro.property.finance.overview.OverviewResult.Receivables> overview(
+            ReceivableReportInput input) {
+        return prepare(input)
+                .flatMap(
+                        p ->
+                                select("select " + SUMS + " from " + p.source(), p.parameters())
+                                        .single()
+                                        .flatMap(
+                                                summary ->
+                                                        select(
+                                                                        "select \"subjectId\","
+                                                                            + " \"subjectName\", "
+                                                                                + SUMS
+                                                                                + " from "
+                                                                                + p.source()
+                                                                                + " group by"
+                                                                                + " \"subjectId\","
+                                                                                + " \"subjectName\""
+                                                                                + " order by"
+                                                                                + " \"subjectName\","
+                                                                                + " \"subjectId\"",
+                                                                        p.parameters())
+                                                                .map(
+                                                                        row ->
+                                                                                new org.jetlinks.pro
+                                                                                        .property
+                                                                                        .finance
+                                                                                        .overview
+                                                                                        .OverviewResult
+                                                                                        .Subject(
+                                                                                        text(
+                                                                                                row,
+                                                                                                "subjectId"),
+                                                                                        text(
+                                                                                                row,
+                                                                                                "subjectName"),
+                                                                                        ReceivableReportAmounts
+                                                                                                .of(
+                                                                                                        row)))
+                                                                .collectList()
+                                                                .flatMap(
+                                                                        subjects ->
+                                                                                overviewAges(p)
+                                                                                        .flatMap(
+                                                                                                ages ->
+                                                                                                        select(
+                                                                                                                        "select"
+                                                                                                                            + " count(*)"
+                                                                                                                            + " as total"
+                                                                                                                            + " from"
+                                                                                                                            + " (select"
+                                                                                                                            + " \"projectId\","
+                                                                                                                            + " \"spaceId\""
+                                                                                                                            + " from"
+                                                                                                                            + " "
+                                                                                                                                + p
+                                                                                                                                        .source()
+                                                                                                                                + " where"
+                                                                                                                                + " ("
+                                                                                                                                + OVERDUE
+                                                                                                                                + ") > 0"
+                                                                                                                                + " group"
+                                                                                                                                + " by \"projectId\","
+                                                                                                                                + " \"spaceId\")"
+                                                                                                                                + " overdue_houses",
+                                                                                                                        p
+                                                                                                                                .parameters())
+                                                                                                                .single()
+                                                                                                                .map(
+                                                                                                                        count ->
+                                                                                                                                new org
+                                                                                                                                        .jetlinks
+                                                                                                                                        .pro
+                                                                                                                                        .property
+                                                                                                                                        .finance
+                                                                                                                                        .overview
+                                                                                                                                        .OverviewResult
+                                                                                                                                        .Receivables(
+                                                                                                                                        ReceivableReportAmounts
+                                                                                                                                                .of(
+                                                                                                                                                        summary),
+                                                                                                                                        subjects,
+                                                                                                                                        ages,
+                                                                                                                                        ((Number)
+                                                                                                                                                        count
+                                                                                                                                                                .get(
+                                                                                                                                                                        "total"))
+                                                                                                                                                .longValue()))))));
+    }
+
+    private Mono<List<org.jetlinks.pro.property.finance.overview.OverviewResult.AgeBucket>>
+            overviewAges(Prepared p) {
+        var today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        var keys = List.of("D1_30", "D31_90", "D91_180", "D181_365", "OVER365");
+        int[] bounds = {0, 30, 90, 180, 365};
+        var sums = new ArrayList<String>();
+        // 边界只由服务端业务日期派生，使用标准字符日期比较，避免数据库方言日期运算。
+        for (int i = 0; i < keys.size(); i++) {
+            String condition = "\"dueDate\" < '" + today.minusDays(bounds[i]) + "'";
+            if (i + 1 < bounds.length)
+                condition += " and \"dueDate\" >= '" + today.minusDays(bounds[i + 1]) + "'";
+            sums.add(
+                    "sum(case when "
+                            + condition
+                            + " then "
+                            + OUTSTANDING
+                            + " else 0 end) as bucket"
+                            + i);
+        }
+        return select("select " + String.join(", ", sums) + " from " + p.source(), p.parameters())
+                .single()
+                .map(
+                        row ->
+                                java.util.stream.IntStream.range(0, keys.size())
+                                        .mapToObj(
+                                                i ->
+                                                        new org.jetlinks.pro.property.finance
+                                                                .overview.OverviewResult.AgeBucket(
+                                                                keys.get(i),
+                                                                new java.math.BigDecimal(
+                                                                                Objects.toString(
+                                                                                        row.get(
+                                                                                                "bucket"
+                                                                                                        + i),
+                                                                                        "0"))
+                                                                        .setScale(2)
+                                                                        .toPlainString()))
+                                        .toList());
+    }
+
     /** 单次报表的摘要、总数和分页共用只读快照，避免收款并发使同一响应互相矛盾。 */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Mono<ReceivableReportResult> query(ReceivableReportInput input) {
