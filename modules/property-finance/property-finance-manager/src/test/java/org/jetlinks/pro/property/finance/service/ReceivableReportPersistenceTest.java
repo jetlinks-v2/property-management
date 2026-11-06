@@ -427,7 +427,16 @@ class ReceivableReportPersistenceTest {
                     org.apache.poi.ss.usermodel.CellType.STRING,
                     sheet.getRow(1).getCell(2).getCellType());
             assertTrue(sheet.getRow(1).getCell(2).getStringCellValue().startsWith("=SUM"));
-            assertEquals("100.01", sheet.getRow(1).getCell(13).getStringCellValue());
+            int amountColumn = -1;
+            for (var cell : sheet.getRow(0))
+                if ("净应收（元）".equals(cell.getStringCellValue()))
+                    amountColumn = cell.getColumnIndex();
+            assertTrue(amountColumn >= 0);
+            assertEquals(
+                    org.apache.poi.ss.usermodel.CellType.NUMERIC,
+                    sheet.getRow(1).getCell(amountColumn).getCellType());
+            assertEquals(
+                    100.01, sheet.getRow(1).getCell(amountColumn).getNumericCellValue(), 0.00001);
         }
         var pdf = exports.export(input(), "pdf").contextWrite(allowed).block(WAIT);
         try (var document = org.apache.pdfbox.pdmodel.PDDocument.load(pdf)) {
@@ -461,6 +470,48 @@ class ReceivableReportPersistenceTest {
         StepVerifier.create(action.contextWrite(allowed))
                 .expectErrorMatches(e -> TaxItemPersistenceTest.status(e, code))
                 .verify(WAIT);
+    }
+
+    @Test
+    void overdueOnlyExcludesDueTodayFuturePaidAndUnknownDates() throws Exception {
+        var today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        var overdue = bill("100", "20");
+        bills.createUpdate()
+                .set("dueDate", today.minusDays(3).toString())
+                .where("id", overdue.getId())
+                .execute()
+                .block(WAIT);
+        for (var date : List.of(today.toString(), today.plusDays(1).toString())) {
+            var b = bill("100", "0");
+            bills.createUpdate().set("dueDate", date).where("id", b.getId()).execute().block(WAIT);
+        }
+        var paid = bill("100", "100");
+        bills.createUpdate()
+                .set("dueDate", today.minusDays(4).toString())
+                .where("id", paid.getId())
+                .execute()
+                .block(WAIT);
+        var i = input();
+        i.setOverdueOnly(true);
+        var result = query(i);
+        assertEquals(1, result.page().getTotal());
+        assertEquals("80.00", result.summary().overdueAmount());
+        assertEquals(3, result.page().getData().get(0).overdueDays());
+        i.setGroupBy("SUBJECT");
+        i.setExportMode("BOTH");
+        var workbook =
+                reports.exportWorkbook(i, Locale.CHINESE, new ReceivableReportFile())
+                        .contextWrite(allowed)
+                        .block(WAIT);
+        var bytes = FinanceReportFile.write(workbook, "excel");
+        try (var book =
+                new org.apache.poi.xssf.usermodel.XSSFWorkbook(
+                        new java.io.ByteArrayInputStream(bytes))) {
+            assertEquals(3, book.getNumberOfSheets());
+            assertNotNull(book.getSheet("查询条件"));
+            assertEquals(1, workbook.sheets().get(1).rows().size());
+            assertEquals("80.00", workbook.sheets().get(1).summary().get("overdueAmount"));
+        }
     }
 
     @Configuration

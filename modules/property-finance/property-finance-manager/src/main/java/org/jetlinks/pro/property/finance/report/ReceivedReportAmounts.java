@@ -9,14 +9,24 @@ public record ReceivedReportAmounts(
         String refundAmount,
         String netAmount,
         String currentPeriodAmount,
-        String otherPeriodAmount) {
+        String otherPeriodAmount,
+        String unhandedAmount,
+        String pendingAmount,
+        String approvedAmount) {
+    public ReceivedReportAmounts(String a, String b, String c, String d, String e) {
+        this(a, b, c, d, e, "0.00", "0.00", "0.00");
+    }
+
     public static ReceivedReportAmounts of(Map<String, Object> row, boolean period) {
         return new ReceivedReportAmounts(
                 money(row, "income"),
                 money(row, "refund"),
                 money(row, "net"),
                 period ? money(row, "currentAmount") : null,
-                period ? money(row, "otherAmount") : null);
+                period ? money(row, "otherAmount") : null,
+                money(row, "unhanded"),
+                money(row, "pending"),
+                money(row, "approved"));
     }
 
     private static String money(Map<String, Object> row, String key) {

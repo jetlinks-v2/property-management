@@ -12,7 +12,7 @@ import java.util.*;
 /** 报表只接受业务筛选项，不接受调用方SQL、通用查询条件、锁定或关闭分页选项。 */
 @Getter
 @Setter
-public class ReceivableReportInput {
+public class ReceivableReportInput extends ReportExportInput {
     private List<String> projectIds = List.of();
     private List<String> spaceIds = List.of();
     private List<String> subjectIds = List.of();
@@ -24,6 +24,7 @@ public class ReceivableReportInput {
     private String dueDateStart;
     private String dueDateEnd;
     private String collectionStatus;
+    private Boolean overdueOnly;
     private String groupBy = "DETAIL";
     private int pageIndex;
     private int pageSize = 12;
@@ -31,6 +32,7 @@ public class ReceivableReportInput {
     private List<ReportGroupKey> subjectGroups = List.of();
 
     public void validate() {
+        validateExport();
         ReportGroupKey.validate(subjectGroups);
         ids(projectIds, 100, true);
         ids(spaceIds, 1000, false);

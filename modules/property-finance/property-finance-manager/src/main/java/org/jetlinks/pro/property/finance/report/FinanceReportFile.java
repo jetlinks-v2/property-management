@@ -32,46 +32,115 @@ public final class FinanceReportFile {
         }
     }
 
+    public static byte[] write(ReportWorkbook workbook, String format) {
+        try {
+            if ("excel".equals(format)) return excel(workbook);
+            return pdf(workbook);
+        } catch (Exception failure) {
+            throw new org.hswebframework.web.exception.BusinessException(
+                    "error.property_finance_report_export_failed", 500, failure);
+        }
+    }
+
     private static byte[] excel(Data data) throws IOException {
-        var columns = data.columns();
+        return excel(new ReportWorkbook(List.of(data), Map.of()));
+    }
+
+    private static byte[] excel(ReportWorkbook workbook) throws IOException {
         try (var book = new XSSFWorkbook();
                 var output = new ByteArrayOutputStream()) {
-            var sheet = book.createSheet(data.title());
-            var header = sheet.createRow(0);
-            var style = book.createCellStyle();
+            var headerStyle = book.createCellStyle();
             var font = book.createFont();
             font.setBold(true);
-            style.setFont(font);
-            for (int n = 0; n < columns.size(); n++) {
-                var cell = header.createCell(n);
-                cell.setCellValue(data.labels().get(columns.get(n)));
-                cell.setCellStyle(style);
-                sheet.setColumnWidth(n, ("fullName".equals(columns.get(n)) ? 48 : 24) * 256);
+            headerStyle.setFont(font);
+            var numericStyle = book.createCellStyle();
+            numericStyle.setDataFormat(
+                    book.createDataFormat().getFormat("#,##0.00;[Red]-#,##0.00"));
+            var preciseStyle = book.createCellStyle();
+            preciseStyle.setDataFormat(
+                    book.createDataFormat().getFormat("#,##0.000000;[Red]-#,##0.000000"));
+            int number = 0;
+            for (var data : workbook.sheets()) {
+                var sheet =
+                        book.createSheet(
+                                org.apache.poi.ss.util.WorkbookUtil.createSafeSheetName(
+                                        data.title() + (number++ == 0 ? "" : "-明细")));
+                var columns = data.columns();
+                var header = sheet.createRow(0);
+                for (int n = 0; n < columns.size(); n++) {
+                    var cell = header.createCell(n);
+                    cell.setCellValue(data.labels().get(columns.get(n)));
+                    cell.setCellStyle(headerStyle);
+                    sheet.setColumnWidth(n, ("fullName".equals(columns.get(n)) ? 48 : 24) * 256);
+                }
+                int index = 1;
+                for (var values : data.rows()) {
+                    var row = sheet.createRow(index++);
+                    for (int n = 0; n < columns.size(); n++)
+                        writeCell(
+                                row.createCell(n),
+                                columns.get(n),
+                                values.get(columns.get(n)),
+                                data.money(),
+                                "outputTax".equals(columns.get(n)) ? preciseStyle : numericStyle);
+                }
+                var footer = sheet.createRow(index++);
+                footer.createCell(0).setCellValue(data.summaryLabel());
+                for (int n = 1; n < columns.size(); n++)
+                    if (data.summary().containsKey(columns.get(n)))
+                        writeCell(
+                                footer.createCell(n),
+                                columns.get(n),
+                                data.summary().get(columns.get(n)),
+                                data.money(),
+                                "outputTax".equals(columns.get(n)) ? preciseStyle : numericStyle);
+                sheet.createRow(index).createCell(0).setCellValue(data.scope());
+                sheet.createFreezePane(0, 1);
+                sheet.setAutoFilter(
+                        new org.apache.poi.ss.util.CellRangeAddress(
+                                0, data.rows().size(), 0, columns.size() - 1));
             }
-            int index = 1;
-            for (var row : data.rows()) {
-                var target = sheet.createRow(index++);
-                var values = row;
-                for (int n = 0; n < columns.size(); n++)
-                    target.createCell(n).setCellValue(values.getOrDefault(columns.get(n), ""));
+            if (!workbook.conditions().isEmpty()) {
+                var sheet = book.createSheet("查询条件");
+                int index = 0;
+                for (var item : workbook.conditions().entrySet()) {
+                    var row = sheet.createRow(index++);
+                    row.createCell(0).setCellValue(item.getKey());
+                    row.createCell(1).setCellValue(item.getValue());
+                }
+                sheet.setColumnWidth(0, 24 * 256);
+                sheet.setColumnWidth(1, 90 * 256);
             }
-            var footer = sheet.createRow(index++);
-            footer.createCell(0).setCellValue(data.summaryLabel());
-            var amounts = data.summary();
-            for (int n = 0; n < columns.size(); n++)
-                if (amounts.containsKey(columns.get(n)))
-                    footer.createCell(n).setCellValue(amounts.get(columns.get(n)));
-            sheet.createRow(index).createCell(0).setCellValue(data.scope());
-            sheet.createFreezePane(0, 1);
-            sheet.setAutoFilter(
-                    new org.apache.poi.ss.util.CellRangeAddress(
-                            0, data.rows().size(), 0, columns.size() - 1));
             book.write(output);
             return output.toByteArray();
         }
     }
 
+    /** Excel普通金额写数值供求和；超过15位有效数字保留文本，避免Excel破坏财务精度。 */
+    private static void writeCell(
+            org.apache.poi.ss.usermodel.Cell cell,
+            String key,
+            String value,
+            Set<String> money,
+            org.apache.poi.ss.usermodel.CellStyle style) {
+        String text = Objects.toString(value, "");
+        if (money.contains(key) && !text.isBlank()) {
+            var amount = new java.math.BigDecimal(text);
+            if (amount.precision() <= 15) {
+                cell.setCellValue(amount.doubleValue());
+                cell.setCellStyle(style);
+                return;
+            }
+        }
+        cell.setCellValue(text);
+    }
+
     private static byte[] pdf(Data data) throws IOException {
+        return pdf(new ReportWorkbook(List.of(data), Map.of()));
+    }
+
+    private static byte[] pdf(ReportWorkbook workbook) throws IOException {
+        Data data = workbook.sheets().get(0);
         var columns = data.columns();
         StringBuilder html =
                 new StringBuilder(
@@ -80,20 +149,33 @@ public final class FinanceReportFile {
                             + " SC';font-size:9px;color:#262626}h1{font-size:18px}table{width:100%;border-collapse:collapse;table-layout:fixed;-fs-table-paginate:paginate}th,td{border:1px"
                             + " solid"
                             + " #d9d9d9;padding:5px;word-wrap:break-word}th{background:#f5f5f5}thead{display:table-header-group}tr{page-break-inside:avoid}.money{text-align:right;white-space:nowrap;word-wrap:normal}.summary{font-weight:bold}</style></head><body><h1>");
-        html.append(escape(data.title()))
-                .append("</h1><p>")
-                .append(escape(data.scope()))
-                .append("</p><table>");
-        appendColumns(html, data);
-        html.append("<thead><tr>");
-        for (String column : columns)
-            html.append("<th>").append(escape(data.labels().get(column))).append("</th>");
-        html.append("</tr></thead><tbody>");
-        for (var row : data.rows()) appendRow(html, columns, data.money(), row, false);
-        var totals = new HashMap<>(data.summary());
-        totals.put(columns.get(0), data.summaryLabel());
-        appendRow(html, columns, data.money(), totals, true);
-        html.append("</tbody></table></body></html>");
+        html.append(escape(data.title())).append("</h1>");
+        for (var condition : workbook.conditions().entrySet())
+            html.append("<span>")
+                    .append(escape(condition.getKey()))
+                    .append(": ")
+                    .append(escape(condition.getValue()))
+                    .append("　</span>");
+        for (var section : workbook.sheets()) {
+            data = section;
+            columns = data.columns();
+            html.append("<h2>")
+                    .append(escape(data.title()))
+                    .append("</h2><p>")
+                    .append(escape(data.scope()))
+                    .append("</p><table>");
+            appendColumns(html, data);
+            html.append("<thead><tr>");
+            for (String column : columns)
+                html.append("<th>").append(escape(data.labels().get(column))).append("</th>");
+            html.append("</tr></thead><tbody>");
+            for (var row : data.rows()) appendRow(html, columns, data.money(), row, false);
+            var totals = new HashMap<>(data.summary());
+            totals.put(columns.get(0), data.summaryLabel());
+            appendRow(html, columns, data.money(), totals, true);
+            html.append("</tbody></table>");
+        }
+        html.append("</body></html>");
         try (var output = new ByteArrayOutputStream()) {
             var renderer = new PdfRendererBuilder();
             renderer.useFastMode();

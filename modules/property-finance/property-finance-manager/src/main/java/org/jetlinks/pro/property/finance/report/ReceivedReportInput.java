@@ -12,7 +12,7 @@ import java.util.*;
 /** 只读现金报表白名单，日期为业务发生日，不能提交SQL或通用QueryParam。 */
 @Getter
 @Setter
-public class ReceivedReportInput {
+public class ReceivedReportInput extends ReportExportInput {
     private List<String> projectIds = List.of(),
             spaceIds = List.of(),
             subjectIds = List.of(),
@@ -25,6 +25,7 @@ public class ReceivedReportInput {
             receivedDateStart,
             receivedDateEnd;
     private String handoverState;
+    private String collectorId;
     private String groupBy = "DETAIL";
     private int pageIndex, pageSize = 12;
 
@@ -32,8 +33,11 @@ public class ReceivedReportInput {
     private List<ReportGroupKey> methodGroups = List.of();
 
     public void validate() {
+        validateExport();
         if (handoverState != null
                 && !Set.of("UNHANDED", "PENDING", "APPROVED").contains(handoverState))
+            throw error("report_query_invalid", 400);
+        if (collectorId != null && (collectorId.isBlank() || collectorId.length() > 64))
             throw error("report_query_invalid", 400);
         ReportGroupKey.validate(subjectGroups);
         ReportGroupKey.validate(methodGroups);
@@ -53,7 +57,7 @@ public class ReceivedReportInput {
                                 "ADVANCE_REFUND",
                                 "DEPOSIT_REFUND")
                         .containsAll(sourceTypes)
-                || !Set.of("DETAIL", "PROJECT", "SUBJECT", "METHOD", "SOURCE")
+                || !Set.of("DETAIL", "PROJECT", "SUBJECT", "METHOD", "SOURCE", "COLLECTOR")
                         .contains(Objects.toString(groupBy, ""))
                 || pageIndex < 0
                 || pageSize < 1

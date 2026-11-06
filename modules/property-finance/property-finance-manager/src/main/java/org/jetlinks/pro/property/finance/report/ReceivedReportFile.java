@@ -14,7 +14,10 @@ public class ReceivedReportFile {
                     "refundAmount",
                     "netAmount",
                     "currentPeriodAmount",
-                    "otherPeriodAmount");
+                    "otherPeriodAmount",
+                    "unhandedAmount",
+                    "pendingAmount",
+                    "approvedAmount");
     private static final Map<String, String> ZH =
             Map.ofEntries(
                     Map.entry("title", "实收统计"),
@@ -24,7 +27,7 @@ public class ReceivedReportFile {
                     Map.entry("APPROVED", "已入账"),
                     Map.entry(
                             "scope",
-                            "按实际现金收支统计，退款按退款日列负额；余额冲抵和内部转存不重复计现。往期包含跨期及无费用期间的流水；无日期条件时当期/往期未统计。"),
+                            "按实际现金收支统计，退款按退款日列负额；余额冲抵和内部转存不重复计现。其他期间包含跨期及无费用期间的流水；无日期条件时不拆分期间。"),
                     Map.entry("summary", "全筛选范围合计"),
                     Map.entry("projectName", "项目"),
                     Map.entry("fullName", "房屋"),
@@ -40,12 +43,15 @@ public class ReceivedReportFile {
                     Map.entry("sourceType", "收款类型"),
                     Map.entry("collectorName", "收款员"),
                     Map.entry("remark", "备注"),
+                    Map.entry("unhandedAmount", "已收未交账（元）"),
+                    Map.entry("pendingAmount", "已收未入账（元）"),
+                    Map.entry("approvedAmount", "已入账（元）"),
                     Map.entry("rowCount", "流水数"),
                     Map.entry("incomeAmount", "收入（元）"),
                     Map.entry("refundAmount", "退款（元）"),
                     Map.entry("netAmount", "实收总额（元）"),
                     Map.entry("currentPeriodAmount", "当期实收（元）"),
-                    Map.entry("otherPeriodAmount", "往期实收（元）"),
+                    Map.entry("otherPeriodAmount", "其他期间实收（元）"),
                     Map.entry("RECEIVABLE", "应收收款"),
                     Map.entry("TEMPORARY", "临时收款"),
                     Map.entry("REFUND", "收款退款"),
@@ -81,6 +87,9 @@ public class ReceivedReportFile {
                     Map.entry("sourceType", "Source type"),
                     Map.entry("collectorName", "Collector"),
                     Map.entry("remark", "Remark"),
+                    Map.entry("unhandedAmount", "Not handed over (CNY)"),
+                    Map.entry("pendingAmount", "Pending posting (CNY)"),
+                    Map.entry("approvedAmount", "Posted (CNY)"),
                     Map.entry("rowCount", "Rows"),
                     Map.entry("incomeAmount", "Income (CNY)"),
                     Map.entry("refundAmount", "Refund (CNY)"),
@@ -97,6 +106,10 @@ public class ReceivedReportFile {
                     Map.entry("DEPOSIT_REFUND", "Deposit refund"));
 
     public byte[] write(ReceivedReportResult result, String format, Locale locale) {
+        return FinanceReportFile.write(data(result, locale), format);
+    }
+
+    public FinanceReportFile.Data data(ReceivedReportResult result, Locale locale) {
         var columns = new ArrayList<String>();
         if ("DETAIL".equals(result.groupBy()))
             columns.addAll(
@@ -105,6 +118,8 @@ public class ReceivedReportFile {
                             "fullName",
                             "customerName",
                             "subjectName",
+                            "sourceNo",
+                            "receivableId",
                             "receivedAt",
                             "calcStartDate",
                             "calcEndDate",
@@ -120,23 +135,31 @@ public class ReceivedReportFile {
                                 case "PROJECT" -> "projectName";
                                 case "SUBJECT" -> "subjectName";
                                 case "METHOD" -> "methodText";
+                                case "COLLECTOR" -> "collectorName";
                                 default -> "sourceType";
                             },
                             "rowCount"));
-        columns.addAll(result.periodEnabled() ? MONEY : MONEY.subList(0, 3));
+        columns.addAll(
+                MONEY.stream()
+                        .filter(
+                                key ->
+                                        result.periodEnabled()
+                                                || !Set.of(
+                                                                "currentPeriodAmount",
+                                                                "otherPeriodAmount")
+                                                        .contains(key))
+                        .toList());
         var labels = new LinkedHashMap<String, String>();
         columns.forEach(c -> labels.put(c, label(c, locale)));
-        return FinanceReportFile.write(
-                new FinanceReportFile.Data(
-                        label("title", locale),
-                        label("scope", locale),
-                        label("summary", locale),
-                        columns,
-                        labels,
-                        Set.copyOf(MONEY),
-                        result.page().getData().stream().map(row -> values(row, locale)).toList(),
-                        amounts(result.summary())),
-                format);
+        return new FinanceReportFile.Data(
+                label("title", locale),
+                label("scope", locale),
+                label("summary", locale),
+                columns,
+                labels,
+                Set.copyOf(MONEY),
+                result.page().getData().stream().map(row -> values(row, locale)).toList(),
+                amounts(result.summary()));
     }
 
     private static Map<String, String> values(ReceivedReportRow r, Locale locale) {
@@ -162,6 +185,9 @@ public class ReceivedReportFile {
 
     private static Map<String, String> amounts(ReceivedReportAmounts a) {
         var v = new HashMap<String, String>();
+        v.put("unhandedAmount", a.unhandedAmount());
+        v.put("pendingAmount", a.pendingAmount());
+        v.put("approvedAmount", a.approvedAmount());
         v.put("incomeAmount", a.incomeAmount());
         v.put("refundAmount", a.refundAmount());
         v.put("netAmount", a.netAmount());

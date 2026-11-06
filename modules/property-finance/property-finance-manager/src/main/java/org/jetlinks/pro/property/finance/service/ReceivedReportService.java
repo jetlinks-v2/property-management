@@ -38,13 +38,18 @@ public class ReceivedReportService {
     private static final String CURRENT =
             "case when substring(\"receivedAt\" from 1 for 10) between \"calcStartDate\" and"
                     + " \"calcEndDate\" then amount else 0 end";
+    private static final String HANDOVER_SUMS =
+            "sum(case when \"handoverState\"='UNHANDED' then amount else 0 end) as unhanded,"
+                + " sum(case when \"handoverState\"='PENDING' then amount else 0 end) as pending,"
+                + " sum(case when \"handoverState\"='APPROVED' then amount else 0 end) as approved";
     private static final String SUMS =
             "count(*) as rows, sum(case when amount>0 then amount else 0 end) as income, sum(case"
                     + " when amount<0 then -amount else 0 end) as refund, sum(amount) as net, sum("
                     + CURRENT
                     + ") as \"currentAmount\", sum(amount- ("
                     + CURRENT
-                    + ")) as \"otherAmount\"";
+                    + ")) as \"otherAmount\", "
+                    + HANDOVER_SUMS;
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Mono<ReceivedReportResult> query(ReceivedReportInput input) {
@@ -58,6 +63,23 @@ public class ReceivedReportService {
         return prepare(input)
                 .flatMap(p -> load(input, p, true))
                 .as(MonoTracer.create("/property/finance/reports/received/export"));
+    }
+
+    /** 汇总和完整明细共用一个数据库快照；克隆查询不改变页面输入或分组。 */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Mono<ReportWorkbook> exportWorkbook(
+            ReceivedReportInput input, Locale locale, ReceivedReportFile files) {
+        var detail =
+                com.alibaba.fastjson.JSON.parseObject(
+                        com.alibaba.fastjson.JSON.toJSONString(input), ReceivedReportInput.class);
+        detail.setGroupBy("DETAIL");
+        return ReportWorkbookLoader.load(
+                input,
+                input.getProjectIds(),
+                scope,
+                () -> exportData(input).map(result -> files.data(result, locale)),
+                () -> exportData(detail).map(result -> files.data(result, locale)),
+                locale);
     }
 
     private Mono<Prepared> prepare(ReceivedReportInput input) {
@@ -245,7 +267,7 @@ public class ReceivedReportService {
         // 资金流水的交账身份是entry.id，展示的transactionId不能拿来关联交账。
         source =
                 "(select numbered_source.*, coalesce(hs.\"handoverState\", 'UNHANDED') as"
-                    + " \"handoverState\" from "
+                        + " \"handoverState\" from "
                         + source
                         + " left join handover_states hs on"
                         + " hs.\"projectId\"=numbered_source.\"projectId\" and"
@@ -329,6 +351,8 @@ public class ReceivedReportService {
         like(where, params, "fullName", i.getFullName());
         like(where, params, "sourceNo", i.getPaymentNo());
         like(where, params, "collectorName", i.getCollectorName());
+        if (i.getCollectorId() != null)
+            in(where, params, "collectorId", List.of(i.getCollectorId()));
         if (i.getReceivedDateStart() != null) {
             where.add("substring(\"receivedAt\" from 1 for 10)>=?");
             params.add(i.getReceivedDateStart());
@@ -441,7 +465,19 @@ public class ReceivedReportService {
                                                                             + " as \"currentAmount\","
                                                                             + " amount-("
                                                                             + CURRENT
-                                                                            + ") as \"otherAmount\""
+                                                                            + ") as \"otherAmount\","
+                                                                            + " case when"
+                                                                            + " \"handoverState\"='UNHANDED'"
+                                                                            + " then amount else 0"
+                                                                            + " end as unhanded,"
+                                                                            + " case when"
+                                                                            + " \"handoverState\"='PENDING'"
+                                                                            + " then amount else 0"
+                                                                            + " end as pending,"
+                                                                            + " case when"
+                                                                            + " \"handoverState\"='APPROVED'"
+                                                                            + " then amount else 0"
+                                                                            + " end as approved"
                                                                             + " from "
                                                                             + source
                                                                             + " order by"
@@ -512,6 +548,7 @@ public class ReceivedReportService {
             case "SUBJECT" -> "\"subjectId\", \"subjectName\"";
             case "METHOD" -> "\"method\", \"methodText\"";
             case "SOURCE" -> "\"sourceType\"";
+            case "COLLECTOR" -> "\"collectorId\", \"collectorName\"";
             default -> "";
         };
     }
@@ -541,7 +578,8 @@ public class ReceivedReportService {
                 text(r, "remark"),
                 text(r, "handoverState"),
                 ((Number) r.get("rows")).longValue(),
-                ReceivedReportAmounts.of(r, period));
+                ReceivedReportAmounts.of(r, period),
+                text(r, "collectorId"));
     }
 
     private static String text(Map<String, Object> r, String key) {

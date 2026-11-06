@@ -216,6 +216,23 @@ public class InvoiceReportService {
                 .as(MonoTracer.create("/property/finance/reports/invoices/related"));
     }
 
+    /** 汇总和完整明细共用一个数据库快照；克隆查询不改变页面输入或分组。 */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Mono<ReportWorkbook> exportWorkbook(
+            InvoiceReportInput input, Locale locale, InvoiceReportFile files) {
+        var detail =
+                com.alibaba.fastjson.JSON.parseObject(
+                        com.alibaba.fastjson.JSON.toJSONString(input), InvoiceReportInput.class);
+        detail.setGroupBy("DETAIL");
+        return ReportWorkbookLoader.load(
+                input,
+                input.getProjectIds(),
+                scope,
+                () -> exportData(input).map(result -> files.data(result, locale)),
+                () -> exportData(detail).map(result -> files.data(result, locale)),
+                locale);
+    }
+
     private Mono<Prepared> prepare(InvoiceReportInput i) {
         return Mono.defer(
                 () -> {
@@ -355,7 +372,9 @@ public class InvoiceReportService {
                         "subjectName",
                         "amount");
         // 账户仅作稳定科目归属，逻辑删除不使原存入历史消失。
-        String as = sql(accounts, history(i), params, "id", "projectId", "subjectId");
+        var accountQuery = history(i);
+        accountQuery.toQuery().and("type", "ADVANCE");
+        String as = sql(accounts, accountQuery, params, "id", "projectId", "subjectId");
         var dq = base(i);
         dq.toQuery()
                 .and("tenantId", tenant)

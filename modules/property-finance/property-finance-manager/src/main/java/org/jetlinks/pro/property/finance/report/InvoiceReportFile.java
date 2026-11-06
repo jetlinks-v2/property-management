@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.*;
 
-/** 来源覆盖报表使用与页面相同的授权快照，明确模拟票据及最新票据筛选口径。 */
+/** 来源覆盖报表使用与页面相同的授权快照，明确来源覆盖及最新票据筛选口径。 */
 @Component
 public class InvoiceReportFile {
     private static final List<String> MONEY =
@@ -13,8 +13,7 @@ public class InvoiceReportFile {
     private static final Map<String, String> ZH =
             Map.ofEntries(
                     Map.entry("title", "开票统计"),
-                    Map.entry(
-                            "scope", "按规范来源统计当前开票覆盖，仅含发票，不含收据。开票日期、号码和类型匹配来源最新蓝票；未开金额不是即时可开额度。"),
+                    Map.entry("scope", "按规范来源统计当前开票覆盖，仅含发票，不含收据。开票日期、号码和类型匹配来源最新蓝票；未开金额不是即时可开额度。"),
                     Map.entry("summary", "全筛选范围合计"),
                     Map.entry("projectName", "项目"),
                     Map.entry("fullName", "房屋"),
@@ -40,7 +39,7 @@ public class InvoiceReportFile {
                     Map.entry("REVERSED", "已红冲"),
                     Map.entry("RECEIVABLE", "应收款"),
                     Map.entry("TEMP_PAYMENT", "临时收款"),
-                    Map.entry("FUND_TOPUP", "预收/押金原存入"),
+                    Map.entry("FUND_TOPUP", "预收原存入"),
                     Map.entry("1", "普通发票"),
                     Map.entry("2", "专用发票"));
     private static final Map<String, String> EN =
@@ -81,6 +80,10 @@ public class InvoiceReportFile {
                     Map.entry("2", "Special invoice"));
 
     public byte[] write(InvoiceReportResult result, String format, Locale locale) {
+        return FinanceReportFile.write(data(result, locale), format);
+    }
+
+    public FinanceReportFile.Data data(InvoiceReportResult result, Locale locale) {
         var columns = new ArrayList<String>();
         if ("DETAIL".equals(result.groupBy()))
             columns.addAll(
@@ -106,17 +109,15 @@ public class InvoiceReportFile {
         columns.addAll(MONEY);
         var labels = new LinkedHashMap<String, String>();
         columns.forEach(c -> labels.put(c, label(c, locale)));
-        return FinanceReportFile.write(
-                new FinanceReportFile.Data(
-                        label("title", locale),
-                        label("scope", locale),
-                        label("summary", locale),
-                        columns,
-                        labels,
-                        Set.copyOf(MONEY),
-                        result.page().getData().stream().map(r -> values(r, locale)).toList(),
-                        amounts(result.summary())),
-                format);
+        return new FinanceReportFile.Data(
+                label("title", locale),
+                label("scope", locale),
+                label("summary", locale),
+                columns,
+                labels,
+                Set.copyOf(MONEY),
+                result.page().getData().stream().map(r -> values(r, locale)).toList(),
+                amounts(result.summary()));
     }
 
     private static Map<String, String> values(InvoiceReportRow r, Locale locale) {

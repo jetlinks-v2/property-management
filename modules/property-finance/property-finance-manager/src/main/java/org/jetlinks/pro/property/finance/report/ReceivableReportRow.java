@@ -18,4 +18,5 @@ public record ReceivableReportRow(
         String collectionStatus,
         String remark,
         long billCount,
-        ReceivableReportAmounts amounts) {}
+        ReceivableReportAmounts amounts,
+        long overdueDays) {}

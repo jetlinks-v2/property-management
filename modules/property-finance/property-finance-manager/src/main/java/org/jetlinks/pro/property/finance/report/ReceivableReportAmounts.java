@@ -12,7 +12,13 @@ public record ReceivableReportAmounts(
         String receivedAmount,
         String unreceivedAmount,
         String arrearsAmount,
-        String collectionRate) {
+        String collectionRate,
+        String overdueAmount) {
+    public ReceivableReportAmounts(
+            String a, String b, String c, String d, String e, String f, String g) {
+        this(a, b, c, d, e, f, g, "0.00");
+    }
+
     public static ReceivableReportAmounts of(Map<String, Object> row) {
         var net = value(row, "net");
         var remission = value(row, "remission");
@@ -29,7 +35,8 @@ public record ReceivableReportAmounts(
                 money(paid),
                 money(value(row, "arrears")),
                 money(value(row, "arrears")),
-                money(rate));
+                money(rate),
+                money(value(row, "overdue")));
     }
 
     private static BigDecimal value(Map<String, Object> row, String key) {

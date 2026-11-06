@@ -373,19 +373,19 @@ property:
 
 报表只读接口位于 `/property/finance/reports/receivables`，资源权限 `property-finance-report-receivable`：`POST /_query` 使用 `query`，`POST /_export/excel` 和 `POST /_export/pdf` 使用 `export`。打印复用后端生成的 PDF。接口不会刷新计费、初始化账期或修改账务。
 
-请求使用专用 `ReceivableReportInput`，必选 `projectIds`（1–100个）；可按 `spaceIds`、`subjectIds`、`customerName`、`fullName`、`receivableNo`、`dueDateStart/End`、`collectionStatus` 筛选。日期明确为到期日，计费起止与计算截至日另行展示。收款状态为 `UNPAID/PARTIAL/PAID`。`groupBy` 选择 `DETAIL/PROJECT/SUBJECT`，`pageIndex` 从0开始，`pageSize` 为1–200。响应包含同一筛选范围的 `summary` 和服务端分页 `page`；汇总不因翻页改变。
+请求使用专用 `ReceivableReportInput`，必选 `projectIds`（1–100个）；可按 `spaceIds`、`subjectIds`、`customerName`、`fullName`、`receivableNo`、`receivableDateStart/End`、`dueDateStart/End`、`collectionStatus` 筛选。应收日期与到期日分别筛选，计费起止与计算截至日另行展示；`overdueOnly` 仅返回有逾期欠费的账单。收款状态为 `UNPAID/PARTIAL/PAID`。`groupBy` 选择 `DETAIL/PROJECT/SUBJECT`，`pageIndex` 从0开始，`pageSize` 为1–200。响应包含同一筛选范围的 `summary` 和服务端分页 `page`；汇总不因翻页改变。
 
 沿用旧报表的已审核范围：仅计入 `APPROVED`、未逻辑删除且不是拆分父账的账单。冻结及财务已结的有效账单仍计入。历史客户、房屋、科目名称取账单快照，科目汇总按科目ID及名称快照分组，名称变化不会静默改写历史行。跨项目查询先逐项目验证基础有效性及组织资产读取权限，任一失败即拒绝整笔查询；所有明细、汇总、分组计数与文件在 SQL 聚合前注入空间 `read` 权限，不在分页后过滤或先汇总后屏蔽。项目名称通过基础模块公开命令获取，不访问基础模块内部表。
 
-金额使用已保存的正式财务事实：净应收取 `actualReceivableAmount`，已收取 `paidAmount`，未收取 `arrears`。减免为本金减免加实际生效的逾期减免（不超过已计提逾期费用），减免前应收为净应收加减免；不会从净应收再次扣减。收缴率为已收÷净应收×100，保留2位四舍五入，净应收为0时返回0。所有金额和比率通过十进制定点转精确文本返回，浏览器不计算正式金额。
+金额使用已保存的正式财务事实：净应收取 `actualReceivableAmount`，已收取 `paidAmount`，未收逐单按净应收减已收封底零；逾期欠费仅统计到期日早于业务当天的未收，逾期天数对已结清账单返回0。减免为本金减免加实际生效的逾期减免（不超过已计提逾期费用），减免前应收为净应收加减免；不会从净应收再次扣减。收缴率为已收÷净应收×100，保留2位四舍五入，净应收为0时返回0。所有金额和比率通过十进制定点转精确文本返回，浏览器不计算正式金额。
 
 分页、汇总与分组使用数据库查询；单次响应的摘要、总数和记录在同一只读 `REPEATABLE_READ` 事务中依次读取，避免并发收退款造成同一响应相互矛盾。官方 `nativeQuery` 生成含权限与绑定参数的来源 SQL，外层仅使用固定表达式及标准 SQL 聚合和分页；当前持久化行为在 PostgreSQL16 验证，切换其他数据库须验证驱动隔离级别及平台 SQL 映射。代表性项目规模的查询计划、并发和完整网关授权链仍须在部署验收环境验证。
 
-Excel/PDF 导出复用当前筛选及分组，最多10000条明细或分组行，超限明确拒绝，不能截断后当作完整报表。全量数据有界读取，结束数据库事务后在 `boundedElastic` 渲染文件。Excel 金额与用户文本均写文本单元格以保留精度、防止公式执行；PDF 使用内置授权中文字体、转义文本、禁止外部资源访问并重复跨页表头。查询与导出有 `MonoTracer`，不新增常驻任务或 MBean。
+Excel/PDF 导出复用当前筛选及分组，最多10000条明细或分组行，超限明确拒绝，不能截断后当作完整报表。全量数据有界读取，结束数据库事务后在 `boundedElastic` 渲染文件。Excel 金额写数值单元格以便求和，税号、编号和用户文本保留文本以防公式执行；PDF 使用内置授权中文字体、转义文本、禁止外部资源访问并重复跨页表头。查询与导出有 `MonoTracer`，不新增常驻任务或 MBean。
 
 ## 实收统计
 
-只读接口 `/property/finance/reports/received` 使用独立资源权限 `property-finance-report-received`，查询为 `POST /_query`（`query`），Excel/PDF 为 `POST /_export/{excel|pdf}`（`export`），打印复用 PDF。项目必选，可跨项目按房屋、客户、科目、收款方式、收款类型、收退款单号、收款员及业务发生日期查询。`groupBy` 支持 `DETAIL/PROJECT/SUBJECT/METHOD/SOURCE`，服务端分页、汇总和导出使用同一授权范围。浏览器仅展示金额精确文本，不计算正式资金金额。
+只读接口 `/property/finance/reports/received` 使用独立资源权限 `property-finance-report-received`，查询为 `POST /_query`（`query`），Excel/PDF 为 `POST /_export/{excel|pdf}`（`export`），打印复用 PDF。项目必选，可跨项目按房屋、客户、科目、收款方式、收款类型、收退款单号、收款员及业务发生日期查询。`groupBy` 支持 `DETAIL/PROJECT/SUBJECT/METHOD/SOURCE/COLLECTOR`，服务端分页、汇总和导出使用同一授权范围。浏览器仅展示金额精确文本，不计算正式资金金额。
 
 实收来源按实际现金流组合：成功收款的人工支付明细为收入，成功 `CASH` 退款明细为负数，预收/押金独立资金流水取 `cashAmount`。原实收不再扣除累计已退款字段；退款按自身业务发生日单列，因此跨期退费不会改写原期收入。`ADVANCE/DEPOSIT` 余额冲抵、`BALANCE` 退款、内部转账与转预存不再次计现。不存在先从应收余额推算实收再扣退款的路径。历史科目、客户、房屋及支付方式名称使用各来源快照；逻辑删除账户仍保留原流水归属。
 
@@ -393,19 +393,23 @@ Excel/PDF 导出复用当前筛选及分组，最多10000条明细或分组行�
 
 所有项目先通过基础公开命令及组织 `read` 验证，任何项目无权即整请求拒绝；三个来源均在合并、汇总和分页前注入空间 `read` 权限，只返回可见来源行金额，不泄漏同主单其他房屋的总金额。官方 `nativeQuery` 提供参数绑定和租户存储，随后用同财务域的固定 JOIN、`UNION ALL` 与标准 SQL 聚合；不访问基础模块表、不执行用户 SQL，也不在 Java 内全量聚合。摘要、总数和当前页在同一只读 `REPEATABLE_READ` 快照依次读取。当前数据库为 PostgreSQL16，其他数据库需验证平台映射、CTE、分页与隔离级别，代表性项目规模性能仍在部署验收阶段验证。
 
-文件最多10000条明细或分组行，超限明确拒绝，不静默截断。与应收统计共用 `FinanceReportFile`：Excel 金额和名称写文本以防止公式及精度损失，PDF 使用内置中文字体、转义文本和禁止外部资源的重复表头排版。结束数据事务后才在 `boundedElastic` 渲染。查询及导出有 `MonoTracer`，没有新增常驻任务或 MBean。
+文件最多10000条明细或分组行，超限明确拒绝，不静默截断。与应收统计共用 `FinanceReportFile`：Excel 金额写数值以便求和，编号及名称保留文本以防止公式执行，PDF 使用内置中文字体、转义文本和禁止外部资源的重复表头排版。结束数据事务后才在 `boundedElastic` 渲染。查询及导出有 `MonoTracer`，没有新增常驻任务或 MBean。
 
 ## 开票统计
 
 只读接口 `/property/finance/reports/invoices` 使用资源权限 `property-finance-report-invoice`：`POST /_query` 为 `query`，`POST /_export/{excel|pdf}` 为 `export`，打印复用后端 PDF。请求 `InvoiceReportInput` 必选项目范围，支持空间、客户、房屋、科目、来源类型及单号、开票覆盖状态、最新发票号码、类型和日期筛选；分组为 `DETAIL/PROJECT/SUBJECT`，分页为0起始、每页1–200条。摘要和分页使用相同的授权及筛选范围。
 
-统计是来源当前开票覆盖，不是期间发票流水或税务申报。每份有效未拆分应收、成功临时收款主单、人工原预收/押金存入各占一行，避免将应收与其分次实收重复计入；临时混合支付归并主单并扣实际退款，原存入以发生金额为基数，不以当前账户余额替代。历史名称取来源快照，逻辑删除账户不会使原存入历史消失。
+统计是来源当前开票覆盖，不是期间发票流水或税务申报。每份有效未拆分应收、成功临时收款主单、人工原预收存入各占一行（押金不参与开票统计），避免将应收与其分次实收重复计入；临时混合支付归并主单并扣实际退款，原存入以发生金额为基数，不以当前账户余额替代。历史名称取来源快照，逻辑删除账户不会使原存入历史消失。
 
-已开金额仅统计有效模拟蓝票的 `INVOICE/ACTIVE` 来源占用；共享 `invoiceOccupiedAmount` 包含收据，不能用于该报表。红冲释放原票占用，红票不再次累计，重新开具只统计新有效占用。未开金额逐来源计算基数减已开并封底零，再汇总；它是覆盖差额，仍须由开票流程检查收据占用、时效及资金余额，不能作为立即可开额度。状态为 `UNISSUED/PARTIAL/INVOICED/REVERSED`。日期、号码及类型筛选匹配该来源最新蓝票，已红冲蓝票可作历史展示；同秒票据按创建时间、ID继续排序。
+已开金额仅统计有效蓝票的 `INVOICE/ACTIVE` 来源占用；共享 `invoiceOccupiedAmount` 包含收据，不能用于该报表。红冲释放原票占用，红票不再次累计，重新开具只统计新有效占用。未开金额逐来源计算基数减已开并封底零，再汇总；它是覆盖差额，仍须由开票流程检查收据占用、时效及资金余额，不能作为立即可开额度。状态为 `UNISSUED/PARTIAL/INVOICED/REVERSED`。日期、号码及类型筛选匹配该来源最新蓝票，已红冲蓝票可作历史展示；同秒票据按创建时间、ID继续排序。
 
 项目逐个校验组织 `read`，来源空间权限在合并、聚合、分页前注入，临时主单要求全部关联房屋可读。若来源参与跨房屋票据而用户无权查看整票，仅返回可见来源自身已开金额，隐藏该票号、购方及票据ID；不能从筛选泄漏受限整票。SQL 使用框架参数绑定、固定 CTE/UNION ALL/窗口排序，不访问基础内部表。摘要、计数、页面在同一只读 `REPEATABLE_READ` 快照依次读取。当前数据库为 PostgreSQL16，其他驱动及代表性项目规模需部署验收验证。
 
 Excel/PDF最多10000条明细或分组行，超限拒绝无截断；沿用 `FinanceReportFile` 的中文、安全文本及精确金额输出。PDF金额列按实际位数分配宽度、禁止金额断行，跨页重复表头。数据库读取结束后在 `boundedElastic` 渲染。查询与导出使用 `MonoTracer`，无新增常驻任务或 MBean。
+
+三类报表导出支持 `exportMode=CURRENT/DETAIL/BOTH`，分别输出当前维度、对应明细或同一工作簿中的汇总与明细，并附查询条件与生成时间。每张工作表上限10000条，超限明确失败。查询与导出各自使用一致只读快照，不承诺跨请求的数据不变。页面筛选（含日期区间）统一进入 ConditionFilter，表格内部滚动并保留底部分页，只读详情仅展示业务字段。
+
+发票台账接口为 `POST /property/finance/reports/invoices/ledger/_query` 和 `/ledger/_export/{excel|pdf}`，沿用开票统计的 `query/export` 权限。台账按整票授权，一票一行，支持项目、空间、科目、购方、开票时间、状态及蓝红类型筛选，关联多来源不放大票面金额。红票为负、蓝票为正，票面税额保留两位、销项税额保留六位，展示差额扣除及征收方式快照；来源覆盖查询与台账是不同统计口径。
 
 ## 合同来源与镜像
 

@@ -64,6 +64,8 @@ public class ReceivableReportService {
     // 未收与旧口径欠款均为逐单净应收减已收后封底；不是按到期日判断的逾期欠费。
     private static final String OUTSTANDING =
             "case when " + NET + " > " + PAID + " then " + NET + " - " + PAID + " else 0 end";
+    private static final String OVERDUE =
+            "case when \"dueDate\" < \"reportDate\" then " + OUTSTANDING + " else 0 end";
     private static final String SUMS =
             "count(*) as bills, sum("
                     + NET
@@ -73,7 +75,9 @@ public class ReceivableReportService {
                     + REMISSION
                     + ") as remission, sum("
                     + OUTSTANDING
-                    + ") as arrears";
+                    + ") as arrears, sum("
+                    + OVERDUE
+                    + ") as overdue";
     private final ReactiveRepository<ReceivableEntity, String> bills;
     private final FinanceScope scope;
     private final DatabaseOperator database;
@@ -110,6 +114,23 @@ public class ReceivableReportService {
                 .as(MonoTracer.create("/property/finance/reports/receivables/export"));
     }
 
+    /** 汇总和完整明细共用一个数据库快照；克隆查询不改变页面输入或分组。 */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Mono<ReportWorkbook> exportWorkbook(
+            ReceivableReportInput input, Locale locale, ReceivableReportFile files) {
+        var detail =
+                com.alibaba.fastjson.JSON.parseObject(
+                        com.alibaba.fastjson.JSON.toJSONString(input), ReceivableReportInput.class);
+        detail.setGroupBy("DETAIL");
+        return ReportWorkbookLoader.load(
+                input,
+                input.getProjectIds(),
+                scope,
+                () -> exportData(input).map(result -> files.data(result, locale)),
+                () -> exportData(detail).map(result -> files.data(result, locale)),
+                locale);
+    }
+
     private Mono<Prepared> prepare(ReceivableReportInput input) {
         return Mono.defer(
                 () -> {
@@ -130,9 +151,12 @@ public class ReceivableReportService {
                                                                                 .setParam(query)
                                                                                 .getSql();
                                                                 String source =
-                                                                        "("
+                                                                        "(select report_raw.*, ? as"
+                                                                            + " \"reportDate\" from"
+                                                                            + " ("
                                                                                 + sql.getSql()
-                                                                                + ") report_source";
+                                                                                + ") report_raw)"
+                                                                                + " report_source";
                                                                 if (input.getCollectionStatus()
                                                                         != null)
                                                                     source =
@@ -147,12 +171,25 @@ public class ReceivableReportService {
                                                                                 Arrays.asList(
                                                                                         sql
                                                                                                 .getParameters()));
+                                                                params.add(
+                                                                        0,
+                                                                        java.time.LocalDate.now(
+                                                                                        java.time
+                                                                                                .ZoneId
+                                                                                                .of(
+                                                                                                        "Asia/Shanghai"))
+                                                                                .toString());
                                                                 if (input.getCollectionStatus()
                                                                         != null)
                                                                     params.add(
                                                                             input
                                                                                     .getCollectionStatus());
                                                                 var where = new ArrayList<String>();
+                                                                if (Boolean.TRUE.equals(
+                                                                        input.getOverdueOnly()))
+                                                                    where.add(
+                                                                            "(" + OVERDUE
+                                                                                    + ") > 0");
                                                                 ReportGroupKey.filter(
                                                                         where,
                                                                         params,
@@ -296,6 +333,8 @@ public class ReceivableReportService {
                             + " as remission, "
                             + OUTSTANDING
                             + " as arrears, "
+                            + OVERDUE
+                            + " as overdue, "
                             + STATUS
                             + " as status, 1 as bills from "
                             + source
@@ -347,7 +386,20 @@ public class ReceivableReportService {
                 text(row, "status"),
                 text(row, "remark"),
                 ((Number) row.get("bills")).longValue(),
-                ReceivableReportAmounts.of(row));
+                ReceivableReportAmounts.of(row),
+                overdueDays(row));
+    }
+
+    private static long overdueDays(Map<String, Object> row) {
+        if (row.get("dueDate") == null
+                || row.get("reportDate") == null
+                || new java.math.BigDecimal(Objects.toString(row.get("overdue"), "0")).signum()
+                        <= 0) return 0;
+        return Math.max(
+                0,
+                java.time.temporal.ChronoUnit.DAYS.between(
+                        java.time.LocalDate.parse(text(row, "dueDate")),
+                        java.time.LocalDate.parse(text(row, "reportDate"))));
     }
 
     private static String text(Map<String, Object> row, String key) {

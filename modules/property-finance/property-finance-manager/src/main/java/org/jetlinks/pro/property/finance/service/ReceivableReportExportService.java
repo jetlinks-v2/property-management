@@ -21,14 +21,12 @@ public class ReceivableReportExportService {
     public Mono<byte[]> export(ReceivableReportInput input, String format) {
         if (!Set.of("excel", "pdf").contains(format))
             return Mono.error(FinanceScope.error("report_query_invalid", 400));
-        return reports.exportData(input)
-                .zipWith(LocaleUtils.currentReactive().defaultIfEmpty(Locale.SIMPLIFIED_CHINESE))
+        return LocaleUtils.currentReactive()
+                .defaultIfEmpty(Locale.SIMPLIFIED_CHINESE)
+                .flatMap(locale -> reports.exportWorkbook(input, locale, files))
                 .flatMap(
-                        pair ->
-                                Mono.fromCallable(
-                                                () ->
-                                                        files.write(
-                                                                pair.getT1(), format, pair.getT2()))
+                        book ->
+                                Mono.fromCallable(() -> FinanceReportFile.write(book, format))
                                         .subscribeOn(Schedulers.boundedElastic()));
     }
 }

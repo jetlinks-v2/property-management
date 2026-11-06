@@ -15,14 +15,14 @@ public class ReceivableReportFile {
                     "netAmount",
                     "receivedAmount",
                     "unreceivedAmount",
-                    "arrearsAmount",
-                    "collectionRate");
+                    "collectionRate",
+                    "overdueAmount");
     private static final Map<String, String> ZH =
             Map.ofEntries(
                     Map.entry("title", "应收统计"),
                     Map.entry(
                             "scope",
-                            "仅统计已审核有效且未拆分的账单。净应收已含减免；未收与欠款均按逐单净应收减已收封底，并非逾期欠费。无法确认的历史应收日期留空。"),
+                            "仅统计已审核有效且未拆分的账单。净应收已含减免；逾期欠费为超过到期日仍未收金额；已收含冲抵。反映当前余额，非历史月末余额。"),
                     Map.entry("projectName", "项目"),
                     Map.entry("subjectName", "收费科目"),
                     Map.entry("fullName", "房屋"),
@@ -42,6 +42,9 @@ public class ReceivableReportFile {
                     Map.entry("unreceivedAmount", "未收（元）"),
                     Map.entry("arrearsAmount", "欠款（元）"),
                     Map.entry("collectionRate", "收缴率（%）"),
+                    Map.entry("overdueAmount", "逾期欠费（元）"),
+                    Map.entry("overdueDays", "逾期天数"),
+                    Map.entry("collectionStatus", "收款状态"),
                     Map.entry("summary", "全筛选范围合计"));
     private static final Map<String, String> EN =
             Map.ofEntries(
@@ -71,23 +74,28 @@ public class ReceivableReportFile {
                     Map.entry("unreceivedAmount", "Outstanding (CNY)"),
                     Map.entry("arrearsAmount", "Arrears (CNY)"),
                     Map.entry("collectionRate", "Collection rate (%)"),
+                    Map.entry("overdueAmount", "Overdue (CNY)"),
+                    Map.entry("overdueDays", "Overdue days"),
+                    Map.entry("collectionStatus", "Collection status"),
                     Map.entry("summary", "Filtered total"));
 
     public byte[] write(ReceivableReportResult result, String format, Locale locale) {
+        return FinanceReportFile.write(data(result, locale), format);
+    }
+
+    public FinanceReportFile.Data data(ReceivableReportResult result, Locale locale) {
         var columns = columns(result.groupBy());
         var labels = new LinkedHashMap<String, String>();
         columns.forEach(c -> labels.put(c, label(c, locale)));
-        return FinanceReportFile.write(
-                new FinanceReportFile.Data(
-                        label("title", locale),
-                        label("scope", locale),
-                        label("summary", locale),
-                        columns,
-                        labels,
-                        Set.copyOf(MONEY),
-                        result.page().getData().stream().map(ReceivableReportFile::values).toList(),
-                        amounts(result.summary())),
-                format);
+        return new FinanceReportFile.Data(
+                label("title", locale),
+                label("scope", locale),
+                label("summary", locale),
+                columns,
+                labels,
+                Set.copyOf(MONEY),
+                result.page().getData().stream().map(row -> values(row, locale)).toList(),
+                amounts(result.summary()));
     }
 
     private static List<String> columns(String group) {
@@ -105,6 +113,8 @@ public class ReceivableReportFile {
                             "receivableDate",
                             "dueDate",
                             "calculatedAsOfDate",
+                            "collectionStatus",
+                            "overdueDays",
                             "remark"));
         else
             cols.addAll(
@@ -113,7 +123,7 @@ public class ReceivableReportFile {
         return cols;
     }
 
-    private static Map<String, String> values(ReceivableReportRow row) {
+    private static Map<String, String> values(ReceivableReportRow row, Locale locale) {
         var values = new HashMap<>(amounts(row.amounts()));
         values.put("projectName", Objects.toString(row.projectName(), ""));
         values.put("subjectName", Objects.toString(row.subjectName(), ""));
@@ -126,6 +136,13 @@ public class ReceivableReportFile {
         values.put("remark", Objects.toString(row.remark(), ""));
         values.put("dueDate", Objects.toString(row.dueDate(), ""));
         values.put("calculatedAsOfDate", Objects.toString(row.calculatedAsOfDate(), ""));
+        values.put("overdueDays", Long.toString(row.overdueDays()));
+        values.put(
+                "collectionStatus",
+                ("zh".equals(locale.getLanguage())
+                                ? Map.of("UNPAID", "未收款", "PARTIAL", "部分收款", "PAID", "已收款")
+                                : Map.of("UNPAID", "Unpaid", "PARTIAL", "Partial", "PAID", "Paid"))
+                        .getOrDefault(Objects.toString(row.collectionStatus(), ""), ""));
         values.put("billCount", Long.toString(row.billCount()));
         return values;
     }
@@ -145,7 +162,9 @@ public class ReceivableReportFile {
                 "arrearsAmount",
                 a.arrearsAmount(),
                 "collectionRate",
-                a.collectionRate());
+                a.collectionRate(),
+                "overdueAmount",
+                a.overdueAmount());
     }
 
     private static String label(String key, Locale locale) {

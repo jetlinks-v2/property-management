@@ -86,6 +86,18 @@ class ReceivedReportPersistenceTest {
         var all = query(i);
         assertEquals(5, all.page().getTotal());
         assertEquals("88.00", all.summary().netAmount());
+        assertEquals("40.00", all.summary().unhandedAmount());
+        assertEquals("20.00", all.summary().pendingAmount());
+        assertEquals("28.00", all.summary().approvedAmount());
+        var collectors = input();
+        collectors.setGroupBy("COLLECTOR");
+        var grouped = query(collectors);
+        assertEquals(all.summary(), grouped.summary());
+        assertEquals(
+                new BigDecimal("88.00"),
+                grouped.page().getData().stream()
+                        .map(row -> new BigDecimal(row.amounts().netAmount()))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add));
         i.setHandoverState("PENDING");
         i.setPageSize(1);
         var first = query(i);
@@ -550,8 +562,8 @@ class ReceivedReportPersistenceTest {
                 var headers = new ArrayList<String>();
                 sheet.getRow(0).forEach(cell -> headers.add(cell.getStringCellValue()));
                 assertFalse(headers.contains("收款/退款ID"));
-                assertFalse(headers.contains("收款/退款编号"));
-                assertFalse(headers.contains("关联应收单号"));
+                assertTrue(headers.contains("收款/退款编号"));
+                assertTrue(headers.contains("关联应收单号"));
                 int collector = headers.indexOf("收款员");
                 assertTrue(collector >= 0);
                 assertEquals("超级管理员", sheet.getRow(1).getCell(collector).getStringCellValue());
@@ -742,7 +754,16 @@ class ReceivedReportPersistenceTest {
                     org.apache.poi.ss.usermodel.CellType.STRING,
                     sheet.getRow(1).getCell(2).getCellType());
             assertTrue(sheet.getRow(1).getCell(2).getStringCellValue().startsWith("=SUM"));
-            assertEquals("100.01", sheet.getRow(1).getCell(14).getStringCellValue());
+            int amountColumn = -1;
+            for (var cell : sheet.getRow(0))
+                if ("实收总额（元）".equals(cell.getStringCellValue()))
+                    amountColumn = cell.getColumnIndex();
+            assertTrue(amountColumn >= 0);
+            assertEquals(
+                    org.apache.poi.ss.usermodel.CellType.NUMERIC,
+                    sheet.getRow(1).getCell(amountColumn).getCellType());
+            assertEquals(
+                    100.01, sheet.getRow(1).getCell(amountColumn).getNumericCellValue(), 0.00001);
         }
         var pdf = exports.export(input(), "pdf").contextWrite(allowed).block(WAIT);
         try (var doc = org.apache.pdfbox.pdmodel.PDDocument.load(pdf)) {

@@ -20,6 +20,7 @@ import java.util.*;
         webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class InvoiceReportPersistenceTest extends DocumentQueryPersistenceTest {
     @Autowired InvoiceReportService reports;
+    @Autowired InvoiceLedgerService ledger;
     @Autowired ReceivableService receivableRecords;
     @Autowired PaymentRecordService paymentRecords;
     @Autowired InvoiceReportExportService exports;
@@ -548,10 +549,67 @@ class InvoiceReportPersistenceTest extends DocumentQueryPersistenceTest {
         }
     }
 
+    @Test
+    void ledgerCountsWholeMultiLineInvoiceOnceAndKeepsNegativeRedTax() throws Exception {
+        var a = documentBill();
+        var b = documentBill();
+        var blue =
+                issue(
+                                submission(
+                                        input(
+                                                List.of(
+                                                        item("RECEIVABLE", a.getId(), "30"),
+                                                        item("RECEIVABLE", b.getId(), "20")))))
+                        .document();
+        var i = new InvoiceLedgerInput();
+        i.setProjectIds(List.of(project));
+        var before = ledger.query(i).contextWrite(fixture.allowed()).block(WAIT);
+        assertEquals(1, before.page().getTotal());
+        assertEquals("50.00", before.summary().get("invoicedAmount"));
+        reverse(blue, reversal(blue, "报表红冲测试"));
+        var after = ledger.query(i).contextWrite(fixture.allowed()).block(WAIT);
+        assertEquals(2, after.page().getTotal());
+        assertEquals("0.00", after.summary().get("invoicedAmount"));
+        assertEquals("0.00", after.summary().get("taxAmount"));
+        assertEquals("0.000000", after.summary().get("outputTax"));
+        var red =
+                after.page().getData().stream()
+                        .filter(row -> "RED".equals(row.get("ticketColor")))
+                        .findFirst()
+                        .orElseThrow();
+        assertEquals(blue.getDocumentNumber(), red.get("originalInvoiceNo"));
+        i.setTicketColor("RED");
+        assertEquals(
+                1, ledger.query(i).contextWrite(fixture.allowed()).block(WAIT).page().getTotal());
+        assertEquals(
+                0,
+                ledger.query(i).contextWrite(creatorScope(Set.of())).block(WAIT).page().getTotal());
+        var book =
+                ledger.exportWorkbook(i, Locale.CHINESE)
+                        .contextWrite(fixture.allowed())
+                        .block(WAIT);
+        try (var excel =
+                new org.apache.poi.xssf.usermodel.XSSFWorkbook(
+                        new java.io.ByteArrayInputStream(FinanceReportFile.write(book, "excel")))) {
+            var sheet = excel.getSheetAt(0);
+            int column = -1;
+            for (var cell : sheet.getRow(0))
+                if ("销项税额（六位）".equals(cell.getStringCellValue())) column = cell.getColumnIndex();
+            assertTrue(column > 0);
+            assertTrue(
+                    sheet.getRow(1)
+                            .getCell(column)
+                            .getCellStyle()
+                            .getDataFormatString()
+                            .contains("0.000000"));
+        }
+    }
+
     @Configuration
     @Import({
         DocumentQueryPersistenceTest.Config.class,
         InvoiceReportService.class,
+        InvoiceLedgerService.class,
         InvoiceReportFile.class,
         InvoiceReportExportService.class,
         org.jetlinks.pro.property.finance.web.InvoiceReportController.class
