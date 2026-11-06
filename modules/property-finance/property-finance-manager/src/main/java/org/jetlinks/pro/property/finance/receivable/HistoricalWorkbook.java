@@ -178,6 +178,7 @@ public final class HistoricalWorkbook {
                                                 book -> {
                                                     var data = book.createSheet("历史应收");
                                                     data.createFreezePane(0, 1);
+                                                    header(book, data);
                                                     var style = book.createCellStyle();
                                                     style.setDataFormat(
                                                             book.createDataFormat().getFormat("@"));
@@ -198,13 +199,33 @@ public final class HistoricalWorkbook {
                                                             standards);
                                                     reference(
                                                             book,
+                                                            "填写示例",
+                                                            HEADERS,
+                                                            List.of(
+                                                                    List.of(
+                                                                            "HT-示例001",
+                                                                            "示例园区/1栋/101",
+                                                                            "张某",
+                                                                            "物业费",
+                                                                            "示例收费标准",
+                                                                            "2026-01-01",
+                                                                            "2026-01-31",
+                                                                            "2026-01",
+                                                                            "2026-02-05",
+                                                                            "100.00",
+                                                                            "0.00",
+                                                                            "100.00",
+                                                                            "脱敏示例，请用本项目实际数据填写第一张表")));
+                                                    header(book, book.getSheet("填写示例"));
+                                                    reference(
+                                                            book,
                                                             "填写说明",
                                                             List.of("字段", "填写说明"),
                                                             List.of(
                                                                     List.of("所属项目", project),
                                                                     List.of(
                                                                             "必填",
-                                                                            "除合同编号、备注外均必填；最多500行；只读第一张表；不接受公式。"),
+                                                                            "红色表头为必填；最多500行；只导入第一张表；不接受公式。填写示例页为脱敏示例，不会被导入。"),
                                                                     List.of(
                                                                             "日期",
                                                                             "计费起止和应收日期填写yyyy-MM-dd，应收账期填写yyyy-MM。"),
@@ -258,6 +279,24 @@ public final class HistoricalWorkbook {
             var row = sheet.createRow(r + 1);
             for (int c = 0; c < rows.get(r).size(); c++)
                 row.createCell(c, CellType.STRING).setCellValue(rows.get(r).get(c));
+        }
+    }
+
+    private static void header(Workbook book, Sheet sheet) {
+        var requiredFont = book.createFont();
+        requiredFont.setBold(true);
+        requiredFont.setColor(IndexedColors.RED.getIndex());
+        var optionalFont = book.createFont();
+        optionalFont.setBold(true);
+        var required = book.createCellStyle();
+        required.setFont(requiredFont);
+        var optional = book.createCellStyle();
+        optional.setFont(optionalFont);
+        var row = sheet.getRow(0) == null ? sheet.createRow(0) : sheet.getRow(0);
+        for (int c = 0; c < HEADERS.size(); c++) {
+            var cell = row.getCell(c) == null ? row.createCell(c) : row.getCell(c);
+            cell.setCellValue(HEADERS.get(c));
+            cell.setCellStyle(c >= 1 && c <= 11 ? required : optional);
         }
     }
 

@@ -72,6 +72,7 @@ class HouseSettingPersistenceTest {
     @Autowired ReactiveRepository<ReceivableImportEntity, String> importRecords;
     @Autowired HistoricalReceivableService historical;
     @Autowired HistoricalImportAuditService importAudit;
+    @Autowired HistoricalImportEditService importEdits;
     @Autowired ReactiveRepository<ReceivableImportLineEntity, String> importDrafts;
     @Autowired ReceivableSplitService splits;
     @Autowired ReceivableChangeAuditService changeAudit;
@@ -1596,6 +1597,201 @@ class HouseSettingPersistenceTest {
                 .doesNotExist();
     }
 
+    @Test
+    void historicalPendingEditRevalidatesAndApprovalPublishesOnlyRevisedAmount() throws Exception {
+        mockHistoricalHouses();
+        var record =
+                historical
+                        .importFile(project, historicalPart(historicalFile("100.00", true)))
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var draft =
+                importDrafts
+                        .createQuery()
+                        .where("importId", record.getId())
+                        .and("lineNumber", 2)
+                        .fetchOne()
+                        .block(WAIT);
+        var bill =
+                com.alibaba.fastjson.JSON.parseObject(
+                        draft.getPayloadJson(), ReceivableEntity.class);
+        var invalid = historicalEdit(record, draft, bill, "90.00");
+        StepVerifier.create(
+                        importEdits
+                                .edit(project, record.getId(), draft.getId(), invalid)
+                                .contextWrite(allowed()))
+                .expectErrorMatches(
+                        e ->
+                                e instanceof org.hswebframework.web.exception.BusinessException
+                                        && e.getMessage().contains("historical_row"))
+                .verify(WAIT);
+        assertEquals(
+                draft.getVersion(), importDrafts.findById(draft.getId()).block(WAIT).getVersion());
+        bill.setContractReceivableAmount(new BigDecimal("120.25"));
+        var input = historicalEdit(record, draft, bill, "120.00");
+        var changed =
+                importEdits
+                        .edit(project, record.getId(), draft.getId(), input)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        assertEquals(draft.getVersion() + 1, changed.line().version());
+        assertEquals(record.getVersion() + 1, changed.record().getVersion());
+        assertEquals("已校正", changed.line().receivable().getRemark());
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+        StepVerifier.create(
+                        importEdits
+                                .edit(project, record.getId(), draft.getId(), input)
+                                .contextWrite(allowed()))
+                .expectError(org.hswebframework.web.exception.BusinessException.class)
+                .verify(WAIT);
+        importAudit
+                .decide(
+                        project,
+                        record.getId(),
+                        new HistoricalImportAuditService.Decision(
+                                changed.record().getVersion(), "核对", List.of()),
+                        true)
+                .contextWrite(allowed())
+                .block(WAIT);
+        assertEquals("已校正", bills.findById(draft.getId()).block(WAIT).getRemark());
+        assertEquals(
+                new BigDecimal("120.00"), bills.findById(draft.getId()).block(WAIT).getArrears());
+        StepVerifier.create(
+                        importEdits
+                                .edit(
+                                        project,
+                                        record.getId(),
+                                        draft.getId(),
+                                        historicalEdit(
+                                                changed.record(),
+                                                importDrafts.findById(draft.getId()).block(WAIT),
+                                                bill,
+                                                "100.00"))
+                                .contextWrite(allowed()))
+                .expectError(org.hswebframework.web.exception.BusinessException.class)
+                .verify(WAIT);
+        assertEquals(
+                1,
+                receivableLogs
+                        .createQuery()
+                        .where("projectId", project)
+                        .and("operation", "IMPORT_EDIT")
+                        .count()
+                        .block(WAIT));
+    }
+
+    @Test
+    void historicalImportedAmountSurvivesAdjustmentAndDailyTasksWithoutRegeneration()
+            throws Exception {
+        mockHistoricalHouses();
+        importAndApprove(historicalPart(historicalFile("100.00", false)))
+                .contextWrite(allowed())
+                .block(WAIT);
+        var bill = bills.createQuery().where("projectId", project).fetchOne().block(WAIT);
+        var input = new org.jetlinks.pro.property.finance.receivable.AdjustmentInput();
+        input.setVersion(bill.getVersion());
+        input.setAdjustmentMode("DIRECT");
+        input.setDirectDirection("INCREASE");
+        input.setDirectAmount("10.00");
+        input.setReason("补收历史费用");
+        var today = LocalDate.now();
+        var preview =
+                adjustments
+                        .preview(project, bill.getId(), input, today)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        adjustments
+                .submit(
+                        project,
+                        bill.getId(),
+                        new ReceivableAdjustmentService.SubmitInput(input, preview.token()),
+                        today)
+                .contextWrite(allowed())
+                .block(WAIT);
+        // 后续修改标准单价/滞纳金定义，均不能替换导入时冻结的快照。
+        standards
+                .createUpdate()
+                .set("price", new BigDecimal("999.00"))
+                .set("isDelay", 1)
+                .set("rateAmount", new BigDecimal("50.00"))
+                .where("id", standardId)
+                .execute()
+                .block(WAIT);
+        tasks.scan(BillingTaskKind.GENERATE, today.plusDays(1)).block(WAIT);
+        tasks.executeReceivable(bill, BillingTaskKind.ACCRUE, today.plusDays(1)).block(WAIT);
+        tasks.executeReceivable(bill, BillingTaskKind.LATE_FEE, today.plusDays(1)).block(WAIT);
+        var after = bills.findById(bill.getId()).block(WAIT);
+        assertEquals(new BigDecimal("100.25"), after.getContractReceivableAmount());
+        assertEquals(new BigDecimal("110.00"), after.getActualReceivableAmount());
+        assertEquals(new BigDecimal("110.00"), after.getArrears());
+        assertEquals(new BigDecimal("10.00"), after.getAdjustmentAmount());
+        assertEquals(0, after.getAccruedLateFeeAmount().signum());
+        assertEquals(1, bills.createQuery().where("projectId", project).count().block(WAIT));
+        var version = after.getVersion();
+        tasks.executeReceivable(bill, BillingTaskKind.LATE_FEE, today.plusDays(1)).block(WAIT);
+        assertEquals(version, bills.findById(bill.getId()).block(WAIT).getVersion());
+    }
+
+    @Test
+    void historicalPendingEditRejectsDuplicatesForeignScopeAndClosedOriginalPeriod() throws Exception {
+        mockHistoricalHouses();
+        var record = historical.importFile(project, historicalPart(historicalFile("100.00", true)))
+                .contextWrite(allowed()).block(WAIT);
+        var first = importDrafts.createQuery().where("importId", record.getId()).and("lineNumber", 2)
+                .fetchOne().block(WAIT);
+        var second = importDrafts.createQuery().where("importId", record.getId()).and("lineNumber", 3)
+                .fetchOne().block(WAIT);
+        var original = com.alibaba.fastjson.JSON.parseObject(first.getPayloadJson(), ReceivableEntity.class);
+        var duplicate = com.alibaba.fastjson.JSON.parseObject(second.getPayloadJson(), ReceivableEntity.class);
+        StepVerifier.create(importEdits.edit(project, record.getId(), first.getId(),
+                        historicalEdit(record, first, duplicate, "100.00")).contextWrite(allowed()))
+                .expectError(org.hswebframework.web.exception.BusinessException.class).verify(WAIT);
+        StepVerifier.create(importEdits.edit("foreign-project", record.getId(), first.getId(),
+                        historicalEdit(record, first, original, "100.00")).contextWrite(allowed()))
+                .expectError(org.hswebframework.web.exception.BusinessException.class).verify(WAIT);
+        var denied = mock(AssetsHolder.class);
+        when(denied.assertPermission(anyString(), anyCollection(), any()))
+                .thenReturn(Mono.error(new IllegalStateException("space denied")));
+        StepVerifier.create(importEdits.edit(project, record.getId(), first.getId(),
+                        historicalEdit(record, first, original, "100.00"))
+                        .contextWrite(allowed().put(AssetsHolder.class, denied)))
+                .expectError().verify(WAIT);
+        financialPeriods.close(project, LocalDate.of(2023, 1, 31)).contextWrite(allowed()).block(WAIT);
+        original.setCalcStartDate("2023-03-01");
+        original.setCalcEndDate("2023-03-31");
+        original.setAccountPeriod("2023-03");
+        StepVerifier.create(importEdits.edit(project, record.getId(), first.getId(),
+                        historicalEdit(record, first, original, "100.00")).contextWrite(allowed()))
+                .expectErrorMatches(e -> e.getMessage().contains("period_closed")).verify(WAIT);
+        assertEquals(first.getVersion(), importDrafts.findById(first.getId()).block(WAIT).getVersion());
+        assertEquals(first.getPayloadJson(), importDrafts.findById(first.getId()).block(WAIT).getPayloadJson());
+        assertEquals(record.getVersion(), importRecords.findById(record.getId()).block(WAIT).getVersion());
+        assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    private HistoricalImportEditService.Input historicalEdit(
+            ReceivableImportEntity record,
+            ReceivableImportLineEntity draft,
+            ReceivableEntity bill,
+            String actual) {
+        return new HistoricalImportEditService.Input(
+                record.getVersion(),
+                draft.getVersion(),
+                bill.getFullName(),
+                bill.getCustomerName(),
+                bill.getSubjectName(),
+                bill.getStandardName(),
+                bill.getContractCode(),
+                bill.getCalcStartDate(),
+                bill.getCalcEndDate(),
+                bill.getAccountPeriod(),
+                bill.getDueDate(),
+                bill.getContractReceivableAmount(),
+                bill.getFeeReductionAmount(),
+                new BigDecimal(actual),
+                "已校正");
+    }
+
     private Mono<ReceivableImportEntity> importAndApprove(
             org.springframework.http.codec.multipart.FilePart file) {
         return historical
@@ -2159,7 +2355,7 @@ class HouseSettingPersistenceTest {
                                 new org.jetlinks.pro.property.finance.web
                                         .HistoricalReceivableController(historical),
                                 new org.jetlinks.pro.property.finance.web
-                                        .HistoricalImportAuditController(importAudit))
+                                        .HistoricalImportAuditController(importAudit, importEdits))
                         .webFilter(
                                 (exchange, chain) -> chain.filter(exchange).contextWrite(allowed()))
                         .build();
@@ -3194,6 +3390,7 @@ class HouseSettingPersistenceTest {
         ReceivableChangeAuditService.class,
         HistoricalReceivableService.class,
         HistoricalImportAuditService.class,
+        HistoricalImportEditService.class,
         ReceivableBatchService.class,
         org.jetlinks.pro.property.finance.receivable.SplitRules.class,
         org.jetlinks.pro.property.finance.receivable.AdjustmentRules.class

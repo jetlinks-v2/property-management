@@ -78,6 +78,16 @@ class HistoricalWorkbookTest {
             assertEquals("合同编号", data.getRow(0).getCell(0).getStringCellValue());
             assertEquals("房屋完整路径", data.getRow(0).getCell(1).getStringCellValue());
             assertEquals(4, data.getDataValidations().size());
+            for (int c = 1; c <= 11; c++)
+                assertEquals(
+                        org.apache.poi.ss.usermodel.IndexedColors.RED.getIndex(),
+                        book.getFontAt(data.getRow(0).getCell(c).getCellStyle().getFontIndex())
+                                .getColor());
+            var example = book.getSheet("填写示例");
+            assertNotNull(example);
+            assertEquals(1, example.getLastRowNum());
+            assertEquals("张某", example.getRow(1).getCell(2).getStringCellValue());
+            assertNull(data.getRow(1));
             assertEquals(
                     "5G园区/1栋/101",
                     book.getSheet("项目房屋与客户").getRow(1).getCell(0).getStringCellValue());

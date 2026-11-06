@@ -6,6 +6,7 @@ import org.hswebframework.web.api.crud.entity.*;
 import org.hswebframework.web.authorization.annotation.*;
 import org.jetlinks.pro.property.finance.entity.ReceivableImportEntity;
 import org.jetlinks.pro.property.finance.service.HistoricalImportAuditService;
+import org.jetlinks.pro.property.finance.service.HistoricalImportEditService;
 import org.springframework.web.bind.annotation.*;
 
 import reactor.core.publisher.Mono;
@@ -18,6 +19,17 @@ import reactor.core.publisher.Mono;
 @Resource(id = "property-finance-receivable", name = "应收款管理")
 public class HistoricalImportAuditController {
     private final HistoricalImportAuditService service;
+    private final HistoricalImportEditService edits;
+
+    @PutMapping("/{recordId}/lines/{lineId}")
+    @ResourceAction(id = "approve", name = "审核")
+    public Mono<HistoricalImportEditService.Result> edit(
+            @PathVariable String projectId,
+            @PathVariable String recordId,
+            @PathVariable String lineId,
+            @RequestBody HistoricalImportEditService.Input input) {
+        return edits.edit(projectId, recordId, lineId, input);
+    }
 
     @PostMapping("/{recordId}/lines/_query")
     @ResourceAction(id = "imports", name = "导入记录")

@@ -313,6 +313,15 @@ public class HistoricalReceivableService {
                 .then();
     }
 
+    /** 待审行修改沿用导入时的项目、房屋、客户、科目及标准匹配规则。调用者持有期间和批次锁。 */
+    Mono<ReceivableEntity> reprepare(
+            String project,
+            ReceivableImportEntity record,
+            HistoricalWorkbook.Line line,
+            Authentication auth) {
+        return houses(project, 0).flatMap(all -> prepareLine(project, record, line, all, auth));
+    }
+
     private Mono<ReceivableEntity> prepareLine(
             String project,
             ReceivableImportEntity record,
