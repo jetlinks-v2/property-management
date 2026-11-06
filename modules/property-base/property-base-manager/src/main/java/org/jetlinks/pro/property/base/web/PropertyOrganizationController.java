@@ -31,6 +31,31 @@ import java.util.List;
 public class PropertyOrganizationController {
     private final PropertyOrganizationService organizations;
     private final OrganizationSyncService sync;
+    private final org.jetlinks.pro.property.base.service.PropertyProjectSealService seals;
+
+    @PutMapping(value = "/{id}/project-seal", consumes = "multipart/form-data")
+    @ResourceAction(id = "save", name = "维护项目章")
+    @Operation(summary = "仅项目组织可上传PNG或JPEG章图片")
+    public Mono<PropertyOrganizationEntity> uploadSeal(@PathVariable String id, @RequestParam long version,
+            @RequestPart("file") org.springframework.http.codec.multipart.FilePart file) {
+        return seals.upload(id, version, file);
+    }
+
+    @DeleteMapping("/{id}/project-seal")
+    @ResourceAction(id = "save", name = "维护项目章")
+    public Mono<PropertyOrganizationEntity> removeSeal(@PathVariable String id, @RequestParam long version) {
+        return seals.remove(id, version);
+    }
+
+    @GetMapping("/{id}/project-seal")
+    @ResourceAction(id = "query", name = "查询")
+    public Mono<org.springframework.http.ResponseEntity<byte[]>> readSeal(@PathVariable String id) {
+        return seals.read(id).map(seal -> org.springframework.http.ResponseEntity.ok()
+            .contentType(org.springframework.http.MediaType.parseMediaType(seal.mediaType()))
+            .cacheControl(org.springframework.http.CacheControl.noStore().cachePrivate()).body(seal.content()))
+            .defaultIfEmpty(org.springframework.http.ResponseEntity.notFound().build());
+    }
+
 
     @GetMapping("/_tree")
     @ResourceAction(id = "query", name = "查询")

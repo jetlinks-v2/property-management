@@ -76,10 +76,10 @@ public class PatrolTaskEntity extends GenericEntity<String> {
     private String levelName;
 
     @Column(length = 64, nullable = false, updatable = false)
-    private String postId;
+    private String roleId;
 
     @Column(length = 128, updatable = false)
-    private String postName;
+    private String roleName;
 
     @Column(length = 10, nullable = false, updatable = false)
     private String businessDate;

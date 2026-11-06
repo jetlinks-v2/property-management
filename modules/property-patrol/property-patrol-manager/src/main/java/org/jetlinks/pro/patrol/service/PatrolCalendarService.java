@@ -13,11 +13,10 @@ import reactor.core.publisher.Mono;
 import java.time.*;
 import java.util.*;
 
-/** 对照通邑 PatrolScheduleCalendarService：只读月历、当日人员/任务及导出。 */
+/** 只读排班日历：日进度按归属日内的项目和点位去重，时段执行事实仍供详情及导出使用。 */
 @Service
 @AllArgsConstructor
 public class PatrolCalendarService {
-    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
     private static final int MAX_ROWS = 50000;
     private final PatrolRosterService rosters;
     private final PatrolTaskService tasks;
@@ -26,15 +25,18 @@ public class PatrolCalendarService {
     public record Shift(String name, long startTime, long endTime, long staffCount, long taskCount,
                         long expectedCount, long completedCount, long missedCount, String status) {}
     public record Day(String date, long staffCount, long taskCount, long expectedCount,
-                      long completedCount, long missedCount, String status, List<Shift> shifts) {}
+                      long completedCount, long missedCount, String status, List<Shift> shifts,
+                      long pointCount, long completedPointCount, long missedPointCount, long absentPointCount) {}
     public record Summary(long scheduledDayCount, long totalDayCount, long staffCount, long rosterCount,
                           long taskCount, long expectedCount, long completedCount, long missedCount,
-                          long pendingTaskCount, long ongoingTaskCount, long completedTaskCount, long abnormalTaskCount) {}
+                          long pendingTaskCount, long ongoingTaskCount, long completedTaskCount, long abnormalTaskCount,
+                          long pointCount, long completedPointCount, long missedPointCount, long absentPointCount) {}
     public record Month(String month, Summary summary, List<Day> days) {}
     public record Detail(String date, long staffCount, long shiftCount, long pointCount,
                          long expectedCount, long completedCount, long missedCount,
                          List<PatrolRosterEntity> staff, List<PatrolTaskEntity> tasks,
-                         Map<String, String> staffTelephones) {}
+                         Map<String, String> staffTelephones, long completedPointCount, long missedPointCount,
+                         long absentPointCount) {}
     record Rows(List<PatrolRosterEntity> staff, List<PatrolTaskEntity> tasks) {}
 
     public Mono<Month> month(YearMonth month) {
@@ -46,18 +48,20 @@ public class PatrolCalendarService {
                 people.telephones(rows.staff().stream().map(PatrolRosterEntity::getUserId).distinct().toList())
                         .map(telephones -> new Detail(day.toString(),
                                 staffCount(rows.staff()), shiftCount(rows.staff()),
-                                rows.tasks().stream().map(PatrolTaskEntity::getPointId).distinct().count(),
+                                pointCount(rows.tasks()),
                                 expected(rows.tasks()), completed(rows.tasks()), missed(rows.tasks()),
-                                rows.staff(), rows.tasks(), telephones)));
+                                rows.staff(), rows.tasks(), telephones,
+                                completedPointCount(rows.tasks()), missedPointCount(rows.tasks()), absentPointCount(rows.tasks()))));
     }
 
     private Mono<Rows> rows(LocalDate from, LocalDate until) {
         QueryParamEntity staffQuery = QueryParamEntity.newQuery()
                 .gte("businessDate", from.toString()).lt("businessDate", until.toString())
                 .and("enabled", true).orderByAsc("startTime").orderByAsc("id").getParam();
+        // 已部署旧任务可能没有 belongDate，此时沿用其生成时保存的 businessDate，不按结束日推算。
         QueryParamEntity taskQuery = QueryParamEntity.newQuery()
-                .gte("endTime", from.atStartOfDay(ZONE).toInstant().toEpochMilli())
-                .lt("endTime", until.atStartOfDay(ZONE).toInstant().toEpochMilli())
+                .nest().gte("belongDate", from.toString()).lt("belongDate", until.toString()).end()
+                .orNest().isNull("belongDate").gte("businessDate", from.toString()).lt("businessDate", until.toString()).end()
                 .orderByAsc("endTime").orderByAsc("startTime").orderByAsc("id").getParam();
         staffQuery.setPaging(false); taskQuery.setPaging(false);
         // 两类数据分别注入其拥有的资产权限，不能用计划权限替代排班权限。
@@ -78,8 +82,8 @@ public class PatrolCalendarService {
         for (int n = 1; n <= month.lengthOfMonth(); n++) {
             LocalDate date = month.atDay(n);
             var staff = rows.staff().stream().filter(row -> row.getBusinessDate().equals(date)).toList();
-            var tasks = rows.tasks().stream().filter(row -> Instant.ofEpochMilli(row.getEndTime())
-                    .atZone(ZONE).toLocalDate().equals(date)).toList();
+            var tasks = rows.tasks().stream().filter(row -> date.toString().equals(
+                    row.getBelongDate() == null ? row.getBusinessDate() : row.getBelongDate())).toList();
             Map<String, List<PatrolRosterEntity>> shifts = new LinkedHashMap<>();
             staff.stream().filter(row -> !row.isRest()).forEach(row -> shifts.computeIfAbsent(
                     shiftKey(row), key -> new ArrayList<>()).add(row));
@@ -92,13 +96,16 @@ public class PatrolCalendarService {
                         shiftTasks.size(), expected(shiftTasks), completed(shiftTasks), missed(shiftTasks), aggregateStatus(shiftTasks));
             }).toList();
             days.add(new Day(date.toString(), staffCount(staff), tasks.size(), expected(tasks),
-                    completed(tasks), missed(tasks), aggregateStatus(tasks), shiftRows));
+                    completed(tasks), missed(tasks), aggregateStatus(tasks), shiftRows,
+                    pointCount(tasks), completedPointCount(tasks), missedPointCount(tasks), absentPointCount(tasks)));
         }
         var summary = new Summary(days.stream().filter(day -> !day.shifts().isEmpty()).count(), month.lengthOfMonth(),
                 staffCount(rows.staff()), rows.staff().stream().filter(row -> !row.isRest()).count(),
                 rows.tasks().size(), expected(rows.tasks()), completed(rows.tasks()), missed(rows.tasks()),
                 countStatus(rows.tasks(), "pending"), countStatus(rows.tasks(), "ongoing"),
-                countStatus(rows.tasks(), "completed"), countStatus(rows.tasks(), "abnormal"));
+                countStatus(rows.tasks(), "completed"), countStatus(rows.tasks(), "abnormal"),
+                days.stream().mapToLong(Day::pointCount).sum(), days.stream().mapToLong(Day::completedPointCount).sum(),
+                days.stream().mapToLong(Day::missedPointCount).sum(), days.stream().mapToLong(Day::absentPointCount).sum());
         return new Month(month.toString(), summary, days);
     }
 
@@ -114,6 +121,31 @@ public class PatrolCalendarService {
     }
     private static long shiftCount(List<PatrolRosterEntity> rows) {
         return rows.stream().filter(row -> !row.isRest()).map(PatrolCalendarService::shiftKey).distinct().count();
+    }
+    private static Map.Entry<String, String> pointKey(PatrolTaskEntity row) {
+        return new AbstractMap.SimpleImmutableEntry<>(row.getProjectId(), row.getPointId());
+    }
+    private static long pointCount(List<PatrolTaskEntity> rows) {
+        return rows.stream().map(PatrolCalendarService::pointKey).distinct().count();
+    }
+    /** 点位完成要求当天所有角色、所有时段均达到应巡次数，不能把一次打卡或单角色完成当成点位完成。 */
+    private static long completedPointCount(List<PatrolTaskEntity> rows) {
+        return rows.stream().collect(java.util.stream.Collectors.groupingBy(PatrolCalendarService::pointKey))
+                .values().stream().filter(group -> group.stream()
+                        .allMatch(row -> completed(row) >= row.getRequiredCount())).count();
+    }
+    private static long missedPointCount(List<PatrolTaskEntity> rows) {
+        return rows.stream().collect(java.util.stream.Collectors.groupingBy(PatrolCalendarService::pointKey))
+                .values().stream().filter(group -> group.stream().anyMatch(row -> completed(row) > 0)
+                        && group.stream().anyMatch(row -> status(row).equals("abnormal"))).count();
+    }
+    /** 缺勤按点位判定：所有角色均无有效巡更，且全部应巡时段已截止；与漏检点位互斥。 */
+    private static long absentPointCount(List<PatrolTaskEntity> rows) {
+        long now = System.currentTimeMillis();
+        return rows.stream().collect(java.util.stream.Collectors.groupingBy(PatrolCalendarService::pointKey))
+                .values().stream().filter(group -> group.stream().noneMatch(row -> completed(row) > 0)
+                        && group.stream().anyMatch(row -> row.getRequiredCount() > 0)
+                        && group.stream().allMatch(row -> row.getEndTime() <= now)).count();
     }
     static int completed(PatrolTaskEntity row) { return Math.max(0, Math.min(row.getRequiredCount(), row.getCompletedCount())); }
     private static long expected(List<PatrolTaskEntity> rows) { return rows.stream().mapToLong(PatrolTaskEntity::getRequiredCount).sum(); }

@@ -20,11 +20,16 @@ final class PatrolCalendarExport {
                     time(item.getStartTime()), time(item.getEndTime()), item.isRest() ? "休息" : "已排班");
             var tasks = workbook.createSheet("巡更任务");
             row(tasks, "任务组ID", "任务时段开始", "任务时段结束", "巡更点位", "点位分类", "点位等级",
-                    "执行岗位角色", "应巡次数", "已巡次数", "最后巡更时间", "状态");
+                    "执行巡更角色", "应巡次数", "已巡次数", "最后巡更时间", "状态");
             for (var item : detail.tasks()) row(tasks, item.getTaskGroupId(), time(item.getStartTime()),
-                    time(item.getEndTime()), item.getPointName(), item.getCategoryName(), item.getLevelName(), item.getPostName(),
+                    time(item.getEndTime()), item.getPointName(), item.getCategoryName(), item.getLevelName(),
+                    item.getRoleId() != null && item.getRoleId().isBlank() ? "全员巡更" : item.getRoleName(),
                     String.valueOf(item.getRequiredCount()), String.valueOf(item.getCompletedCount()),
                     time(item.getLastExecutionTime()), status(PatrolCalendarService.status(item)));
+            var summary = workbook.createSheet("点位日统计");
+            row(summary, "归属日期", "应巡点位", "已完成点位", "漏检点位", "缺勤点位");
+            row(summary, detail.date(), String.valueOf(detail.pointCount()), String.valueOf(detail.completedPointCount()),
+                    String.valueOf(detail.missedPointCount()), String.valueOf(detail.absentPointCount()));
             for (Sheet sheet : workbook) {
                 sheet.createFreezePane(0, 1);
                 for (int i = 0; i < sheet.getRow(0).getLastCellNum(); i++) sheet.setColumnWidth(i, 22 * 256);

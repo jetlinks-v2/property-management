@@ -21,6 +21,9 @@ public class PatrolConfigDeletionService {
     private final PatrolStandardService standards;
     private final PatrolWarningService warnings;
     private final PatrolPlanService plans;
+    private final PatrolCategoryService categories;
+    private final PatrolPointService points;
+    private final org.hswebframework.ezorm.rdb.mapping.ReactiveRepository<org.jetlinks.pro.patrol.entity.PatrolPointCategoryEntity, String> pointCategories;
     private final PatrolScope scope;
     private final TransactionalOperator transaction;
 
@@ -29,6 +32,7 @@ public class PatrolConfigDeletionService {
             case patrolLevel -> levels;
             case patrolStandard -> standards;
             case patrolWarning -> warnings;
+            case patrolCategory -> categories;
             default -> throw new IllegalArgumentException("Unsupported removable configuration");
         };
         return AssetsHolder.assertPermission(type, id, CrudAssetPermission.delete)
@@ -51,6 +55,19 @@ public class PatrolConfigDeletionService {
 
     private Mono<Void> assertUnreferenced(PatrolAssetType type, String id, String key) {
         if (type == PatrolAssetType.patrolWarning) return Mono.empty();
+        if (type == PatrolAssetType.patrolCategory) {
+            // 引用完整性覆盖不可见和已停用关系；只返回通用提示，不泄露关联内容。
+            return categories.createQuery().where("parentId", id).and("scopeKey", key).select("id").fetchOne().hasElement()
+                    .flatMap(children -> children
+                            ? Mono.error(new BusinessException("error.patrol.category.has_children", 409))
+                            : Mono.empty())
+                    .then(Mono.zip(
+                            points.createQuery().where("categoryId", id).and("scopeKey", key).select("id").fetchOne().hasElement(),
+                            pointCategories.createQuery().where("categoryId", id).and("scopeKey", key).select("id").fetchOne().hasElement(),
+                            plans.createQuery().where("categoryId", id).and("scopeKey", key).select("id").fetchOne().hasElement()))
+                    .flatMap(refs -> refs.getT1() || refs.getT2() || refs.getT3()
+                            ? Mono.error(new BusinessException("error.patrol.category.referenced", 409)) : Mono.empty());
+        }
         // 停用的岗位关系仍保留引用；不通过删除配置顺手清理关系或改写历史。
         return plans.createQuery().where(type == PatrolAssetType.patrolLevel ? "levelId" : "standardId", id)
                 .and("scopeKey", key).select("id").fetchOne()

@@ -12,7 +12,7 @@ import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.patrol.asset.PatrolAssetType;
 import org.jetlinks.pro.patrol.domain.ExecutionPolicy;
 import org.jetlinks.pro.patrol.entity.PatrolExecutionEntity;
-import org.jetlinks.pro.patrol.entity.PatrolPostEntity;
+import org.jetlinks.pro.patrol.entity.PatrolRole;
 import org.jetlinks.pro.patrol.entity.PatrolRosterEntity;
 import org.jetlinks.pro.patrol.entity.PatrolTaskEntity;
 import org.jetlinks.pro.patrol.integration.SaasPersonDirectory;
@@ -24,6 +24,7 @@ import reactor.core.publisher.Mono;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -35,7 +36,7 @@ public class PatrolExecutionWorkflow {
     private final PatrolTaskService tasks;
     private final PatrolPlanService plans;
     private final PatrolPointService points;
-    private final PatrolPostService posts;
+    private final PatrolRoleService roles;
     private final PatrolRosterService rosters;
     private final PatrolExecutionService executions;
     private final SaasPersonDirectory people;
@@ -115,7 +116,7 @@ public class PatrolExecutionWorkflow {
                         submission.answers().stream().map(PatrolExecutionEntity.Answer::attachmentId)
                                 .filter(fileId -> fileId != null && !fileId.isBlank()).toList(),
                         org.jetlinks.pro.patrol.entity.PatrolAttachmentEntity.Purpose.evidence,
-                        scopeKey, auth.getUser().getId(), task.getProjectId(), null))
+                        scopeKey, auth.getUser().getId(), task.getProjectId()))
                 .then(Mono.fromCallable(() -> buildRecord(task, auth, id, submission, now)))
                 .flatMap(
                         record ->
@@ -146,48 +147,47 @@ public class PatrolExecutionWorkflow {
         return Mono.zip(
                         plans.findById(task.getPlanId()),
                         points.findById(task.getPointId()),
-                        posts.findById(task.getPostId()))
+                        hasRole(task) ? roles.currentRole(task.getRoleId()).map(role -> role.isEnabled()
+                                && role.getUserIds().contains(userId)) : Mono.just(true))
                 .switchIfEmpty(
                         Mono.error(new BusinessException("error.patrol.reference.unavailable", 400)))
                 .flatMap(
                         data -> {
-                            // 先判断岗位归属，手机列表不能因配置停用而显示其他岗位的任务。
-                            if (!data.getT3().getUserIds().contains(userId)) {
+                            // 全员任务不要求角色；指定任务仍先核实本人角色，排班不能代替角色资格。
+                            if (!data.getT3()) {
                                 return Mono.error(new BusinessException("error.patrol.execution.unassigned", 400));
                             }
                             if (!data.getT1().isEnabled()
-                                    || !data.getT2().isEnabled()
-                                    || !data.getT3().isEnabled()) {
+                                    || !data.getT2().isEnabled()) {
                                 return Mono.error(
                                         new BusinessException("error.patrol.reference.unavailable", 400));
                             }
-                            return checkRoster(
-                                    task, data.getT3(), data.getT1().getScopeKey(), userId, now)
+                            return checkRoster(task, data.getT1().getScopeKey(), userId, now)
                                     .thenReturn(data.getT1().getScopeKey());
                         });
     }
 
     private Mono<Void> checkRoster(
             PatrolTaskEntity task,
-            PatrolPostEntity post,
             String scopeKey,
             String userId,
             Instant now) {
-        // 按应用+逻辑日期判定是否配置排班；夜班归属开始日，不按当前自然日误判。
+        // 老系统全员任务不受排班限制；指定任务按开始日、项目判定，班次不要求与任务同角色。
+        if (!hasRole(task)) return applyExecutionPolicy(task, List.of(), userId, now);
         return rosters.createQuery()
                 .where(PatrolRosterEntity::getScopeKey, scopeKey)
-                .and(PatrolRosterEntity::getBusinessDate, LocalDate.parse(task.getBusinessDate()))
+                .and(PatrolRosterEntity::getBusinessDate, Instant.ofEpochMilli(task.getStartTime())
+                        .atZone(ZoneId.of("Asia/Shanghai")).toLocalDate())
                 .and(PatrolRosterEntity::getProjectId, task.getProjectId())
                 .and(PatrolRosterEntity::isEnabled, true)
                 .fetch()
                 .take(1001)
                 .collectList()
-                .flatMap(rows -> applyExecutionPolicy(task, post, rows, userId, now));
+                .flatMap(rows -> applyExecutionPolicy(task, rows, userId, now));
     }
 
     private Mono<Void> applyExecutionPolicy(
             PatrolTaskEntity task,
-            PatrolPostEntity post,
             List<PatrolRosterEntity> rows,
             String userId,
             Instant now) {
@@ -197,7 +197,7 @@ public class PatrolExecutionWorkflow {
                 rows.stream()
                         .anyMatch(
                                 row ->
-                                        !row.isRest() && task.getPostId().equals(row.getPostId())
+                                        !row.isRest()
                                                 && userId.equals(row.getUserId())
                                                 && now.toEpochMilli() >= row.getStartTime()
                                                 && now.toEpochMilli() < row.getEndTime());
@@ -214,7 +214,7 @@ public class PatrolExecutionWorkflow {
                     task.getRequiredCount(),
                     last,
                     task.getCooldownMinutes(),
-                    post.getUserIds().contains(userId),
+                    true,
                     task.getRosterPolicy(),
                     !rows.isEmpty(),
                     inShift);
@@ -222,6 +222,10 @@ public class PatrolExecutionWorkflow {
         } catch (IllegalArgumentException error) {
             return Mono.error(new BusinessException(error.getMessage(), 400));
         }
+    }
+
+    private static boolean hasRole(PatrolTaskEntity task) {
+        return task.getRoleId() != null && !task.getRoleId().isBlank();
     }
 
     private PatrolExecutionEntity buildRecord(

@@ -6,7 +6,6 @@ import org.jetlinks.pro.property.base.organization.OrganizationType;
 import org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo;
 import reactor.core.publisher.Mono;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -24,7 +23,6 @@ public final class PatrolProjectContext {
     private final Map<String, Set<String>> paths = new LinkedHashMap<>();
     private final String selectedProject;
     private final String scopeKey;
-    private String attachmentOwner;
 
     public PatrolProjectContext(List<PropertyOrganizationInfo> tree, String selectedProject, String scopeKey) {
         this.tree = List.copyOf(tree);
@@ -51,10 +49,6 @@ public final class PatrolProjectContext {
 
     public List<PropertyOrganizationInfo> tree() { return tree; }
     public String scopeKey() { return scopeKey; }
-    public void attachmentOwner(String owner) {
-        if (owner != null && !owner.isBlank()) attachmentOwner = requireOrganization(owner);
-    }
-    public String attachmentOwner() { return attachmentOwner; }
     public String selectedProject() { return selectedProject; }
     public Set<String> projects() {
         if (selectedProject != null) return Set.of(selectedProject);
@@ -92,34 +86,19 @@ public final class PatrolProjectContext {
         return requireProject(id);
     }
 
-    public String requireOrganization(String id) {
-        if (id == null || id.isBlank()) throw new BusinessException("error.patrol.owner_required", 400);
-        if (!organizations().contains(id)) throw new AccessDenyException.NoStackTrace();
-        return id;
-    }
-
     public PatrolProjectContext forProject(String id) {
         requireProject(id);
         return new PatrolProjectContext(tree, id, scopeKey);
     }
 
-    public boolean availableFor(String project, String referenceProject, String owner) {
-        return project != null && (project.equals(referenceProject)
-                || referenceProject == null && owner != null && paths.getOrDefault(project, Set.of()).contains(owner));
-    }
-
-    /** 引用可属于同一项目，或使用本节点可见路径上的组织共享配置；共享配置不能反向引用项目配置。 */
-    public boolean canReference(String project, String owner, String referenceProject, String referenceOwner) {
-        if (project != null) return availableFor(project, referenceProject, referenceOwner);
-        return owner != null && referenceProject == null && referenceOwner != null
-                && paths.getOrDefault(owner, Set.of()).contains(referenceOwner);
+    /** 所有巡更配置及附件只允许同一项目引用；组织节点仅用于项目树和员工范围。 */
+    public boolean canReference(String project, String referenceProject) {
+        return project != null && project.equals(referenceProject);
     }
 
     public String projectName(String id) { return nodes.get(requireProject(id)).getName(); }
 
-    /** 仅用于共享模板的项目适用性，基于本次已经可见的路径，不拓宽组织树。 */
-    public boolean canUse(String projectId, String ownerOrganizationId) {
-        return projectId != null && projects().contains(projectId)
-                || projectId == null && ownerOrganizationId != null && organizations().contains(ownerOrganizationId);
+    public boolean canUse(String projectId) {
+        return projectId != null && projects().contains(projectId);
     }
 }

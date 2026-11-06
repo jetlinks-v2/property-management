@@ -38,7 +38,7 @@ public class PatrolMissedService {
     private final ReactiveRepository<PatrolMissedEventEntity, String> events;
     private final PatrolTaskService tasks;
     private final PatrolPlanService plans;
-    private final PatrolPostService posts;
+    private final PatrolRoleService roles;
     private final PatrolRosterService rosters;
     private final PatrolScope scope;
     private final SaasPersonDirectory people;
@@ -90,7 +90,7 @@ public class PatrolMissedService {
         query.setPaging(false);
         return helper.select(PatrolMissedItemEntity.class).all(PatrolMissedItemEntity.class)
                 .as(PatrolTaskEntity::getPointName, PatrolMissedItemEntity::setPointName)
-                .as(PatrolTaskEntity::getPostName, PatrolMissedItemEntity::setPostName)
+                .as(PatrolTaskEntity::getRoleName, PatrolMissedItemEntity::setRoleName)
                 .as(PatrolTaskEntity::getStartTime, PatrolMissedItemEntity::setPeriodStartTime)
                 .as(PatrolTaskEntity::getEndTime, PatrolMissedItemEntity::setPeriodEndTime)
                 .from(PatrolMissedItemEntity.class)
@@ -220,15 +220,28 @@ public class PatrolMissedService {
     }
 
     private Mono<Boolean> mobileAccess(PatrolTaskEntity task, String userId) {
-        return posts.findById(task.getPostId()).map(post -> post.getUserIds().contains(userId)).defaultIfEmpty(false)
-                .flatMap(member -> member ? Mono.just(true) : plans.findById(task.getPlanId()).flatMap(plan ->
-                    rosters.createQuery().where(org.jetlinks.pro.patrol.entity.PatrolRosterEntity::getScopeKey, plan.getScopeKey())
-                        .and(org.jetlinks.pro.patrol.entity.PatrolRosterEntity::getUserId, userId)
-                        .and(org.jetlinks.pro.patrol.entity.PatrolRosterEntity::isRest, false)
-                        .and(org.jetlinks.pro.patrol.entity.PatrolRosterEntity::isEnabled, true)
-                        .lt(org.jetlinks.pro.patrol.entity.PatrolRosterEntity::getStartTime, task.getEndTime())
-                        .gt(org.jetlinks.pro.patrol.entity.PatrolRosterEntity::getEndTime, task.getStartTime()).count().map(count -> count > 0))
-                    .defaultIfEmpty(false));
+        // 原全员任务无需角色；指定任务的漏检申报是角色或重叠班次，不能复用在线执行的交集判断。
+        if (task.getRoleId() == null || task.getRoleId().isBlank()) return Mono.just(true);
+        return roles.currentRole(task.getRoleId()).map(role -> role.getUserIds().contains(userId))
+                .onErrorResume(BusinessException.class, error ->
+                        "error.patrol.execution.unassigned".equals(error.getI18nCode())
+                                ? Mono.just(false) : Mono.error(error))
+                .flatMap(matched -> matched ? Mono.just(true) : overlappingShift(task, userId));
+    }
+
+    private Mono<Boolean> overlappingShift(PatrolTaskEntity task, String userId) {
+        // 老系统历史申报按任务结束日取排班，跨天时不能用当前日期或任务生成日代替。
+        var date = java.time.Instant.ofEpochMilli(task.getEndTime()).atZone(ZONE).toLocalDate();
+        return plans.findById(task.getPlanId()).flatMap(plan -> rosters.createQuery()
+                .where(org.jetlinks.pro.patrol.entity.PatrolRosterEntity::getScopeKey, plan.getScopeKey())
+                .and(org.jetlinks.pro.patrol.entity.PatrolRosterEntity::getProjectId, task.getProjectId())
+                .and(org.jetlinks.pro.patrol.entity.PatrolRosterEntity::getBusinessDate, date)
+                .and(org.jetlinks.pro.patrol.entity.PatrolRosterEntity::isEnabled, true)
+                .and(org.jetlinks.pro.patrol.entity.PatrolRosterEntity::isRest, false)
+                .and(org.jetlinks.pro.patrol.entity.PatrolRosterEntity::getUserId, userId)
+                .lt(org.jetlinks.pro.patrol.entity.PatrolRosterEntity::getStartTime, task.getEndTime())
+                .gt(org.jetlinks.pro.patrol.entity.PatrolRosterEntity::getEndTime, task.getStartTime())
+                .count().map(count -> count > 0)).defaultIfEmpty(false);
     }
 
     private Mono<Integer> incrementCompletion(String taskId) {

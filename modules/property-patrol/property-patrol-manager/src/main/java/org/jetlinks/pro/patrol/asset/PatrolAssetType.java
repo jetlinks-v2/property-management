@@ -21,7 +21,6 @@ public enum PatrolAssetType implements EnumAssetType {
     patrolPoint("巡更点位", List.of("patrol-point")),
     patrolStandard("巡更标准", List.of("patrol-standard")),
     patrolAttachment("巡更图片", List.of("patrol-attachment")),
-    patrolPost("巡更岗位", List.of("patrol-post")),
     patrolRoster("巡更排班", List.of("patrol-roster")),
     patrolPlan("巡更计划", List.of("patrol-plan", "patrol-task", "patrol-execution", "patrol-report"));
     private final String name;

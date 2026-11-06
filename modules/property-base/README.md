@@ -10,6 +10,18 @@
 
 `property-base-core` 提供公共 DTO、组织类型枚举、组织树及基础目录查询命令，不依赖 manager，不包含数据库实体或 CRUD。基础服务必须独立运行；报修、巡更等业务服务按需运行，读取基础数据时只依赖 core 并执行公开命令，不装配本 manager。各应用统一加载前端公共模块 `property-base-ui`，由该模块唯一提供组织、用户、空间、客户和字典菜单及页面，经网关调用同一套 `/property/**`。收费、巡更和装修不再维护基础页面副本。已初始化的旧业务基础菜单需按应用清理，并给原角色授权公共 `charging/*` 菜单，不能全量重建其他系统菜单。
 
+## 客户房屋关系、房屋类型与项目章
+
+既有 `propertyService:customer` 的 `QueryPropertyCustomersCommand` 保留 `projectId`、可选 `spaceId` 及 `PropertyCustomerInfo` 契约。目录按客户合并当前有权房屋 ID，一客多房仍只返回一条客户；基础管理客户列表按空间记录分页，不改变此公开命令的返回口径。已结束、已删除和无权关系不进入目录。
+
+客户找房屋使用 `GET /property/customer/{id}/houses?projectId=...`，房屋找客户使用 `GET /property/house/{spaceId}/customers?projectId=...`。两者与 `propertyService:household` 的 `QueryPropertyHouseholdsCommand` 共用查询，保留认证、项目和空间资产权限，仅返回有效客户、完善的房屋及未结束、未删除的关系。`mine=true` 仅匹配认证本人绑定的客户，不接受客户端声明用户身份。
+
+`propertyService:dictionary` 的 `QueryPropertyDictionaryItemsCommand` 按 `typeCode` 返回启用分类下的启用选项。房屋类型使用已有 `house-type` 字典，不另建或重复初始化。
+
+组织标注为 `project` 后，可以通过 `PUT /property/organization/{id}/project-seal?version=...` 上传 multipart `file`；同路径 GET 私有读取、DELETE 带版本移除。写入需要组织 save 权限，读取需要 read 权限；仅接受真实 PNG/JPEG，最大 2MB、4096×4096 像素。改为其他组织类型前必须移除章，版本冲突拒绝覆盖。图片存于公共文件服务，组织仅保存文件引用。
+
+基础服务须配置 `property.files.server-id`，或环境变量 `PROPERTY_FILES_SERVER_ID`，指向现有公共文件节点；未配置时明确拒绝上传，不回退本机文件。装修通过组织命令服务的 `GetPropertyProjectSealCommand` 按项目读取，保留当前认证和资产上下文，不跨库、不接受客户端章 URL。
+
 ## 员工公开命令
 
 服务标识 `propertyService:employee`，仅只读，不触发同步或改变员工身份。
@@ -63,6 +75,15 @@ return CommandSupportManagerProviders
 
 
 ## 项目章
+
+现有 `PUT /property/organization/{id}/seal` 文件引用维护接口继续保留，
+使用独立 `seal` 动作和组织资产写权限。装修通过公开
+`GetPropertyProjectSealCommand` 读取当前有权项目的实际章内容，
+不跨库或接收任意文件 URL。`/{id}/project-seal` 的上传、读取和移除
+复用组织资产权限；上传按 PNG/JPEG 实际解码、2MB 和 4096×4096
+限制校验，文件传输使用显式公共节点，失败不回退本机存储。
+两种维护入口共享组织版本与文件引用，换章不删除历史章文件。
+
 
 物业基础管理的组织配置中，仅项目类型显示项目章，位于关联空间之后。每个项目可选维护一张 PNG/JPG 图片，大小不超过 5MB；支持预览、替换和确认删除，操作后自动保存。非项目不能维护，项目不需要先关联空间才能上传。
 

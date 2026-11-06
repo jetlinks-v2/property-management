@@ -25,9 +25,9 @@ public class PatrolStatisticsService {
         final Map<String, Count> groups = new TreeMap<>();
         final Count total = new Count();
         void add(PatrolTaskEntity task, boolean people) {
-            String id = people ? task.getPostId() : task.getPointId();
+            String id = people ? task.getRoleId() : task.getPointId();
             Count count = groups.computeIfAbsent(id, ignored -> new Count());
-            count.name = people ? task.getPostName() : task.getPointName();
+            count.name = people ? task.getRoleName() : task.getPointName();
             count.add(task);
             total.add(task);
         }

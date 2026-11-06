@@ -47,7 +47,7 @@ class PatrolAttachmentServiceTest {
         db = new PatrolDatabase();
         files = mock(PlatformPatrolFiles.class);
         var scope = mock(PatrolScope.class);
-        when(scope.current()).thenReturn(Mono.just(new PatrolScope.Current("north", "app")));
+        when(scope.current()).thenReturn(Mono.just(new PatrolScope.Current("app")));
         attachments = new PatrolAttachmentService(
                 db.repository(PatrolAttachmentEntity.class, PatrolAttachmentEntity::new), scope, files,
                 TransactionalOperator.create(new R2dbcTransactionManager(db.connections)));
@@ -56,7 +56,7 @@ class PatrolAttachmentServiceTest {
         var auth = new SimpleAuthentication();
         auth.setUser(user);
         identity = Context.of(Authentication.class, auth, org.jetlinks.pro.patrol.integration.PatrolProjectContext.class,
-                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("north|app"));
+                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"));
     }
 
     @AfterEach
@@ -104,7 +104,7 @@ class PatrolAttachmentServiceTest {
             var receipt = attachments.upload(file(new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff}),
                     PatrolAttachmentEntity.Purpose.evidence).contextWrite(identity).block();
             var stored = attachments.findById(receipt.id()).block();
-            assertEquals("north|app", stored.getScopeKey());
+            assertEquals("app", stored.getScopeKey());
             assertEquals("project", stored.getProjectId());
             assertEquals("alice", stored.getCreatorId());
             assertEquals(PatrolAttachmentEntity.Purpose.evidence, stored.getPurpose());
@@ -126,7 +126,7 @@ class PatrolAttachmentServiceTest {
         entity.setPlatformFileId("trusted-platform-id");
         entity.setInternalUrl("/file/trusted-platform-id.png?accessKey=secret");
         entity.setMediaType("image/png");
-        entity.setScopeKey("north|app");
+        entity.setScopeKey("app");
         entity.setCreatorId("alice");
         entity.setCreateTime(1L);
         entity.setPurpose(PatrolAttachmentEntity.Purpose.evidence);

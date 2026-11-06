@@ -19,7 +19,7 @@ class PatrolCalendarExportTest {
         var task = new PatrolTaskEntity();
         task.setId("night-period"); task.setTaskGroupId("daily-group");
         task.setPointName("=1+1"); task.setCategoryId("internal-category-id");
-        task.setCategoryName("生成时分类"); task.setLevelName("生成时等级"); task.setPostName("夜班");
+        task.setCategoryName("生成时分类"); task.setLevelName("生成时等级"); task.setRoleName("夜班");
         task.setStartTime(OffsetDateTime.parse("2026-11-03T23:00:00+08:00").toInstant().toEpochMilli());
         task.setEndTime(OffsetDateTime.parse("2026-11-04T01:00:00+08:00").toInstant().toEpochMilli());
         task.setRequiredCount(4); task.setCompletedCount(3);
@@ -28,7 +28,7 @@ class PatrolCalendarExportTest {
         legacy.setStartTime(task.getStartTime()); legacy.setEndTime(task.getEndTime());
         legacy.setRequiredCount(1);
         var detail = new PatrolCalendarService.Detail("2026-11-04", 0, 0, 2, 5, 3, 2,
-                List.of(), List.of(task, legacy), java.util.Map.of());
+                List.of(), List.of(task, legacy), java.util.Map.of(), 0, 1, 1);
         try (var book = new XSSFWorkbook(new ByteArrayInputStream(PatrolCalendarExport.write(detail)))) {
             var sheet = book.getSheet("巡更任务");
             assertEquals("点位分类", sheet.getRow(0).getCell(4).getStringCellValue());
@@ -42,6 +42,11 @@ class PatrolCalendarExportTest {
             assertEquals("4", row.getCell(7).getStringCellValue());
             assertEquals("3", row.getCell(8).getStringCellValue());
             assertEquals("", sheet.getRow(2).getCell(4).getStringCellValue());
+            var summary = book.getSheet("点位日统计");
+            assertEquals("漏检点位", summary.getRow(0).getCell(3).getStringCellValue());
+            assertEquals("缺勤点位", summary.getRow(0).getCell(4).getStringCellValue());
+            assertEquals("1", summary.getRow(1).getCell(3).getStringCellValue());
+            assertEquals("1", summary.getRow(1).getCell(4).getStringCellValue());
         }
     }
 
@@ -51,7 +56,7 @@ class PatrolCalendarExportTest {
         alice.setUserId("alice-id"); alice.setUserName("Alice"); alice.setShiftName("Day");
         var unknown = new PatrolRosterEntity(); unknown.setUserId("unreadable-id"); unknown.setRest(true);
         var detail = new PatrolCalendarService.Detail("2026-11-04", 1, 1, 0, 0, 0, 0,
-                List.of(alice, unknown), List.of(), java.util.Map.of("alice-id", "13800000001"));
+                List.of(alice, unknown), List.of(), java.util.Map.of("alice-id", "13800000001"), 0, 0, 0);
         try (var book = new XSSFWorkbook(new ByteArrayInputStream(PatrolCalendarExport.write(detail)))) {
             var sheet = book.getSheet("人员排班");
             assertEquals("手机号", sheet.getRow(0).getCell(1).getStringCellValue());

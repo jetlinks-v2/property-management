@@ -58,17 +58,23 @@ public class PatrolTaskController
         return service;
     }
 
-    public record GenerateRequest(@NotBlank String planId, @NotNull LocalDate date) {}
+    public record PreviewRequest(@NotBlank String planId, @NotNull LocalDate date) {}
+
+    /** planId 省略时，按当前应用及计划资产权限批量生成指定日期。 */
+    public record GenerateRequest(String planId, @NotNull LocalDate date) {}
 
     @PostMapping("/_preview")
     @QueryAction
-    public Flux<PatrolTaskEntity> preview(@RequestBody @Valid GenerateRequest request) {
+    public Flux<PatrolTaskEntity> preview(@RequestBody @Valid PreviewRequest request) {
         return generator.preview(request.planId(), request.date());
     }
 
     @PostMapping("/_generate")
     @ResourceAction(id = "generate", name = "生成巡更任务")
     public Flux<PatrolTaskEntity> generate(@RequestBody @Valid GenerateRequest request) {
+        if (request.planId() == null || request.planId().isBlank()) {
+            return generator.generate(request.date());
+        }
         return generator.generate(request.planId(), request.date());
     }
 }

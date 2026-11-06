@@ -36,9 +36,12 @@ class PatrolPointWorkbookTest {
         assertEquals(1000, PatrolPointWorkbook.read(workbook("category", "Building", 1000)).size());
         assertEquals(2, PatrolPointWorkbook.read(workbook(new HSSFWorkbook(), "category", "Building", 2)).size());
         assertThrows(RuntimeException.class, () -> PatrolPointWorkbook.read(workbook("category", "Building", 1001)));
-        try (var book = new XSSFWorkbook(new ByteArrayInputStream(PatrolPointWorkbook.template(Map.of("c", "分类"))))) {
+        try (var book = new XSSFWorkbook(new ByteArrayInputStream(PatrolPointWorkbook.template(List.of(
+                new PatrolPointWorkbook.CategoryReference("c", "分类", "上级 / 分类", "Project")))))) {
             assertEquals("分类id", book.getSheet("点位导入").getRow(0).getCell(0).getStringCellValue());
             assertEquals("c", book.getSheet("分类参考").getRow(1).getCell(0).getStringCellValue());
+            assertEquals("上级 / 分类", book.getSheet("分类参考").getRow(1).getCell(2).getStringCellValue());
+            assertEquals("Project", book.getSheet("分类参考").getRow(1).getCell(3).getStringCellValue());
         }
     }
 

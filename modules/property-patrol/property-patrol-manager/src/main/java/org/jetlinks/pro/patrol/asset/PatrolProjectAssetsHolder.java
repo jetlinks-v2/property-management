@@ -34,7 +34,10 @@ public final class PatrolProjectAssetsHolder extends ProxyAssetsHolder {
 
     private PatrolAssetType type(String id) {
         String canonical = AssetType.of(id).getId();
-        for (var value : PatrolAssetType.values()) if (value.getId().equals(canonical)) return value;
+        for (var value : PatrolAssetType.values()) if (value.getId().equals(canonical)) {
+            // 系统级预警只委托原平台应用资产权限，不附加项目交集。
+            return value == PatrolAssetType.patrolWarning ? null : value;
+        }
         return null;
     }
 
@@ -54,7 +57,7 @@ public final class PatrolProjectAssetsHolder extends ProxyAssetsHolder {
             var query = QueryParamEntity.newQuery().in("id", allowed).and("scopeKey", context.scopeKey()).getParam();
             query.setPaging(false);
             return supplier.service(type).query(query)
-                    .filter(entity -> context.canUse(entity.getProjectId(), entity.getOwnerOrganizationId()))
+                    .filter(entity -> context.canUse(entity.getProjectId()))
                     .map(entity -> entity.getId());
         });
     }
@@ -127,12 +130,8 @@ public final class PatrolProjectAssetsHolder extends ProxyAssetsHolder {
     private List<org.hswebframework.ezorm.core.param.Term> expression() {
         // 空授权集合使用互斥条件，绝不能让 ORM 忽略空 IN 后变成全量。
         var query = QueryParamEntity.newQuery().and("scopeKey", context.scopeKey());
-        if (context.projects().isEmpty() && context.organizations().isEmpty())
+        if (context.projects().isEmpty())
             return query.isNull("id").notNull("id").getParam().getTerms();
-        var ownership = query.nest();
-        if (!context.projects().isEmpty()) ownership.in("projectId", context.projects());
-        if (!context.organizations().isEmpty()) ownership.orNest().isNull("projectId")
-                .in("ownerOrganizationId", context.organizations()).end();
-        return ownership.end().getParam().getTerms();
+        return query.in("projectId", context.projects()).getParam().getTerms();
     }
 }

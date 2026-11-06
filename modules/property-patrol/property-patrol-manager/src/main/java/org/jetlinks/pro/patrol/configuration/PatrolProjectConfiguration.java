@@ -20,7 +20,6 @@ public class PatrolProjectConfiguration {
     @Bean public SubTableTermFragmentBuilder patrolProjectPointTerm() { return term("patrolPoint", "pt_point"); }
     @Bean public SubTableTermFragmentBuilder patrolProjectStandardTerm() { return term("patrolStandard", "pt_standard"); }
     @Bean public SubTableTermFragmentBuilder patrolProjectAttachmentTerm() { return term("patrolAttachment", "pt_attachment"); }
-    @Bean public SubTableTermFragmentBuilder patrolProjectPostTerm() { return term("patrolPost", "pt_post"); }
     @Bean public SubTableTermFragmentBuilder patrolProjectRosterTerm() { return term("patrolRoster", "pt_roster"); }
     @Bean public SubTableTermFragmentBuilder patrolProjectPlanTerm() { return term("patrolPlan", "pt_plan"); }
 }

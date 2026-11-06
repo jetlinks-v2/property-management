@@ -13,6 +13,30 @@ jetlinks:
               description: 巡更配置、计划、排班、任务与执行记录
               sort-index: 75
             menus:
+              - id: cloud-patrol
+                owner: app
+                options: {appName: cloud-patrol}
+                granted: true
+              # 公共页面由 property-base-ui 提供，保留巡更原授权 ID。
+              # 默认不为既有角色补授系统管理权限。
+              - id: patrol-system
+                owner: app
+                granted: false
+              - id: patrol-OrganizationType
+                owner: app
+                granted: false
+              - id: patrol-User
+                owner: app
+                granted: false
+              - id: patrol-Space
+                owner: app
+                granted: false
+              - id: patrol-Customer
+                owner: app
+                granted: false
+              - id: patrol-Dictionary
+                owner: app
+                granted: false
               - id: patrol-base
                 owner: app
                 options: {appName: cloud-patrol}
@@ -35,15 +59,16 @@ jetlinks:
                 granted: true
                 buttons:
                   - {id: save, granted: true}
+                  - {id: delete, granted: false}
               - id: patrol-points
                 owner: app
                 options: {appName: cloud-patrol}
                 granted: true
                 buttons:
                   - {id: save, granted: true}
-                  - {id: posts, granted: true}
                   - {id: assign, granted: true}
                   - {id: importRoster, granted: true}
+                  - {id: generate, granted: true}
               - id: patrol-standards
                 owner: app
                 options: {appName: cloud-patrol}
@@ -81,14 +106,6 @@ jetlinks:
                 owner: app
                 options: {appName: cloud-patrol}
                 granted: true
-              - id: patrol-qualification
-                owner: app
-                options: {appName: cloud-patrol}
-                granted: true
-              - id: patrol-personnel
-                owner: app
-                options: {appName: cloud-patrol}
-                granted: true
             asset-accesses:
               - asset-type: patrolCategory
                 accesses: [{supportId: business_application}]
@@ -99,9 +116,9 @@ jetlinks:
               - asset-type: patrolStandard
                 accesses: [{supportId: business_application}]
                 options: {scopeStrategy: SELECT_AND_BIND}
-              - asset-type: patrolPost
+              - asset-type: role
                 accesses: [{supportId: business_application}]
-                options: {scopeStrategy: SELECT_AND_BIND}
+                options: {scopeStrategy: SELECT}
               - asset-type: patrolRoster
                 accesses: [{supportId: business_application}]
                 options: {scopeStrategy: SELECT_AND_BIND}
@@ -112,8 +129,9 @@ jetlinks:
                 accesses: [{supportId: business_application}]
                 options: {scopeStrategy: SELECT_AND_BIND}
               - asset-type: user
-                accesses: [{supportId: business_application}]
-                options: {scopeStrategy: SELECT}
+                # 用户目录沿用所在组织及下级范围；执行资格另校验应用成员、员工和岗位。
+                accesses: [{supportId: org-include-children}]
+                options: {scopeStrategy: IGNORE}
               - asset-type: patrolLevel
                 accesses: [{supportId: business_application}]
                 options: {scopeStrategy: SELECT_AND_BIND}

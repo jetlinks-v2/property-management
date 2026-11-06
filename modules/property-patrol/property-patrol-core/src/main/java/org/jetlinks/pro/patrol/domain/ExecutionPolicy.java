@@ -24,8 +24,8 @@ public final class ExecutionPolicy {
             boolean rosterConfigured,
             boolean inShift) {
         if (!assigned) fail("error.patrol.execution.unassigned");
-        if (rosterPolicy == RosterPolicy.required && !rosterConfigured
-                || rosterConfigured && !inShift) fail("error.patrol.execution.off_shift");
+        // 与原巡更一致：当天无排班不限制执行；已持久化的 required 不再强制要求创建排班。
+        if (rosterConfigured && !inShift) fail("error.patrol.execution.off_shift");
         if (now.isBefore(start) || !now.isBefore(end))
             fail("error.patrol.execution.outside_window");
         if (completed >= required) fail("error.patrol.execution.completed");

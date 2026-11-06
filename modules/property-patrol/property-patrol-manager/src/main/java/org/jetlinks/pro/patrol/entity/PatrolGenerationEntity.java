@@ -37,9 +37,9 @@ public class PatrolGenerationEntity extends GenericEntity<String> {
     @Column(length = 128, updatable = false)
     private String pointName;
     @Column(length = 64, updatable = false)
-    private String postId;
+    private String roleId;
     @Column(length = 128, updatable = false)
-    private String postName;
+    private String roleName;
     @Column(length = 10, updatable = false)
     private String belongDate;
     @Column(length = 64, updatable = false)

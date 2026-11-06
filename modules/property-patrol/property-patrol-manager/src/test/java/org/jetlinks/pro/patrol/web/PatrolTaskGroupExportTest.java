@@ -16,7 +16,7 @@ class PatrolTaskGroupExportTest {
     void groupWorkbookKeepsSnapshotCountsCrossDayTimesAndLiteralNames() throws Exception {
         var group = new PatrolGenerationEntity();
         group.setPointName("=1+1"); group.setCategoryName("原分类"); group.setLevelName("原等级");
-        group.setBelongDate("2026-11-03"); group.setPostName("夜班岗");
+        group.setBelongDate("2026-11-03"); group.setRoleName("夜班岗");
         group.setStartTime(OffsetDateTime.parse("2026-11-03T23:00:00+08:00").toInstant().toEpochMilli());
         group.setEndTime(OffsetDateTime.parse("2026-11-04T01:00:00+08:00").toInstant().toEpochMilli());
         group.setPeriodCount(2); group.setRequiredCount(4); group.setCompletedCount(3);

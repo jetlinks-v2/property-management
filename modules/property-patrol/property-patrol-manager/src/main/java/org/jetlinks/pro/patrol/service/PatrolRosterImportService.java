@@ -27,7 +27,7 @@ import java.util.*;
 @AllArgsConstructor
 public class PatrolRosterImportService {
     private final PatrolRosterService rosters;
-    private final PatrolPostService posts;
+    private final PatrolRoleService roles;
     private final PatrolConfigurationValidator validator;
     private final SaasPersonDirectory people;
     private final PatrolScope scope;
@@ -35,17 +35,30 @@ public class PatrolRosterImportService {
     private final TransactionalOperator transaction;
 
     public Mono<byte[]> template(YearMonth month) {
-        var query = QueryParamEntity.newQuery().is("enabled", true).getParam();
+        var query = QueryParamEntity.newQuery().getParam();
         query.setPaging(false);
-        return AssetsHolder.injectQueryParam(query, PatrolAssetType.patrolPost, "id")
-                .flatMapMany(posts::query).take(PatrolRosterWorkbook.MAX_ROWS + 1L).collectList()
+        return roles.query(query).take(PatrolRosterWorkbook.MAX_ROWS + 1L).collectList()
                 .flatMap(rows -> {
                     if (rows.size() > PatrolRosterWorkbook.MAX_ROWS) return Mono.error(PatrolRosterWorkbook.invalid());
-                    List<String> ids = rows.stream().flatMap(post -> post.getUserIds().stream()).distinct().toList();
-                    if (ids.size() > PatrolRosterWorkbook.MAX_ROWS) return Mono.error(PatrolRosterWorkbook.invalid());
-                    return loadNames(ids).flatMap(names -> Mono.fromCallable(() -> PatrolRosterWorkbook.template(month, rows, names))
-                            .subscribeOn(Schedulers.boundedElastic()));
+                    return templatePeople().flatMap(names -> {
+                        // 应用角色可含其他项目员工或业主；模板仅列出本项目有权使用的有效员工。
+                        rows.forEach(role -> role.setUserIds(role.getUserIds().stream().filter(names::containsKey).toList()));
+                        return Mono.fromCallable(() -> PatrolRosterWorkbook.template(month, rows, names))
+                                .subscribeOn(Schedulers.boundedElastic());
+                    });
                 });
+    }
+
+    /** 模板包括当前项目有权使用的全部有效员工；未加入任何巡更角色也可以排班。 */
+    private Mono<Map<String, String>> templatePeople() {
+        var first = QueryParamEntity.newQuery().getParam(); first.setPageSize(200);
+        return people.query(first).expand(page -> {
+            if (page.getTotal() > PatrolRosterWorkbook.MAX_ROWS) return Mono.error(PatrolRosterWorkbook.invalid());
+            int nextIndex = page.getPageIndex() + 1;
+            if ((long) nextIndex * 200 >= page.getTotal()) return Mono.empty();
+            var next = first.clone(); next.setPageIndex(nextIndex); return people.query(next);
+        }).flatMapIterable(page -> page.getData())
+                .collectMap(SaasPersonDirectory.Person::id, SaasPersonDirectory.Person::name);
     }
 
     public Mono<Integer> importMonth(YearMonth month, byte[] bytes) {
@@ -57,11 +70,13 @@ public class PatrolRosterImportService {
                 .as(MonoTracer.create("/patrol/rosters/import"));
     }
 
-    private Mono<Map<String, String>> loadNames(List<String> ids) {
+    private Mono<Map<String, String>> loadNames(List<String> ids) { return loadNames(ids, true); }
+
+    private Mono<Map<String, String>> loadNames(List<String> ids, boolean strict) {
         return Flux.fromIterable(ids).buffer(200).concatMap(batch -> {
             var query = QueryParamEntity.newQuery().in("id", batch).getParam();
             query.setPageSize(200);
-            return people.query(query).flatMap(page -> page.getData().size() == batch.size()
+            return people.query(query).flatMap(page -> !strict || page.getData().size() == batch.size()
                     ? Mono.just(page.getData()) : Mono.error(new AccessDenyException.NoStackTrace()));
         }).flatMapIterable(list -> list).collectMap(SaasPersonDirectory.Person::id, SaasPersonDirectory.Person::name);
     }
@@ -69,7 +84,7 @@ public class PatrolRosterImportService {
     private Mono<Void> validateRows(List<PatrolRosterEntity> rows) {
         // 同岗位/人员的其余日期来自已验证的模板解析，不重复逐日请求公共人员服务。
         Map<String, PatrolRosterEntity> subjects = new LinkedHashMap<>();
-        rows.forEach(row -> subjects.putIfAbsent(row.getPostId() + "|" + row.getUserId(), row));
+        rows.forEach(row -> subjects.putIfAbsent(row.getRoleId() + "|" + row.getUserId(), row));
         return Flux.fromIterable(subjects.values()).concatMap(validator::validate).then()
                 .then(loadNames(rows.stream().map(PatrolRosterEntity::getUserId).distinct().toList()))
                 .doOnNext(names -> rows.forEach(row -> row.setUserName(names.get(row.getUserId())))).then();

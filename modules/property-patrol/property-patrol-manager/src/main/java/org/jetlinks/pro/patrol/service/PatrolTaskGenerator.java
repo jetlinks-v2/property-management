@@ -14,9 +14,10 @@ import org.jetlinks.pro.patrol.domain.RuleEngine;
 import org.jetlinks.pro.patrol.entity.PatrolGenerationEntity;
 import org.jetlinks.pro.patrol.entity.PatrolPlanEntity;
 import org.jetlinks.pro.patrol.entity.PatrolPointEntity;
-import org.jetlinks.pro.patrol.entity.PatrolPostEntity;
+import org.jetlinks.pro.patrol.entity.PatrolRole;
 import org.jetlinks.pro.patrol.entity.PatrolStandardEntity;
 import org.jetlinks.pro.patrol.entity.PatrolTaskEntity;
+import org.jetlinks.pro.patrol.integration.PatrolProjectContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.reactive.TransactionalOperator;
 
@@ -36,7 +37,7 @@ import java.util.TreeMap;
 public class PatrolTaskGenerator {
     private final PatrolPlanService plans;
     private final PatrolPointService points;
-    private final PatrolPostService posts;
+    private final PatrolRoleService roles;
     private final PatrolStandardService standards;
     private final PatrolTaskService tasks;
     private final PatrolLevelService levels;
@@ -64,18 +65,45 @@ public class PatrolTaskGenerator {
                                 builder -> builder.setAttribute("planId", planId)));
     }
 
-    /** 仅供服务自有定时器使用；有租户的计划恢复原技术上下文，平台应用不伪造租户。 */
+    /** 手动批量入口沿用请求身份，不调用绕过用户权限的后台定时入口。 */
+    public Flux<PatrolTaskEntity> generate(LocalDate day) {
+        return PatrolProjectContext.current().flatMapMany(context -> {
+            var candidates = plans.createQuery()
+                    .where(PatrolPlanEntity::getScopeKey, context.scopeKey())
+                    .and(PatrolPlanEntity::isEnabled, true)
+                    .notNull(PatrolPlanEntity::getProjectId)
+                    .notNull(PatrolPlanEntity::getStandardId)
+                    .notNull(PatrolPlanEntity::getRule)
+                    .nest(n -> n.isNull(PatrolPlanEntity::getEffectiveFrom)
+                            .or().lte(PatrolPlanEntity::getEffectiveFrom, day))
+                    .nest(n -> n.isNull(PatrolPlanEntity::getEffectiveTo)
+                            .or().gte(PatrolPlanEntity::getEffectiveTo, day))
+                    .fetch()
+                    .filter(plan -> context.canUse(plan.getProjectId()));
+            // 按200条分批校验计划save权限，再串行生成；无权计划不参与，避免全量收集与逐条远程鉴权。
+            return candidates.buffer(200)
+                    .concatMap(batch -> AssetsHolder.filterAssets(Flux.fromIterable(batch),
+                            PatrolAssetType.patrolPlan, PatrolPlanEntity::getId, CrudAssetPermission.save), 1)
+                    .concatMap(plan -> getOrCreateGeneration(plan.getId(), day, groupId(plan.getId(), day))
+                            .flatMapMany(Flux::fromIterable), 1);
+        }).as(FluxTracer.create("/patrol/tasks/generate-batch",
+                builder -> builder.setAttribute("date", day.toString())));
+    }
+
+    /** 仅供服务自有定时器使用；按已保存计划生成，不从业务范围键推导或伪造平台租户上下文。 */
     Mono<Void> generateScheduled(PatrolPlanEntity plan, LocalDate day) {
-        String tenantId = plan.getScopeKey().split("\\|", 2)[0];
-        Mono<Void> generation = getOrCreateGeneration(plan.getId(), day, groupId(plan.getId(), day)).then();
-        return tenantId.isBlank() ? generation
-                : generation.contextWrite(org.jetlinks.pro.tenant.holder.TenantHolder.makeCurrent(tenantId));
+        return getOrCreateGeneration(plan.getId(), day, groupId(plan.getId(), day), true).then();
     }
 
     private Mono<List<PatrolTaskEntity>> getOrCreateGeneration(
             String planId, LocalDate day, String id) {
+        return getOrCreateGeneration(planId, day, id, false);
+    }
+
+    private Mono<List<PatrolTaskEntity>> getOrCreateGeneration(
+            String planId, LocalDate day, String id, boolean scheduled) {
         Mono<List<PatrolTaskEntity>> create =
-                Mono.defer(() -> createGeneration(planId, day, id))
+                Mono.defer(() -> createGeneration(planId, day, id, scheduled))
                         .as(transaction::transactional)
                         // 冲突事务整体回滚后再读取已提交的封印与任务。
                         .onErrorResume(
@@ -100,11 +128,11 @@ public class PatrolTaskGenerator {
                 .collectList();
     }
 
-    private Mono<List<PatrolTaskEntity>> createGeneration(String planId, LocalDate day, String id) {
+    private Mono<List<PatrolTaskEntity>> createGeneration(String planId, LocalDate day, String id, boolean scheduled) {
         // 先固定快照，再将组封印与全部物理时段原子写入；主键冲突整笔回滚。
         return plans.findById(planId).switchIfEmpty(Mono.error(NotFoundException::new))
                 .flatMap(this::resolveRule)
-                .flatMap(plan -> expand(plan, day).collectList().flatMap(rows -> {
+                .flatMap(plan -> expand(plan, day, scheduled).collectList().flatMap(rows -> {
                     var group = new PatrolGenerationEntity();
                     group.setId(id);
                     group.setPlanId(planId);
@@ -114,13 +142,13 @@ public class PatrolTaskGenerator {
                     group.setBelongDate(day.toString());
                     group.setName(plan.getName());
                     group.setPointId(plan.getPointId());
-                    group.setPostId(plan.getPostId());
+                    group.setRoleId(plan.getRoleId());
                     group.setRuleVersion(ruleVersion(plan));
                     group.setPeriodCount(rows.size());
                     group.setRequiredCount(rows.stream().mapToInt(PatrolTaskEntity::getRequiredCount).sum());
                     if (!rows.isEmpty()) {
                         group.setPointName(rows.get(0).getPointName());
-                        group.setPostName(rows.get(0).getPostName());
+                        group.setRoleName(rows.get(0).getRoleName());
                         group.setStartTime(rows.get(0).getStartTime());
                         group.setEndTime(rows.get(rows.size() - 1).getEndTime());
                     }
@@ -146,23 +174,32 @@ public class PatrolTaskGenerator {
 
     private static String ruleVersion(PatrolPlanEntity plan) {
         var rule = plan.getRule();
-        String snapshot = "v2-configured-period|" + plan.getLevelId() + "|" + plan.getPointId() + "|" + plan.getCategoryId() + "|" + plan.getPostId() + "|"
+        String snapshot = "v2-configured-period|" + plan.getLevelId() + "|" + plan.getPointId() + "|" + plan.getCategoryId() + "|" + plan.getRoleId() + "|"
                 + plan.getStandardId() + "|" + plan.getRosterPolicy() + "|" + rule.cooldownMinutes()
                 + "|" + new TreeMap<>(rule.weekly()) + "|" + new TreeMap<>(rule.dates());
         return UUID.nameUUIDFromBytes(snapshot.getBytes(StandardCharsets.UTF_8)).toString();
     }
 
     private Flux<PatrolTaskEntity> expand(PatrolPlanEntity plan, LocalDate day) {
+        return expand(plan, day, false);
+    }
+
+    private Flux<PatrolTaskEntity> expand(PatrolPlanEntity plan, LocalDate day, boolean scheduled) {
         if (!plan.isEnabled()
                 || plan.getStandardId() == null || plan.getRule() == null
                 || (plan.getEffectiveFrom() != null && day.isBefore(plan.getEffectiveFrom()))
                 || (plan.getEffectiveTo() != null && day.isAfter(plan.getEffectiveTo())))
             return Flux.error(new BusinessException("error.patrol.plan.inactive"));
         // 关联对象必须仍有效；权限只控制计划入口，关联对象由保存计划时确定的同应用关系保证。
-        return Mono.zip(
+        Mono<Void> roleCheck = plan.getRoleId().isBlank()
+                ? Mono.fromRunnable(() -> plan.setRoleName(""))
+                : (scheduled ? scheduledRole(plan) : roles.findById(plan.getRoleId()))
+                        .filter(PatrolRole::isEnabled)
+                        .switchIfEmpty(Mono.error(new BusinessException("error.patrol.reference.unavailable")))
+                        .doOnNext(role -> plan.setRoleName(role.getName())).then();
+        return roleCheck.then(Mono.zip(
                         points.findById(plan.getPointId()),
-                        posts.findById(plan.getPostId()),
-                        standards.findById(plan.getStandardId()))
+                        standards.findById(plan.getStandardId())))
                 .switchIfEmpty(
                         Mono.error(new BusinessException("error.patrol.reference.unavailable")))
                 .flatMapMany(
@@ -170,7 +207,6 @@ public class PatrolTaskGenerator {
                             String categoryId = plan.getCategoryId() == null ? data.getT1().getCategoryId() : plan.getCategoryId();
                             if (!data.getT1().isEnabled()
                                     || !data.getT2().isEnabled()
-                                    || !data.getT3().isEnabled()
                                     || !data.getT1().getCategoryIds().contains(categoryId))
                                 return Flux.error(
                                         new BusinessException(
@@ -189,15 +225,24 @@ public class PatrolTaskGenerator {
                                                             plan,
                                                             data.getT1(),
                                                             data.getT2(),
-                                                            data.getT3(),
                                                             indexed.getT2(), indexed.getT1().intValue() + 1, categoryName)));
                         });
+    }
+
+    /** 后台仅使用保存指派时验证的角色身份快照；执行入口始终复核本人实时应用角色。 */
+    private Mono<PatrolRole> scheduledRole(PatrolPlanEntity plan) {
+        if (plan.getRoleId() == null || plan.getRoleName() == null)
+            return Mono.error(new BusinessException("error.patrol.reference.unavailable"));
+        var role = new PatrolRole();
+        role.setId(plan.getRoleId());
+        role.setName(plan.getRoleName());
+        role.setEnabled(true);
+        return Mono.just(role);
     }
 
     private PatrolTaskEntity toTask(
             PatrolPlanEntity plan,
             PatrolPointEntity point,
-            PatrolPostEntity post,
             PatrolStandardEntity standard,
             RuleEngine.Occurrence occurrence, int periodNo, String categoryName) {
         var task = new PatrolTaskEntity();
@@ -220,8 +265,8 @@ public class PatrolTaskGenerator {
         task.setCategoryName(categoryName);
         task.setLevelId(plan.getLevelId());
         task.setLevelName(plan.getLevelName());
-        task.setPostId(post.getId());
-        task.setPostName(post.getName());
+        task.setRoleId(plan.getRoleId());
+        task.setRoleName(plan.getRoleName());
         task.setBusinessDate(occurrence.businessDate().toString());
         task.setStartTime(occurrence.start().toEpochMilli());
         task.setEndTime(occurrence.end().toEpochMilli());

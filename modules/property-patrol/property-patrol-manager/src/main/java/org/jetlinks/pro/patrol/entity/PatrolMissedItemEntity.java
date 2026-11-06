@@ -36,7 +36,7 @@ public class PatrolMissedItemEntity extends GenericEntity<String> {
     @Column(length = 500) private String auditRemark;
     @Column private Long auditTime;
     private transient String pointName;
-    private transient String postName;
+    private transient String roleName;
     private transient Long periodStartTime;
     private transient Long periodEndTime;
     public enum Status { none, pending, approved, rejected, withdrawn }
