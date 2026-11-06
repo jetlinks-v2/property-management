@@ -14,7 +14,7 @@ public class InvoiceReportFile {
             Map.ofEntries(
                     Map.entry("title", "开票统计"),
                     Map.entry(
-                            "scope", "按规范来源统计当前开票覆盖，仅含模拟发票，不含收据。开票日期、号码和类型匹配来源最新蓝票；未开金额不是即时可开额度。"),
+                            "scope", "按规范来源统计当前开票覆盖，仅含发票，不含收据。开票日期、号码和类型匹配来源最新蓝票；未开金额不是即时可开额度。"),
                     Map.entry("summary", "全筛选范围合计"),
                     Map.entry("projectName", "项目"),
                     Map.entry("fullName", "房屋"),
@@ -23,7 +23,7 @@ public class InvoiceReportFile {
                     Map.entry("id", "来源单号"),
                     Map.entry("sourceType", "来源类型"),
                     Map.entry("invoiceStatus", "开票状态"),
-                    Map.entry("invoiceNo", "最新模拟发票号"),
+                    Map.entry("invoiceNo", "最新发票号"),
                     Map.entry("invoiceType", "最新发票类型"),
                     Map.entry("invoiceDate", "最新开票时间"),
                     Map.entry("buyerName", "最新购方名称"),
@@ -48,7 +48,7 @@ public class InvoiceReportFile {
                     Map.entry("title", "Invoice coverage"),
                     Map.entry(
                             "scope",
-                            "Current canonical source coverage; simulated invoices only, excluding"
+                            "Current canonical source coverage; invoices only, excluding"
                                     + " receipts. Invoice filters match the latest blue invoice."
                                     + " Uninvoiced balance is not immediately issuable quota."),
                     Map.entry("summary", "Filtered total"),
@@ -59,7 +59,7 @@ public class InvoiceReportFile {
                     Map.entry("id", "Source ID"),
                     Map.entry("sourceType", "Source type"),
                     Map.entry("invoiceStatus", "Invoice status"),
-                    Map.entry("invoiceNo", "Latest simulated invoice"),
+                    Map.entry("invoiceNo", "Latest invoice"),
                     Map.entry("invoiceType", "Latest invoice type"),
                     Map.entry("invoiceDate", "Latest issue time"),
                     Map.entry("buyerName", "Latest buyer"),

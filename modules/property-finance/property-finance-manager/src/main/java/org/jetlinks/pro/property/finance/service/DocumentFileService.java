@@ -71,11 +71,11 @@ public class DocumentFileService {
         return FinanceReportFile.write(
                 new FinanceReportFile.Data(
                         translate(
-                                type + "Title", "INVOICE".equals(type) ? "模拟发票台账" : "收据台账", locale),
+                                type + "Title", "INVOICE".equals(type) ? "发票台账" : "收据台账", locale),
                         translate(
                                 type + "Scope",
                                 "INVOICE".equals(type)
-                                        ? "仅含模拟票据，不作为税务发票使用。实时收款与开具快照分别列示。"
+                                        ? "不作为税务发票使用。实时收款与开具快照分别列示。"
                                         : "收款状态与收据状态分别列示；开具收据不代表已经收款。",
                                 locale),
                         translate("count", "票据数", locale) + ": " + rows.size(),
@@ -153,7 +153,7 @@ public class DocumentFileService {
                                 })
                         .toList();
         var scope =
-                translate("pdfScope", "模拟票据 · 不作为税务发票使用", locale)
+                translate("pdfScope", "不作为税务发票使用", locale)
                         + " | "
                         + d.getDocumentNumber()
                         + " | "
@@ -172,7 +172,7 @@ public class DocumentFileService {
                         + text(d.getRemark());
         return FinanceReportFile.write(
                 new FinanceReportFile.Data(
-                        translate("pdfTitle", "模拟发票（非税务凭证）", locale),
+                        translate("pdfTitle", "发票（非税务凭证）", locale),
                         scope,
                         translate("total", "合计", locale),
                         columns,
@@ -248,9 +248,9 @@ public class DocumentFileService {
         if (value == null) return translate("value.UNKNOWN", "未知", locale);
         var fallback =
                 switch (value) {
-                    case "SIMULATED_ISSUED" -> "模拟已开具";
-                    case "SIMULATED_REVERSED" -> "模拟已红冲";
-                    case "SIMULATED_RED" -> "模拟红票";
+                    case "SIMULATED_ISSUED" -> "已开具";
+                    case "SIMULATED_REVERSED" -> "已红冲";
+                    case "SIMULATED_RED" -> "红票";
                     case "ISSUED" -> "已开具";
                     case "VOIDED" -> "已作废";
                     case "BEFORE_PAYMENT" -> "付款前";

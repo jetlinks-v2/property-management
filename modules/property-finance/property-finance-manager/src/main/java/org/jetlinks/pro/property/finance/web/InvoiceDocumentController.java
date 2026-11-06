@@ -46,7 +46,7 @@ public class InvoiceDocumentController {
     }
 
     @PostMapping("/sources/_query")
-    @ResourceAction(id = "create", name = "模拟开票")
+    @ResourceAction(id = "create", name = "开票")
     public Mono<PagerResult<DocumentCandidateService.View>> sources(
             @PathVariable String projectId, @RequestBody DocumentCandidateService.Input input) {
         return candidates.query(
@@ -54,7 +54,7 @@ public class InvoiceDocumentController {
     }
 
     @PostMapping("/_preview")
-    @ResourceAction(id = "create", name = "模拟开票")
+    @ResourceAction(id = "create", name = "开票")
     public Mono<DocumentPreparationService.Preview> preview(
             @PathVariable String projectId, @RequestBody DocumentIssueInput input) {
         if (input == null || !"INVOICE".equals(input.documentType()))
@@ -64,7 +64,7 @@ public class InvoiceDocumentController {
     }
 
     @PostMapping("/_confirm")
-    @ResourceAction(id = "create", name = "模拟开票")
+    @ResourceAction(id = "create", name = "开票")
     public Mono<DocumentStore.Detail> confirm(
             @PathVariable String projectId, @RequestBody DocumentIssueService.Submission input) {
         if (input == null
@@ -82,7 +82,7 @@ public class InvoiceDocumentController {
     }
 
     @PostMapping("/{id}/_reverse")
-    @ResourceAction(id = "reverse", name = "模拟红冲")
+    @ResourceAction(id = "reverse", name = "红冲")
     public Mono<DocumentStore.Detail> reverse(
             @PathVariable String projectId,
             @PathVariable String id,
@@ -96,7 +96,7 @@ public class InvoiceDocumentController {
     }
 
     @PostMapping("/{id}/reopen/_preview")
-    @ResourceAction(id = "reopen", name = "模拟红冲重开")
+    @ResourceAction(id = "reopen", name = "红冲重开")
     public Mono<DocumentPreparationService.Preview> reopenPreview(
             @PathVariable String projectId,
             @PathVariable String id,
@@ -106,7 +106,7 @@ public class InvoiceDocumentController {
     }
 
     @PostMapping("/{id}/reopen/_confirm")
-    @ResourceAction(id = "reopen", name = "模拟红冲重开")
+    @ResourceAction(id = "reopen", name = "红冲重开")
     public Mono<DocumentStore.Detail> reopenConfirm(
             @PathVariable String projectId,
             @PathVariable String id,
@@ -144,7 +144,7 @@ public class InvoiceDocumentController {
                                                 org.springframework.http.MediaType.APPLICATION_PDF)
                                         .header(
                                                 "Content-Disposition",
-                                                "inline; filename=simulated-invoice.pdf")
+                                                "inline; filename=invoice.pdf")
                                         .body(bytes));
     }
 }

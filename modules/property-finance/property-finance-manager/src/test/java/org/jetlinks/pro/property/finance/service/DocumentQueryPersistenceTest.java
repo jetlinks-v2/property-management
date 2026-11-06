@@ -135,7 +135,7 @@ class DocumentQueryPersistenceTest extends DocumentIssuePersistenceTest {
     }
 
     @Test
-    void simulatedInvoicePdfCarriesSimulationLabelAndHistoricalTax() throws Exception {
+    void invoicePdfCarriesBusinessLabelsAndHistoricalTax() throws Exception {
         var bill = documentBill();
         var blue =
                 issue(submission(input(List.of(item("RECEIVABLE", bill.getId(), "10")))))
@@ -162,7 +162,8 @@ class DocumentQueryPersistenceTest extends DocumentIssuePersistenceTest {
                     new org.apache.pdfbox.rendering.PDFRenderer(parsed).renderImageWithDPI(0, 100),
                     "png",
                     output.resolve("simulated-invoice.png").toFile());
-            assertTrue(text.contains("模拟发票"));
+            assertTrue(text.contains("发票"));
+            assertFalse(text.contains("模拟"));
             assertTrue(text.contains("不作为税务发票使用"));
             assertTrue(text.contains("原物业服务"));
             assertTrue(text.contains(blue.getDocumentNumber()));
