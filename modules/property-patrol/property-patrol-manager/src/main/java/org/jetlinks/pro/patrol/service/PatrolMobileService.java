@@ -15,7 +15,9 @@ import org.jetlinks.pro.patrol.integration.SaasPersonDirectory;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import java.time.*;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 
 /** 手机端只读业务编排；AssetsHolder 决定计划范围，当前成员及岗位决定“我的任务”。 */
@@ -26,7 +28,6 @@ public class PatrolMobileService {
     private static final int LIMIT = 1000;
     private final PatrolScope scope;
     private final SaasPersonDirectory people;
-    private final PatrolPlanService plans;
     private final PatrolTaskService tasks;
     private final PatrolExecutionService executions;
     private final PatrolExecutionWorkflow workflow;
@@ -41,33 +42,29 @@ public class PatrolMobileService {
     public Mono<List<MobileTask>> tasks(LocalDate date, boolean mine) {
         return ReactiveAuthenticationHolder.get().flatMap(auth -> scope.current().flatMap(current ->
                 people.assertMembers(List.of(auth.getUser().getId()))
-                    .thenMany(authorizedPlans(current.key()))
-                    .collectList()
-                    .flatMap(ids -> ids.isEmpty() ? Mono.just(List.<MobileTask>of())
-                        : taskRows(ids, date).flatMapMany(Flux::fromIterable)
-                            .flatMapSequential(task -> inspect(task, auth.getUser().getId(), mine), 8)
-                            .collectList())))
+                    .then(taskRows(current.key(), date))
+                    .flatMapMany(Flux::fromIterable)
+                    .flatMapSequential(task -> inspect(task, auth.getUser().getId(), mine), 8)
+                    .collectList()))
                 .as(MonoTracer.create("/patrol/mobile/tasks"));
     }
 
-    private Flux<String> authorizedPlans(String scopeKey) {
-        var query = QueryParamEntity.newQuery().and("scopeKey", scopeKey).getParam();
-        query.setPaging(false);
-        // 业务应用范围不能替代资产授权；两者必须同时满足。
-        return AssetsHolder.injectQueryParam(query, PatrolAssetType.patrolPlan, "id")
-            .flatMapMany(plans::query).take(LIMIT + 1L).collectList()
-            .flatMapMany(rows -> rows.size() > LIMIT ? Flux.error(tooMany())
-                : Flux.fromIterable(rows).map(row -> row.getId()));
+    private Mono<QueryParamEntity> authorizedFactQuery(String scopeKey, QueryParamEntity query) {
+        var planScope = QueryParamEntity.newQuery().and("scopeKey", scopeKey).getParam();
+        query.toNestQuery().and("planId", "patrol-project-patrolPlan", planScope.getTerms());
+        // 直接向事实的 planId 注入授权，与应用范围并列；嵌套同种计划子查询会遮蔽关联别名。
+        return AssetsHolder.injectQueryParam(query, PatrolAssetType.patrolPlan, "planId");
     }
 
-    private Mono<List<PatrolTaskEntity>> taskRows(List<String> ids, LocalDate date) {
-        var query = QueryParamEntity.newQuery().in("planId", ids)
+    private Mono<List<PatrolTaskEntity>> taskRows(String scopeKey, LocalDate date) {
+        var query = QueryParamEntity.newQuery()
             .lt("startTime", date.plusDays(1).atStartOfDay(ZONE).toInstant().toEpochMilli())
             .gt("endTime", date.atStartOfDay(ZONE).toInstant().toEpochMilli())
             .orderByAsc("startTime").orderByAsc("id").getParam();
         query.setPaging(false);
-        // 有界读取后完整过滤本人任务，避免先分页再过滤造成空页或错误总数。
-        return tasks.query(query).take(LIMIT + 1L).collectList()
+        // 授权计划作为数据库子查询；数量限制只检查当天任务，不受无关历史计划数量影响。
+        return authorizedFactQuery(scopeKey, query)
+            .flatMap(authorized -> tasks.query(authorized).take(LIMIT + 1L).collectList())
             .flatMap(rows -> rows.size() > LIMIT ? Mono.error(tooMany()) : Mono.just(rows));
     }
 
@@ -87,12 +84,10 @@ public class PatrolMobileService {
         query.setPageSize(Math.max(1, Math.min(50, query.getPageSize())));
         return ReactiveAuthenticationHolder.get().flatMap(auth -> scope.current().flatMap(current ->
             people.assertMembers(List.of(auth.getUser().getId()))
-                .thenMany(authorizedPlans(current.key())).collectList()
-                .flatMap(ids -> {
-                    query.toNestQuery().and("userId", auth.getUser().getId()).in("planId", ids);
-                    return ids.isEmpty() ? Mono.just(PagerResult.of(0, List.<PatrolExecutionEntity>of(), query))
-                        : executions.queryPager(query);
-                })));
+                .then(Mono.defer(() -> {
+                    query.toNestQuery().and("userId", auth.getUser().getId());
+                    return authorizedFactQuery(current.key(), query).flatMap(executions::queryPager);
+                }))));
     }
 
     private BusinessException tooMany() { return new BusinessException("error.patrol.mobile.too_many"); }

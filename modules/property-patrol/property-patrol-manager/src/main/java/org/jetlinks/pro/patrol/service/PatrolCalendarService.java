@@ -10,6 +10,7 @@ import org.jetlinks.pro.patrol.entity.PatrolTaskEntity;
 import org.jetlinks.pro.patrol.integration.SaasPersonDirectory;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 import java.time.*;
 import java.util.*;
 
@@ -40,11 +41,12 @@ public class PatrolCalendarService {
     record Rows(List<PatrolRosterEntity> staff, List<PatrolTaskEntity> tasks) {}
 
     public Mono<Month> month(YearMonth month) {
-        return rows(month.atDay(1), month.plusMonths(1).atDay(1)).map(rows -> buildMonth(month, rows));
+        return rows(month.atDay(1), month.plusMonths(1).atDay(1), false)
+                .publishOn(Schedulers.parallel()).map(rows -> buildMonth(month, rows));
     }
 
     public Mono<Detail> day(LocalDate day) {
-        return rows(day, day.plusDays(1)).flatMap(rows ->
+        return rows(day, day.plusDays(1), true).flatMap(rows ->
                 people.telephones(rows.staff().stream().map(PatrolRosterEntity::getUserId).distinct().toList())
                         .map(telephones -> new Detail(day.toString(),
                                 staffCount(rows.staff()), shiftCount(rows.staff()),
@@ -54,16 +56,27 @@ public class PatrolCalendarService {
                                 completedPointCount(rows.tasks()), missedPointCount(rows.tasks()), absentPointCount(rows.tasks()))));
     }
 
-    private Mono<Rows> rows(LocalDate from, LocalDate until) {
+    private Mono<Rows> rows(LocalDate from, LocalDate until, boolean detail) {
         QueryParamEntity staffQuery = QueryParamEntity.newQuery()
                 .gte("businessDate", from.toString()).lt("businessDate", until.toString())
                 .and("enabled", true).orderByAsc("startTime").orderByAsc("id").getParam();
         // 已部署旧任务可能没有 belongDate，此时沿用其生成时保存的 businessDate，不按结束日推算。
         QueryParamEntity taskQuery = QueryParamEntity.newQuery()
-                .nest().gte("belongDate", from.toString()).lt("belongDate", until.toString()).end()
-                .orNest().isNull("belongDate").gte("businessDate", from.toString()).lt("businessDate", until.toString()).end()
-                .orderByAsc("endTime").orderByAsc("startTime").orderByAsc("id").getParam();
-        staffQuery.setPaging(false); taskQuery.setPaging(false);
+                .nest(nest -> nest
+                        .nest().gte("belongDate", from.toString()).lt("belongDate", until.toString()).end()
+                        .orNest().isNull("belongDate").gte("businessDate", from.toString()).lt("businessDate", until.toString()).end())
+                .getParam();
+        if (detail) taskQuery.toQuery().orderByAsc("endTime").orderByAsc("startTime").orderByAsc("id");
+        else {
+            // 月历只需进度和班次字段，不读取每个时段的检查标准快照，也不为不展示的明细排序。
+            taskQuery.setIncludes(Set.of("projectId", "pointId", "belongDate", "businessDate",
+                    "startTime", "endTime", "requiredCount", "completedCount"));
+            staffQuery.setIncludes(Set.of("id", "projectId", "businessDate", "userId", "rest",
+                    "shiftName", "name", "startTime", "endTime"));
+        }
+        // 在数据库限制有界读取；多取一条用于明确报错，不能先返回全月后在客户端截断。
+        staffQuery.setPageIndex(0); staffQuery.setPageSize(MAX_ROWS + 1); staffQuery.setPaging(true);
+        taskQuery.setPageIndex(0); taskQuery.setPageSize(MAX_ROWS + 1); taskQuery.setPaging(true);
         // 两类数据分别注入其拥有的资产权限，不能用计划权限替代排班权限。
         return Mono.zip(
                 AssetsHolder.injectQueryParam(staffQuery, PatrolAssetType.patrolRoster, "id")
@@ -79,11 +92,13 @@ public class PatrolCalendarService {
 
     private Month buildMonth(YearMonth month, Rows rows) {
         List<Day> days = new ArrayList<>();
+        var staffByDate = rows.staff().stream().collect(java.util.stream.Collectors.groupingBy(PatrolRosterEntity::getBusinessDate));
+        var tasksByDate = rows.tasks().stream().collect(java.util.stream.Collectors.groupingBy(
+                row -> row.getBelongDate() == null ? row.getBusinessDate() : row.getBelongDate()));
         for (int n = 1; n <= month.lengthOfMonth(); n++) {
             LocalDate date = month.atDay(n);
-            var staff = rows.staff().stream().filter(row -> row.getBusinessDate().equals(date)).toList();
-            var tasks = rows.tasks().stream().filter(row -> date.toString().equals(
-                    row.getBelongDate() == null ? row.getBusinessDate() : row.getBelongDate())).toList();
+            var staff = staffByDate.getOrDefault(date, List.of());
+            var tasks = tasksByDate.getOrDefault(date.toString(), List.of());
             Map<String, List<PatrolRosterEntity>> shifts = new LinkedHashMap<>();
             staff.stream().filter(row -> !row.isRest()).forEach(row -> shifts.computeIfAbsent(
                     shiftKey(row), key -> new ArrayList<>()).add(row));

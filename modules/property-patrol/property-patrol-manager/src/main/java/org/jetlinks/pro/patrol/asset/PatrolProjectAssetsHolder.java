@@ -2,6 +2,7 @@ package org.jetlinks.pro.patrol.asset;
 
 import org.hswebframework.ezorm.core.Conditional;
 import org.hswebframework.ezorm.core.NestConditional;
+import org.hswebframework.ezorm.core.param.Term;
 import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.authorization.exception.AccessDenyException;
 import org.jetlinks.pro.assets.*;
@@ -11,8 +12,6 @@ import reactor.core.publisher.Mono;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -106,32 +105,40 @@ public final class PatrolProjectAssetsHolder extends ProxyAssetsHolder {
     }
 
     @Override public Mono<QueryParamEntity> injectQuery(QueryParamEntity source, String type, String idProperty, AssetPermission... permissions) {
-        return original.injectQuery(source, type, idProperty, permissions).map(query -> {
-            if (type(type) != null) query.toNestQuery(q -> q.and(idProperty, term(type), expression()));
-            return query;
+        if (type(type) == null) return original.injectQuery(source, type, idProperty, permissions);
+        return authorizedExpression(type, permissions).map(terms -> {
+            source.toNestQuery(q -> q.and(idProperty, term(type), terms));
+            return source;
         });
     }
     @Override public <T extends Conditional<T>> Mono<NestConditional<T>> injectConditional(
             NestConditional<T> conditional, String type, String idProperty, AssetPermission... permissions) {
-        // 把原 holder 的 OR 整体封进一组，再 AND 项目约束，避免 OR 分支绕过组织范围。
-        return original.injectConditional(conditional, type, idProperty, permissions).map(result -> {
-            if (type(type) != null) result.group().and(idProperty, term(type), expression());
-            return result;
-        });
+        if (type(type) == null) return original.injectConditional(conditional, type, idProperty, permissions);
+        return authorizedExpression(type, permissions)
+                .map(terms -> conditional.group().and(idProperty, term(type), terms));
     }
     @Override public <T extends Conditional<T>> Mono<T> injectConditional(T conditional, String type, String idProperty, AssetPermission... permissions) {
-        return original.injectConditional(conditional, type, idProperty, permissions).map(result -> {
-            if (type(type) != null) result.group().and(idProperty, term(type), expression());
-            return result;
+        if (type(type) == null) return original.injectConditional(conditional, type, idProperty, permissions);
+        return authorizedExpression(type, permissions)
+                .map(terms -> conditional.group().and(idProperty, term(type), terms));
+    }
+
+    /**
+     * 在配置资产子查询内合并平台授权与项目交集，再由 id/planId 关联事实表。
+     * 原 holder 仍是授权来源；避免每条历史任务重复执行维度绑定、组织闭包的 OR 子查询，
+     * 同时保留数据库内过滤、分页及调用者 OR 条件的完整分组，不缓存或截断可见资产。
+     */
+    private Mono<List<Term>> authorizedExpression(String type, AssetPermission... permissions) {
+        return original.injectQuery(new QueryParamEntity(), type, "id", permissions).map(query -> {
+            query.toNestQuery(q -> {
+                q.and("scopeKey", context.scopeKey());
+                // 空树必须拒绝，不能让 ORM 忽略空 IN 后变成全量。
+                if (context.projects().isEmpty()) q.isNull("id").notNull("id");
+                else q.in("projectId", context.projects());
+            });
+            return query.getTerms();
         });
     }
 
     private String term(String type) { return "patrol-project-" + type(type).getId(); }
-    private List<org.hswebframework.ezorm.core.param.Term> expression() {
-        // 空授权集合使用互斥条件，绝不能让 ORM 忽略空 IN 后变成全量。
-        var query = QueryParamEntity.newQuery().and("scopeKey", context.scopeKey());
-        if (context.projects().isEmpty())
-            return query.isNull("id").notNull("id").getParam().getTerms();
-        return query.in("projectId", context.projects()).getParam().getTerms();
-    }
 }

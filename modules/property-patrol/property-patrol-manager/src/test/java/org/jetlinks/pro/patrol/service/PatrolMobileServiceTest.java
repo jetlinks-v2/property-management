@@ -38,7 +38,7 @@ class PatrolMobileServiceTest {
     }
 
     PatrolMobileService service(PatrolScope source) {
-        return new PatrolMobileService(source, people, fixture.plans, fixture.tasks,
+        return new PatrolMobileService(source, people, fixture.tasks,
                 fixture.executions, fixture.workflow);
     }
 
@@ -89,7 +89,7 @@ class PatrolMobileServiceTest {
     void translatedExceptionsKeepStableReasonsAndMineFilter() {
         fixture.seedTask(1);
         var workflow = mock(PatrolExecutionWorkflow.class);
-        var source = new PatrolMobileService(scope, people, fixture.plans, fixture.tasks,
+        var source = new PatrolMobileService(scope, people, fixture.tasks,
                 fixture.executions, workflow);
         for (String code : List.of("error.patrol.execution.completed", "error.patrol.execution.unassigned")) {
             var translated = new org.hswebframework.web.exception.BusinessException(code) {
@@ -102,6 +102,28 @@ class PatrolMobileServiceTest {
             if (code.endsWith("unassigned"))
                 assertTrue(source.tasks(LocalDate.now()).contextWrite(fixture.identity).block().isEmpty());
         }
+    }
+
+    @Test
+    void selectedProjectFiltersTasksAndPersonalHistoryWithRealProjectHolder() {
+        fixture.seedTask(2);
+        var own = fixture.workflow.submit(fixture.submission("project-history")).contextWrite(fixture.identity).block();
+        fixture.seedPlan("other-plan", "north");
+        fixture.plans.createUpdate().set(org.jetlinks.pro.patrol.entity.PatrolPlanEntity::getProjectId, "other-project")
+                .where(org.jetlinks.pro.patrol.entity.PatrolPlanEntity::getId, "other-plan").execute().block();
+        var other = fixture.tasks.findById("task").block();
+        other.setId("other-task"); other.setTaskGroupId("other-group"); other.setPlanId("other-plan");
+        other.setProjectId("other-project"); fixture.tasks.insert(other).block();
+        var record = copyRecord(own, "other-history", "other-plan", "alice");
+        record.setTaskId("other-task"); record.setProjectId("other-project"); fixture.executions.insert(record).block();
+        var holder = new org.jetlinks.pro.patrol.asset.PatrolProjectAssetsHolder(
+                new org.jetlinks.pro.tenant.assets.TenantAssetsHolder(java.util.Set.of("north"), mock(org.jetlinks.pro.assets.AssetManager.class)),
+                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"), fixture.supplier);
+        var identity = fixture.identity.put(org.jetlinks.pro.assets.AssetsHolder.class, holder);
+        assertEquals(List.of("task"), mobile.tasks(LocalDate.now()).contextWrite(identity).block().stream()
+                .map(row -> row.task().getId()).toList());
+        assertEquals(List.of(own.getId()), mobile.history(new QueryParamEntity()).contextWrite(identity).block()
+                .getData().stream().map(PatrolExecutionEntity::getId).toList());
     }
 
     @Test
@@ -161,6 +183,24 @@ class PatrolMobileServiceTest {
         assertEquals("Original level", page.getData().get(0).getLevelName());
         query.toNestQuery().is("levelId", "different");
         assertEquals(0, mobile.history(query).contextWrite(fixture.identity).block().getTotal());
+    }
+
+    @Test
+    void unrelatedHistoricalPlansDoNotPreventTodayTasksOrPersonalHistory() {
+        fixture.seedTask(1);
+        var records = new java.util.ArrayList<org.jetlinks.pro.patrol.entity.PatrolPlanEntity>();
+        var source = fixture.plans.findById("plan").block();
+        for (int index = 0; index < 1001; index++) {
+            var plan = new org.jetlinks.pro.patrol.entity.PatrolPlanEntity();
+            org.springframework.beans.BeanUtils.copyProperties(source, plan);
+            plan.setId("archived-" + index); plan.setEnabled(false);
+            records.add(plan);
+        }
+        fixture.plans.insertBatch(Mono.just(records)).block();
+        assertEquals(List.of("task"), mobile.tasks(LocalDate.now()).contextWrite(fixture.identity).block()
+                .stream().map(row -> row.task().getId()).toList());
+        fixture.workflow.submit(fixture.submission("history-after-import")).contextWrite(fixture.identity).block();
+        assertEquals(1, mobile.history(new QueryParamEntity()).contextWrite(fixture.identity).block().getTotal());
     }
 
     private PatrolExecutionEntity copyRecord(PatrolExecutionEntity source, String id, String plan, String user) {
