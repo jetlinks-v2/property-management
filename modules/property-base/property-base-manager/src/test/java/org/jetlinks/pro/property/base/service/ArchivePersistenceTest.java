@@ -70,6 +70,24 @@ class ArchivePersistenceTest {
     @Autowired PropertyDictionaryCommandSupport financeDictionaryCommands;
     @Autowired PropertySpaceCommandSupport financeSpaceCommands;
 
+    @Autowired SpaceOrganizationAssets organizationAssets;
+
+    @Test
+    void failedOrganizationAssetRegistrationRollsBackBusinessBinding() {
+        when(organizationAssets.change(eq("single"), eq("project"), isNull()))
+                .thenReturn(Mono.error(new BusinessException.NoStackTrace("资产登记失败", 503)));
+        try {
+            StepVerifier.create(spaceService.bind("single", null, 0).contextWrite(all()))
+                    .expectErrorMatches(error -> status(error, 503)).verify(WAIT);
+            var retained = bindings.findById("single").block(WAIT);
+            assertEquals("project", retained.getOrganizationId());
+            assertEquals(0L, retained.getVersion());
+        } finally {
+            when(organizationAssets.change(eq("single"), eq("project"), isNull()))
+                    .thenReturn(Mono.empty());
+        }
+    }
+
     @Test
     void financeCommandsReadOnlyCompletedHousesAndKeepExistingDirectorySeparate() {
         houseService.save("project", "single", write("single", 0L, "123.45"))
@@ -1098,5 +1116,14 @@ class ArchivePersistenceTest {
     }
 
     @Import({CustomerPersistenceTest.Config.class, PropertySpaceService.class, PropertyHouseCommandSupport.class, PropertyDictionaryCommandSupport.class, PropertySpaceCommandSupport.class})
-    static class Config {}
+    static class Config {
+        @org.springframework.context.annotation.Bean
+        SpaceOrganizationAssets organizationAssets() {
+            var assets = org.mockito.Mockito.mock(SpaceOrganizationAssets.class);
+            org.mockito.Mockito.when(assets.change(org.mockito.ArgumentMatchers.anyString(),
+                    org.mockito.ArgumentMatchers.nullable(String.class), org.mockito.ArgumentMatchers.nullable(String.class)))
+                    .thenReturn(reactor.core.publisher.Mono.empty());
+            return assets;
+        }
+    }
 }

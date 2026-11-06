@@ -24,6 +24,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class PropertySpaceService {
     private final ArchiveScope scope;
+    private final SpaceOrganizationAssets organizationAssets;
     private final ReactiveRepository<PropertySpaceEntity, String> spaces;
     private final ReactiveRepository<PropertySpaceBindingEntity, String> bindings;
     private final ReactiveRepository<PropertyOrganizationEntity, String> organizations;
@@ -202,7 +203,11 @@ public class PropertySpaceService {
                         : organizations
                                 .findById(organizationId)
                                 // 与组织类型修改共用组织行锁，确保只有项目能绑定空间。
-                                .filter(o -> !o.getDeleted() && o.getOrganizationType() == OrganizationType.project)
+                                .filter(
+                                        o ->
+                                                !o.getDeleted()
+                                                        && o.getOrganizationType()
+                                                                == OrganizationType.project)
                                 .switchIfEmpty(Mono.error(error("organization_not_project", 409)))
                                 .then();
         Mono<Void> guard =
@@ -219,7 +224,12 @@ public class PropertySpaceService {
         return organization
                 .then(assertSingleBinding(rootId, organizationId))
                 .then(guard)
-                .then(Mono.defer(() -> persistBinding(auth, rootId, organizationId, version)));
+                .then(Mono.defer(() -> persistBinding(auth, rootId, organizationId, version)))
+                .flatMap(
+                        view ->
+                                organizationAssets
+                                        .change(rootId, current.getOrganizationId(), organizationId)
+                                        .thenReturn(view));
     }
 
     private Mono<Void> assertSingleBinding(String rootId, String organizationId) {

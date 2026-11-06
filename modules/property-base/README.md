@@ -153,3 +153,7 @@ return CommandSupportManagerProviders
 `GET /property/customer/{id}/houses?projectId=...` 查询客户当前有效且有权读取的房屋；`GET /property/house/{spaceId}/customers?projectId=...` 查询房屋当前客户及其关系性质。响应为 `PropertyHouseholdInfo` 列表，包含客户、房屋、房屋类型、账号及关系 ID/性质，业主资格由业务按 `nature` 明确判定，不能将所有客户视为业主。排除未开始、已结束、已逻辑删除关系以及已删除客户/房屋，空查询返回空列表。分别要求 `property-customer:query` 与 `property-house:query`；项目与空间均沿用调用者 AssetsHolder 权限。
 
 跨服务调用使用 core 的 `QueryPropertyHouseholdsCommand`，服务 ID 为 `propertyService:household`；`projectId` 必填，`spaceId`、`customerId` 可选，同时指定取交集，`mine=true` 仅匹配认证账号的 `userId`。命令参数进入正式负载，错误原样传播，不跨库或按手机号猜测关系。查询复用平台 HTTP/命令链路追踪，无新增后台任务或常驻状态。
+
+空间关联项目时，基础模块通过 `AssetBindManager` 为整棵空间树登记 `org` 归属。解除关联、来源节点删除或跨根移动会撤销旧归属；空间同步会幂等补齐已有关系。空间与房屋接口仍执行原有 `AssetsHolder` 权限校验。
+
+旧版本升级可以在基础模块业务库执行 `modules/property-base/sql/backfill-space-organization-assets.sql`，即时补齐缺失的组织资产关系；脚本可重复执行，不覆盖既有授权。重启基础服务后，首次空间同步也会自动补齐。独立数据库部署应在基础服务业务库执行，不在收费业务库执行。
