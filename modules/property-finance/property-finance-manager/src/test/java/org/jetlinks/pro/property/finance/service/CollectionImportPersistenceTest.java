@@ -35,6 +35,15 @@ import java.util.*;
         classes = CollectionImportPersistenceTest.Config.class,
         webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class CollectionImportPersistenceTest {
+    @BeforeAll
+    static void messages() {
+        var source = new org.springframework.context.support.ResourceBundleMessageSource();
+        source.setBasename("i18n/property-finance-manager/messages");
+        source.setDefaultEncoding("UTF-8");
+        source.setDefaultLocale(Locale.CHINESE);
+        org.hswebframework.web.i18n.MessageSourceInitializer.init(source);
+    }
+
     @DynamicPropertySource
     static void db(DynamicPropertyRegistry r) {
         HouseSettingPersistenceTest.database(r);
@@ -165,6 +174,8 @@ class CollectionImportPersistenceTest {
         assertEquals("FAILED", batch.getStatus());
         assertTrue(batch.getErrorMessage().contains("3"));
         assertTrue(batch.getErrorMessage().contains("收款金额"));
+        assertFalse(batch.getErrorMessage().contains("error.property_finance_"));
+        assertFalse(batch.getErrorMessage().contains("[3,"));
         assertEquals(0, rows(batch.getId()).size());
         assertEquals(0, entries.createQuery().where("projectId", project).count().block(WAIT));
     }
@@ -335,7 +346,13 @@ class CollectionImportPersistenceTest {
                 409);
         assertEquals(0, entries.createQuery().where("projectId", project).count().block(WAIT));
         assertEquals("PENDING", records.findById(batch.getId()).block(WAIT).getStatus());
-        assertEquals("FAILED", upload("ADVANCE", input("period-b")).getStatus());
+        var failed = upload("ADVANCE", input("period-b"));
+        assertEquals("FAILED", failed.getStatus());
+        assertTrue(failed.getErrorMessage().contains("第2行"), failed.getErrorMessage());
+        assertFalse(
+                failed.getErrorMessage().contains("error.property_finance_"),
+                failed.getErrorMessage());
+        assertFalse(failed.getErrorMessage().contains("[2,"), failed.getErrorMessage());
     }
 
     @Test

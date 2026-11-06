@@ -302,7 +302,9 @@ public final class CollectionImportWorkbook {
                                                                     "2024-01",
                                                                     "1",
                                                                     "脱敏填写示例，不会自动导入",
-                                                                    "0.00",
+                                                                    "RECEIVED".equals(kind)
+                                                                            ? "0.00"
+                                                                            : "",
                                                                     "");
                                                     for (int c = 0; c < HEADERS.size(); c++) {
                                                         eh.createCell(c)

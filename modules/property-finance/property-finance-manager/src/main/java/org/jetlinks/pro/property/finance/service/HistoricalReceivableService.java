@@ -555,9 +555,7 @@ public class HistoricalReceivableService {
         var message =
                 failure instanceof BusinessException business
                         ? org.hswebframework.web.i18n.LocaleUtils.resolveMessage(
-                                business.getMessage(),
-                                business.getMessage() + " " + Arrays.toString(business.getArgs()),
-                                business.getArgs())
+                                business.getI18nCode(), business.getMessage(), business.getArgs())
                         : org.hswebframework.web.i18n.LocaleUtils.resolveMessage(
                                 "error.property_finance_historical_failed",
                                 "error.property_finance_historical_failed");

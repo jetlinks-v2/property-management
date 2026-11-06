@@ -249,9 +249,7 @@ public class CollectionImportService {
         var message =
                 failure instanceof BusinessException b
                         ? org.hswebframework.web.i18n.LocaleUtils.resolveMessage(
-                                b.getMessage(),
-                                b.getMessage() + " " + Arrays.toString(b.getArgs()),
-                                b.getArgs())
+                                b.getI18nCode(), b.getMessage(), b.getArgs())
                         : org.hswebframework.web.i18n.LocaleUtils.resolveMessage(
                                 "error.property_finance_collection_failed",
                                 "error.property_finance_collection_failed");

@@ -47,9 +47,9 @@ public class CollectionImportSources {
                 .onErrorMap(
                         org.hswebframework.web.exception.BusinessException.class,
                         e -> {
-                            if ("error.property_finance_collection_row".equals(e.getMessage()))
+                            if ("error.property_finance_collection_row".equals(e.getI18nCode()))
                                 return e;
-                            var suffix = e.getMessage().replace("error.property_finance_", "");
+                            var suffix = e.getI18nCode().replace("error.property_finance_", "");
                             var field =
                                     suffix.contains("period")
                                             ? "收款时间"

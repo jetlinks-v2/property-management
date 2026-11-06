@@ -55,6 +55,9 @@ class CollectionImportWorkbookTest {
                 assertEquals(
                         "2024-01-15 10:00",
                         workbook.getSheet("填写示例").getRow(1).getCell(10).getStringCellValue());
+                assertEquals(
+                        "RECEIVED".equals(kind) ? "0.00" : "",
+                        workbook.getSheet("填写示例").getRow(1).getCell(17).getStringCellValue());
                 assertThrows(
                         BusinessException.class, () -> CollectionImportWorkbook.parse(bytes, kind));
             }
