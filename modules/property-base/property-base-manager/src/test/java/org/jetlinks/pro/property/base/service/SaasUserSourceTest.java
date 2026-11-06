@@ -13,6 +13,27 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class SaasUserSourceTest {
     @Test
+    void snapshotUsesConfiguredSyncBudgetBeyondNinetySeconds() {
+        var source = new SaasUserSource() {
+            @Override protected Mono<PagerResult<org.jetlinks.sdk.server.auth.UserDetail>> page(
+                    QueryParamEntity query) {
+                var data = List.of(UserPersistenceTest.user("owner"));
+                return Mono.delay(java.time.Duration.ofSeconds(95))
+                        .map(ignored -> PagerResult.of(1, data, query));
+            }
+        };
+        org.springframework.test.util.ReflectionTestUtils.setField(source, "timeoutSeconds", 600L);
+        StepVerifier.withVirtualTime(source::fetchAll)
+                .thenAwait(java.time.Duration.ofSeconds(96))
+                .assertNext(values -> assertEquals(java.util.Set.of("owner"), values.keySet()))
+                .verifyComplete();
+        org.springframework.test.util.ReflectionTestUtils.setField(source, "timeoutSeconds", 90L);
+        StepVerifier.withVirtualTime(source::fetchAll)
+                .thenAwait(java.time.Duration.ofSeconds(91))
+                .expectError(java.util.concurrent.TimeoutException.class).verify();
+    }
+
+    @Test
     void directoryPermissionQueryKeepsCallerScopeAndFailsClosed() {
         var marker = new Object();
         var holder = org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetsHolder.class);
@@ -43,6 +64,27 @@ class SaasUserSourceTest {
         StepVerifier.create(failed.authorizedIds(List.of("allowed")))
                 .expectError(IllegalStateException.class).verify();
         StepVerifier.create(source.authorizedIds(List.of())).verifyComplete();
+    }
+
+    @Test
+    void directoryBatchesUniqueCandidatesAndNeverRequestsAnEmptyBatch() {
+        var requested = new java.util.ArrayList<String>();
+        var batches = new java.util.ArrayList<Integer>();
+        var source = new SaasUserSource() {
+            @Override protected reactor.core.publisher.Flux<String> accountIds(QueryParamEntity query) {
+                var ids = (java.util.List<String>) query.getTerms().get(0).getValue();
+                assertFalse(ids.isEmpty()); assertTrue(ids.size() <= 200);
+                requested.addAll(ids); batches.add(ids.size());
+                return reactor.core.publisher.Flux.fromIterable(ids);
+            }
+        };
+        var ids = java.util.stream.IntStream.range(0, 450).mapToObj(i -> "candidate-" + i).toList();
+        var duplicates = new java.util.ArrayList<>(ids); duplicates.add(ids.get(0));
+        StepVerifier.create(source.authorizedIds(duplicates).collectList())
+            .assertNext(result -> assertEquals(ids, result)).verifyComplete();
+        assertEquals(ids, requested); assertEquals(java.util.List.of(200, 200, 50), batches);
+        StepVerifier.create(source.authorizedIds(java.util.List.of())).verifyComplete();
+        assertEquals(3, batches.size());
     }
 
     @Test

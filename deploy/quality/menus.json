@@ -1,0 +1,1336 @@
+[
+  {
+    "id": "quality-inspection",
+    "code": "quality-inspection",
+    "name": "品质核查",
+    "url": "/quality",
+    "owner": "app",
+    "sortIndex": 1,
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "品质核查",
+        "en_US": "Quality inspection",
+        "en": "Quality inspection"
+      }
+    },
+    "permissions": [],
+    "buttons": [],
+    "icon": "CheckSquareOutlined",
+    "parentId": "-1",
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [],
+    "options": {
+      "show": true
+    }
+  },
+  {
+    "id": "quality-Overview",
+    "code": "quality/Overview",
+    "name": "品质首页",
+    "url": "/quality/overview",
+    "owner": "app",
+    "sortIndex": 1,
+    "icon": "DashboardOutlined",
+    "permissions": [
+      {
+        "permission": "quality-work-order",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "buttons": [],
+    "parentId": "quality-inspection",
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [
+      "qualityWorkOrder"
+    ],
+    "options": {
+      "show": true,
+      "appName": "quality-inspection-ui",
+      "meta": {
+        "componentCode": "quality/Overview"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "品质首页",
+        "en_US": "Quality overview",
+        "en": "Quality overview"
+      }
+    }
+  },
+  {
+    "id": "quality-CompanyBasic",
+    "code": "quality/group/CompanyBasic",
+    "name": "公司基础配置",
+    "url": "/quality/company/basic",
+    "owner": "app",
+    "parentId": "quality-inspection",
+    "sortIndex": 10,
+    "icon": "BankOutlined",
+    "permissions": [],
+    "buttons": [],
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "公司基础配置",
+        "en_US": "Company configuration",
+        "en": "Company configuration"
+      }
+    },
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [],
+    "options": {
+      "show": true
+    }
+  },
+  {
+    "id": "quality-Configuration-Company",
+    "code": "quality/Configuration/Company",
+    "name": "公司基础配置",
+    "url": "/quality/company/configuration",
+    "owner": "app",
+    "sortIndex": 1,
+    "icon": "SettingOutlined",
+    "permissions": [
+      {
+        "permission": "quality-configuration",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "quality-configuration",
+            "actions": [
+              "save",
+              "companyConfigure"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "保存",
+          "en_US": "Save",
+          "en": "Save"
+        }
+      },
+      {
+        "id": "delete",
+        "name": "删除",
+        "permissions": [
+          {
+            "permission": "quality-configuration",
+            "actions": [
+              "delete",
+              "companyConfigure"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "删除",
+          "en_US": "Delete",
+          "en": "Delete"
+        }
+      }
+    ],
+    "parentId": "quality-CompanyBasic",
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [
+      "qualityConfiguration"
+    ],
+    "options": {
+      "show": true,
+      "appName": "quality-inspection-ui",
+      "meta": {
+        "componentCode": "quality/Configuration/Company"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "公司基础配置",
+        "en_US": "Company configuration",
+        "en": "Company configuration"
+      }
+    }
+  },
+  {
+    "id": "quality-Template-Company",
+    "code": "quality/Template/Company",
+    "name": "公司任务模板",
+    "url": "/quality/company/templates",
+    "owner": "app",
+    "sortIndex": 2,
+    "icon": "SnippetsOutlined",
+    "permissions": [
+      {
+        "permission": "quality-configuration",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "quality-configuration",
+            "actions": [
+              "save",
+              "companyConfigure"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "保存",
+          "en_US": "Save",
+          "en": "Save"
+        }
+      },
+      {
+        "id": "delete",
+        "name": "删除",
+        "permissions": [
+          {
+            "permission": "quality-configuration",
+            "actions": [
+              "delete",
+              "companyConfigure"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "删除",
+          "en_US": "Delete",
+          "en": "Delete"
+        }
+      }
+    ],
+    "parentId": "quality-CompanyBasic",
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [
+      "qualityConfiguration"
+    ],
+    "options": {
+      "show": true,
+      "appName": "quality-inspection-ui",
+      "meta": {
+        "componentCode": "quality/Template/Company"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "公司任务模板",
+        "en_US": "Company task templates",
+        "en": "Company task templates"
+      }
+    }
+  },
+  {
+    "id": "quality-Evaluation",
+    "code": "quality/Evaluation",
+    "name": "评分评价",
+    "url": "/quality/evaluations",
+    "owner": "app",
+    "sortIndex": 3,
+    "icon": "TrophyOutlined",
+    "permissions": [
+      {
+        "permission": "quality-configuration",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "quality-configuration",
+            "actions": [
+              "save",
+              "companyConfigure"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "保存",
+          "en_US": "Save",
+          "en": "Save"
+        }
+      },
+      {
+        "id": "delete",
+        "name": "删除",
+        "permissions": [
+          {
+            "permission": "quality-configuration",
+            "actions": [
+              "delete",
+              "companyConfigure"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "删除",
+          "en_US": "Delete",
+          "en": "Delete"
+        }
+      }
+    ],
+    "parentId": "quality-CompanyBasic",
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [
+      "qualityConfiguration"
+    ],
+    "options": {
+      "show": true,
+      "appName": "quality-inspection-ui",
+      "meta": {
+        "componentCode": "quality/Evaluation"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "评分评价",
+        "en_US": "Score ratings",
+        "en": "Score ratings"
+      }
+    }
+  },
+  {
+    "id": "quality-CompanyInspection",
+    "code": "quality/group/CompanyInspection",
+    "name": "公司核查",
+    "url": "/quality/company/inspection",
+    "owner": "app",
+    "parentId": "quality-inspection",
+    "sortIndex": 20,
+    "icon": "FileSearchOutlined",
+    "permissions": [],
+    "buttons": [],
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "公司核查",
+        "en_US": "Company inspections",
+        "en": "Company inspections"
+      }
+    },
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [],
+    "options": {
+      "show": true
+    }
+  },
+  {
+    "id": "quality-Tasks-Company",
+    "code": "quality/Tasks/Company",
+    "name": "公司核查任务",
+    "url": "/quality/company/tasks",
+    "owner": "app",
+    "sortIndex": 1,
+    "icon": "ScheduleOutlined",
+    "permissions": [
+      {
+        "permission": "quality-task",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "quality-task",
+            "actions": [
+              "save"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "保存",
+          "en_US": "Save",
+          "en": "Save"
+        }
+      },
+      {
+        "id": "issue",
+        "name": "下发",
+        "permissions": [
+          {
+            "permission": "quality-task",
+            "actions": [
+              "issue"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "下发",
+          "en_US": "Issue",
+          "en": "Issue"
+        }
+      },
+      {
+        "id": "close",
+        "name": "关闭",
+        "permissions": [
+          {
+            "permission": "quality-task",
+            "actions": [
+              "close"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "关闭",
+          "en_US": "Close",
+          "en": "Close"
+        }
+      },
+      {
+        "id": "delete",
+        "name": "删除",
+        "permissions": [
+          {
+            "permission": "quality-task",
+            "actions": [
+              "delete"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "删除",
+          "en_US": "Delete",
+          "en": "Delete"
+        }
+      }
+    ],
+    "parentId": "quality-CompanyInspection",
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [
+      "qualityTask"
+    ],
+    "options": {
+      "show": true,
+      "appName": "quality-inspection-ui",
+      "meta": {
+        "componentCode": "quality/Tasks/Company"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "公司核查任务",
+        "en_US": "Company inspection tasks",
+        "en": "Company inspection tasks"
+      }
+    }
+  },
+  {
+    "id": "quality-Records-Company",
+    "code": "quality/Records/Company",
+    "name": "公司核查记录",
+    "url": "/quality/company/records",
+    "owner": "app",
+    "sortIndex": 2,
+    "icon": "ProfileOutlined",
+    "permissions": [
+      {
+        "permission": "quality-work-order",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "buttons": [
+      {
+        "id": "inspect",
+        "name": "核查",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "inspect"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "核查",
+          "en_US": "Inspect",
+          "en": "Inspect"
+        }
+      },
+      {
+        "id": "rectify",
+        "name": "整改",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "rectify"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "整改",
+          "en_US": "Rectify",
+          "en": "Rectify"
+        }
+      },
+      {
+        "id": "review",
+        "name": "复验",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "review"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "复验",
+          "en_US": "Review",
+          "en": "Review"
+        }
+      },
+      {
+        "id": "dispatch",
+        "name": "指派",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "dispatch"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "指派",
+          "en_US": "Assign",
+          "en": "Assign"
+        }
+      },
+      {
+        "id": "reassign",
+        "name": "转派",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "reassign"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "转派",
+          "en_US": "Reassign",
+          "en": "Reassign"
+        }
+      },
+      {
+        "id": "transferRepair",
+        "name": "转报修",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "transferRepair"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "转报修",
+          "en_US": "Create repair",
+          "en": "Create repair"
+        }
+      },
+      {
+        "id": "export",
+        "name": "导出",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "export"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "导出",
+          "en_US": "Export",
+          "en": "Export"
+        }
+      }
+    ],
+    "parentId": "quality-CompanyInspection",
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [
+      "qualityWorkOrder"
+    ],
+    "options": {
+      "show": true,
+      "appName": "quality-inspection-ui",
+      "meta": {
+        "componentCode": "quality/Records/Company"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "公司核查记录",
+        "en_US": "Company inspection records",
+        "en": "Company inspection records"
+      }
+    }
+  },
+  {
+    "id": "quality-Reports-Company",
+    "code": "quality/Reports/Company",
+    "name": "公司报表",
+    "url": "/quality/company/reports",
+    "owner": "app",
+    "sortIndex": 3,
+    "icon": "BarChartOutlined",
+    "permissions": [
+      {
+        "permission": "quality-work-order",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "buttons": [
+      {
+        "id": "export",
+        "name": "导出",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "export"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "导出",
+          "en_US": "Export",
+          "en": "Export"
+        }
+      }
+    ],
+    "parentId": "quality-CompanyInspection",
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [
+      "qualityWorkOrder"
+    ],
+    "options": {
+      "show": true,
+      "appName": "quality-inspection-ui",
+      "meta": {
+        "componentCode": "quality/Reports/Company"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "公司报表",
+        "en_US": "Company reports",
+        "en": "Company reports"
+      }
+    }
+  },
+  {
+    "id": "quality-ProjectBasic",
+    "code": "quality/group/ProjectBasic",
+    "name": "项目基础配置",
+    "url": "/quality/project/basic",
+    "owner": "app",
+    "parentId": "quality-inspection",
+    "sortIndex": 30,
+    "icon": "ApartmentOutlined",
+    "permissions": [],
+    "buttons": [],
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "项目基础配置",
+        "en_US": "Project configuration",
+        "en": "Project configuration"
+      }
+    },
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [],
+    "options": {
+      "show": true
+    }
+  },
+  {
+    "id": "quality-Configuration-Project",
+    "code": "quality/Configuration/Project",
+    "name": "项目基础配置",
+    "url": "/quality/project/configuration",
+    "owner": "app",
+    "sortIndex": 1,
+    "icon": "SettingOutlined",
+    "permissions": [
+      {
+        "permission": "quality-configuration",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "quality-configuration",
+            "actions": [
+              "save"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "保存",
+          "en_US": "Save",
+          "en": "Save"
+        }
+      },
+      {
+        "id": "delete",
+        "name": "删除",
+        "permissions": [
+          {
+            "permission": "quality-configuration",
+            "actions": [
+              "delete"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "删除",
+          "en_US": "Delete",
+          "en": "Delete"
+        }
+      }
+    ],
+    "parentId": "quality-ProjectBasic",
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [
+      "qualityConfiguration"
+    ],
+    "options": {
+      "show": true,
+      "appName": "quality-inspection-ui",
+      "meta": {
+        "componentCode": "quality/Configuration/Project"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "项目基础配置",
+        "en_US": "Project configuration",
+        "en": "Project configuration"
+      }
+    }
+  },
+  {
+    "id": "quality-Template-Project",
+    "code": "quality/Template/Project",
+    "name": "项目任务模板",
+    "url": "/quality/project/templates",
+    "owner": "app",
+    "sortIndex": 2,
+    "icon": "SnippetsOutlined",
+    "permissions": [
+      {
+        "permission": "quality-configuration",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "quality-configuration",
+            "actions": [
+              "save"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "保存",
+          "en_US": "Save",
+          "en": "Save"
+        }
+      },
+      {
+        "id": "delete",
+        "name": "删除",
+        "permissions": [
+          {
+            "permission": "quality-configuration",
+            "actions": [
+              "delete"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "删除",
+          "en_US": "Delete",
+          "en": "Delete"
+        }
+      }
+    ],
+    "parentId": "quality-ProjectBasic",
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [
+      "qualityConfiguration"
+    ],
+    "options": {
+      "show": true,
+      "appName": "quality-inspection-ui",
+      "meta": {
+        "componentCode": "quality/Template/Project"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "项目任务模板",
+        "en_US": "Project task templates",
+        "en": "Project task templates"
+      }
+    }
+  },
+  {
+    "id": "quality-ProjectInspection",
+    "code": "quality/group/ProjectInspection",
+    "name": "项目核查",
+    "url": "/quality/project/inspection",
+    "owner": "app",
+    "parentId": "quality-inspection",
+    "sortIndex": 40,
+    "icon": "AuditOutlined",
+    "permissions": [],
+    "buttons": [],
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "项目核查",
+        "en_US": "Project inspections",
+        "en": "Project inspections"
+      }
+    },
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [],
+    "options": {
+      "show": true
+    }
+  },
+  {
+    "id": "quality-Tasks-Project",
+    "code": "quality/Tasks/Project",
+    "name": "项目核查任务",
+    "url": "/quality/project/tasks",
+    "owner": "app",
+    "sortIndex": 1,
+    "icon": "ScheduleOutlined",
+    "permissions": [
+      {
+        "permission": "quality-task",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "quality-task",
+            "actions": [
+              "save"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "保存",
+          "en_US": "Save",
+          "en": "Save"
+        }
+      },
+      {
+        "id": "issue",
+        "name": "下发",
+        "permissions": [
+          {
+            "permission": "quality-task",
+            "actions": [
+              "issue"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "下发",
+          "en_US": "Issue",
+          "en": "Issue"
+        }
+      },
+      {
+        "id": "close",
+        "name": "关闭",
+        "permissions": [
+          {
+            "permission": "quality-task",
+            "actions": [
+              "close"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "关闭",
+          "en_US": "Close",
+          "en": "Close"
+        }
+      },
+      {
+        "id": "delete",
+        "name": "删除",
+        "permissions": [
+          {
+            "permission": "quality-task",
+            "actions": [
+              "delete"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "删除",
+          "en_US": "Delete",
+          "en": "Delete"
+        }
+      }
+    ],
+    "parentId": "quality-ProjectInspection",
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [
+      "qualityTask"
+    ],
+    "options": {
+      "show": true,
+      "appName": "quality-inspection-ui",
+      "meta": {
+        "componentCode": "quality/Tasks/Project"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "项目核查任务",
+        "en_US": "Project inspection tasks",
+        "en": "Project inspection tasks"
+      }
+    }
+  },
+  {
+    "id": "quality-Records-Project",
+    "code": "quality/Records/Project",
+    "name": "项目核查记录",
+    "url": "/quality/project/records",
+    "owner": "app",
+    "sortIndex": 2,
+    "icon": "ProfileOutlined",
+    "permissions": [
+      {
+        "permission": "quality-work-order",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "buttons": [
+      {
+        "id": "inspect",
+        "name": "核查",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "inspect"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "核查",
+          "en_US": "Inspect",
+          "en": "Inspect"
+        }
+      },
+      {
+        "id": "rectify",
+        "name": "整改",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "rectify"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "整改",
+          "en_US": "Rectify",
+          "en": "Rectify"
+        }
+      },
+      {
+        "id": "review",
+        "name": "复验",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "review"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "复验",
+          "en_US": "Review",
+          "en": "Review"
+        }
+      },
+      {
+        "id": "dispatch",
+        "name": "指派",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "dispatch"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "指派",
+          "en_US": "Assign",
+          "en": "Assign"
+        }
+      },
+      {
+        "id": "reassign",
+        "name": "转派",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "reassign"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "转派",
+          "en_US": "Reassign",
+          "en": "Reassign"
+        }
+      },
+      {
+        "id": "transferRepair",
+        "name": "转报修",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "transferRepair"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "转报修",
+          "en_US": "Create repair",
+          "en": "Create repair"
+        }
+      },
+      {
+        "id": "export",
+        "name": "导出",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "export"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "导出",
+          "en_US": "Export",
+          "en": "Export"
+        }
+      }
+    ],
+    "parentId": "quality-ProjectInspection",
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [
+      "qualityWorkOrder"
+    ],
+    "options": {
+      "show": true,
+      "appName": "quality-inspection-ui",
+      "meta": {
+        "componentCode": "quality/Records/Project"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "项目核查记录",
+        "en_US": "Project inspection records",
+        "en": "Project inspection records"
+      }
+    }
+  },
+  {
+    "id": "quality-Reports-Project",
+    "code": "quality/Reports/Project",
+    "name": "项目报表",
+    "url": "/quality/project/reports",
+    "owner": "app",
+    "sortIndex": 3,
+    "icon": "BarChartOutlined",
+    "permissions": [
+      {
+        "permission": "quality-work-order",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "buttons": [
+      {
+        "id": "export",
+        "name": "导出",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "export"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "导出",
+          "en_US": "Export",
+          "en": "Export"
+        }
+      }
+    ],
+    "parentId": "quality-ProjectInspection",
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [
+      "qualityWorkOrder"
+    ],
+    "options": {
+      "show": true,
+      "appName": "quality-inspection-ui",
+      "meta": {
+        "componentCode": "quality/Reports/Project"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "项目报表",
+        "en_US": "Project reports",
+        "en": "Project reports"
+      }
+    }
+  },
+  {
+    "id": "quality-Application",
+    "code": "quality/group/Application",
+    "name": "应用管理",
+    "url": "/quality/application",
+    "owner": "app",
+    "parentId": "quality-inspection",
+    "sortIndex": 50,
+    "icon": "ControlOutlined",
+    "permissions": [],
+    "buttons": [],
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "应用管理",
+        "en_US": "Application management",
+        "en": "Application management"
+      }
+    },
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [],
+    "options": {
+      "show": true
+    }
+  },
+  {
+    "id": "quality-Settings",
+    "code": "quality/Settings",
+    "name": "应用设置",
+    "url": "/quality/settings",
+    "owner": "app",
+    "sortIndex": 1,
+    "icon": "ControlOutlined",
+    "permissions": [
+      {
+        "permission": "quality-configuration",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "buttons": [
+      {
+        "id": "save",
+        "name": "保存",
+        "permissions": [
+          {
+            "permission": "quality-configuration",
+            "actions": [
+              "save",
+              "companyConfigure"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "保存",
+          "en_US": "Save",
+          "en": "Save"
+        }
+      }
+    ],
+    "parentId": "quality-Application",
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [
+      "qualityConfiguration"
+    ],
+    "options": {
+      "show": true,
+      "appName": "quality-inspection-ui",
+      "meta": {
+        "componentCode": "quality/Settings"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "应用设置",
+        "en_US": "Application settings",
+        "en": "Application settings"
+      }
+    }
+  },
+  {
+    "id": "quality-Exports",
+    "code": "quality/Exports",
+    "name": "导出管理",
+    "url": "/quality/exports",
+    "owner": "app",
+    "sortIndex": 2,
+    "icon": "DownloadOutlined",
+    "permissions": [
+      {
+        "permission": "quality-work-order",
+        "actions": [
+          "query"
+        ]
+      }
+    ],
+    "buttons": [
+      {
+        "id": "export",
+        "name": "导出",
+        "permissions": [
+          {
+            "permission": "quality-work-order",
+            "actions": [
+              "export"
+            ]
+          }
+        ],
+        "i18nMessages": {
+          "zh_CN": "导出",
+          "en_US": "Export",
+          "en": "Export"
+        }
+      }
+    ],
+    "parentId": "quality-Application",
+    "status": 1,
+    "runtime": true,
+    "accessSupport": "support",
+    "assetTypes": [
+      "qualityWorkOrder"
+    ],
+    "options": {
+      "show": true,
+      "appName": "quality-inspection-ui",
+      "meta": {
+        "componentCode": "quality/Exports"
+      }
+    },
+    "i18nMessages": {
+      "name": {
+        "zh_CN": "导出管理",
+        "en_US": "Export management",
+        "en": "Export management"
+      }
+    }
+  }
+]

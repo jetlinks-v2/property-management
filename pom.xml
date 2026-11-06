@@ -27,8 +27,10 @@
         <module>modules/property-decoration</module>
         <module>modules/property-patrol</module>
         <module>modules/property-repair</module>
+        <module>modules/property-quality</module>
         <module>modules/property-handover</module>
         <module>services/property-repair-service</module>
+        <module>services/property-quality-service</module>
         <module>services/property-handover-service</module>
         <module>services/property-base-service</module>
         <module>services/property-finance-service</module>

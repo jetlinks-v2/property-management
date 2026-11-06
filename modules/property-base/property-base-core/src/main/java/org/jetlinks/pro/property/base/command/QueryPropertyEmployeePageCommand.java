@@ -3,7 +3,10 @@ package org.jetlinks.pro.property.base.command;
 import org.hswebframework.web.api.crud.entity.PagerResult;
 import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.jetlinks.core.command.AbstractCommand;
+import org.jetlinks.core.command.CommandUtils;
 import org.jetlinks.pro.property.base.user.PropertyEmployeeInfo;
+import org.hswebframework.web.bean.FastBeanCopier;
+import org.springframework.core.ResolvableType;
 import reactor.core.publisher.Mono;
 
 /**
@@ -18,5 +21,20 @@ public class QueryPropertyEmployeePageCommand extends AbstractCommand<
     public QueryParamEntity getQuery() {
         QueryParamEntity query = getOrNull("query", QueryParamEntity.class);
         return query == null ? new QueryParamEntity() : query;
+    }
+
+    /** RSocket may decode the page itself while leaving its generic rows as maps. */
+    @Override
+    public PagerResult<PropertyEmployeeInfo> createResponseData(Object data) {
+        PagerResult<?> raw = data instanceof PagerResult<?> page
+                ? page : FastBeanCopier.copy(data, new PagerResult<>());
+        var rows = raw.getData().stream()
+                .map(row -> (PropertyEmployeeInfo) CommandUtils.convertData(
+                        ResolvableType.forClass(PropertyEmployeeInfo.class), row))
+                .toList();
+        var result = new PagerResult<PropertyEmployeeInfo>(raw.getTotal(), rows);
+        result.setPageIndex(raw.getPageIndex());
+        result.setPageSize(raw.getPageSize());
+        return result;
     }
 }

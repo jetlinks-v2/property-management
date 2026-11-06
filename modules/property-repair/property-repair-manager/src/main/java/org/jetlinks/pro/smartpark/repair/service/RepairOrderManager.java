@@ -195,8 +195,12 @@ public class RepairOrderManager {
  }
  private Mono<Void> validateFiles(List<String> ids){
   if(ids==null||ids.isEmpty())return Mono.empty();
-  return Flux.fromIterable(ids).concatMap(id->AssetsHolder.assertPermission(AssetType.of("file"),id,CrudAssetPermission.read)
-   .then(files.getFile(id)).switchIfEmpty(Mono.error(new BusinessException("error.repair.attachment_missing",400)))).then();
+  // 文件由 Cloud 持有；目标报修应用保留真实操作人，由文件所有者校验租户及读取权限。
+  var command=new org.jetlinks.pro.property.base.command.AssertPropertyFilesCommand();command.setFileIds(ids.stream().distinct().toList());
+  return org.jetlinks.pro.command.CommandSupportManagerProviders.getCommandSupport(org.jetlinks.pro.property.base.command.AssertPropertyFilesCommand.SERVICE_ID)
+   .switchIfEmpty(Mono.error(new BusinessException("error.repair.file_service_unavailable",503)))
+   .flatMap(support->support.execute(command)).filter(Boolean.TRUE::equals)
+   .switchIfEmpty(Mono.error(new BusinessException("error.repair.attachment_missing",400))).then();
  }
  private Mono<RepairOrderEntity> ownedOrder(String id,RepairContext ctx){
   return orders.findById(id).filter(row->Objects.equals(row.getApplicationId(),ctx.applicationId())&&Objects.equals(row.getExtension("tenantId"),ctx.tenantId()))

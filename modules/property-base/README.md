@@ -97,11 +97,11 @@ return CommandSupportManagerProviders
 
 用户管理实现位于 manager 的 `service/*User*`、`entity/PropertyUser*`、`entity/UserSyncStateEntity`、`web/PropertyUserController`，设计以相邻 `../../../设计文档/用户管理设计.md` 为准。SaaS 账号资料只读，物业身份可以同时为客户、员工，也可清空；身份不等于 SaaS 角色或房屋关系。客户身份保留原 `owner` 编码及数据库列，房屋关系中的“业主”性质含义不变。
 
-`/property/user` 提供 `_query`、`_counts`、`{id}`、`_identities`、`{id}/identities`、`_sync`、`_sync/status`，资源 `property-user`，动作 `query/save/sync`。分页及计数先通过原 `user` 的 AssetsHolder 解析授权 ID，再与 `pm_user` 筛选取交集；不在镜像库执行依赖 Cloud `s_user` 的权限 SQL；详情与标注分别校验 read/save。标注提交完整集合和 version，冲突拒绝覆盖；没有通用账号保存或删除接口。
+`/property/user` 提供 `_query`、`_counts`、`{id}`、`_identities`、`{id}/identities`、`_sync`、`_sync/status`，资源 `property-user`，动作 `query/save/sync`。分页及计数先通过认证服务 `authService:user-directory` 标准 `QueryListCommand<UserInfo>`（200 ID/批）解析原 `user/read` 的 AssetsHolder 授权 ID，再与 `pm_user` 筛选取交集；不在镜像库执行依赖 Cloud `s_user` 的权限 SQL；该只读命令不要求系统用户管理动作；认证服务负责人员资产条件，保留调用者认证、租户和应用 Scope，故障明确传播。详情与标注分别校验 read/save。标注提交完整集合和 version，冲突拒绝覆盖；没有通用账号保存或删除接口。
 
 全量同步通过 `authService:user` 显式 SDK 命令执行，分页暂存、校验和缺失 ID 复核后统一事务落库，保留本地身份、版本和标注审计；异常空来源、分页变化、重复 ID 或复核失败均不提交。SaaS 删除仅逻辑删除，同 ID 恢复保留身份。
 
-用户及关系表 `pm_user`、`pm_user_org` 和租约表 `pm_user_sync_state` 由 EasyORM 管理。配置统一使用 `application-local.yml` 中的 `property.user-sync`：`enabled` 默认 true、`interval-seconds` 默认 3600（1 小时）、`max-users` 默认 100000、`timeout-seconds` 默认 120。关闭 enabled 同时关闭 worker 及手动任务入口。首次在应用就绪 5 秒后执行；手动同步返回 taskId，客户端轮询状态，不能把受理当完成。
+用户及关系表 `pm_user`、`pm_user_org` 和租约表 `pm_user_sync_state` 由 EasyORM 管理。配置统一使用 `application-local.yml` 中的 `property.user-sync`：`enabled` 默认 true、`interval-seconds` 默认 3600（1 小时）、`max-users` 默认 100000、`timeout-seconds` 默认 120、`page-timeout-seconds` 默认 60。分页快照读取使用整轮超时预算，单页等待同时受单页和整轮预算约束；批量迁入账号时应结合实测耗时配置整轮预算。关闭 enabled 同时关闭 worker 及手动任务入口。首次在应用就绪 5 秒后执行；手动同步返回 taskId，客户端轮询状态，不能把受理当完成。
 
 运行观测 MBean 为 `org.jetlinks:type=PropertyManagement,name=UserSync`；最近任务及失败原因通过 `_sync/status` 查询，失败保留上次成功时间。基础管理前端通过公开 HTTP 接口访问；其他物业后端不依赖本系统的内部服务和数据库，通过 core 中公开命令读取所需基础能力。
 
@@ -153,3 +153,5 @@ return CommandSupportManagerProviders
 `GET /property/customer/{id}/houses?projectId=...` 查询客户当前有效且有权读取的房屋；`GET /property/house/{spaceId}/customers?projectId=...` 查询房屋当前客户及其关系性质。响应为 `PropertyHouseholdInfo` 列表，包含客户、房屋、房屋类型、账号及关系 ID/性质，业主资格由业务按 `nature` 明确判定，不能将所有客户视为业主。排除未开始、已结束、已逻辑删除关系以及已删除客户/房屋，空查询返回空列表。分别要求 `property-customer:query` 与 `property-house:query`；项目与空间均沿用调用者 AssetsHolder 权限。
 
 跨服务调用使用 core 的 `QueryPropertyHouseholdsCommand`，服务 ID 为 `propertyService:household`；`projectId` 必填，`spaceId`、`customerId` 可选，同时指定取交集，`mine=true` 仅匹配认证账号的 `userId`。命令参数进入正式负载，错误原样传播，不跨库或按手机号猜测关系。查询复用平台 HTTP/命令链路追踪，无新增后台任务或常驻状态。
+
+`property-file-support` 提供 Cloud 文件所有者侧的 `AssertPropertyFilesCommand` 实现，需由持有 Cloud 文件元数据的服务装配；品质与报修只依赖 core 公开命令，不跨库查询文件。

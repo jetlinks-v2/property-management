@@ -1,0 +1,7 @@
+{
+  "name": "品质核查",
+  "code": "QualityInspection",
+  "provider": "official",
+  "description": "品质配置、任务核查、整改复验及统计报表",
+  "state": "enabled"
+}

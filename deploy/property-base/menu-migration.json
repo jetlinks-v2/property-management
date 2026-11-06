@@ -1,0 +1,43 @@
+{
+  "source": {
+    "module": "property-base-ui",
+    "branch": "2.20",
+    "menus": "runtime-ui/modules/property-base-ui/baseMenu.json"
+  },
+  "applications": {
+    "quality": {
+      "menuMappings": [
+        {
+          "oldId": "quality-system-basic",
+          "targetId": "charging-basic",
+          "targetCode": "charging/basic"
+        },
+        {
+          "oldId": "quality-system-OrganizationType",
+          "targetId": "charging-OrganizationType",
+          "targetCode": "charging/OrganizationType"
+        },
+        {
+          "oldId": "quality-system-User",
+          "targetId": "charging-User",
+          "targetCode": "charging/User"
+        },
+        {
+          "oldId": "quality-system-Space",
+          "targetId": "charging-Space",
+          "targetCode": "charging/Space"
+        },
+        {
+          "oldId": "quality-system-Customer",
+          "targetId": "charging-Customer",
+          "targetCode": "charging/Customer"
+        },
+        {
+          "oldId": "quality-system-Dictionary",
+          "targetId": "charging-Dictionary",
+          "targetCode": "charging/Dictionary"
+        }
+      ]
+    }
+  }
+}
