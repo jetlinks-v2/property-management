@@ -11,6 +11,7 @@ import org.jetlinks.pro.assets.AssetManager;
 import org.jetlinks.pro.assets.AssetType;
 import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
+import org.jetlinks.pro.assets.scope.AssetScopeContext;
 import org.jetlinks.pro.property.base.entity.PropertyOrganizationEntity;
 import org.jetlinks.pro.property.base.entity.PropertyUserEntity;
 import org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo;
@@ -25,7 +26,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import java.util.List;
 
-/** 报修等消费方的只读边界：基础标注只从 pm 表读取，按调用者资产与请求租户取交集。 */
+/** 报修等消费方的只读边界：基础标注只从 pm 表读取，按调用者资产与当前租户/应用范围取交集。 */
 @Component @Authorize @RequiredArgsConstructor
 @CommandService(id = QueryPropertyUsersCommand.SERVICE_ID, name = "物业基础目录", description = "项目、身份与空间归属的只读公共契约")
 public class PropertyDirectoryCommandSupport {
@@ -75,12 +76,19 @@ public class PropertyDirectoryCommandSupport {
             .when(!command.getIds().isEmpty(), q -> q.in("id", command.getIds()))
             .when(command.isEmployeesOnly(), q -> q.and("employee", true).and("status", 1))
             .orderByAsc("id").noPaging().getParam();
-        return TenantHolder.currentId().switchIfEmpty(Mono.error(new AccessDenyException()))
-            .flatMapMany(tenant -> userScope.query(query).flatMapMany(q ->
-                // 目录命令还需与显式租户取交集，不能把其他租户身份提供给业务服务。
-                new TenantAssetsHolder(List.of(tenant), assetManager).filter(
-                    users.createQuery().setParam(q).fetch(), AssetType.of("user"),
-                    PropertyUserEntity::getId, false, CrudAssetPermission.read)))
+        return Flux.deferContextual(context -> {
+                String tenant = TenantHolder.readTenantId(context);
+                if (tenant == null && !AssetScopeContext.current(context).contains("business_application"))
+                    return Flux.error(new AccessDenyException());
+                // 应用入口没有显式租户；userScope 仍由平台 Holder 校验应用 Scope 与原 user 权限。
+                // 显式选择了租户时继续叠加租户边界，不从应用 ID 或操作者推断租户。
+                return userScope.query(query).flatMapMany(q -> {
+                    var readable = users.createQuery().setParam(q).fetch();
+                    return tenant == null ? readable : new TenantAssetsHolder(List.of(tenant), assetManager)
+                        .filter(readable, AssetType.of("user"), PropertyUserEntity::getId,
+                            false, CrudAssetPermission.read);
+                });
+            })
             .take(20_001).collectList().flatMapMany(rows -> {
                 if (rows.size() > 20_000) return Flux.error(ArchiveScope.error("too_many", 400));
                 return Flux.fromIterable(rows).map(row -> {

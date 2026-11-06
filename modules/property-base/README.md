@@ -113,6 +113,8 @@ return CommandSupportManagerProviders
 
 报修通过 `propertyService:directory` 消费本模块公开的 `QueryPropertyProjectsCommand`、`QueryPropertyUsersCommand` 和 `QueryPropertySpacesCommand`，只返回当前租户及资产权限交集内的项目、用户身份和绑定空间。消费方仅依赖 `property-base-core`；参数通过命令容器传递，项目范围和员工筛选跨 RPC 保持一致。空目录正常返回，缺少身份、权限或服务异常明确拒绝，不触发同步或查询旧报修目录。
 
+用户目录也支持仅选择 `business_application` Scope 的应用入口，不强制额外选择租户。平台 `AssetsHolder` 继续校验应用 Scope 及原用户资产权限；同时选择租户时继续取租户交集，无租户和应用范围时拒绝。收银员姓名查询沿用该命令，不额外要求用户管理菜单权限。
+
 项目目录在基础服务查询 `pm_organization`，使用 AssetsHolder 批量资产过滤并与可信租户取交集；不能把依赖 Cloud 的 `s_organization` 的资产条件拼进基础镜像库或报修库。消费方将命令返回的授权项目 ID 与业务查询在分页前取交集；空目录对应空业务结果，命令失败向上传播。
 
 真实末端由完整来源树判断：只有一个“1栋”时也可完善为房屋，权限过滤后隐藏子节点不会把父节点变成末端。顶级空间仅可关联项目类型的组织，外协单位及未标注组织不可关联；一个组织最多关联一个根空间，根空间与组织一对一绑定。已有空间绑定时禁止修改或清除组织类型，需先解除绑定；项目选择返回已标注为项目且有权访问的组织。已有房屋资料的根不能直接改归属，避免客户历史随绑定静默迁移。
