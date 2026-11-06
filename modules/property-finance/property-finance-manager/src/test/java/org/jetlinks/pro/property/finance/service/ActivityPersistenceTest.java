@@ -21,7 +21,7 @@ import reactor.test.StepVerifier;
 
 import java.util.*;
 
-/** 真PG验证活动直接生效、版本、空间权限、逻辑删除、引用和审计的原子性。 */
+/** 真PG验证活动按钮审批、版本、空间权限、逻辑删除、引用和审计的原子性。 */
 @SpringBootTest(
         classes = ActivityPersistenceTest.Config.class,
         webEnvironment = SpringBootTest.WebEnvironment.NONE)
@@ -99,29 +99,41 @@ class ActivityPersistenceTest {
 
     @Test
     void activityCreateAndUpdatePersistDisplayNameInRecordAndHistory() {
-        var context = fixture.allowed().put(
-                org.hswebframework.web.authorization.Authentication.class,
-                FinanceOperatorNameTest.actor("龚超"));
-        var created = service.save(fixture.project, null, input()).contextWrite(context).block(WAIT);
+        var context =
+                fixture.allowed()
+                        .put(
+                                org.hswebframework.web.authorization.Authentication.class,
+                                FinanceOperatorNameTest.actor("龚超"));
+        var created =
+                service.save(fixture.project, null, input()).contextWrite(context).block(WAIT);
         assertEquals("龚超", created.activity().getModifierName());
         assertEquals("operator-id", created.activity().getModifierId());
         var edit = input();
         edit.setVersion(created.activity().getVersion());
         edit.setName("更新后的活动");
-        var updated = service.save(fixture.project, created.activity().getId(), edit)
-                .contextWrite(context).block(WAIT);
+        var updated =
+                service.save(fixture.project, created.activity().getId(), edit)
+                        .contextWrite(context)
+                        .block(WAIT);
         assertEquals("龚超", updated.activity().getModifierName());
-        var history = service.history(fixture.project, created.activity().getId(), new QueryParamEntity())
-                .contextWrite(context).block(WAIT);
+        var history =
+                service.history(fixture.project, created.activity().getId(), new QueryParamEntity())
+                        .contextWrite(context)
+                        .block(WAIT);
         assertEquals(2, history.getTotal());
-        assertTrue(history.getData().stream().allMatch(log ->
-                "龚超".equals(log.getOperatorName()) && "operator-id".equals(log.getOperatorId())));
+        assertTrue(
+                history.getData().stream()
+                        .allMatch(
+                                log ->
+                                        "龚超".equals(log.getOperatorName())
+                                                && "operator-id".equals(log.getOperatorId())));
     }
 
     @Test
-    void directCreateResolvesServerNamesAndNeedsNoWorkflow() {
+    void createResolvesServerNamesAndWaitsForButtonReview() {
         var d = create();
-        assertTrue(d.activity().getEnabled());
+        assertFalse(d.activity().getEnabled());
+        assertEquals("PENDING", d.activity().getReviewState());
         assertEquals("充值赠送", d.config().getActivityTypeName());
         assertEquals("面积月费", d.config().getStandardName());
         assertEquals("1栋", d.config().getTargets().get(0).fullName());
@@ -254,6 +266,13 @@ class ActivityPersistenceTest {
     @Test
     void disableAuditContainsOriginalStateAndDeletionRetainsHistory() {
         var d = create();
+        activities
+                .createUpdate()
+                .set("reviewState", "APPROVED")
+                .set("enabled", true)
+                .where("id", d.activity().getId())
+                .execute()
+                .block(WAIT);
         run(service.state(fixture.project, d.activity().getId(), 0L, false));
         var log =
                 logs.createQuery()
@@ -363,6 +382,140 @@ class ActivityPersistenceTest {
                             .where("projectId", fixture.project)
                             .count()
                             .block(WAIT));
+        } finally {
+            HouseSettingPersistenceTest.DB.execInContainer(
+                    "psql",
+                    "-U",
+                    "postgres",
+                    "-d",
+                    "setting_test",
+                    "-c",
+                    "ALTER TABLE pm_fin_activity_log DROP CONSTRAINT " + constraint);
+        }
+    }
+
+    ActivityService.ReviewInput review(ActivityService.Detail row, String reason) {
+        return new ActivityService.ReviewInput(
+                List.of(
+                        new ActivityService.ReviewItem(
+                                row.activity().getId(), row.activity().getVersion())),
+                reason);
+    }
+
+    @Test
+    void reviewApprovesAndEnablesButEditingResetsApprovalAndBlocksDirectEnable() {
+        var d = create();
+        reject(service.state(fixture.project, d.activity().getId(), 0L, true), 409);
+        var approved = run(service.review(fixture.project, review(d, "核对范围及档位"), true)).get(0);
+        assertEquals("APPROVED", approved.activity().getReviewState());
+        assertTrue(approved.activity().getEnabled());
+        assertNotNull(approved.activity().getReviewedAt());
+        assertEquals("核对范围及档位", approved.activity().getReviewReason());
+        var edit = input();
+        edit.setVersion(approved.activity().getVersion());
+        edit.setName("重新提交");
+        var pending = run(service.save(fixture.project, d.activity().getId(), edit));
+        assertEquals("PENDING", pending.activity().getReviewState());
+        assertFalse(pending.activity().getEnabled());
+        assertNull(pending.activity().getReviewedBy());
+        assertNull(pending.activity().getReviewReason());
+        var rejected =
+                run(service.review(fixture.project, review(pending, "修改优惠月份"), false)).get(0);
+        assertEquals("REJECTED", rejected.activity().getReviewState());
+        assertFalse(rejected.activity().getEnabled());
+        reject(
+                service.state(
+                        fixture.project,
+                        d.activity().getId(),
+                        rejected.activity().getVersion(),
+                        true),
+                409);
+        reject(service.review(fixture.project, review(rejected, "重复审批"), true), 409);
+        edit.setVersion(rejected.activity().getVersion());
+        var again = run(service.save(fixture.project, d.activity().getId(), edit));
+        assertTrue(
+                run(service.review(fixture.project, review(again, "修改后通过"), true))
+                        .get(0)
+                        .activity()
+                        .getEnabled());
+    }
+
+    @Test
+    void batchReviewRejectsInvalidVersionOrProjectWithoutPartialWrites() {
+        var a = create();
+        var b = create();
+        var invalid =
+                new ActivityService.ReviewInput(
+                        List.of(
+                                new ActivityService.ReviewItem(a.activity().getId(), 0L),
+                                new ActivityService.ReviewItem(b.activity().getId(), 99L)),
+                        "批量核对");
+        reject(service.review(fixture.project, invalid, true), 409);
+        assertEquals(
+                "PENDING", activities.findById(a.activity().getId()).block(WAIT).getReviewState());
+        assertEquals(0L, activities.findById(a.activity().getId()).block(WAIT).getVersion());
+        reject(service.review("other-project", review(a, "越项目"), true), 404);
+        reject(service.review(fixture.project, review(a, "  "), true), 400);
+        var duplicate =
+                new ActivityService.ReviewInput(
+                        List.of(
+                                new ActivityService.ReviewItem(a.activity().getId(), 0L),
+                                new ActivityService.ReviewItem(a.activity().getId(), 0L)),
+                        "重复");
+        reject(service.review(fixture.project, duplicate, true), 400);
+        var approved =
+                run(
+                        service.review(
+                                fixture.project,
+                                new ActivityService.ReviewInput(
+                                        List.of(
+                                                new ActivityService.ReviewItem(
+                                                        a.activity().getId(), 0L),
+                                                new ActivityService.ReviewItem(
+                                                        b.activity().getId(), 0L)),
+                                        "全部通过"),
+                                true));
+        assertEquals(2, approved.size());
+        assertTrue(approved.stream().allMatch(row -> row.activity().getEnabled()));
+    }
+
+    @Test
+    void reviewChecksEveryTargetPermissionAndAuditFailureRollsBack() throws Exception {
+        var d = create();
+        var denied = mock(org.jetlinks.pro.assets.AssetsHolder.class);
+        when(denied.assertPermission(anyString(), anyCollection(), any()))
+                .thenReturn(Mono.error(FinanceScope.error("permission_denied", 403)));
+        StepVerifier.create(
+                        service.review(fixture.project, review(d, "无权审批"), true)
+                                .contextWrite(
+                                        fixture.allowed()
+                                                .put(
+                                                        org.jetlinks.pro.assets.AssetsHolder.class,
+                                                        denied)))
+                .expectErrorMatches(e -> TaxItemPersistenceTest.status(e, 403))
+                .verify(WAIT);
+        var constraint = "fail_review_" + UUID.randomUUID().toString().replace("-", "");
+        var sql =
+                "ALTER TABLE pm_fin_activity_log ADD CONSTRAINT "
+                        + constraint
+                        + " CHECK (operation <> 'APPROVE' OR project_id <> '"
+                        + fixture.project
+                        + "') NOT VALID";
+        assertEquals(
+                0,
+                HouseSettingPersistenceTest.DB
+                        .execInContainer("psql", "-U", "postgres", "-d", "setting_test", "-c", sql)
+                        .getExitCode());
+        try {
+            StepVerifier.create(
+                            service.review(fixture.project, review(d, "审计故障"), true)
+                                    .contextWrite(fixture.allowed()))
+                    .expectError()
+                    .verify(WAIT);
+            var actual = activities.findById(d.activity().getId()).block(WAIT);
+            assertEquals("PENDING", actual.getReviewState());
+            assertFalse(actual.getEnabled());
+            assertEquals(0L, actual.getVersion());
         } finally {
             HouseSettingPersistenceTest.DB.execInContainer(
                     "psql",

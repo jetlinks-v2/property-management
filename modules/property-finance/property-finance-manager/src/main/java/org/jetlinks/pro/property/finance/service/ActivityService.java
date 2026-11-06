@@ -24,7 +24,7 @@ import reactor.core.publisher.*;
 import java.time.LocalDate;
 import java.util.*;
 
-/** 项目活动直接建立，所有变更与审计同事务；不开放物理删除和客户端审批字段。 */
+/** 项目活动按钮审批，所有变更与审计同事务；不开放物理删除和客户端审批字段。 */
 @Service
 @RequiredArgsConstructor
 public class ActivityService {
@@ -297,7 +297,8 @@ public class ActivityService {
         row.setId(UUID.randomUUID().toString());
         init(row, auth);
         row.setProjectId(project);
-        row.setEnabled(true);
+        row.setEnabled(false);
+        row.setReviewState("PENDING");
         apply(row, snapshot);
         return activities.insert(row).then(log(null, row, "CREATE", auth)).thenReturn(view(row));
     }
@@ -323,6 +324,16 @@ public class ActivityService {
         BeanUtils.copyProperties(old, next);
         apply(next, snapshot);
         next.setEnabled(enabled);
+        // 编辑保存使旧审批失效；新配置只有重新通过审批后才可参与柜台优惠。
+        if ("UPDATE".equals(operation)) {
+            next.setReviewState("PENDING");
+            next.setEnabled(false);
+            next.setReviewedBy(null);
+            next.setReviewedName(null);
+            next.setReviewedAt(null);
+            next.setReviewReason(null);
+        }
+
         next.setVersion(old.getVersion() + 1);
         next.setModifyTime(System.currentTimeMillis());
         next.setModifierId(auth.getUser().getId());
@@ -343,6 +354,11 @@ public class ActivityService {
                                 .set("endDate", next.getEndDate())
                                 .set("configJson", next.getConfigJson())
                                 .set("enabled", next.getEnabled())
+                                .set("reviewState", next.getReviewState())
+                                .set("reviewedBy", next.getReviewedBy())
+                                .set("reviewedName", next.getReviewedName())
+                                .set("reviewedAt", next.getReviewedAt())
+                                .set("reviewReason", next.getReviewReason())
                                 .set("deleted", next.getDeleted())
                                 .where("id", old.getId())
                                 .and("projectId", old.getProjectId())
@@ -354,6 +370,194 @@ public class ActivityService {
                                 .thenReturn(view(next)));
     }
 
+    public record ReviewItem(String id, Long version) {}
+
+    public record ReviewInput(List<ReviewItem> items, String reason) {}
+
+    /** 固定 ID 顺序锁定全批并预检，任一过期/无权/已审批则整批回滚，不产生部分审批。 */
+    @Transactional
+    public Mono<List<Detail>> review(String project, ReviewInput input, boolean approve) {
+        return scope.project(project, CrudAssetPermission.save)
+                .then(scope.authenticated())
+                .flatMap(
+                        auth ->
+                                Mono.defer(
+                                        () -> {
+                                            if (input == null
+                                                    || input.items() == null
+                                                    || input.items().isEmpty()
+                                                    || input.items().size() > 100
+                                                    || input.reason() == null
+                                                    || input.reason().isBlank()
+                                                    || input.reason().length() > 1000)
+                                                return Mono.error(
+                                                        error("activity_review_invalid", 400));
+                                            var ids = new HashSet<String>();
+                                            for (var item : input.items()) {
+                                                if (item == null
+                                                        || item.id() == null
+                                                        || item.id().isBlank()
+                                                        || item.id().length() > 64
+                                                        || item.version() == null
+                                                        || !ids.add(item.id()))
+                                                    return Mono.error(
+                                                            error("activity_review_invalid", 400));
+                                            }
+                                            return Flux.fromIterable(
+                                                            input.items().stream()
+                                                                    .sorted(
+                                                                            Comparator.comparing(
+                                                                                    ReviewItem::id))
+                                                                    .toList())
+                                                    .concatMap(
+                                                            item ->
+                                                                    row(
+                                                                                    project,
+                                                                                    item.id(), true,
+                                                                                    false)
+                                                                            .flatMap(
+                                                                                    row -> {
+                                                                                        version(
+                                                                                                row,
+                                                                                                item
+                                                                                                        .version());
+                                                                                        if (!"PENDING"
+                                                                                                .equals(
+                                                                                                        row
+                                                                                                                .getReviewState()))
+                                                                                            return Mono
+                                                                                                    .error(
+                                                                                                            error(
+                                                                                                                    "activity_review_state",
+                                                                                                                    409));
+                                                                                        return permissions(
+                                                                                                        config(
+                                                                                                                row),
+                                                                                                        CrudAssetPermission
+                                                                                                                .save)
+                                                                                                .thenReturn(
+                                                                                                        row);
+                                                                                    }))
+                                                    .collectList()
+                                                    .flatMapMany(
+                                                            rows ->
+                                                                    Flux.fromIterable(rows)
+                                                                            .concatMap(
+                                                                                    old -> {
+                                                                                        var next =
+                                                                                                new ActivityEntity();
+                                                                                        BeanUtils
+                                                                                                .copyProperties(
+                                                                                                        old,
+                                                                                                        next);
+                                                                                        next
+                                                                                                .setReviewState(
+                                                                                                        approve
+                                                                                                                ? "APPROVED"
+                                                                                                                : "REJECTED");
+                                                                                        next
+                                                                                                .setEnabled(
+                                                                                                        approve);
+                                                                                        next
+                                                                                                .setReviewedBy(
+                                                                                                        auth.getUser()
+                                                                                                                .getId());
+                                                                                        next
+                                                                                                .setReviewedName(
+                                                                                                        FinanceScope
+                                                                                                                .operatorName(
+                                                                                                                        auth));
+                                                                                        next
+                                                                                                .setReviewedAt(
+                                                                                                        System
+                                                                                                                .currentTimeMillis());
+                                                                                        next
+                                                                                                .setReviewReason(
+                                                                                                        input.reason()
+                                                                                                                .trim());
+                                                                                        next
+                                                                                                .setVersion(
+                                                                                                        old
+                                                                                                                        .getVersion()
+                                                                                                                + 1);
+                                                                                        next
+                                                                                                .setModifyTime(
+                                                                                                        next
+                                                                                                                .getReviewedAt());
+                                                                                        next
+                                                                                                .setModifierId(
+                                                                                                        auth.getUser()
+                                                                                                                .getId());
+                                                                                        next
+                                                                                                .setModifierName(
+                                                                                                        FinanceScope
+                                                                                                                .operatorName(
+                                                                                                                        auth));
+                                                                                        return audit(
+                                                                                                        activities
+                                                                                                                .createUpdate(),
+                                                                                                        auth,
+                                                                                                        old
+                                                                                                                .getVersion())
+                                                                                                .set(
+                                                                                                        "reviewState",
+                                                                                                        next
+                                                                                                                .getReviewState())
+                                                                                                .set(
+                                                                                                        "enabled",
+                                                                                                        next
+                                                                                                                .getEnabled())
+                                                                                                .set(
+                                                                                                        "reviewedBy",
+                                                                                                        next
+                                                                                                                .getReviewedBy())
+                                                                                                .set(
+                                                                                                        "reviewedName",
+                                                                                                        next
+                                                                                                                .getReviewedName())
+                                                                                                .set(
+                                                                                                        "reviewedAt",
+                                                                                                        next
+                                                                                                                .getReviewedAt())
+                                                                                                .set(
+                                                                                                        "reviewReason",
+                                                                                                        next
+                                                                                                                .getReviewReason())
+                                                                                                .where(
+                                                                                                        "id",
+                                                                                                        old
+                                                                                                                .getId())
+                                                                                                .and(
+                                                                                                        "projectId",
+                                                                                                        project)
+                                                                                                .and(
+                                                                                                        "version",
+                                                                                                        old
+                                                                                                                .getVersion())
+                                                                                                .and(
+                                                                                                        "deleted",
+                                                                                                        false)
+                                                                                                .execute()
+                                                                                                .flatMap(
+                                                                                                        SubjectService
+                                                                                                                ::changed)
+                                                                                                .then(
+                                                                                                        log(
+                                                                                                                old,
+                                                                                                                next,
+                                                                                                                approve
+                                                                                                                        ? "APPROVE"
+                                                                                                                        : "REJECT",
+                                                                                                                auth))
+                                                                                                .thenReturn(
+                                                                                                        view(
+                                                                                                                next));
+                                                                                    }))
+                                                    .collectList();
+                                        }))
+                .as(MonoTracer.create("/property/finance/activity/review"));
+    }
+
     @Transactional
     public Mono<Detail> state(String project, String id, Long version, boolean enabled) {
         return scope.project(project, CrudAssetPermission.save)
@@ -363,6 +567,13 @@ public class ActivityService {
                                 row(project, id, true, false)
                                         .flatMap(
                                                 old -> {
+                                                    if (enabled
+                                                            && !"APPROVED"
+                                                                    .equals(old.getReviewState()))
+                                                        return Mono.error(
+                                                                error(
+                                                                        "activity_review_required",
+                                                                        409));
                                                     return replace(
                                                             old,
                                                             config(old),

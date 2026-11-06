@@ -136,6 +136,7 @@ class PrepayQuotePersistenceTest {
         row.setStartDate(input.getStartDate());
         row.setEndDate(input.getEndDate());
         row.setEnabled(true);
+        row.setReviewState("APPROVED");
         row.setConfigJson(ActivityCodec.encode(snapshot));
         StandardPersistenceTest.initialize(row);
         activities.insert(row).block(WAIT);
@@ -396,6 +397,25 @@ class PrepayQuotePersistenceTest {
         var result = create(activityInput(activity(true)));
         assertEquals("2024-02-01", result.lines().get(0).start());
         assertEquals("2024-04-30", result.lines().get(2).end());
+    }
+
+    @Test
+    void pendingAndRejectedActivitiesCannotBeQuotedEvenIfEnabled() {
+        var row = activity(false);
+        long before = quotes.createQuery().where("projectId", fixture.project).count().block(WAIT);
+        for (String state : List.of("PENDING", "REJECTED")) {
+            activities
+                    .createUpdate()
+                    .set("reviewState", state)
+                    .set("enabled", true)
+                    .where("id", row.getId())
+                    .execute()
+                    .block(WAIT);
+            reject(service.create(fixture.project, activityInput(row), DATE), 409);
+        }
+        assertEquals(
+                before,
+                quotes.createQuery().where("projectId", fixture.project).count().block(WAIT).longValue());
     }
 
     @Test

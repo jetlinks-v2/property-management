@@ -157,6 +157,7 @@ public class PrepayOptionsService {
                 .in("standardId", ids)
                 .and("deleted", false)
                 .and("enabled", true)
+                .and("reviewState", "APPROVED")
                 .and("startDate", "lte", date.toString())
                 .and("endDate", "gte", date.toString())
                 .fetch()

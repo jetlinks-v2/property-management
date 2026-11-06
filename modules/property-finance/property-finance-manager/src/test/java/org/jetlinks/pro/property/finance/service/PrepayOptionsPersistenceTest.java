@@ -119,6 +119,11 @@ class PrepayOptionsPersistenceTest extends PrepayQuotePersistenceTest {
                                         List.of(
                                                 new CashierConfiguration.Funding(
                                                         "1", "现金", null, null, null, null, 1L)))));
+        when(funding.defaultCompanyId(eq(fixture.project), anyBoolean()))
+                .thenReturn(Mono.just("company"));
+        doCallRealMethod()
+                .when(funding)
+                .resolveCollection(eq(fixture.project), any(), anyBoolean());
         run(
                 confirmation.confirm(
                         fixture.project,
@@ -146,6 +151,24 @@ class PrepayOptionsPersistenceTest extends PrepayQuotePersistenceTest {
         assertEquals(1, result.size());
         assertTrue(result.get(0).activities().isEmpty());
         assertEquals(1, result.get(0).payers().size());
+    }
+
+    @Test
+    void pendingAndRejectedActivitiesCannotBeOfferedEvenIfEnabled() {
+        var row = activity(false);
+        for (String state : List.of("PENDING", "REJECTED")) {
+            activities
+                    .createUpdate()
+                    .set("reviewState", state)
+                    .set("enabled", true)
+                    .where("id", row.getId())
+                    .execute()
+                    .block(WAIT);
+            var result = run(options.options(fixture.project, "room", DATE));
+            assertEquals(1, result.size());
+            assertTrue(result.get(0).activities().isEmpty());
+            assertEquals(settingId, result.get(0).id());
+        }
     }
 
     @Test

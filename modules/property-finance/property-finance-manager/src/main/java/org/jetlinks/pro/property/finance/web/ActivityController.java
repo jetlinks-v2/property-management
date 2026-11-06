@@ -13,7 +13,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.Map;
 
-/** 直接活动设置的受权入口，无活动申请、审批回调或通用物理删除接口。 */
+/** 活动设置的受权入口，支持按钮审批，不接工作流或通用物理删除。 */
 @RestController
 @RequestMapping("/property/finance/projects/{projectId}/activities")
 @Resource(id = "property-finance-activity", name = "活动设置")
@@ -56,6 +56,20 @@ public class ActivityController {
             @PathVariable String id,
             @RequestBody ActivityInput input) {
         return service.save(projectId, id, input);
+    }
+
+    @PostMapping("/_approve")
+    @ResourceAction(id = "approve", name = "审批通过")
+    public Mono<java.util.List<ActivityService.Detail>> approve(
+            @PathVariable String projectId, @RequestBody ActivityService.ReviewInput input) {
+        return service.review(projectId, input, true);
+    }
+
+    @PostMapping("/_reject")
+    @ResourceAction(id = "reject", name = "驳回")
+    public Mono<java.util.List<ActivityService.Detail>> reject(
+            @PathVariable String projectId, @RequestBody ActivityService.ReviewInput input) {
+        return service.review(projectId, input, false);
     }
 
     @PutMapping("/{id}/_state")

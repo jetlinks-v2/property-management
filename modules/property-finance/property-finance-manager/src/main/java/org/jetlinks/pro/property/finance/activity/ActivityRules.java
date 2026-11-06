@@ -6,7 +6,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.HashSet;
 
-/** 旧充赠档位口径保留；取消审批不等于取消日期、范围和季度周期校验。 */
+/** 旧充赠档位口径保留；审批与日期、范围和季度周期校验分别控制。 */
 public final class ActivityRules {
     private ActivityRules() {}
 

@@ -161,7 +161,8 @@ public class PrepayQuoteSource {
                                     ActivityCodec.decode(
                                                     row.getConfigJson(), ActivitySnapshot.class)
                                             .getInput();
-                            if (!Boolean.TRUE.equals(row.getEnabled())
+                            if (!"APPROVED".equals(row.getReviewState())
+                                    || !Boolean.TRUE.equals(row.getEnabled())
                                     || date.isBefore(ActivityRules.date(row.getStartDate()))
                                     || date.isAfter(ActivityRules.date(row.getEndDate()))
                                     || !setting.getSubjectId().equals(row.getSubjectId())
