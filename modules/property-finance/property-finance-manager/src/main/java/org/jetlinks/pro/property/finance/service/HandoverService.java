@@ -221,6 +221,7 @@ public class HandoverService {
                                                                 bindings.createUpdate(),
                                                                 auth,
                                                                 existing.getVersion())
+                                                        .set("tenantId", existing.getTenantId())
                                                         .set("batchId", id)
                                                         .where("id", key)
                                                         .and("version", existing.getVersion())
@@ -527,8 +528,10 @@ public class HandoverService {
                 .then(
                         Mono.defer(
                                 () -> {
+                                    // 审核只改变交账状态，显式保留原归属，防止身份默认租户自动补写更新列。
                                     var update =
                                             audit(batches.createUpdate(), auth, row.getVersion())
+                                                    .set("tenantId", row.getTenantId())
                                                     .set("status", after)
                                                     .set("reviewedAt", now.toString())
                                                     .set("reviewedBy", displayName(auth))
@@ -591,6 +594,7 @@ public class HandoverService {
                                                                     bindings.createUpdate(),
                                                                     auth,
                                                                     b.getVersion())
+                                                            .set("tenantId", b.getTenantId())
                                                             .setNull("batchId")
                                                             .where("id", b.getId())
                                                             .and("version", b.getVersion())

@@ -5,10 +5,17 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import org.hswebframework.ezorm.rdb.events.EventContext;
+import org.hswebframework.ezorm.rdb.events.EventType;
 import org.hswebframework.ezorm.rdb.mapping.ReactiveRepository;
+import org.hswebframework.ezorm.rdb.mapping.events.MappingContextKeys;
+import org.hswebframework.ezorm.rdb.mapping.events.MappingEventTypes;
 import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.property.finance.entity.*;
+import org.jetlinks.pro.tenant.Tenant;
+import org.jetlinks.pro.tenant.crud.TenantColumnEventListener;
+import org.jetlinks.pro.tenant.holder.TenantHolder;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -69,6 +76,53 @@ class HandoverPersistenceTest extends CashierPersistenceTest {
         return handover.action(project, row.getId(), action, action(row), NOW.plusHours(1))
                 .contextWrite(allowed())
                 .block(WAIT);
+    }
+
+    @Test
+    void identityTenantDoesNotMoveHandoverOrSourceOwnershipDuringReview() {
+        var saved = confirm(request(handoverInput(paid("tenant-review", "5")))).batch();
+        var tenant = mock(Tenant.class);
+        when(tenant.getId()).thenReturn("identity-tenant");
+        var context = allowed().put(Tenant.class, tenant);
+        var approval = action(saved);
+        var approved =
+                handover.action(project, saved.getId(), "APPROVE", approval, NOW)
+                        .contextWrite(context)
+                        .block(WAIT)
+                        .batch();
+        assertEquals("APPROVED", approved.getStatus());
+        assertEquals("", handovers.findById(saved.getId()).block(WAIT).getTenantId());
+        assertEquals(
+                approved.getVersion(),
+                handover.action(project, saved.getId(), "APPROVE", approval, NOW)
+                        .contextWrite(context)
+                        .block(WAIT)
+                        .batch()
+                        .getVersion());
+        var pending =
+                handover.action(project, saved.getId(), "UNAPPROVE", action(approved), NOW)
+                        .contextWrite(context)
+                        .block(WAIT)
+                        .batch();
+        var cancelled =
+                handover.action(project, saved.getId(), "CANCEL", action(pending), NOW)
+                        .contextWrite(context)
+                        .block(WAIT)
+                        .batch();
+        assertEquals("CANCELLED", cancelled.getStatus());
+        var binding = claims.createQuery().where("projectId", project).fetchOne().block(WAIT);
+        assertEquals("", binding.getTenantId());
+        assertNull(binding.getBatchId());
+        var nextRequest =
+                request(handoverInput(payments.findById(binding.getSourceId()).block(WAIT)));
+        var next = handover.confirm(project, nextRequest, NOW).contextWrite(context).block(WAIT);
+        assertNotEquals(saved.getId(), next.batch().getId());
+        assertEquals("", claims.findById(binding.getId()).block(WAIT).getTenantId());
+        rejects(
+                handover.action(project, next.batch().getId(), "APPROVE", action(next.batch()), NOW)
+                        .contextWrite(TenantHolder.makeCurrent("other-tenant")),
+                404);
+        assertEquals("PENDING", handovers.findById(next.batch().getId()).block(WAIT).getStatus());
     }
 
     @Autowired FinancialPeriodTestSupport periods;
@@ -654,5 +708,34 @@ class HandoverPersistenceTest extends CashierPersistenceTest {
         HandoverService.class,
         DocumentQueryScope.class
     })
-    static class Config {}
+    static class Config {
+        @Bean
+        TenantColumnEventListener tenantColumnEventListener() {
+            // 只替代租户身份解析，真实 ORM 租户列填充与数据库更新沿用平台实现。
+            return new TenantColumnEventListener() {
+                @Override
+                public void onEvent(EventType type, EventContext event) {
+                    if (type == MappingEventTypes.insert_before
+                            || type == MappingEventTypes.save_before
+                            || type == MappingEventTypes.update_before) {
+                        event.get(MappingContextKeys.reactiveResultHolder)
+                                .ifPresent(
+                                        holder ->
+                                                holder.before(
+                                                        Mono.deferContextual(
+                                                                context -> {
+                                                                    doApply(
+                                                                            context,
+                                                                            type,
+                                                                            event,
+                                                                            context.getOrDefault(
+                                                                                    Tenant.class,
+                                                                                    null));
+                                                                    return Mono.empty();
+                                                                })));
+                    }
+                }
+            };
+        }
+    }
 }
