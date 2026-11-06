@@ -1,30 +1,24 @@
 package org.jetlinks.pro.property.quality.service;
 
 import lombok.RequiredArgsConstructor;
-import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.jetlinks.pro.property.quality.api.QualityHomeQuery;
-import org.jetlinks.pro.property.quality.asset.QualityAssetType;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDate;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * 首页沿用旧任务口径：总览以完成时间计实际完成，趋势和项目对比以截止时间计同一批任务。
  * 任务与检查项分别由 QualityScope / QualityReports 注入 AssetsHolder，不以组织筛选替代权限。
- * 聚合在数据库计数，趋势只收集最多七个时间桶；通用 HTTP/SQL 链路已覆盖只读查询追踪。
+ * 每个请求使用两次条件聚合，趋势只收集最多八个时间桶；通用 HTTP/SQL 链路已覆盖只读查询追踪。
  */
 @Service
 @RequiredArgsConstructor
 public class QualityHome {
-    private final QualityScope scope;
-    private final QualityTaskService tasks;
-    private final QualityReports reports;
-    private final QualityRecordService records;
+    private final QualityHomeAggregation aggregation;
     private final QualityDirectory directory;
 
     public Mono<Map<String, Object>> overview(QualityHomeQuery query) {
@@ -32,8 +26,9 @@ public class QualityHome {
         var start = query.getStartDate() == null ? today.withDayOfYear(1) : LocalDate.parse(query.getStartDate());
         var end = query.getEndDate() == null ? today : LocalDate.parse(query.getEndDate());
         QualityScope.require(!end.isBefore(start), "date_range");
-        return counts(query.getProjectId(), QualityHomeRules.at(start.atStartOfDay()),
-            QualityHomeRules.at(end.plusDays(1).atStartOfDay()), false);
+        return aggregation.windows(query.getProjectId(), List.of(new QualityHomeRules.Window("",
+            QualityHomeRules.at(start.atStartOfDay()), QualityHomeRules.at(end.plusDays(1).atStartOfDay()))), false)
+            .map(rows -> rows.get(0));
     }
 
     public Mono<Map<String, Object>> trend(QualityHomeQuery query) {
@@ -42,10 +37,11 @@ public class QualityHome {
         var windows = QualityHomeRules.windows(mode, today);
         var start = "week".equals(mode) ? today.minusDays(6) : "month".equals(mode) ? today.withDayOfMonth(1) : today;
         var end = "month".equals(mode) ? today.withDayOfMonth(1).plusMonths(1) : today.plusDays(1);
-        return counts(query.getProjectId(), QualityHomeRules.at(start.atStartOfDay()),
-            QualityHomeRules.at(end.atStartOfDay()), true).flatMap(summary ->
-            Flux.fromIterable(windows).concatMap(window -> counts(query.getProjectId(), window.start(), window.end(), true))
-                .collectList().map(slices -> trendResult(summary, windows, slices)));
+        var allWindows = new java.util.ArrayList<QualityHomeRules.Window>();
+        allWindows.add(new QualityHomeRules.Window("", QualityHomeRules.at(start.atStartOfDay()), QualityHomeRules.at(end.atStartOfDay())));
+        allWindows.addAll(windows);
+        return aggregation.windows(query.getProjectId(), allWindows, true)
+            .map(rows -> trendResult(rows.get(0), windows, rows.subList(1, rows.size())));
     }
 
     public Flux<Map<String, Object>> compare(QualityHomeQuery query) {
@@ -53,51 +49,14 @@ public class QualityHome {
         var start = query.getStartDate() == null ? today.withDayOfYear(1) : LocalDate.parse(query.getStartDate());
         var end = query.getEndDate() == null ? today : LocalDate.parse(query.getEndDate());
         QualityScope.require(!end.isBefore(start), "date_range");
-        return directory.projects().filter(project -> query.getProjectId() == null || query.getProjectId().equals(project.getId()))
-            .concatMap(project -> counts(project.getId(), QualityHomeRules.at(start.atStartOfDay()),
-                QualityHomeRules.at(end.plusDays(1).atStartOfDay()), true).map(row -> {
-                    row.put("projectId", project.getId());
-                    row.put("projectName", project.getName());
+        return aggregation.projects(query.getProjectId(), QualityHomeRules.at(start.atStartOfDay()),
+            QualityHomeRules.at(end.plusDays(1).atStartOfDay())).flatMapMany(rows ->
+            directory.projects().filter(project -> query.getProjectId() == null || query.getProjectId().equals(project.getId()))
+                .map(project -> {
+                    var row = rows.getOrDefault(project.getId(), QualityHomeAggregation.result(null, null, 0));
+                    row.put("projectId", project.getId()); row.put("projectName", project.getName());
                     return row;
                 }));
-    }
-
-    private Mono<Map<String, Object>> counts(String project, long start, long end, boolean deadlineCohort) {
-        return Mono.zip(taskCount(project, start, end, "reportDeadline", false),
-            taskCount(project, start, end, deadlineCohort ? "reportDeadline" : "completeTime", true),
-            recordCounts(project, start, end, deadlineCohort)).map(tuple -> {
-                var result = new LinkedHashMap<String, Object>();
-                result.put("shouldCompleteCount", tuple.getT1());
-                result.put("actualCompleteCount", tuple.getT2());
-                result.put("taskCompleteRate", QualityHomeRules.percent(tuple.getT2(), tuple.getT1()));
-                result.put("qualifiedRate", QualityHomeRules.percent(tuple.getT3()[1], tuple.getT3()[0]));
-                return result;
-            });
-    }
-
-    private Mono<Integer> taskCount(String project, long start, long end, String timeField, boolean completed) {
-        var query = projectQuery(project);
-        query.toQuery().gte(timeField, start).lt(timeField, end);
-        if (completed) query.toQuery().and("taskStatus", 2);
-        return scope.query(query, QualityAssetType.qualityTask, "id").flatMap(q -> tasks.createQuery().setParam(q).count());
-    }
-
-    private Mono<long[]> recordCounts(String project, long start, long end, boolean deadlineCohort) {
-        var query = QueryParamEntity.newQuery().where("recordStatus", 2)
-            .gte(deadlineCohort ? "reportDeadline" : "completeTime", start)
-            .lt(deadlineCohort ? "reportDeadline" : "completeTime", end).getParam();
-        return reports.recordQuery(projectQuery(project), query).flatMapMany(q -> { q.setPaging(false); return records.createQuery().setParam(q).fetch(); })
-            .reduce(new long[2], (counts, record) -> {
-                counts[0]++;
-                if (Integer.valueOf(1).equals(record.getIsQualified())) counts[1]++;
-                return counts;
-            });
-    }
-
-    private static QueryParamEntity projectQuery(String project) {
-        var query = new QueryParamEntity();
-        if (project != null && !project.isBlank()) query.toQuery().and("projectId", project);
-        return query;
     }
 
     private static Map<String, Object> trendResult(Map<String, Object> summary, List<QualityHomeRules.Window> windows,
