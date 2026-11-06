@@ -78,6 +78,28 @@ class DocumentReopenPersistenceTest extends DocumentIssuePersistenceTest {
     }
 
     @Test
+    void identityTenantDoesNotMoveReversedOrReopenedDocuments() {
+        maximum(1);
+        var blue = blue();
+        var request = request(blue);
+        var tenant = mock(org.jetlinks.pro.tenant.Tenant.class);
+        when(tenant.getId()).thenReturn("identity-tenant");
+        var result =
+                reopen.confirm(project, blue.getId(), request, NOW.plusHours(2))
+                        .contextWrite(
+                                fixture.allowed().put(org.jetlinks.pro.tenant.Tenant.class, tenant))
+                        .block(WAIT);
+        var original = documentRows.findById(blue.getId()).block(WAIT);
+        assertEquals("", original.getTenantId());
+        assertEquals("SIMULATED_REVERSED", original.getStatus());
+        assertEquals(
+                "",
+                documentRows.findById(original.getReverseDocumentId()).block(WAIT).getTenantId());
+        assertEquals(result.document().getId(), original.getReopenDocumentId());
+        assertEquals(result.document().getId(), execute(blue, request).document().getId());
+    }
+
+    @Test
     void closedOperationDateBlocksNewReopenButRecoversSuccessfulReplacement() {
         maximum(2);
         var first = blue();

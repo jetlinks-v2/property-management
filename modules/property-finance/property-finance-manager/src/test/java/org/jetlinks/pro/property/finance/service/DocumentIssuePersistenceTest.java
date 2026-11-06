@@ -445,7 +445,7 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
     }
 
     @Test
-    void receiptVoidRetainsPaymentLinkGuardIncludingBeforeInvoiceThenPayment() {
+    void receiptVoidReleasesQuotaAndPreservesPayment() {
         var bill = documentBill();
         var invoice = input(List.of(item("RECEIVABLE", bill.getId(), "50")));
         var receiptInput =
@@ -460,13 +460,12 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
         var second = issue(submission(receiptInput)).document();
         var current = bills.findById(bill.getId()).block(WAIT);
         historicalPayment(current, "10.00");
-        fixture.rejects(
-                reverse.reverse(
-                        project, "RECEIPT", second.getId(), reversal(second, "已收款不能作废"), NOW),
-                409);
-        assertEquals("ISSUED", documentRows.findById(second.getId()).block(WAIT).getStatus());
+        assertEquals("VOIDED", reverse(second, reversal(second, "作废凭证不退款")).document().getStatus());
+        assertEquals("VOIDED", documentRows.findById(second.getId()).block(WAIT).getStatus());
         assertEquals(
-                new BigDecimal("50.00"),
+                new BigDecimal("10.00"), bills.findById(bill.getId()).block(WAIT).getPaidAmount());
+        assertEquals(
+                new BigDecimal("0.00"),
                 bills.findById(bill.getId()).block(WAIT).getInvoiceOccupiedAmount());
     }
 
@@ -591,7 +590,7 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
     }
 
     @Test
-    void invoiceAndReceiptShareQuotaAndPaymentAliasesCannotBypassReceiptVoidGuard() {
+    void invoiceAndReceiptShareQuotaAndVoidingPreservesPaymentAliases() {
         var bill = documentBill();
         var invoice = input(List.of(item("RECEIVABLE", bill.getId(), "80")));
         var invoiceDoc = issue(submission(invoice)).document();
@@ -615,13 +614,13 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
                     new DocumentIssueInput(
                             "RECEIPT", "company", invoice.buyer(), null, null, List.of(item));
             var doc = issue(submission(r)).document();
-            fixture.rejects(
-                    reverse.reverse(project, "RECEIPT", doc.getId(), reversal(doc, "付款关联"), NOW),
-                    409);
+            assertEquals("VOIDED", reverse(doc, reversal(doc, "作废凭证")).document().getStatus());
         }
         assertEquals(
-                new BigDecimal("20.00"),
+                new BigDecimal("0.00"),
                 bills.findById(bill.getId()).block(WAIT).getInvoiceOccupiedAmount());
+        assertEquals(
+                new BigDecimal("100.00"), bills.findById(bill.getId()).block(WAIT).getPaidAmount());
     }
 
     @Test
@@ -947,5 +946,10 @@ class DocumentIssuePersistenceTest extends DocumentPreparationPersistenceTest {
         DocumentIssueService.class,
         DocumentReverseService.class
     })
-    static class Config {}
+    static class Config {
+        @Bean
+        org.jetlinks.pro.tenant.crud.TenantColumnEventListener documentTenantColumns() {
+            return new HandoverPersistenceTest.Config().tenantColumnEventListener();
+        }
+    }
 }

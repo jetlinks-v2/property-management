@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><meta charset="UTF-8" />
+<style>
+@page { size: A5 landscape; margin: 8mm; @bottom-right { content: counter(page) " / " counter(pages); font-family: "Noto Sans SC"; font-size: 8px; color: #835351; } }
+body { margin: 0; font-family: "Noto Sans SC", sans-serif; font-size: 9px; line-height: 1.25; color: #282321; }
+.heading { width: 100%; display: table; margin-bottom: 2mm; }
+.title, .meta { display: table-cell; vertical-align: middle; }
+.title { width: 56%; text-align: center; color: #8e3732; }
+h1 { margin: 0 0 1mm; font-size: 19px; line-height: 1.25; font-weight: normal; }
+.underline { border-top: 1px solid #8e3732; border-bottom: 1px solid #8e3732; padding: 1mm 0; }
+.notice { font-size: 8px; margin-top: 1mm; }
+.meta { padding-left: 5mm; font-size: 8px; line-height: 1.6; word-wrap: break-word; }
+.label { color: #8e3732; }
+.parties, .lines, .totals, .remarks { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.parties td { width: 50%; padding: 1.2mm; border: 1px solid #a36b65; line-height: 1.6; word-wrap: break-word; }
+.party-title { color: #8e3732; margin-bottom: 1mm; }
+.lines { -fs-table-paginate: paginate; border-left: 1px solid #a36b65; border-right: 1px solid #a36b65; }
+thead { display: table-header-group; }
+th { color: #8e3732; font-weight: normal; text-align: left; border-bottom: 1px solid #a36b65; }
+th, .lines td { padding: 1.2mm 1.5mm; word-wrap: break-word; vertical-align: top; }
+tr { page-break-inside: avoid; }
+.money { text-align: right; white-space: nowrap; }
+.minor { color: #67605c; font-size: 8px; margin-top: 1mm; }
+.totals td { padding: 1.2mm; border: 1px solid #a36b65; }
+.remarks td { padding: 1.2mm; border: 1px solid #a36b65; word-wrap: break-word; white-space: pre-wrap; }
+.footer { margin-top: 2mm; font-size: 9px; }
+.state { font-size: 13px; color: #a42d25; padding-left: 3mm; }
+</style></head>
+<body>
+<div class="heading"><div class="title"><h1>{{title}}</h1><div class="underline">{{kind}}<span class="state">{{status}}</span></div><div class="notice">{{notice}}</div></div><div class="meta"><span class="label">{{numberLabel}}：</span>{{number}}<br /><span class="label">{{dateLabel}}：</span>{{date}}</div></div>
+<table class="parties"><tr><td><div class="party-title">{{buyerLabel}}</div><span class="label">{{nameLabel}}：</span>{{buyer}}<br /><span class="label">{{taxLabel}}：</span>{{buyerTax}}</td><td><div class="party-title">{{sellerLabel}}</div><span class="label">{{nameLabel}}：</span>{{seller}}<br /><span class="label">{{taxLabel}}：</span>{{sellerTax}}</td></tr></table>
+<table class="lines"><colgroup><col style="width: 27%;"/><col style="width: 31%;"/><col style="width: 15%;"/><col style="width: 13%;"/><col style="width: 14%;"/></colgroup><thead><tr><th>{{goodsLabel}}</th><th>{{houseLabel}}</th><th class="money">{{amountLabel}}</th><th class="money">{{rateLabel}}</th><th class="money">{{taxAmountLabel}}</th></tr></thead><tbody>{{rows}}</tbody></table>
+<table class="totals"><tr><td style="width: 58%;" class="label">{{totalLabel}}</td><td class="money">￥{{net}}</td><td class="money">￥{{tax}}</td></tr><tr><td colspan="2"><span class="label">{{upperLabel}}：</span>{{upper}}</td><td class="money"><span class="label">{{lowerLabel}}：</span>￥{{amount}}</td></tr></table>
+<table class="remarks"><tr><td><span class="label">{{remarkLabel}}：</span>{{remark}}</td></tr></table>
+<div class="footer"><span class="label">{{operatorLabel}}：</span>{{operator}}<div class="minor">{{notice}}</div></div>
+</body></html>

@@ -187,7 +187,6 @@ public class DocumentReverseService {
         return sources.load(blue.getProjectId(), refs, true)
                 .flatMap(
                         current -> {
-                            assertReceiptNotPaid(blue, lines, current);
                             // 先锁来源及journal，最后锁主单；末端审计失败必须回滚释放，不能单独提交额度。
                             return ledger.release(
                                             blue.getProjectId(),
@@ -228,17 +227,6 @@ public class DocumentReverseService {
             throw error("document_reverse_conflict", 409);
     }
 
-    private static void assertReceiptNotPaid(
-            DocumentEntity row,
-            List<DocumentLineEntity> lines,
-            List<DocumentSourceService.Source> current) {
-        if (!"RECEIPT".equals(row.getDocumentType())) return;
-        // 保留旧收据付款关联保护，且阻止RECEIVABLE别名或先开后收绕过；普通发票红冲不套用此限制。
-        if (lines.stream().anyMatch(line -> !"RECEIVABLE".equals(line.getOriginalSourceType()))
-                || current.stream().anyMatch(source -> source.paidAmount().signum() > 0))
-            throw error("document_receipt_payment_linked", 409);
-    }
-
     private Mono<DocumentStore.Detail> persist(
             DocumentEntity blue,
             List<DocumentLineEntity> lines,
@@ -258,6 +246,7 @@ public class DocumentReverseService {
                 red -> {
                     var update =
                             audit(documents.createUpdate(), auth, blue.getVersion())
+                                    .set("tenantId", blue.getTenantId())
                                     .set("status", after);
                     if (invoice) update.set("reverseDocumentId", red.getId());
                     return update.where("id", blue.getId())

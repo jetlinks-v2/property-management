@@ -99,6 +99,7 @@ public class MonthClosingRuleService {
         log.setRequireReview(input.requireReceivableReview());
         log.setReason(input.reason().trim());
         return InvoiceCompanyService.audit(controls.createUpdate(), auth, control.getVersion())
+                .set("tenantId", control.getTenantId())
                 .set("requireReceivableReview", input.requireReceivableReview())
                 .where("id", control.getId())
                 .and("version", control.getVersion())

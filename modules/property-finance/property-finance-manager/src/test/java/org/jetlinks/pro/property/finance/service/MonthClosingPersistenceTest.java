@@ -56,6 +56,49 @@ class MonthClosingPersistenceTest extends HandoverPersistenceTest {
     }
 
     @Test
+    void identityTenantDoesNotMoveCalendarBoundaryOrSourcesWhenClosingAndReopening() {
+        var payment = paid("tenant-closing", "12.34");
+        var batch = act(confirm(request(handoverInput(payment))).batch(), "APPROVE").batch();
+        year();
+        var tenant = org.mockito.Mockito.mock(org.jetlinks.pro.tenant.Tenant.class);
+        org.mockito.Mockito.when(tenant.getId()).thenReturn("identity-tenant");
+        var context = allowed().put(org.jetlinks.pro.tenant.Tenant.class, tenant);
+        for (var month : List.of("2024-01", "2024-02")) {
+            var request = submission(month, "CLOSE");
+            closing.submit(project, month, "CLOSE", request, END).contextWrite(context).block(WAIT);
+            var row = calendar.period(project, month).contextWrite(allowed()).block(WAIT);
+            assertEquals("", row.getTenantId());
+            assertEquals("CLOSED", row.getStatus());
+        }
+        assertEquals(12, calendar.year(project, 2024).contextWrite(allowed()).block(WAIT).size());
+        assertEquals("", handovers.findById(batch.getId()).block(WAIT).getTenantId());
+        assertEquals(
+                "",
+                bills.createQuery()
+                        .where("projectId", project)
+                        .fetchOne()
+                        .block(WAIT)
+                        .getTenantId());
+        assertEquals(
+                "",
+                controls.createQuery()
+                        .where("projectId", project)
+                        .fetchOne()
+                        .block(WAIT)
+                        .getTenantId());
+        closing.submit(project, "2024-02", "REOPEN", submission("2024-02", "REOPEN"), END)
+                .contextWrite(context)
+                .block(WAIT);
+        assertEquals(
+                "OPEN",
+                calendar.period(project, "2024-02")
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .getStatus());
+        assertEquals("", handovers.findById(batch.getId()).block(WAIT).getTenantId());
+    }
+
+    @Test
     void actualPeriodClosesAndReopensAllFactsWithoutChangingMoney() {
         var payment = paid("closing", "12.34");
         var batch = act(confirm(request(handoverInput(payment))).batch(), "APPROVE").batch();

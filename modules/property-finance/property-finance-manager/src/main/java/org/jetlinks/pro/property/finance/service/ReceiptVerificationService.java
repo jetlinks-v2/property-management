@@ -167,12 +167,12 @@ public class ReceiptVerificationService {
             Authentication auth) {
         var update =
                 audit(documents.createUpdate(), auth, row.getVersion())
+                        // 更新沿用票据归属，不能被当前身份租户的自动填充值覆盖。
+                        .set("tenantId", row.getTenantId())
                         .set("verified", true)
                         .set("verifiedAt", now.toString())
                         .set("verifiedBy", auth.getUser().getId())
-                        .set(
-                                "verifiedName",
-                                FinanceScope.operatorName(auth));
+                        .set("verifiedName", FinanceScope.operatorName(auth));
         if (remark == null) update.setNull("verificationRemark");
         else update.set("verificationRemark", remark);
         return update.where("id", row.getId())

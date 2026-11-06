@@ -93,7 +93,7 @@ public class MonthClosingAutomaticService {
                                                                     preview.version(),
                                                                     preview.token(),
                                                                     "自动月结 / Automatic monthly"
-                                                                        + " close"),
+                                                                            + " close"),
                                                             today))
                                     .flatMap(
                                             result -> {
@@ -169,6 +169,7 @@ public class MonthClosingAutomaticService {
 
     private Mono<Void> throttle(MonthClosingScheduleEntity plan, Instant next) {
         return plans.createUpdate()
+                .set("tenantId", plan.getTenantId())
                 .set("nextAttemptAt", next.toEpochMilli())
                 .where("id", plan.getId())
                 .and("version", plan.getVersion())

@@ -426,6 +426,7 @@ public class DocumentReopenService {
                                                                     documents.createUpdate(),
                                                                     auth,
                                                                     locked.getVersion())
+                                                            .set("tenantId", locked.getTenantId())
                                                             .set("reopenDocumentId", id)
                                                             .where("id", locked.getId())
                                                             .and("version", locked.getVersion())

@@ -22,6 +22,32 @@ class MonthClosingRulePersistenceTest extends MonthClosingPersistenceTest {
     @Autowired ReactiveRepository<MonthClosingRuleOperationEntity, String> ruleOperations;
 
     @Test
+    void identityTenantDoesNotMoveRuleOwnershipOnUpdate() {
+        var first =
+                ruleService
+                        .save(project, new MonthClosingRuleService.Input(null, false, "初始化规则"))
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var tenant = org.mockito.Mockito.mock(org.jetlinks.pro.tenant.Tenant.class);
+        org.mockito.Mockito.when(tenant.getId()).thenReturn("identity-tenant");
+        var next =
+                ruleService
+                        .save(
+                                project,
+                                new MonthClosingRuleService.Input(first.version(), true, "启用校验"))
+                        .contextWrite(allowed().put(org.jetlinks.pro.tenant.Tenant.class, tenant))
+                        .block(WAIT);
+        assertEquals(next, ruleService.get(project).contextWrite(allowed()).block(WAIT));
+        assertEquals(
+                "",
+                controls.createQuery()
+                        .where("projectId", project)
+                        .fetchOne()
+                        .block(WAIT)
+                        .getTenantId());
+    }
+
+    @Test
     void defaultRuleIsReadOnlyAndSavedRuleCannotChangeClosedBoundary() {
         var defaultRule = ruleService.get(project).contextWrite(allowed()).block(WAIT);
         assertNull(defaultRule.version());

@@ -49,6 +49,11 @@ public class ReceivableView extends ReceivableEntity {
     @JsonSerialize(using = ToStringSerializer.class)
     private BigDecimal outputTaxAmount;
 
+    @JsonSerialize(using = ToStringSerializer.class)
+    private BigDecimal invoiceDifferenceAmount;
+
+    private String taxationCollectionMethod;
+
     public static ReceivableView of(ReceivableEntity row, boolean detail) {
         return of(row, detail, LocalDate.now());
     }

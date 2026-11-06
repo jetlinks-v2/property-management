@@ -605,14 +605,14 @@ public class MonthClosingService {
             LocalDate today) {
         var update =
                 InvoiceCompanyService.audit(periods.createUpdate(), auth, period.getVersion())
+                        // 未显式选择租户时保留原归属，避免身份默认租户被 ORM 补到更新列。
+                        .set("tenantId", period.getTenantId())
                         .set("status", close ? "CLOSED" : "OPEN");
         if (close)
             update.set("closingOperationId", id)
                     .set("closedOn", today.toString())
                     .set("closedBy", auth.getUser().getId())
-                    .set(
-                            "closedName",
-                            FinanceScope.operatorName(auth));
+                    .set("closedName", FinanceScope.operatorName(auth));
         else
             update.setNull("closingOperationId")
                     .setNull("closedOn")
@@ -629,7 +629,8 @@ public class MonthClosingService {
     private Mono<Void> updateBoundary(
             FinancialPeriodControlEntity control, String boundary, Authentication auth) {
         var update =
-                InvoiceCompanyService.audit(controls.createUpdate(), auth, control.getVersion());
+                InvoiceCompanyService.audit(controls.createUpdate(), auth, control.getVersion())
+                        .set("tenantId", control.getTenantId());
         if (boundary == null) update.setNull("closedThrough");
         else update.set("closedThrough", boundary);
         return update.where("id", control.getId())

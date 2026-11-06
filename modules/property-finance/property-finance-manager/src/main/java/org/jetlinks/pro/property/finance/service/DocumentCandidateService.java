@@ -180,6 +180,10 @@ public class DocumentCandidateService {
                 .and("projectId", project)
                 .and("deleted", false)
                 .and("action", "TOPUP")
+                .accept(
+                        SqlTerm.of(
+                                "cast(document_snapshot_json as jsonb) ->> 'fundType' = ?",
+                                "ADVANCE"))
                 .gt("amount", 0);
         // 客户ID来自每笔存入的不可变快照，不能关联到可变账户的当前客户或标准。
         if (input.customerId() != null)

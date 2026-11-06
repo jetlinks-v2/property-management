@@ -2,25 +2,17 @@ package org.jetlinks.pro.property.finance.document;
 
 import static org.jetlinks.pro.property.finance.service.FinanceScope.error;
 
-import com.openhtmltopdf.outputdevice.helper.ExternalResourceControlPriority;
-import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
-
 import org.hswebframework.web.i18n.LocaleUtils;
 import org.jetlinks.pro.property.finance.service.DocumentStore;
 import org.springframework.stereotype.Component;
 import org.springframework.web.util.HtmlUtils;
 
-import java.io.*;
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.regex.Pattern;
 
 /** 固定收据模板：只渲染后端冻结字段，转义用户文本并禁止HTML引擎读取外部资源。 */
 @Component
 public class ReceiptPdfRenderer {
-    private static final String ROOT = "/receipt-templates/";
-    private static final Pattern TOKEN = Pattern.compile("\\{\\{([A-Za-z]+)}}");
 
     public byte[] render(DocumentStore.Detail detail, Locale locale, String issuerName) {
         validate(detail);
@@ -30,7 +22,13 @@ public class ReceiptPdfRenderer {
         values.put("company", text(row.getCompanyName()));
         values.put("buyer", text(detail.buyer().name()));
         values.put("customer", text(row.getCustomerName()));
-        values.put("date", text(row.getIssuedAt().replace('T', ' ')));
+        values.put(
+                "date",
+                text(
+                        java.time.LocalDateTime.parse(row.getIssuedAt())
+                                .format(
+                                        java.time.format.DateTimeFormatter.ofPattern(
+                                                "yyyy-MM-dd HH:mm"))));
         values.put("operator", text(issuerName));
         values.put("remark", text(row.getRemark()));
         values.put("amount", row.getAmount().toPlainString());
@@ -42,26 +40,8 @@ public class ReceiptPdfRenderer {
                         ? values.get("received")
                         : values.get("total"));
         values.put("rows", rows(detail));
-        try (var input = ReceiptPdfRenderer.class.getResourceAsStream(ROOT + "receipt.html");
-                var output = new ByteArrayOutputStream()) {
-            if (input == null) throw new IOException("Missing receipt template");
-            var template = new String(input.readAllBytes(), StandardCharsets.UTF_8);
-            // 一次替换避免用户备注中的同名占位符再次被当成模板执行。
-            String html =
-                    TOKEN.matcher(template)
-                            .replaceAll(
-                                    match ->
-                                            java.util.regex.Matcher.quoteReplacement(
-                                                    values.getOrDefault(match.group(1), "")));
-            var builder = new PdfRendererBuilder();
-            builder.useFastMode();
-            builder.useFont(this::font, "Noto Sans SC");
-            builder.useExternalResourceAccessControl(
-                    (uri, type) -> false, ExternalResourceControlPriority.RUN_BEFORE_RESOLVING_URI);
-            builder.withHtmlContent(html, null);
-            builder.toStream(output);
-            builder.run();
-            return output.toByteArray();
+        try {
+            return DocumentPdfTemplate.render("receipt.html", values);
         } catch (Exception failure) {
             throw new org.hswebframework.web.exception.BusinessException(
                     "error.property_finance_receipt_print_failed", 500, failure);
@@ -124,14 +104,6 @@ public class ReceiptPdfRenderer {
                     .append("</td></tr>");
         }
         return rows.toString();
-    }
-
-    private InputStream font() {
-        var input =
-                ReceiptPdfRenderer.class.getResourceAsStream(
-                        ROOT + "fonts/PropertyReceiptSC-Regular.ttf");
-        if (input == null) throw new IllegalStateException("Missing bundled receipt font");
-        return input;
     }
 
     private static String text(String value) {

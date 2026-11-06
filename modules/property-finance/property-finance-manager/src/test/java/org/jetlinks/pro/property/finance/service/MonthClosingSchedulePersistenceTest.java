@@ -57,6 +57,43 @@ class MonthClosingSchedulePersistenceTest extends MonthClosingPersistenceTest {
                         id -> Mono.just(executor));
     }
 
+    @Test
+    void identityTenantDoesNotMoveScheduleOwnershipOnUpdate() {
+        var first =
+                schedule.save(
+                                project,
+                                new MonthClosingScheduleService.Input(
+                                        null, false, "MONTH_END", null, "初始化"))
+                        .contextWrite(context())
+                        .block(WAIT);
+        var tenant = org.mockito.Mockito.mock(org.jetlinks.pro.tenant.Tenant.class);
+        org.mockito.Mockito.when(tenant.getId()).thenReturn("identity-tenant");
+        var next =
+                schedule.save(
+                                project,
+                                new MonthClosingScheduleService.Input(
+                                        first.version(), false, "DAY", 5, "修改执行日期"))
+                        .contextWrite(context().put(org.jetlinks.pro.tenant.Tenant.class, tenant))
+                        .block(WAIT);
+        assertEquals(next, schedule.get(project).contextWrite(context()).block(WAIT));
+        var reset =
+                schedule.save(
+                                project,
+                                new MonthClosingScheduleService.Input(
+                                        next.version(), false, "MONTH_END", null, "恢复月末执行"))
+                        .contextWrite(context().put(org.jetlinks.pro.tenant.Tenant.class, tenant))
+                        .block(WAIT);
+        assertEquals(reset, schedule.get(project).contextWrite(context()).block(WAIT));
+        assertNull(plan().getDay());
+        assertEquals(
+                "",
+                plans.createQuery()
+                        .where("projectId", project)
+                        .fetchOne()
+                        .block(WAIT)
+                        .getTenantId());
+    }
+
     @AfterEach
     void cleanup() {
         job.stop();

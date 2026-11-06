@@ -124,14 +124,20 @@ public class MonthClosingScheduleService {
                                 row.setNextAttemptAt(0L);
                                 return schedules.insert(row).then();
                             }
-                            return InvoiceCompanyService.audit(
-                                            schedules.createUpdate(), auth, row.getVersion())
-                                    .set("enabled", input.enabled())
-                                    .set("mode", input.mode())
-                                    .set("day", input.day())
-                                    .set("executorSnapshot", encoded)
-                                    .set("nextAttemptAt", 0L)
-                                    .where("id", row.getId())
+                            var update =
+                                    InvoiceCompanyService.audit(
+                                                    schedules.createUpdate(),
+                                                    auth,
+                                                    row.getVersion())
+                                            .set("tenantId", row.getTenantId())
+                                            .set("enabled", input.enabled())
+                                            .set("mode", input.mode())
+                                            .set("executorSnapshot", encoded)
+                                            .set("nextAttemptAt", 0L);
+                            // ORM 忽略普通 null 赋值；切回月末时须显式清除之前的指定日。
+                            if (input.day() == null) update.setNull("day");
+                            else update.set("day", input.day());
+                            return update.where("id", row.getId())
                                     .and("version", row.getVersion())
                                     .and("deleted", false)
                                     .execute()

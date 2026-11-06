@@ -28,8 +28,71 @@ class DocumentQueryPersistenceTest extends DocumentIssuePersistenceTest {
     @Autowired DocumentRecordService history;
     @Autowired DocumentCandidateService candidates;
     @Autowired DocumentFileService files;
+    @Autowired ReceivablePresentationService receivablePresentation;
     @Autowired org.hswebframework.ezorm.rdb.operator.DatabaseOperator database;
     @Autowired ReactiveRepository<DimensionAssetBindingEntity, String> assetBindings;
+
+    @Test
+    void receivableUsesSixDigitFrozenInvoiceTaxAndDropsReversedOrReceiptFacts() {
+        var bill = documentBill();
+        var initial = receivablePresentation.views(List.of(bill), "项目", false).block(WAIT).get(0);
+        assertNull(initial.getOutputTaxAmount());
+        var voucher =
+                new DocumentIssueInput.DifferenceVoucher(
+                        "11",
+                        null,
+                        "E2024002",
+                        null,
+                        null,
+                        "2024-02-15",
+                        "10.00",
+                        "差额凭证",
+                        "uploaded-file",
+                        "凭证.pdf");
+        var differential =
+                issue(
+                        submission(
+                                input(
+                                        List.of(
+                                                new DocumentIssueInput.Item(
+                                                        "RECEIVABLE",
+                                                        bill.getId(),
+                                                        "50",
+                                                        "DIFFERENTIAL",
+                                                        "10",
+                                                        voucher)))));
+        var full = issue(submission(input(List.of(item("RECEIVABLE", bill.getId(), "25")))));
+        var view = receivablePresentation.views(List.of(bill), "项目", false).block(WAIT).get(0);
+        assertEquals(new BigDecimal("3.679245"), view.getOutputTaxAmount());
+        assertEquals(new BigDecimal("71.320755"), view.getIncomeExcludingTax());
+        assertEquals(new BigDecimal("10.000000"), view.getInvoiceDifferenceAmount());
+        assertEquals("DIFFERENTIAL", view.getTaxationCollectionMethod());
+        assertEquals(
+                new BigDecimal("100.00"),
+                bills.findById(bill.getId()).block(WAIT).getActualReceivableAmount());
+        var reversal = reversal(differential.document(), "撤销差额票");
+        reverse(differential.document(), reversal);
+        reverse(differential.document(), reversal); // 幂等重试不能再次扣税。
+        view = receivablePresentation.views(List.of(bill), "项目", true).block(WAIT).get(0);
+        assertEquals(new BigDecimal("1.415094"), view.getOutputTaxAmount());
+        assertEquals(new BigDecimal("23.584906"), view.getIncomeExcludingTax());
+        assertEquals("FULL", view.getTaxationCollectionMethod());
+        reverse(full.document(), reversal(full.document(), "撤销全额票"));
+        var receipt = input(List.of(item("RECEIVABLE", bill.getId(), "10")));
+        issue(
+                submission(
+                        new DocumentIssueInput(
+                                "RECEIPT",
+                                receipt.companyId(),
+                                receipt.buyer(),
+                                null,
+                                null,
+                                receipt.items())));
+        view = receivablePresentation.views(List.of(bill), "项目", false).block(WAIT).get(0);
+        assertNull(view.getOutputTaxAmount());
+        assertNull(view.getIncomeExcludingTax());
+        assertNull(view.getInvoiceDifferenceAmount());
+    }
 
     QueryParamEntity page(int index, int size) {
         var q = new QueryParamEntity();
@@ -137,8 +200,22 @@ class DocumentQueryPersistenceTest extends DocumentIssuePersistenceTest {
     @Test
     void invoicePdfCarriesBusinessLabelsAndHistoricalTax() throws Exception {
         var bill = documentBill();
+        var input = input(List.of(item("RECEIVABLE", bill.getId(), "10")));
         var blue =
-                issue(submission(input(List.of(item("RECEIVABLE", bill.getId(), "10")))))
+                issue(
+                                submission(
+                                        new DocumentIssueInput(
+                                                input.documentType(),
+                                                input.companyId(),
+                                                input.buyer(),
+                                                input.invoiceType(),
+                                                "收费开始：2024-02-01\n"
+                                                    + "收费结束：2024-02-29\n"
+                                                    + "收费科目：物业服务费\n"
+                                                    + "费用金额：￥10.00\n"
+                                                    + "收费对象：测试企业\n"
+                                                    + "扣除差额：￥0.00",
+                                                input.items())))
                         .document();
         bills.createUpdate()
                 .set("snapshotJson", "{}")
@@ -150,6 +227,7 @@ class DocumentQueryPersistenceTest extends DocumentIssuePersistenceTest {
         assertTrue(
                 new String(pdf, 0, 5, java.nio.charset.StandardCharsets.US_ASCII).equals("%PDF-"));
         try (var parsed = org.apache.pdfbox.pdmodel.PDDocument.load(pdf)) {
+            assertEquals(1, parsed.getNumberOfPages(), "单条发票及完整业务备注应保持一页");
             var text =
                     java.text.Normalizer.normalize(
                                     new org.apache.pdfbox.text.PDFTextStripper().getText(parsed),
@@ -163,6 +241,7 @@ class DocumentQueryPersistenceTest extends DocumentIssuePersistenceTest {
                     "png",
                     output.resolve("simulated-invoice.png").toFile());
             assertTrue(text.contains("发票"));
+            assertTrue(text.contains("电子发票"));
             assertFalse(text.contains("模拟"));
             assertTrue(text.contains("不作为税务发票使用"));
             assertTrue(text.contains("原物业服务"));
@@ -888,7 +967,8 @@ class DocumentQueryPersistenceTest extends DocumentIssuePersistenceTest {
         DocumentQueryScope.class,
         DocumentRecordService.class,
         DocumentFileService.class,
-        DocumentCandidateService.class
+        DocumentCandidateService.class,
+        ReceivablePresentationService.class
     })
     static class Config {}
 }

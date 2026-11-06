@@ -224,9 +224,9 @@ class FundDocumentPersistenceTest extends DocumentIssuePersistenceTest {
                         .query(project, "INVOICE", q, NOW)
                         .contextWrite(fixture.allowed())
                         .block(WAIT);
-        assertEquals(2, page.getTotal());
+        assertEquals(1, page.getTotal());
         assertEquals(1, page.getData().size());
-        assertTrue(Set.of("ADVANCE", "DEPOSIT").contains(page.getData().get(0).fundType()));
+        assertEquals("ADVANCE", page.getData().get(0).fundType());
         assertEquals(customer, page.getData().get(0).customerId());
         var refund = topupInput("ADVANCE", "1");
         refund.setAction("REFUND");
@@ -238,8 +238,8 @@ class FundDocumentPersistenceTest extends DocumentIssuePersistenceTest {
                         .query(project, "INVOICE", q, NOW)
                         .contextWrite(fixture.allowed())
                         .block(WAIT);
-        assertEquals(1, page.getTotal());
-        assertEquals(b.entry().getId(), page.getData().get(0).sourceId());
+        assertEquals(0, page.getTotal());
+        assertTrue(page.getData().isEmpty());
         assertEquals(
                 0,
                 candidates
@@ -386,7 +386,7 @@ class FundDocumentPersistenceTest extends DocumentIssuePersistenceTest {
 
     @Test
     void sourceHttpUsesExactMoneyAndSeparateFundTypeWithoutExposingRawSnapshots() {
-        var a = executeFund(topupInput("DEPOSIT", "9007199254740993.01"));
+        var a = executeFund(topupInput("ADVANCE", "9007199254740993.01"));
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(
                                 new org.jetlinks.pro.property.finance.web.InvoiceDocumentController(
@@ -423,7 +423,7 @@ class FundDocumentPersistenceTest extends DocumentIssuePersistenceTest {
                 .jsonPath("$.data[0].sourceType")
                 .isEqualTo("FUND_TOPUP")
                 .jsonPath("$.data[0].fundType")
-                .isEqualTo("DEPOSIT")
+                .isEqualTo("ADVANCE")
                 .jsonPath("$.data[0].availableAmount")
                 .isEqualTo("9007199254740993.01")
                 .jsonPath("$.data[0].snapshotJson")
@@ -435,8 +435,8 @@ class FundDocumentPersistenceTest extends DocumentIssuePersistenceTest {
     }
 
     @Test
-    void invoiceAndReceiptShareOriginalQuotaAndUsedReceiptCannotBeVoided() {
-        var a = executeFund(topupInput("DEPOSIT", "100.01"));
+    void invoiceAndReceiptShareOriginalQuotaAndVoidingPreservesBalance() {
+        var a = executeFund(topupInput("ADVANCE", "100.01"));
         var blue =
                 issue(submission(input(List.of(item("FUND_TOPUP", a.entry().getId(), "80.00")))));
         var value = input(List.of(item("FUND_TOPUP", a.entry().getId(), "20.01")));
@@ -453,19 +453,59 @@ class FundDocumentPersistenceTest extends DocumentIssuePersistenceTest {
                         input(List.of(item("FUND_TOPUP", a.entry().getId(), "0.01"))),
                         NOW),
                 409);
-        fixture.rejects(
-                reverse.reverse(
-                        project,
-                        "RECEIPT",
-                        receipt.document().getId(),
-                        reversal(receipt.document(), "付款关联不许作废"),
-                        NOW),
-                409);
+        assertEquals(
+                "VOIDED",
+                reverse(receipt.document(), reversal(receipt.document(), "作废凭证不退款"))
+                        .document()
+                        .getStatus());
+        assertEquals(
+                new BigDecimal("100.01"),
+                accounts.findById(a.account().getId()).block(WAIT).getBalance());
         reverse(blue.document(), reversal(blue.document(), "红冲原发票"));
         assertEquals(
-                new BigDecimal("20.01"),
+                new BigDecimal("0.00"),
                 accounts.findById(a.account().getId()).block(WAIT).getInvoiceOccupiedAmount());
-        assertEquals(new BigDecimal("80.00"), original(a.entry()).availableAmount());
+        assertEquals(new BigDecimal("100.01"), original(a.entry()).availableAmount());
+    }
+
+    @Test
+    void depositCannotIssueInvoiceOrReceiptAndMixedBatchWritesNothing() {
+        var deposit = executeFund(topupInput("DEPOSIT", "60.00"));
+        var advance = executeFund(topupInput("ADVANCE", "40.00"));
+        for (var type : List.of("INVOICE", "RECEIPT")) {
+            var base = input(List.of(item("FUND_TOPUP", deposit.entry().getId(), "60.00")));
+            var value =
+                    new DocumentIssueInput(
+                            type,
+                            "company",
+                            base.buyer(),
+                            type.equals("INVOICE") ? "1" : null,
+                            null,
+                            base.items());
+            fixture.rejects(preparation.preview(project, value, NOW), 400);
+            var mixed =
+                    new DocumentIssueInput(
+                            type,
+                            "company",
+                            base.buyer(),
+                            value.invoiceType(),
+                            null,
+                            List.of(
+                                    item("FUND_TOPUP", advance.entry().getId(), "40.00"),
+                                    item("FUND_TOPUP", deposit.entry().getId(), "60.00")));
+            fixture.rejects(preparation.preview(project, mixed, NOW), 400);
+        }
+        assertEquals(0, documentRows.createQuery().where("projectId", project).count().block(WAIT));
+        assertEquals(
+                new BigDecimal("0.00"),
+                accounts.findById(deposit.account().getId())
+                        .block(WAIT)
+                        .getInvoiceOccupiedAmount());
+        assertEquals(
+                new BigDecimal("0.00"),
+                accounts.findById(advance.account().getId())
+                        .block(WAIT)
+                        .getInvoiceOccupiedAmount());
     }
 
     @Configuration

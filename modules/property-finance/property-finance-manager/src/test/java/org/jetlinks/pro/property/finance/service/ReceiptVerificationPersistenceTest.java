@@ -55,6 +55,23 @@ class ReceiptVerificationPersistenceTest extends DocumentIssuePersistenceTest {
     }
 
     @Test
+    void identityTenantDoesNotMoveVerifiedReceiptOwnership() {
+        var row = receipt();
+        var request = verification(row);
+        var tenant = mock(org.jetlinks.pro.tenant.Tenant.class);
+        when(tenant.getId()).thenReturn("identity-tenant");
+        var context = fixture.allowed().put(org.jetlinks.pro.tenant.Tenant.class, tenant);
+        var result =
+                verification
+                        .verify(project, request, NOW.plusHours(1))
+                        .contextWrite(context)
+                        .block(WAIT);
+        assertTrue(result.get(0).document().getVerified());
+        assertEquals("", documentRows.findById(row.getId()).block(WAIT).getTenantId());
+        assertTrue(verify(request).get(0).document().getVerified());
+    }
+
+    @Test
     void closedOperationDateBlocksNewVerificationButReplayAndNextOpenDayStillWork() {
         var first = receipt();
         var original = verification(first);

@@ -70,8 +70,7 @@ public class DocumentFileService {
         var data = rows.stream().map(row -> values(row, locale)).toList();
         return FinanceReportFile.write(
                 new FinanceReportFile.Data(
-                        translate(
-                                type + "Title", "INVOICE".equals(type) ? "发票台账" : "收据台账", locale),
+                        translate(type + "Title", "INVOICE".equals(type) ? "发票台账" : "收据台账", locale),
                         translate(
                                 type + "Scope",
                                 "INVOICE".equals(type)
@@ -92,101 +91,12 @@ public class DocumentFileService {
                 .zipWith(LocaleUtils.currentReactive().defaultIfEmpty(Locale.SIMPLIFIED_CHINESE))
                 .flatMap(
                         pair ->
-                                Mono.fromCallable(() -> invoiceFile(pair.getT1(), pair.getT2()))
+                                Mono.fromCallable(
+                                                () ->
+                                                        org.jetlinks.pro.property.finance.document
+                                                                .InvoicePdfRenderer.render(
+                                                                pair.getT1(), pair.getT2()))
                                         .subscribeOn(Schedulers.boundedElastic()));
-    }
-
-    private static byte[] invoiceFile(DocumentStore.Detail detail, Locale locale) {
-
-        var d = detail.document();
-        var columns =
-                List.of(
-                        "source",
-                        "house",
-                        "subject",
-                        "period",
-                        "goods",
-                        "method",
-                        "rate",
-                        "difference",
-                        "amount",
-                        "tax",
-                        "net");
-        var labels =
-                new LinkedHashMap<>(
-                        Map.ofEntries(
-                                Map.entry("source", "来源单号"),
-                                Map.entry("house", "房屋"),
-                                Map.entry("subject", "科目"),
-                                Map.entry("period", "期间"),
-                                Map.entry("goods", "税目"),
-                                Map.entry("method", "征收方式"),
-                                Map.entry("rate", "税率"),
-                                Map.entry("difference", "扣除金额"),
-                                Map.entry("amount", "开票金额"),
-                                Map.entry("tax", "税额"),
-                                Map.entry("net", "不含税金额")));
-        labels.replaceAll((key, value) -> translate("column." + key, value, locale));
-        var rows =
-                detail.lines().stream()
-                        .map(
-                                item -> {
-                                    var l = item.snapshot();
-                                    return Map.ofEntries(
-                                            Map.entry(
-                                                    "source", l.sourceType() + ":" + l.sourceId()),
-                                            Map.entry("house", text(l.fullName())),
-                                            Map.entry("subject", text(l.subjectName())),
-                                            Map.entry(
-                                                    "period",
-                                                    text(l.startDate())
-                                                            + " ~ "
-                                                            + text(l.endDate())),
-                                            Map.entry("goods", text(l.goodsName())),
-                                            Map.entry(
-                                                    "method", label(l.collectionMethod(), locale)),
-                                            Map.entry("rate", text(l.taxRate())),
-                                            Map.entry("difference", text(l.differenceAmount())),
-                                            Map.entry("amount", l.amount()),
-                                            Map.entry("tax", l.taxAmount()),
-                                            Map.entry("net", l.netAmount()));
-                                })
-                        .toList();
-        var scope =
-                translate("pdfScope", "不作为税务发票使用", locale)
-                        + " | "
-                        + d.getDocumentNumber()
-                        + " | "
-                        + label(d.getStatus(), locale)
-                        + " | "
-                        + d.getIssuedAt()
-                        + " | 购方: "
-                        + detail.buyer().name()
-                        + " 税号: "
-                        + text(detail.buyer().taxNum())
-                        + " | 销方: "
-                        + d.getCompanyName()
-                        + " 税号: "
-                        + d.getSellerTaxNum()
-                        + " | 备注: "
-                        + text(d.getRemark());
-        return FinanceReportFile.write(
-                new FinanceReportFile.Data(
-                        translate("pdfTitle", "发票（非税务凭证）", locale),
-                        scope,
-                        translate("total", "合计", locale),
-                        columns,
-                        labels,
-                        Set.of("amount", "tax", "net", "difference"),
-                        rows,
-                        Map.of(
-                                "amount",
-                                d.getAmount().toPlainString(),
-                                "tax",
-                                d.getTaxAmount().toPlainString(),
-                                "net",
-                                d.getNetAmount().toPlainString())),
-                "pdf");
     }
 
     private static Map<String, String> values(DocumentLedgerRow r, Locale locale) {

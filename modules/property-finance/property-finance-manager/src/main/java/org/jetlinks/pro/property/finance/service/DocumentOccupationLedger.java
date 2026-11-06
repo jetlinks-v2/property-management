@@ -239,6 +239,7 @@ public class DocumentOccupationLedger {
         var next = money(bill.getInvoiceOccupiedAmount()).add(delta);
         if (next.signum() < 0) return Mono.error(error("document_occupation_conflict", 409));
         return audit(bills.createUpdate(), auth, bill.getVersion())
+                .set("tenantId", Objects.toString(bill.getTenantId(), ""))
                 .set("invoiceOccupiedAmount", next)
                 .where("id", bill.getId())
                 .and("projectId", bill.getProjectId())

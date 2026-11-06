@@ -158,6 +158,7 @@ public class AccountingCalendarChangeService {
         after.setModifierId(auth.getUser().getId());
         after.setModifierName(FinanceScope.operatorName(auth));
         return InvoiceCompanyService.audit(periods.createUpdate(), auth, before.getVersion())
+                .set("tenantId", before.getTenantId())
                 .set("modifyTime", after.getModifyTime())
                 .set("startDate", after.getStartDate())
                 .set("endDate", after.getEndDate())

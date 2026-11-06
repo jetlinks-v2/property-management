@@ -118,6 +118,9 @@ public class DocumentPreparationService {
         var scenes = new HashSet<String>();
         for (int index = 0; index < rows.size(); index++) {
             var source = rows.get(index);
+            // 押金不参与新开票或新开收据；历史票据的读取和释放仍保留原快照。
+            if (source.fund() != null && !"ADVANCE".equals(source.fund().account().getType()))
+                throw error("document_deposit_not_allowed", 400);
             var item = input.items().get(index);
             assertCompatible(input, first, source);
             var gross = rules.amount(item.amount(), false);

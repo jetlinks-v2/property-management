@@ -583,9 +583,15 @@ public class MonthClosingSources {
                                 return Mono.error(error("month_closing_source_invalid", 409));
                             boolean target = close || Boolean.TRUE.equals(member.previousClosed());
                             if (target == currentFlag) return Mono.empty();
-                            return InvoiceCompanyService.audit(
-                                            repository.createUpdate(), auth, current.getVersion())
-                                    .set(field, target)
+                            // 冻结、解冻只改变月结标记，不能迁移原始账务的租户归属。
+                            var update =
+                                    InvoiceCompanyService.audit(
+                                            repository.createUpdate(), auth, current.getVersion());
+                            if (current instanceof ReceivableEntity bill)
+                                update.set("tenantId", Objects.toString(bill.getTenantId(), ""));
+                            else if (current instanceof HandoverEntity handover)
+                                update.set("tenantId", handover.getTenantId());
+                            return update.set(field, target)
                                     .where("id", current.getId())
                                     .and("projectId", project)
                                     .and("version", current.getVersion())
