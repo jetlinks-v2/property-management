@@ -42,6 +42,8 @@ public class QualityStatistics {
             }).flatMap(groups -> includeProjects(filter, groups))
             .flatMapMany(groups -> Flux.fromIterable(groups.values()))
             .concatMap(row -> {
+                // 无授权任务的项目不可能通过 taskQuery 关联到检查项；保留零值行，省去空明细查询。
+                if (QualityReportRules.number(row, "totalTask") == 0) return Mono.just(QualityReportRules.taskRates(row));
                 var dimensionFilter = copy(filter);
                 if (filter.getTaskLevel() == 1) dimensionFilter.setBusinessTypeId(row.get("businessTypeId").toString());
                 else dimensionFilter.setProjectId(row.get("projectId").toString());
