@@ -53,13 +53,14 @@ public class RuleEntity extends FacilityEntity {
   @Column(length = 256)
   private String period;
 
-  @Column
+  @Column(precision = 44, scale = 12)
   private BigDecimal threshold;
 
-  @Column
+  @Column(precision = 44, scale = 12)
   private BigDecimal criticalThreshold;
 
-  @Column
+  /** 保留小数比例；默认零位小数会把0.8写成1，导致规则无法再次保存。 */
+  @Column(precision = 44, scale = 12)
   private BigDecimal nearRatio;
 
   @Column

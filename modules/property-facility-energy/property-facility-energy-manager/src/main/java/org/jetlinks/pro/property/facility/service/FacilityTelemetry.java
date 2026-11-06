@@ -5,6 +5,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jetlinks.core.trace.MonoTracer;
 import org.jetlinks.pro.property.facility.entity.*;
 import org.jetlinks.sdk.server.device.DeviceProperty;
 import org.springframework.stereotype.Service;
@@ -44,6 +45,33 @@ public class FacilityTelemetry {
   }
 
   private Mono<Void> backfill(MappingEntity mapping) {
+    return collectHistory(mapping)
+      .then(recordCollection(mapping, null))
+      .onErrorResume(error ->
+        recordCollection(mapping, error).then(Mono.error(error))
+      )
+      .as(MonoTracer.create("/property/facility-energy/energy/collection"));
+  }
+
+  /** Status is server-owned and version-scoped; it never advances the source cursor on failure. */
+  private Mono<Void> recordCollection(MappingEntity mapping, Throwable error) {
+    return Mono.defer(() -> {
+      long now = System.currentTimeMillis();
+      var update = mappings.createUpdate().set("lastCollectionTime", now);
+      if (error == null) {
+        update.set("lastCollectionSuccessTime", now).setNull("collectionError");
+      } else {
+        update.set("collectionError", error.getClass().getSimpleName());
+      }
+      return update.where("id", mapping.getId())
+        .and("version", mapping.getVersion())
+        .and("enabled", true)
+        .and("deleted", false)
+        .execute().then();
+    });
+  }
+
+  private Mono<Void> collectHistory(MappingEntity mapping) {
     return devices.read(mapping.getDeviceId()).flatMap(device -> {
       FacilityDevices.requireActive(device);
       FacilityScope.require(

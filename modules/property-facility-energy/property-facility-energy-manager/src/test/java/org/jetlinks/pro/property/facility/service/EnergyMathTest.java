@@ -10,6 +10,19 @@ import org.junit.jupiter.api.Test;
 
 class EnergyMathTest {
 
+  @Test
+  void stateCodesIgnoreNumericScaleButKeepTextSemantics() {
+    assertTrue(EnergyMath.sameState("1", "1.0000"));
+    assertTrue(EnergyMath.sameState("0.000", "0"));
+    assertTrue(EnergyMath.sameState("-2", "-2.0000"));
+    assertTrue(EnergyMath.sameState("fault", "fault"));
+    assertTrue(EnergyMath.sameState("true", "true"));
+    assertFalse(EnergyMath.sameState("1", "10.0000"));
+    assertFalse(EnergyMath.sameState("fault", "Fault"));
+    assertFalse(EnergyMath.sameState("true", "1"));
+    assertFalse(EnergyMath.sameState(null, null));
+  }
+
   private ReadingEntity row(long time, String value, String kind) {
     var r = new ReadingEntity();
     r.setId("r" + time);

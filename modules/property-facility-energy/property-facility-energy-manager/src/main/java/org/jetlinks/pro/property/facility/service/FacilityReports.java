@@ -258,8 +258,8 @@ public class FacilityReports {
       : "month".equals(period)
         ? 12
         : 1;
-    return Flux.range(0, count)
-      .concatMap(index -> {
+    var periods = new ArrayList<Map<String, Object>>();
+    for (int index = 0; index < count; index++) {
         var date = "day".equals(period)
           ? first.plusDays(index)
           : "month".equals(period)
@@ -272,16 +272,50 @@ public class FacilityReports {
             : date.plusYears(1);
         long from = date.atStartOfDay(zone).toInstant().toEpochMilli(),
           to = end.atStartOfDay(zone).toInstant().toEpochMilli();
-        return energy(projectId, from, to, level).map(data -> {
-          var row = new LinkedHashMap<String, Object>();
-          row.put("period", date.toString());
-          row.put("from", from);
-          row.put("to", to);
-          row.put("meters", data);
-          return (Map<String, Object>) row;
-        });
-      })
-      .collectList();
+        var row = new LinkedHashMap<String, Object>();
+        row.put("period", date.toString());
+        row.put("from", from);
+        row.put("to", to);
+        row.put("meters", new ArrayList<Map<String, Object>>());
+        periods.add(row);
+    }
+    require(Set.of("master", "submeter", "branch", "other").contains(level), "invalid_period");
+    long from = (long) periods.get(0).get("from");
+    long to = (long) periods.get(periods.size() - 1).get("to");
+    // 先由 AssetsHolder 筛选仪表；每个指标读取一次年度／月度序列，避免每个周期重复授权与查库。
+    return rows(mappings, FacilityAssetType.facilityMapping, "id", projectId)
+      .flatMapMany(Flux::fromIterable)
+      .filter(mapping -> level.equals(mapping.getMeterLevel()))
+      .concatMap(mapping -> Flux.fromIterable(mapping.getMetrics())
+        .filter(metric -> Set.of("counter", "increment").contains(metric.getKind()) &&
+          (metric.getPropertyId().equals(mapping.getUsagePropertyId()) ||
+            (mapping.getUsagePropertyId() == null && mapping.getMetrics().stream()
+              .filter(value -> Set.of("counter", "increment").contains(value.getKind())).count() == 1)))
+        .concatMap(metric -> readings.seriesFor(mapping, metric.getPropertyId(), from, to)
+          .map(source -> periods.stream().map(window -> EnergyMath.usage(source,
+            (long) window.get("from"), (long) window.get("to"), mapping.getStaleAfterSeconds())).toList())
+          // 保留既有单周期五万读数的上限；长区间超过上限时按原周期有界读取。
+          .onErrorResume(org.hswebframework.web.exception.BusinessException.class, error ->
+            "error.facility.too_many".equals(error.getMessage())
+              ? Flux.fromIterable(periods).concatMap(window -> readings.usageFor(mapping,
+                  metric.getPropertyId(), (long) window.get("from"), (long) window.get("to"))).collectList()
+              : Mono.error(error))
+          .doOnNext(usages -> {
+            for (int i = 0; i < periods.size(); i++) {
+              var meter = new LinkedHashMap<String, Object>();
+              meter.put("deviceId", mapping.getDeviceId());
+              meter.put("projectId", mapping.getProjectId());
+              meter.put("name", mapping.getName());
+              meter.put("energyType", mapping.getEnergyType());
+              meter.put("unit", metric.getUnit());
+              meter.put("propertyId", metric.getPropertyId());
+              meter.put("usage", usages.get(i));
+              @SuppressWarnings("unchecked")
+              var meters = (List<Map<String, Object>>) periods.get(i).get("meters");
+              meters.add(meter);
+            }
+          })))
+      .then(Mono.just(periods));
   }
 
   public Mono<Map<String, Object>> operations(

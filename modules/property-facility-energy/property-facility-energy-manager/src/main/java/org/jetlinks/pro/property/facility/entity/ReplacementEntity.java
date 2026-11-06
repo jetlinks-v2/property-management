@@ -34,10 +34,10 @@ public class ReplacementEntity extends FacilityEntity {
   @Column
   private Long effectiveTime;
 
-  @Column
+  @Column(precision = 44, scale = 12)
   private BigDecimal finalReading;
 
-  @Column
+  @Column(precision = 44, scale = 12)
   private BigDecimal initialReading;
 
   @Column(length = 4000)

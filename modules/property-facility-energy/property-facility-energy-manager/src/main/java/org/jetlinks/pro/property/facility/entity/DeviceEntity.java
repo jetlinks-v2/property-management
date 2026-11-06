@@ -73,13 +73,13 @@ public class DeviceEntity extends FacilityEntity {
   @Column(length = 256)
   private String specification;
 
-  @Column
+  @Column(precision = 44, scale = 12)
   private BigDecimal power;
 
   @Column(length = 256)
   private String manufacturer;
 
-  @Column
+  @Column(precision = 44, scale = 12)
   private BigDecimal purchasePrice;
 
   @Column(length = 256)

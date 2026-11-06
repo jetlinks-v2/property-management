@@ -59,6 +59,17 @@ public class MappingEntity extends FacilityEntity {
   @Column
   private Long lastCollectedTime;
 
+  /** Completion time of the latest collection attempt, distinct from its historical cursor. */
+  @Column
+  private Long lastCollectionTime;
+
+  @Column
+  private Long lastCollectionSuccessTime;
+
+  /** Bounded exception type only; never persist remote payloads or credentials. */
+  @Column(length = 256)
+  private String collectionError;
+
   @Column
   private Long staleAfterSeconds;
 

@@ -23,7 +23,7 @@ public class QualityTaskCandidates {
         return scope.current().flatMapMany(context -> directory.project(projectId).flatMapMany(project -> {
             var task = QualityScope.initialize(new QualityTaskEntity(), context);
             task.setProjectId(project.getId());
-            return directory.employees().filterWhen(person -> eligible(task, person, role), 8);
+            return QualityCandidateScan.filter(directory.employees(task.getApplicationId()), person -> eligible(task, person, role));
         }));
     }
 

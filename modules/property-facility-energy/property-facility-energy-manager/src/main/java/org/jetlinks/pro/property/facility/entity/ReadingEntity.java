@@ -46,13 +46,14 @@ public class ReadingEntity extends FacilityEntity {
   @Column(length = 256)
   private String unit;
 
-  @Column
+  @Column(precision = 44, scale = 12)
   private BigDecimal rawValue;
 
   @Column(length = 4000)
   private String textValue;
 
-  @Column
+  /** 与指标允许的12位精度一致，同时保留原有32位整数容量。 */
+  @Column(precision = 44, scale = 12)
   private BigDecimal value;
 
   @Column(length = 256)

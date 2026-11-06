@@ -455,7 +455,7 @@ public class FacilityAlerts {
               return writer.record(
                 rule,
                 device,
-                Objects.equals(rule.getStateValue(), last.get().getTextValue())
+                EnergyMath.sameState(rule.getStateValue(), last.get().getTextValue())
                   ? BigDecimal.ONE
                   : BigDecimal.ZERO,
                 "state",

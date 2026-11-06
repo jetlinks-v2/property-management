@@ -8,7 +8,7 @@ import reactor.core.publisher.*;import java.util.*;
 /** 以候选员工自己的实时应用角色和目标工单保存权限判断资格，不信任前端传入姓名或角色。 */
 @Service @RequiredArgsConstructor public class QualityAssignees {
  private final QualityDirectory directory;private final AssetScopeResolverManager resolver;
- public Flux<PropertyUserInfo> candidates(QualityWorkOrderEntity order,String action,String role){return directory.employees().filterWhen(p->eligible(p,order,action,role),8);}
+ public Flux<PropertyUserInfo> candidates(QualityWorkOrderEntity order,String action,String role){return QualityCandidateScan.filter(directory.employees(order.getApplicationId()),p->eligible(p,order,action,role));}
  public Mono<PropertyUserInfo> assertEligible(String id,QualityWorkOrderEntity order,String action,String role){return directory.employee(id).filterWhen(p->eligible(p,order,action,role)).switchIfEmpty(Mono.error(new AccessDenyException()));}
  private Mono<Boolean> eligible(PropertyUserInfo person,QualityWorkOrderEntity order,String action,String role){
   return ReactiveAuthenticationHolder.get(person.getId()).flatMap(auth->resolver.resolve(AssetScope.of(BusinessApplicationDimension.TYPE,order.getApplicationId()),auth))

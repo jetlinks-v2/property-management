@@ -123,6 +123,12 @@ public class FacilityMappings {
                 row.setMetrics(input.getMetrics());
                 row.setStaleAfterSeconds(input.getStaleAfterSeconds());
                 row.setEnabled(input.getEnabled());
+                // Collection metadata has its own writer; a configuration edit must
+                // not restore a stale cursor/status loaded before an asynchronous collection.
+                row.setLastCollectedTime(null);
+                row.setLastCollectionTime(null);
+                row.setLastCollectionSuccessTime(null);
+                row.setCollectionError(null);
                 return create
                   ? records.insert(
                       mappings,
@@ -139,7 +145,7 @@ public class FacilityMappings {
                         "usageType",
                         "usagePropertyId"
                       )
-                    );
+                    ).then(mappings.findById(id));
               });
           })
       );

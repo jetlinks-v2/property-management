@@ -171,6 +171,14 @@ class PropertyDirectoryPersistenceTest {
 
     @Import({OrganizationPersistenceTest.Config.class, PropertyDirectoryCommandSupport.class, PropertyUserScope.class, PropertyUserService.class})
     static class Config {
+        @Bean SaasUserSource userSource() {
+            return new SaasUserSource() {
+                @Override public Flux<String> authorizedIds(List<String> ids) {
+                    return AssetsHolder.filterAssets(Flux.fromIterable(ids), AssetType.of("user"),
+                        id -> id, org.jetlinks.pro.assets.crud.CrudAssetPermission.read);
+                }
+            };
+        }
         @Bean AssetManager assets() { return mock(AssetManager.class); }
         @Bean ArchiveScope archive(ReactiveRepository<PropertyOrganizationEntity, String> organizations,
             ReactiveRepository<PropertySpaceBindingEntity, String> bindings,

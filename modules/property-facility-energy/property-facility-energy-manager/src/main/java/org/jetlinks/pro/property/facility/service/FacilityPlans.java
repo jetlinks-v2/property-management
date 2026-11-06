@@ -237,14 +237,7 @@ public class FacilityPlans {
     return records
       .read(plans, id, FacilityAssetType.facilityPlan, CrudAssetPermission.save)
       .flatMap(plan -> {
-        long now = System.currentTimeMillis(),
-          scheduled = temporary ? now : plan.getNextRunTime();
-        require(
-          Boolean.TRUE.equals(plan.getEnabled()) &&
-            scheduled <= now &&
-            scheduled <= plan.getEndTime(),
-          "invalid_state"
-        );
+        long scheduled = generationTime(plan, temporary, System.currentTimeMillis());
         return records
           .read(
             standards,
@@ -252,6 +245,12 @@ public class FacilityPlans {
             FacilityAssetType.facilityStandard,
             CrudAssetPermission.read
           )
+          .doOnNext(standard -> require(
+            Boolean.TRUE.equals(standard.getEnabled()) &&
+              plan.getProjectId().equals(standard.getProjectId()) &&
+              plan.getKind().equals(standard.getKind()),
+            "invalid_standard"
+          ))
           .flatMap(standard ->
             resolveDevices(plan)
               .flatMapMany(Flux::fromIterable)
@@ -338,6 +337,18 @@ public class FacilityPlans {
             return records.update(plans, plan, v).thenReturn(generated);
           });
       });
+  }
+
+  /** 临时任务不推进周期，但仍须处于计划有效期；到期判断由服务端再次校验，防止列表过期。 */
+  static long generationTime(PlanEntity plan, boolean temporary, long now) {
+    require(Boolean.TRUE.equals(plan.getEnabled()), "plan_disabled");
+    require(plan.getStartTime() != null && plan.getEndTime() != null &&
+      plan.getNextRunTime() != null, "invalid_plan");
+    require(now >= plan.getStartTime(), "plan_not_started");
+    long scheduled = temporary ? now : plan.getNextRunTime();
+    require(scheduled <= plan.getEndTime(), "plan_finished");
+    require(scheduled <= now, "plan_not_due");
+    return scheduled;
   }
 
   /** Share the task snapshot with its validated collaboration organization, never the device or plan. */

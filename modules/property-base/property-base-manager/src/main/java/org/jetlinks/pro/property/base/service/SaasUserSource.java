@@ -110,18 +110,19 @@ public class SaasUserSource {
      */
     public Flux<String> authorizedIds(List<String> ids) {
         if (ids.isEmpty()) return Flux.empty();
-        var query = QueryParamEntity.newQuery().in("id", ids).getParam();
-        query.setPaging(false);
-        query.setIncludes(Set.of("id"));
-        return org.jetlinks.pro.assets.AssetsHolder.injectQueryParam(query, "user", "id")
-                .flatMapMany(this::accountIds)
-                .filter(ids::contains).distinct();
+        return Flux.fromIterable(ids).distinct().buffer(PAGE_SIZE).concatMap(batch -> {
+            var query = QueryParamEntity.newQuery().in("id", batch).getParam();
+            query.setPaging(false);
+            query.setIncludes(Set.of("id"));
+            // owner 注入权限，消费方只限定候选；保留请求身份、租户和应用Scope。
+            return accountIds(query).filter(batch::contains);
+        }).distinct();
     }
 
     protected Flux<String> accountIds(QueryParamEntity query) {
         var command = QueryListCommand.of(UserInfo.class);
         command.withQueryParam(query);
-        return CommandSupportManagerProviders.getCommandSupport("authService:user")
+        return CommandSupportManagerProviders.getCommandSupport("authService:user-directory")
                 .switchIfEmpty(Mono.error(new BusinessException.NoStackTrace(
                         "error.property_user_source_unavailable", 503)))
                 .flatMapMany(support -> support.execute(command))

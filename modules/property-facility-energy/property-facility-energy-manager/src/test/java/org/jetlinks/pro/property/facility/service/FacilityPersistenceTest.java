@@ -372,6 +372,64 @@ class FacilityPersistenceTest {
   @Autowired
   MappingStore mappings;
 
+  @Test
+  void collectionFailurePreservesCursorAndRecoveryClearsStatus() {
+    var context = new FacilityContext("tenant", "app", "collector", "Collector");
+    var mapping = FacilityScope.initialize(new MappingEntity(), context);
+    mapping.setId("collection-status-mapping");
+    mapping.setDeviceId("collection-status-device");
+    mapping.setProjectId("p");
+    mapping.setEnabled(true);
+    var metric = new MetricMapping();
+    metric.setPropertyId("total");
+    metric.setKind("counter");
+    mapping.setMetrics(List.of(metric));
+    mappings.save(mapping).block();
+    var device = FacilityScope.initialize(new DeviceEntity(), context);
+    device.setId(mapping.getDeviceId());
+    device.setCloudDeviceId("collection-status-cloud");
+    device.setSyncState("active");
+    device.setSourceState("online");
+    device.setEnergyEnabled(true);
+    var cloud = mock(FacilityCloud.class);
+    var deviceAccess = mock(FacilityDevices.class);
+    when(deviceAccess.read(device.getId())).thenReturn(Mono.just(device));
+    var execution = mock(FacilityExecution.class);
+    when(execution.asOwnerFlux(any(), any())).thenReturn(Flux.never());
+    var telemetry = new FacilityTelemetry(
+      cloud, mock(FacilityReadings.class), deviceAccess, mappings, execution
+    );
+    try {
+      when(cloud.history(anyString(), anyString(), anyLong(), anyLong()))
+        .thenReturn(Flux.empty());
+      StepVerifier.create(telemetry.collect(mapping)).verifyComplete();
+      var success = mappings.findById(mapping.getId()).block();
+      assertNotNull(success.getLastCollectionSuccessTime());
+      assertNull(success.getCollectionError());
+      when(cloud.history(anyString(), anyString(), anyLong(), anyLong()))
+        .thenReturn(Flux.error(new IllegalStateException("private payload")));
+      StepVerifier.create(telemetry.collect(success))
+        .expectError(IllegalStateException.class).verify();
+      var failed = mappings.findById(mapping.getId()).block();
+      assertEquals(success.getLastCollectedTime(), failed.getLastCollectedTime());
+      assertEquals(success.getLastCollectionSuccessTime(), failed.getLastCollectionSuccessTime());
+      assertEquals("IllegalStateException", failed.getCollectionError());
+      when(cloud.history(anyString(), anyString(), anyLong(), anyLong()))
+        .thenReturn(Flux.empty());
+      StepVerifier.create(telemetry.collect(failed)).verifyComplete();
+      var recovered = mappings.findById(mapping.getId()).block();
+      assertNull(recovered.getCollectionError());
+      assertTrue(recovered.getLastCollectionSuccessTime() >= failed.getLastCollectionTime());
+      mappings.createUpdate().set("version", recovered.getVersion() + 1)
+        .set("collectionError", "CurrentConfigurationFailure")
+        .where("id", mapping.getId()).execute().block();
+      StepVerifier.create(telemetry.collect(recovered)).verifyComplete();
+      assertEquals("CurrentConfigurationFailure", mappings.findById(mapping.getId()).block().getCollectionError());
+    } finally {
+      telemetry.stop();
+    }
+  }
+
   @Autowired
   ReadingStore readings;
 
@@ -977,6 +1035,83 @@ class FacilityPersistenceTest {
   @Autowired
   RuleStore ruleStore;
 
+  @Autowired
+  ReplacementStore replacementStore;
+
+  @Test
+  void decimalBusinessValuesSurviveReloadAndRuleEdit() {
+    var context = new FacilityContext("tenant", "app", "staff", "Staff");
+    var amount = new java.math.BigDecimal("123.125000000001");
+    var rule = alertFixture("decimal-persistence", "instant", "instant");
+    rule.setThreshold(new java.math.BigDecimal("5.25"));
+    rule.setCriticalThreshold(new java.math.BigDecimal("10.75"));
+    rule.setNearRatio(new java.math.BigDecimal("0.8"));
+    ruleStore.save(rule).block();
+    var reloaded = ruleStore.findById(rule.getId()).block();
+    assertEquals(0, rule.getThreshold().compareTo(reloaded.getThreshold()));
+    assertEquals(0, rule.getCriticalThreshold().compareTo(reloaded.getCriticalThreshold()));
+    assertEquals(0, rule.getNearRatio().compareTo(reloaded.getNearRatio()));
+    var project = new PropertyOrganizationInfo();
+    project.setId(rule.getProjectId());
+    when(directory.project(rule.getProjectId())).thenReturn(Mono.just(project));
+    reloaded.setEnabled(false);
+    as("staff", ruleManager.save(reloaded)).block();
+    assertFalse(ruleStore.findById(rule.getId()).block().getEnabled());
+
+    var device = devices.findById("decimal-persistence-device").block();
+    device.setPower(amount);
+    device.setPurchasePrice(new java.math.BigDecimal("99999999999999999999999999999999.125000000001"));
+    devices.save(device).block();
+    var savedDevice = devices.findById(device.getId()).block();
+    assertEquals(0, amount.compareTo(savedDevice.getPower()));
+    assertEquals(0, device.getPurchasePrice().compareTo(savedDevice.getPurchasePrice()));
+
+    var reading = FacilityScope.initialize(new ReadingEntity(), context);
+    reading.setId("decimal-persistence-reading");
+    reading.setProjectId(rule.getProjectId());
+    reading.setDeviceId(device.getId());
+    reading.setRawValue(amount);
+    reading.setValue(amount);
+    readings.save(reading).block();
+    var savedReading = readings.findById(reading.getId()).block();
+    assertEquals(0, amount.compareTo(savedReading.getRawValue()));
+    assertEquals(0, amount.compareTo(savedReading.getValue()));
+
+    var target = FacilityScope.initialize(new EnergyTargetEntity(), context);
+    target.setId("decimal-persistence-target");
+    target.setProjectId(rule.getProjectId());
+    target.setEnergyType("gas");
+    target.setYear(2042);
+    target.setMonth(10);
+    target.setTargetUsage(amount);
+    target.setManagementArea(amount);
+    targets.save(target).block();
+    var savedTarget = targets.findById(target.getId()).block();
+    assertEquals(0, amount.compareTo(savedTarget.getTargetUsage()));
+    assertEquals(0, amount.compareTo(savedTarget.getManagementArea()));
+
+    var replacement = FacilityScope.initialize(new ReplacementEntity(), context);
+    replacement.setId("decimal-persistence-replacement");
+    replacement.setProjectId(rule.getProjectId());
+    replacement.setOldDeviceId(device.getId());
+    replacement.setFinalReading(amount);
+    replacement.setInitialReading(amount);
+    replacementStore.save(replacement).block();
+    var savedReplacement = replacementStore.findById(replacement.getId()).block();
+    assertEquals(0, amount.compareTo(savedReplacement.getFinalReading()));
+    assertEquals(0, amount.compareTo(savedReplacement.getInitialReading()));
+
+    var alert = FacilityScope.initialize(new AlertEntity(), context);
+    alert.setId("decimal-persistence-alert");
+    alert.setProjectId(rule.getProjectId());
+    alert.setValue(amount);
+    alert.setThreshold(amount);
+    alerts.save(alert).block();
+    var savedAlert = alerts.findById(alert.getId()).block();
+    assertEquals(0, amount.compareTo(savedAlert.getValue()));
+    assertEquals(0, amount.compareTo(savedAlert.getThreshold()));
+  }
+
   RuleEntity alertFixture(String prefix, String type, String kind) {
     var c = new FacilityContext("tenant", "app", "staff", "Staff");
     var device = FacilityScope.initialize(new DeviceEntity(), c);
@@ -1081,6 +1216,21 @@ class FacilityPersistenceTest {
       .block();
     assertNotNull(alert);
     assertEquals(0, new java.math.BigDecimal("2").compareTo(alert.getValue()));
+    verify(notifier, times(1)).enqueue(any(), any(), any());
+  }
+
+  @Test
+  void numericStateRuleMatchesCloudDecimalEncodingAndRecovers() {
+    var state = alertFixture("numeric-state", "state", "state");
+    state.setStateValue("1");
+    long now = System.currentTimeMillis();
+    sample(state, "numeric-state-a", now - 10000, null, "1.0000", "accepted", "state");
+    as("staff", ruleManager.evaluate(state)).block();
+    String id = FacilityRecords.stableId(state.getId(), "numeric-state-device");
+    assertEquals("open", alerts.findById(id).block().getState());
+    sample(state, "numeric-state-b", now - 5000, null, "0.0000", "accepted", "state");
+    as("staff", ruleManager.evaluate(state)).block();
+    assertEquals("recovered", alerts.findById(id).block().getState());
     verify(notifier, times(1)).enqueue(any(), any(), any());
   }
 

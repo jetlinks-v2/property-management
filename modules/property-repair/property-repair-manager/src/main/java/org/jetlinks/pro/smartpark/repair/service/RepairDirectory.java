@@ -20,6 +20,9 @@ import org.jetlinks.pro.property.base.space.PropertySpaceInfo;
 import org.jetlinks.pro.smartpark.repair.entity.RepairOrderEntity;
 import org.jetlinks.pro.tenant.holder.TenantHolder;
 import org.springframework.stereotype.Service;
+import org.jetlinks.sdk.server.SdkServices;
+import org.jetlinks.sdk.server.auth.DimensionUserBindInfo;
+import org.jetlinks.sdk.server.auth.cmd.GetDimensionUserBindCommand;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import java.util.List;
@@ -43,6 +46,23 @@ public class RepairDirectory {
         var command = new QueryPropertyUsersCommand(); command.setEmployeesOnly(true);
         return support().flatMapMany(s -> s.execute(command));
     }
+    /**
+     * 先读取真实应用成员，再与调用者有权查看的启用员工取交集；成员关系不替代动作及工单授权。
+     * 空成员列表不得向目录发送空 IDs，因为基础契约将空 IDs 解释为全量查询。
+     */
+    public Flux<PropertyUserInfo> employees(String applicationId) {
+        var command = new GetDimensionUserBindCommand()
+            .withDimension(BusinessApplicationDimension.TYPE, applicationId);
+        return support(SdkServices.authService).flatMapMany(s -> s.execute(command))
+            .filter(binding -> BusinessApplicationDimension.TYPE.equals(binding.getType())
+                && applicationId.equals(binding.getId()))
+            .flatMapIterable(DimensionUserBindInfo::getUserId)
+            .distinct().buffer(200).concatMap(ids -> {
+                var employees = new QueryPropertyUsersCommand();
+                employees.setEmployeesOnly(true); employees.setIds(ids);
+                return support().flatMapMany(s -> s.execute(employees));
+            });
+    }
     public Mono<PropertyUserInfo> user(String id) {
         var command = new QueryPropertyUsersCommand(); command.setIds(List.of(id));
         return support().flatMapMany(s -> s.execute(command)).next();
@@ -60,14 +80,17 @@ public class RepairDirectory {
             .switchIfEmpty(Mono.error(new BusinessException("error.repair.space_project_mismatch", 400)));
     }
     private Mono<org.jetlinks.core.command.CommandSupport> support() {
-        return CommandSupportManagerProviders.getCommandSupport(QueryPropertyUsersCommand.SERVICE_ID)
+        return support(QueryPropertyUsersCommand.SERVICE_ID);
+    }
+    protected Mono<org.jetlinks.core.command.CommandSupport> support(String serviceId) {
+        return CommandSupportManagerProviders.getCommandSupport(serviceId)
             .switchIfEmpty(Mono.error(new BusinessException("error.repair.directory_unavailable", 503)));
     }
 
     /** 系统调度和匿名二维码只能恢复可信工单来源的实时应用身份，不能通过无认证查询扩大目录。 */
     public Flux<PropertyUserInfo> employeesFor(RepairOrderEntity order) {
         return Authentication.currentReactive().hasElement().flatMapMany(authenticated -> {
-            if (authenticated) return employees();
+            if (authenticated) return employees(order.getApplicationId());
             Mono<String> publisher = order.getQrConfigurationId() == null
                 ? Mono.justOrEmpty(order.getCreatorId())
                 : configurations.findById(order.getQrConfigurationId())
@@ -76,7 +99,7 @@ public class RepairDirectory {
                     .map(qr -> qr.getQrPublisherId());
             RepairContext context = new RepairContext(Objects.toString(order.getExtension("tenantId")),
                 order.getApplicationId(), "system", "系统");
-            return publisher.flatMap(id -> withUser(id, context, () -> employees().collectList()))
+            return publisher.flatMap(id -> withUser(id, context, () -> employees(order.getApplicationId()).collectList()))
                 .flatMapMany(Flux::fromIterable);
         });
     }

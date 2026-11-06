@@ -53,10 +53,10 @@ public class AlertEntity extends FacilityEntity {
   @Column(length = 256)
   private String level;
 
-  @Column
+  @Column(precision = 44, scale = 12)
   private BigDecimal value;
 
-  @Column
+  @Column(precision = 44, scale = 12)
   private BigDecimal threshold;
 
   @Column(length = 256)

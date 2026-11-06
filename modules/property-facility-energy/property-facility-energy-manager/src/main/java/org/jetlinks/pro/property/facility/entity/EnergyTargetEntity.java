@@ -38,9 +38,9 @@ public class EnergyTargetEntity extends FacilityEntity {
   @Column
   private Integer month;
 
-  @Column
+  @Column(precision = 44, scale = 12)
   private BigDecimal targetUsage;
 
-  @Column
+  @Column(precision = 44, scale = 12)
   private BigDecimal managementArea;
 }

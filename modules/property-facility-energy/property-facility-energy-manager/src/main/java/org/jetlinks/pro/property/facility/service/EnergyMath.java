@@ -12,6 +12,17 @@ public final class EnergyMath {
 
   private EnergyMath() {}
 
+  /** 数字状态码忽略 Cloud 历史存储的小数位格式；文字状态仍区分大小写精确匹配。 */
+  public static boolean sameState(String expected, String actual) {
+    if (expected == null || actual == null) return false;
+    if (expected.equals(actual)) return true;
+    try {
+      return new BigDecimal(expected).compareTo(new BigDecimal(actual)) == 0;
+    } catch (NumberFormatException e) {
+      return false;
+    }
+  }
+
   public static BigDecimal normalize(BigDecimal raw, MetricMapping metric) {
     require(
       metric.getMultiplier() != null && metric.getMultiplier().signum() > 0,

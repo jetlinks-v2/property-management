@@ -18,6 +18,7 @@ public class FacilityRecords {
 
   private final FacilityScope scope;
   private final ProcessStore processes;
+  private final AssetBindManager bindings;
 
   public <T extends FacilityEntity> Mono<T> read(
     org.hswebframework.web.crud.service.GenericReactiveCrudService<
@@ -44,17 +45,26 @@ public class FacilityRecords {
     T row,
     AssetType type
   ) {
-    return store
-      .insert(row)
-      .then(
-        type == null
-          ? Mono.just(row)
-          : AssetsHolder.bindAssets(
-              Flux.just(row),
-              type,
-              FacilityEntity::getId
-            ).single()
-      );
+    return store.insert(row).then(bindOwnership(row, type)).thenReturn(row);
+  }
+
+  /**
+   * 领域入口已校验项目并赋予租户、应用和组织。按这些可信归属绑定，不能使用创建人的
+   * 默认组织自动绑定：direct provider 会将 organizationId 覆盖，导致同项目员工失去权限。
+   * 租户仍由实体 tenantId 及 TenantAssetsHolder 校验；外协仅由计划服务追加工单授权。
+   */
+  Mono<Void> bindOwnership(FacilityEntity row, AssetType type) {
+    if (type == null) return Mono.empty();
+    return bindings.bindAssets(Flux.just(
+      AssetBindRequest.builder()
+        .targetType("org").targetId(row.getOrganizationId())
+        .assetType(type.getId()).assetIdList(List.of(row.getId()))
+        .allPermission(true).build(),
+      AssetBindRequest.builder()
+        .targetType("business_application").targetId(row.getApplicationId())
+        .assetType(type.getId()).assetIdList(List.of(row.getId()))
+        .allPermission(true).build()
+    ));
   }
 
   public <T extends FacilityEntity> Mono<T> update(
