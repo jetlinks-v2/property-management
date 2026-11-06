@@ -64,25 +64,27 @@ public class PatrolMissedService {
             var query = QueryParamEntity.newQuery().is("scopeKey", current.key()).getParam();
             query.setPaging(false);
             return people.assertMembers(List.of(auth.getUser().getId()))
-                    .then(AssetsHolder.injectQueryParam(query, PatrolAssetType.patrolPlan, "id"))
-                    .flatMapMany(plans::query).take(LIMIT + 1L).collectList()
-                    .flatMapMany(rows -> rows.size() > LIMIT ? Flux.error(failure("too_many")) : Flux.fromIterable(rows))
-                    .map(plan -> plan.getId()).collectList().flatMap(ids -> {
-                        if (ids.isEmpty()) return Mono.just(List.<PatrolMissedItemEntity>of());
-                        var taskQuery = QueryParamEntity.newQuery().in("planId", ids)
+                    .then(Mono.defer(() -> {
+                        // 只限制实际漏检结果，不因同项目存在大量历史计划而拒绝当天手机入口。
+                        var taskQuery = QueryParamEntity.newQuery()
+                                .and("planId", "patrol-project-patrolPlan", query.getTerms())
                                 .lt("endTime", System.currentTimeMillis()).getParam();
                         taskQuery.setPaging(false);
                         // 漏检日期按明细生成时间筛选；先同步当前应用未封印任务，不能用任务结束日代替。
-                        var unsynced = taskQuery.clone(); unsynced.toNestQuery().isNull("missedInitialized");
-                        return tasks.query(unsynced).concatMap(task -> materialize(List.of(task))).then(
-                            readItems(QueryParamEntity.newQuery().in("planId", ids)
+                        taskQuery.toNestQuery().isNull("missedInitialized");
+                        var itemQuery = QueryParamEntity.newQuery()
+                                .and("planId", "patrol-project-patrolPlan", query.getTerms())
                                 .gte("createTime", from.atStartOfDay(ZONE).toInstant().toEpochMilli())
-                                .lt("createTime", to.plusDays(1).atStartOfDay(ZONE).toInstant().toEpochMilli()).getParam()))
+                                .lt("createTime", to.plusDays(1).atStartOfDay(ZONE).toInstant().toEpochMilli()).getParam();
+                        // 直接向两种事实的 planId 注入权限，避免同种计划子查询嵌套后关联别名遮蔽。
+                        return AssetsHolder.injectQueryParam(taskQuery, PatrolAssetType.patrolPlan, "planId")
+                            .flatMap(authorized -> tasks.query(authorized).concatMap(task -> materialize(List.of(task))).then())
+                            .then(AssetsHolder.injectQueryParam(itemQuery, PatrolAssetType.patrolPlan, "planId").flatMap(this::readItems))
                             .flatMap(rows -> Flux.fromIterable(rows).map(PatrolMissedItemEntity::getTaskId).distinct()
                                 .flatMap(taskId -> tasks.findById(taskId).filterWhen(task -> mobileAccess(task, auth.getUser().getId())))
                                 .map(PatrolTaskEntity::getId).collect(java.util.stream.Collectors.toSet())
                                 .map(allowed -> rows.stream().filter(row -> allowed.contains(row.getTaskId())).toList()));
-                    });
+                    }));
         })).as(MonoTracer.create("/patrol/missed/mine"));
     }
 

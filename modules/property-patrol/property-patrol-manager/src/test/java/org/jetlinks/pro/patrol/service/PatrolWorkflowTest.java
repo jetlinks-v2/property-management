@@ -1309,6 +1309,34 @@ class PatrolWorkflowTest {
     }
 
     @Test
+    void calendarMonthProjectionKeepsShiftNamesAndUniqueStaffAndMatchesDayProgress() {
+        db.enableTenantQueries();
+        long now = System.currentTimeMillis();
+        var task = seedTask(2, now - 60000, now + 3600000);
+        tasks.createUpdate().set(PatrolTaskEntity::getProjectId, "project")
+                .where(PatrolTaskEntity::getId, task.getId()).execute().block();
+        var roster = new PatrolRosterEntity();
+        roster.setId("calendar-staff"); roster.setName("巡更班次"); roster.setShiftName("白班");
+        roster.setUserId("alice"); roster.setRoleId("post"); roster.setBusinessDate(LocalDate.now());
+        roster.setScopeKey("app"); roster.setProjectId("project"); roster.setProjectName("Project");
+        roster.setStartTime(task.getStartTime()); roster.setEndTime(task.getEndTime());
+        roster.setExtension("tenantId", "north"); rosters.insert(roster).block();
+        var people = mock(SaasPersonDirectory.class);
+        when(people.telephones(List.of("alice"))).thenReturn(Mono.just(Map.of("alice", "13800000001")));
+        var calendar = new PatrolCalendarService(rosters, tasks, people);
+        var month = calendar.month(java.time.YearMonth.now()).contextWrite(identity).block();
+        var day = month.days().get(LocalDate.now().getDayOfMonth() - 1);
+        assertEquals(1, month.summary().staffCount()); assertEquals(1, month.summary().scheduledDayCount());
+        assertEquals(1, day.shifts().size()); assertEquals("白班", day.shifts().get(0).name());
+        assertEquals(1, day.shifts().get(0).staffCount()); assertEquals(1, day.shifts().get(0).taskCount());
+        var detail = calendar.day(LocalDate.now()).contextWrite(identity).block();
+        assertEquals(detail.expectedCount(), day.expectedCount());
+        assertEquals(detail.pointCount(), day.pointCount());
+        assertEquals("13800000001", detail.staffTelephones().get("alice"));
+        assertEquals(task.getStandardSnapshot(), detail.tasks().get(0).getStandardSnapshot());
+    }
+
+    @Test
     void calendarUsesStoredBusinessDateForDeployedTasksWithoutBelongDate() {
         db.enableTenantQueries();
         var task = seedTask(1);
@@ -1369,6 +1397,7 @@ class PatrolWorkflowTest {
         var fact = new PatrolExecutionEntity(); fact.setId("fact"); fact.setTaskId("overview-task"); fact.setPlanId("plan");
         fact.setPointId("point"); fact.setProjectId("project"); fact.setUserId("alice"); fact.setUserName("Alice");
         fact.setRequestId("r"); fact.setReceiveTime(System.currentTimeMillis()); fact.setResult(PatrolExecutionEntity.CheckResult.fail);
+        fact.setAnswers(List.of(new PatrolExecutionEntity.Answer("lock", "abnormal")));
         executions.insert(fact).block();
         var otherFact = new PatrolExecutionEntity(); otherFact.setId("foreign-fact"); otherFact.setTaskId("foreign");
         otherFact.setPlanId("south-plan"); otherFact.setPointId("foreign-point"); otherFact.setProjectId("project");
@@ -1380,6 +1409,14 @@ class PatrolWorkflowTest {
         assertEquals(2, result.report().total().expected()); assertEquals(1, result.report().total().overdue());
         assertEquals(1, result.report().total().abnormalPoints()); assertEquals(1, result.report().people().size());
         assertEquals("alice", result.report().people().get(0).userId());
+        var projected = executions.queryStatisticsFacts(org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
+                .is("id", "fact").getParam()).blockFirst();
+        assertEquals("overview-task", projected.getTaskId());
+        assertEquals(null, projected.getAnswers());
+        assertEquals(null, projected.getStandardSnapshot());
+        var ownDetail = service.detail(new org.jetlinks.pro.patrol.service.statistics.PatrolOverview.DetailRequest(range, "point"))
+                .contextWrite(identity).block();
+        assertEquals("abnormal", ownDetail.executions().get(0).getAnswers().get(0).value());
         var detail = service.detail(new org.jetlinks.pro.patrol.service.statistics.PatrolOverview.DetailRequest(range, "foreign-point"))
                 .contextWrite(identity).block();
         assertTrue(detail.periods().isEmpty()); assertTrue(detail.executions().isEmpty());
@@ -1396,6 +1433,13 @@ class PatrolWorkflowTest {
         var legacy = tasks.findById(own.getId()).block(); legacy.setId("legacy"); legacy.setPeriodNo(3);
         legacy.setStartTime(legacy.getStartTime() + 1); legacy.setBelongDate(null); tasks.insert(legacy).block();
         assertEquals(4, service.aggregate(range).contextWrite(identity).block().report().total().expected());
+        // 生产项目权限使用嵌套计划子查询，不能与执行所属任务子查询复用 SQL 别名。
+        var holder = new org.jetlinks.pro.patrol.asset.PatrolProjectAssetsHolder(
+                new TenantAssetsHolder(Set.of("north"), mock(AssetManager.class)),
+                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"), supplier);
+        var nested = service.aggregate(range).contextWrite(identity.put(org.jetlinks.pro.assets.AssetsHolder.class, holder)).block();
+        assertEquals(1, nested.report().total().executed());
+        assertEquals("alice", nested.report().people().get(0).userId());
     }
 
     @Test
@@ -2593,6 +2637,39 @@ class PatrolWorkflowTest {
                 new org.jetlinks.pro.patrol.integration.PatrolProjectContext(List.of(), null, "app"), supplier);
         assertEquals(0, points.count(empty.injectQuery(new org.hswebframework.web.api.crud.entity.QueryParamEntity(),
                 "patrolPoint", "id").block()).block());
+    }
+
+    @Test
+    void correlatedPlanAuthorizationPreservesAssetApplicationAndProjectIntersectionBeforePaging() {
+        db.enableTenantQueries();
+        seedTask(2);
+        seedPlan("denied-plan", "south");
+        seedPlan("other-project-plan", "north");
+        var otherAppPlan = plans.findById("plan").block();
+        otherAppPlan.setId("other-app-plan"); otherAppPlan.setScopeKey("other-app");
+        plans.insert(otherAppPlan).block();
+        plans.createUpdate().set("projectId", "other-project").where("id", "other-project-plan").execute().block();
+        for (String plan : List.of("denied-plan", "other-project-plan", "other-app-plan")) {
+            var task = tasks.findById("task").block();
+            task.setId(plan + "-task"); task.setTaskGroupId(plan + "-group"); task.setPlanId(plan);
+            tasks.insert(task).block();
+        }
+        var manager = mock(AssetManager.class);
+        var original = new TenantAssetsHolder(Set.of("north"), manager);
+        var holder = new org.jetlinks.pro.patrol.asset.PatrolProjectAssetsHolder(original,
+                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"), supplier);
+        // 同项目但无资产权限、同授权但跨项目/应用的事实都不能通过调用者 OR 条件进入结果。
+        var query = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
+                .is("id", "task").or("id", "denied-plan-task").or("id", "other-project-plan-task")
+                .or("id", "other-app-plan-task").getParam();
+        query.setPageSize(1);
+        var scoped = holder.injectQuery(query, "patrolPlan", "planId").block();
+        var page = tasks.queryPager(scoped).block();
+        assertEquals(1, page.getTotal());
+        assertEquals("task", page.getData().get(0).getId());
+        var detailQuery = holder.injectQuery(org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
+                .is("id", "denied-plan-task").getParam(), "patrolPlan", "planId").block();
+        assertEquals(0, tasks.count(detailQuery).block());
     }
 
     @Test

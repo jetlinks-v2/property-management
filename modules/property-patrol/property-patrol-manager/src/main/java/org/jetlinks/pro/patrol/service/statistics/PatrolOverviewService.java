@@ -6,15 +6,15 @@ import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.exception.BusinessException;
 import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.patrol.asset.PatrolAssetType;
-import org.jetlinks.pro.patrol.entity.PatrolTaskEntity;
 import org.jetlinks.pro.patrol.service.PatrolExecutionService;
 import org.jetlinks.pro.patrol.service.PatrolTaskService;
+import org.jetlinks.pro.patrol.service.terms.PatrolExecutionTaskTermBuilder;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.jetlinks.pro.patrol.service.statistics.PatrolOverview.*;
 
@@ -28,7 +28,7 @@ public class PatrolOverviewService {
     private final PatrolExecutionService executions;
 
     public Mono<PatrolOverviewAggregation.Result> aggregate(Range range) {
-        return facts(range, null).publishOn(Schedulers.parallel()).map(facts ->
+        return facts(range, null, false).publishOn(Schedulers.parallel()).map(facts ->
                 PatrolOverviewAggregation.aggregate(range, facts.periods(), facts.executions(), System.currentTimeMillis()));
     }
 
@@ -45,10 +45,10 @@ public class PatrolOverviewService {
     }
 
     public Mono<Detail> detail(DetailRequest request) {
-        return facts(request.range(), request.pointId());
+        return facts(request.range(), request.pointId(), true);
     }
 
-    private Mono<Detail> facts(Range range, String pointId) {
+    private Mono<Detail> facts(Range range, String pointId, boolean detail) {
         if (range.from() == null || range.to() == null || range.to().isBefore(range.from())
                 || range.to().isAfter(range.from().plusDays(365)))
             return Mono.error(new BusinessException("error.patrol.statistics.range"));
@@ -67,22 +67,26 @@ public class PatrolOverviewService {
         }
         if (pointId != null) query.toQuery().is("pointId", pointId);
         query.setPageIndex(0); query.setPageSize(TASK_LIMIT + 1); query.setPaging(true);
+        if (!detail) query.setIncludes(Set.of("id", "planId", "pointId", "pointName", "projectId", "projectName",
+                "belongDate", "businessDate", "categoryId", "categoryName", "levelId", "levelName",
+                "taskGroupId", "requiredCount", "completedCount", "startTime", "endTime"));
         // 包括日期回退的 OR 条件先完整嵌套，再注入计划权限，避免 OR 放宽授权范围。
         return AssetsHolder.injectQueryParam(query, PatrolAssetType.patrolPlan, "planId")
-                .flatMapMany(tasks::query).collectList().flatMap(periods -> {
+                .flatMap(authorized -> tasks.query(authorized).collectList().flatMap(periods -> {
                     if (periods.size() > TASK_LIMIT) return Mono.error(new BusinessException("error.patrol.statistics.too_many"));
-                    // taskId 集合已授权；关联执行只能来自该集合，不另开未经授权的全量执行查询。
-                    return Flux.fromIterable(periods).map(PatrolTaskEntity::getId).buffer(500)
-                            .concatMap(ids -> {
-                                var executionQuery = QueryParamEntity.newQuery().in("taskId", ids)
-                                        .orderByAsc("receiveTime").orderByAsc("id").getParam();
-                                executionQuery.setPageIndex(0); executionQuery.setPageSize(EXECUTION_LIMIT + 1);
-                                executionQuery.setPaging(true);
-                                return executions.query(executionQuery);
-                            }).take(EXECUTION_LIMIT + 1L).collectList().map(facts -> {
-                                if (facts.size() > EXECUTION_LIMIT) throw new BusinessException("error.patrol.statistics.too_many");
-                                return new Detail(periods, facts);
-                            });
-                });
+                    if (periods.isEmpty()) return Mono.just(new Detail(periods, List.of()));
+                    // 复用任务筛选及其资产授权，在数据库关联执行；不按每 500 个任务重复往返数据库。
+                    var executionQuery = QueryParamEntity.newQuery()
+                            .and("taskId", PatrolExecutionTaskTermBuilder.TERM_TYPE,
+                                    authorized.getTerms()).getParam();
+                    if (detail) executionQuery.toQuery().orderByAsc("receiveTime").orderByAsc("id");
+                    executionQuery.setPageIndex(0); executionQuery.setPageSize(EXECUTION_LIMIT + 1);
+                    executionQuery.setPaging(true);
+                    var facts = detail ? executions.query(executionQuery) : executions.queryStatisticsFacts(executionQuery);
+                    return facts.take(EXECUTION_LIMIT + 1L).collectList().map(rows -> {
+                        if (rows.size() > EXECUTION_LIMIT) throw new BusinessException("error.patrol.statistics.too_many");
+                        return new Detail(periods, rows);
+                    });
+                }));
     }
 }

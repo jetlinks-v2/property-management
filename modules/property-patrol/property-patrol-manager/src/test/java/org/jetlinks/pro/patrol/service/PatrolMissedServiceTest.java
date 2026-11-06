@@ -53,6 +53,35 @@ class PatrolMissedServiceTest {
         var auth = new SimpleAuthentication(); var user = new SimpleUser(); user.setId("bob"); user.setName("Bob"); auth.setUser(user);
         return Context.of(Authentication.class, auth);
     }
+    @Test void historicalPlanCountDoesNotBlockCurrentMissedItems() {
+        ended(1);
+        var source = f.plans.findById("plan").block();
+        var records = new java.util.ArrayList<PatrolPlanEntity>();
+        for (int index = 0; index < 1001; index++) {
+            var row = new PatrolPlanEntity(); org.springframework.beans.BeanUtils.copyProperties(source, row);
+            row.setId("archived-" + index); row.setEnabled(false); records.add(row);
+        }
+        f.plans.insertBatch(Mono.just(records)).block();
+        assertEquals(1, missed.mine(LocalDate.now(), LocalDate.now()).contextWrite(f.identity).block().size());
+    }
+
+    @Test void selectedProjectFiltersMissedItemsWithRealProjectHolder() {
+        ended(1);
+        f.seedPlan("other-plan", "north");
+        f.plans.createUpdate().set(PatrolPlanEntity::getProjectId, "other-project")
+                .where(PatrolPlanEntity::getId, "other-plan").execute().block();
+        var other = f.tasks.findById("task").block();
+        other.setId("other-task"); other.setTaskGroupId("other-group"); other.setPlanId("other-plan");
+        other.setProjectId("other-project"); f.tasks.insert(other).block();
+        var holder = new org.jetlinks.pro.patrol.asset.PatrolProjectAssetsHolder(
+                new org.jetlinks.pro.tenant.assets.TenantAssetsHolder(java.util.Set.of("north"), mock(org.jetlinks.pro.assets.AssetManager.class)),
+                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"), f.supplier);
+        var identity = f.identity.put(org.jetlinks.pro.assets.AssetsHolder.class, holder);
+        assertEquals(List.of("task"), missed.mine(LocalDate.now(), LocalDate.now()).contextWrite(identity).block()
+                .stream().map(PatrolMissedItemEntity::getTaskId).toList());
+        assertNull(f.tasks.findById("other-task").block().getMissedInitialized());
+    }
+
     @Test void materializesExactMissingOccurrencesAndApprovalDoesNotCreateExecution() {
         var task = ended(4);
         f.tasks.createUpdate().set(PatrolTaskEntity::getCompletedCount, 1)
