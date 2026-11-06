@@ -85,10 +85,8 @@ public class ReceivedReportService {
         return FinanceSpaceQuery.inject(l, lines, CrudAssetPermission.read)
                 .then(FinanceSpaceQuery.inject(rl, refundLines, CrudAssetPermission.read))
                 .then(FinanceSpaceQuery.inject(e, entries, CrudAssetPermission.read))
-                .map(
-                        ignored -> {
-                            return buildSource(i, p, l, r, rl, e);
-                        });
+                .map(ignored -> buildSource(i, p, l, r, rl, e))
+                .flatMap(sql -> collectorNames(sql).map(names -> filterSource(i, sql, names)));
     }
 
     private Sql buildSource(
@@ -108,6 +106,7 @@ public class ReceivedReportService {
                                 "id",
                                 "projectId",
                                 "paidAt",
+                                "modifierId",
                                 "modifierName",
                                 "remark")
                         + "), l as ("
@@ -140,6 +139,7 @@ public class ReceivedReportService {
                                 "refundedAt",
                                 "method",
                                 "methodText",
+                                "modifierId",
                                 "modifierName",
                                 "reason")
                         + "), rl as ("
@@ -174,6 +174,7 @@ public class ReceivedReportService {
                                 "calcEndDate",
                                 "method",
                                 "methodText",
+                                "modifierId",
                                 "modifierName",
                                 "reason",
                                 "cashAmount")
@@ -205,9 +206,9 @@ public class ReceivedReportService {
                     + " l.\"fullName\", l.\"customerName\", l.\"subjectId\", l.\"subjectName\","
                     + " p.\"paidAt\" as \"receivedAt\", l.\"calcStartDate\", l.\"calcEndDate\","
                     + " l.\"method\", l.\"methodText\", l.\"sourceType\", p.\"modifierName\" as"
-                    + " \"collectorName\", p.\"remark\", l.\"amount\" as amount, l.\"receivableId\""
-                    + " from l join p on l.\"paymentId\"=p.\"id\" and"
-                    + " l.\"projectId\"=p.\"projectId\"";
+                    + " \"collectorSnapshot\", p.\"remark\", l.\"amount\" as amount,"
+                    + " l.\"receivableId\", p.\"modifierId\" as \"collectorId\" from l join p on"
+                    + " l.\"paymentId\"=p.\"id\" and l.\"projectId\"=p.\"projectId\"";
         String refund =
                 "select rl.\"id\", r.\"id\", rl.\"projectId\", rl.\"spaceId\", rl.\"fullName\","
                     + " rl.\"customerName\", original.\"subjectId\", rl.\"subjectName\","
@@ -215,9 +216,9 @@ public class ReceivedReportService {
                     + " r.\"method\", r.\"methodText\", case when"
                     + " original.\"sourceType\"='TEMPORARY' then 'TEMPORARY_REFUND' else 'REFUND'"
                     + " end, r.\"modifierName\", r.\"reason\", -rl.\"amount\","
-                    + " original.\"receivableId\" from rl join r on rl.\"refundId\"=r.\"id\" and"
-                    + " rl.\"projectId\"=r.\"projectId\" join original on"
-                    + " rl.\"sourceLineId\"=original.\"id\" and"
+                    + " original.\"receivableId\", r.\"modifierId\" from rl join r on"
+                    + " rl.\"refundId\"=r.\"id\" and rl.\"projectId\"=r.\"projectId\" join original"
+                    + " on rl.\"sourceLineId\"=original.\"id\" and"
                     + " rl.\"projectId\"=original.\"projectId\" and"
                     + " rl.\"spaceId\"=original.\"spaceId\"";
         // 已删账户及原收款行仍保留历史归属；流水名称来自不可变快照，不取账户当前名称。
@@ -227,8 +228,8 @@ public class ReceivedReportService {
                     + " e.\"occurredAt\", e.\"calcStartDate\", e.\"calcEndDate\", e.\"method\","
                     + " e.\"methodText\", case when e.\"cashAmount\"<0 then a.\"type\" || '_REFUND'"
                     + " else a.\"type\" end, e.\"modifierName\", e.\"reason\", e.\"cashAmount\","
-                    + " cast(null as varchar(64)) from e join a on e.\"accountId\"=a.\"id\" and"
-                    + " e.\"projectId\"=a.\"projectId\"";
+                    + " cast(null as varchar(64)), e.\"modifierId\" from e join a on"
+                    + " e.\"accountId\"=a.\"id\" and e.\"projectId\"=a.\"projectId\"";
         String source =
                 "(select report_source.*, \"sourceType\" || '-' || \"sourceId\" as \"sourceNo\""
                         + " from ("
@@ -238,6 +239,63 @@ public class ReceivedReportService {
                         + " union all "
                         + fund
                         + ") report_source) numbered_source";
+        return new Sql(with, source, params.toArray());
+    }
+
+    private Mono<Map<String, String>> collectorNames(Sql sql) {
+        // 仅解析已经通过项目、空间权限的流水操作人；限制数量并批量命令查询，避免逐行远程请求。
+        return select(
+                        sql,
+                        "select distinct \"collectorId\" from "
+                                + sql.source()
+                                + " where \"collectorId\" is not null fetch first 20001 rows only",
+                        List.of())
+                .map(row -> text(row, "collectorId"))
+                .filter(id -> !id.isBlank())
+                .collectList()
+                .flatMap(
+                        ids -> {
+                            if (ids.size() > 20000)
+                                return Mono.error(error("report_result_limit", 400));
+                            return Flux.fromIterable(ids)
+                                    .buffer(500)
+                                    .concatMap(scope::users)
+                                    .collectList()
+                                    .map(
+                                            users -> {
+                                                var names = new LinkedHashMap<String, String>();
+                                                for (var user : users) {
+                                                    String name = user.getName();
+                                                    if (name == null || name.isBlank())
+                                                        name = user.getUsername();
+                                                    if (name != null && !name.isBlank())
+                                                        names.put(user.getId(), name);
+                                                }
+                                                return names;
+                                            });
+                        });
+    }
+
+    private Sql filterSource(ReceivedReportInput i, Sql sql, Map<String, String> names) {
+        var params = new ArrayList<>(Arrays.asList(sql.parameters()));
+        String display = "\"collectorSnapshot\"";
+        if (!names.isEmpty()) {
+            var expression = new StringBuilder("case \"collectorId\"");
+            names.forEach(
+                    (id, name) -> {
+                        expression.append(" when ? then ?");
+                        params.add(id);
+                        params.add(name);
+                    });
+            display = expression.append(" else \"collectorSnapshot\" end").toString();
+        }
+        // 在筛选、摘要及分页之前统一显示姓名；查不到的历史账号保留流水快照，不改写账务数据。
+        String source =
+                "(select numbered_source.*, "
+                        + display
+                        + " as \"collectorName\" from "
+                        + sql.source()
+                        + ") named_source";
         var where = new ArrayList<String>();
         in(where, params, "spaceId", i.getSpaceIds());
         in(where, params, "subjectId", i.getSubjectIds());
@@ -264,7 +322,7 @@ public class ReceivedReportService {
                             + " where "
                             + String.join(" and ", where)
                             + ") filtered_source";
-        return new Sql(with, source, params.toArray());
+        return new Sql(sql.with(), source, params.toArray());
     }
 
     private static QueryParamEntity history(ReceivedReportInput i) {

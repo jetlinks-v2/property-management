@@ -8,10 +8,15 @@ import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.command.CommandSupportManagerProviders;
 import org.jetlinks.pro.property.base.command.QueryPropertyProjectCommand;
+import org.jetlinks.pro.property.base.command.QueryPropertyUsersCommand;
 import org.jetlinks.pro.property.base.organization.PropertyProjectInfo;
+import org.jetlinks.pro.property.base.user.PropertyUserInfo;
 import org.springframework.stereotype.Component;
 
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
+import java.util.List;
 
 /** 财务项目使用 SaaS organization 资产；基础有效性只通过 core 命令查询，不读基础表。 */
 @Component
@@ -42,6 +47,17 @@ public class FinanceScope {
                                                                     503)))
                                             .flatMap(support -> support.execute(command));
                                 }));
+    }
+
+    /** 按来源操作人批量解析姓名；沿用调用者租户和用户资产权限，不扩大目录可见范围。 */
+    public Flux<PropertyUserInfo> users(List<String> ids) {
+        if (ids.isEmpty()) return Flux.empty();
+        var command = new QueryPropertyUsersCommand();
+        command.setIds(ids);
+        return CommandSupportManagerProviders.getCommandSupport(
+                        QueryPropertyUsersCommand.SERVICE_ID)
+                .switchIfEmpty(Mono.error(error("project_source_unavailable", 503)))
+                .flatMapMany(support -> support.execute(command));
     }
 
     public static BusinessException error(String suffix, int status) {

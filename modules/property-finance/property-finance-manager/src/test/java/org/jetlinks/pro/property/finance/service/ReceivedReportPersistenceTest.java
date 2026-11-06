@@ -368,6 +368,143 @@ class ReceivedReportPersistenceTest {
     @Autowired org.jetlinks.pro.property.finance.web.ReceivedReportController controller;
 
     @Test
+    void collectorNamesUseScopedDirectoryForSearchPagingAndExportWithoutRewritingHistory()
+            throws Exception {
+        String operator = "collector-" + UUID.randomUUID();
+        var original = payment("100", "1", "room", "2024-02-15T12:00:00");
+        var returned = refund(original, "10", "CASH", "2024-02-16T12:00:00");
+        var advance = fund("40", "CREDIT", "ADVANCE", "2024-02-17T12:00:00");
+        payments.createUpdate()
+                .set("modifierId", operator)
+                .set("modifierName", "pm_account")
+                .where("id", original.getPaymentId())
+                .execute()
+                .block(WAIT);
+        refunds.createUpdate()
+                .set("modifierId", operator)
+                .set("modifierName", "pm_account")
+                .where("id", returned.getId())
+                .execute()
+                .block(WAIT);
+        entries.createUpdate()
+                .set("modifierId", operator)
+                .set("modifierName", "pm_account")
+                .where("id", advance.getId())
+                .execute()
+                .block(WAIT);
+        var hidden = payment("999", "1", "secret", "2024-02-15T12:00:00");
+        payments.createUpdate()
+                .set("modifierId", "hidden-operator")
+                .where("id", hidden.getPaymentId())
+                .execute()
+                .block(WAIT);
+
+        var providers = org.jetlinks.pro.command.CommandSupportManagerProvider.supports;
+        var previous = providers.get("propertyService").orElse(null);
+        var support = org.mockito.Mockito.mock(org.jetlinks.core.command.CommandSupport.class);
+        var user = new org.jetlinks.pro.property.base.user.PropertyUserInfo();
+        user.setId(operator);
+        user.setName("超级管理员");
+        user.setUsername("pm_account");
+        org.mockito.Mockito.when(
+                        support.execute(
+                                org.mockito.ArgumentMatchers.any(
+                                        org.jetlinks.pro.property.base.command
+                                                .QueryPropertyUsersCommand.class)))
+                .thenAnswer(
+                        call -> {
+                            org.jetlinks.pro.property.base.command.QueryPropertyUsersCommand
+                                    command = call.getArgument(0);
+                            assertEquals(List.of(operator), command.getIds(), "不能为无空间权限的流水查询操作人");
+                            return reactor.core.publisher.Flux.deferContextual(
+                                    context -> {
+                                        assertTrue(
+                                                context.hasKey(
+                                                        org.hswebframework.web.authorization
+                                                                .Authentication.class));
+                                        assertTrue(
+                                                context.hasKey(
+                                                        org.jetlinks.pro.assets.AssetsHolder
+                                                                .class));
+                                        return reactor.core.publisher.Flux.just(user);
+                                    });
+                        });
+        providers.register(
+                "propertyService",
+                new org.jetlinks.pro.command.CommandSupportManagerProvider() {
+                    @Override
+                    public String getProvider() {
+                        return "propertyService";
+                    }
+
+                    @Override
+                    public reactor.core.publisher.Mono<
+                                    ? extends org.jetlinks.core.command.CommandSupport>
+                            getCommandSupport(String module, Map<String, Object> options) {
+                        return "directory".equals(module)
+                                ? reactor.core.publisher.Mono.just(support)
+                                : reactor.core.publisher.Mono.empty();
+                    }
+                });
+        try {
+            var input = input();
+            input.setCollectorName("超级管理员");
+            input.setPageSize(1);
+            var page = query(input);
+            assertEquals(3, page.page().getTotal());
+            assertEquals(1, page.page().getData().size());
+            assertEquals("130.00", page.summary().netAmount());
+            assertEquals("超级管理员", page.page().getData().get(0).collectorName());
+            input.setPageIndex(1);
+            assertEquals("超级管理员", query(input).page().getData().get(0).collectorName());
+            var exported = reports.exportData(input).contextWrite(allowed).block(WAIT);
+            assertEquals(3, exported.page().getData().size());
+            assertTrue(
+                    exported.page().getData().stream()
+                            .allMatch(row -> "超级管理员".equals(row.collectorName())));
+            var bytes = exports.export(input, "excel").contextWrite(allowed).block(WAIT);
+            try (var book =
+                    new org.apache.poi.xssf.usermodel.XSSFWorkbook(
+                            new java.io.ByteArrayInputStream(bytes))) {
+                var sheet = book.getSheetAt(0);
+                var headers = new ArrayList<String>();
+                sheet.getRow(0).forEach(cell -> headers.add(cell.getStringCellValue()));
+                assertFalse(headers.contains("收款/退款ID"));
+                assertFalse(headers.contains("收款/退款编号"));
+                assertFalse(headers.contains("关联应收单号"));
+                int collector = headers.indexOf("收款员");
+                assertTrue(collector >= 0);
+                assertEquals("超级管理员", sheet.getRow(1).getCell(collector).getStringCellValue());
+            }
+            assertEquals(
+                    "pm_account",
+                    payments.findById(original.getPaymentId()).block(WAIT).getModifierName());
+            assertEquals(
+                    "pm_account", refunds.findById(returned.getId()).block(WAIT).getModifierName());
+            assertEquals(
+                    "pm_account", entries.findById(advance.getId()).block(WAIT).getModifierName());
+
+            // 没有姓名时使用账号；目录中已不存在或不可读时仍能解析历史快照。
+            user.setName(" ");
+            input.setCollectorName("pm_account");
+            assertEquals(3, query(input).page().getTotal());
+            assertEquals("pm_account", query(input).page().getData().get(0).collectorName());
+            org.mockito.Mockito.when(
+                            support.execute(
+                                    org.mockito.ArgumentMatchers.any(
+                                            org.jetlinks.pro.property.base.command
+                                                    .QueryPropertyUsersCommand.class)))
+                    .thenReturn(reactor.core.publisher.Flux.empty());
+            assertEquals("pm_account", query(input).page().getData().get(0).collectorName());
+            input.setCollectorName("超级管理员");
+            assertEquals(0, query(input).page().getTotal());
+        } finally {
+            providers.unregister("propertyService");
+            if (previous != null) providers.register("propertyService", previous);
+        }
+    }
+
+    @Test
     void receivedLedgerUsesPathProjectAndKeepsPositiveReceiptsAndNegativeRefunds() {
         var original = payment("100.01", "1", "room", "2024-02-15T12:00:00");
         refund(original, "10.01", "CASH", "2024-02-16T12:00:00");
@@ -525,7 +662,7 @@ class ReceivedReportPersistenceTest {
                     org.apache.poi.ss.usermodel.CellType.STRING,
                     sheet.getRow(1).getCell(2).getCellType());
             assertTrue(sheet.getRow(1).getCell(2).getStringCellValue().startsWith("=SUM"));
-            assertEquals("100.01", sheet.getRow(1).getCell(16).getStringCellValue());
+            assertEquals("100.01", sheet.getRow(1).getCell(13).getStringCellValue());
         }
         var pdf = exports.export(input(), "pdf").contextWrite(allowed).block(WAIT);
         try (var doc = org.apache.pdfbox.pdmodel.PDDocument.load(pdf)) {
