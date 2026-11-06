@@ -1,6 +1,6 @@
 # 物业管理后端
 
-基于 JetLinks SaaS 2.20 的物业组后端单仓库。基础档案、财务收费、智能巡更、报事报修、品质核查各自拥有业务模块、启动服务和发布制品。基础档案作为独立公共服务必须启动，报修、巡更和收费按需启动；业务读取统一基础数据时只通过 property-base-core 的公开命令。各系统复用 SaaS 网关、认证、租户、资产权限和公共中间件。
+基于 JetLinks SaaS 2.20 的物业组后端单仓库。基础档案、财务收费、装修管理、智能巡更、报事报修、品质核查、承接查验和设施能源各自拥有业务模块、启动服务和发布制品。基础档案作为独立公共服务必须启动，各业务系统按需启动；业务读取统一基础数据时只通过 property-base-core 的公开命令。各系统复用 SaaS 网关、认证、租户、资产权限和公共中间件。
 
 ## 工程结构
 
@@ -8,26 +8,24 @@
 property-management/
 ├── modules/
 │   ├── property-base/
-│   │   ├── property-base-core/
-│   │   └── property-base-manager/
+│   ├── property-decoration/
+│   ├── property-facility-energy/
 │   ├── property-finance/
-│   │   └── property-finance-manager/
+│   ├── property-handover/
 │   ├── property-patrol/
-│   │   ├── property-patrol-core/
-│   │   └── property-patrol-manager/
+│   ├── property-quality/
 │   └── property-repair/
-│       ├── property-repair-core/
-│       └── property-repair-manager/
 ├── services/
 │   ├── property-base-service/
+│   ├── property-decoration-service/
+│   ├── property-facility-energy-service/
 │   ├── property-finance-service/
+│   ├── property-handover-service/
 │   ├── property-patrol-service/
+│   ├── property-quality-service/
 │   └── property-repair-service/
-├── deploy/
-│   ├── patrol/                 巡更连接示例及认证服务应用模板
-│   ├── start-service.sh        单系统 JAR 启动脚本
-│   └── enable-host-dev.ps1     Windows Docker SaaS / IDEA 联调
-└── .run/                       四个独立 IDEA 启动配置
+├── deploy/                     各系统部署配置与单服务启动脚本
+└── .run/                       已有系统的 IDEA 启动配置
 ```
 
 Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT，版本和插件由根 POM 管理。`modules/` 中的 POM 只负责构建聚合，不启动进程；每个 `service` 只依赖本系统 manager。单个系统可以包含多个菜单及对应 Controller、Service、Entity、权限和国际化。系统内部有需要时拆分 core，core 只承载领域类型、DTO、规则或契约，不承载 CRUD，也不反向依赖 manager。
@@ -40,6 +38,8 @@ Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT，版本和插件由根 
 | 财务收费 | `org.jetlinks.pro.property.finance.PropertyFinanceApplication` | 8504 / 18504 / 28504 | `property-finance-service` | `property_finance` |
 | 智能巡更 | `org.jetlinks.pro.patrol.PatrolApplication` | 8502 / 18502 / 28502 | `cloud-patrol-service` | `cloud_patrol` |
 | 报事报修 | `org.jetlinks.pro.smartpark.repair.SmartParkRepairApplication` | 8506 / 18506 / 28506 | `smart-park-repair-service` | `property_repair` |
+| 品质核查 | `org.jetlinks.pro.property.quality.PropertyQualityApplication` | 8507 / 18507 / 28507 | `property-quality-service` | `property_quality` |
+| 设施能源 | `org.jetlinks.pro.property.facility.PropertyFacilityEnergyApplication` | 8508 / 18508 / 28508 | `property-facility-energy-service` | `property_facility_energy` |
 
 各系统有独立的事件和配置命名空间。巡更保留已部署的 `cloud-patrol-service` 服务名、`cloud-patrol` 命名空间、`/park/patrol/**` 接口、资产/权限 ID 和 `CloudPatrol` 应用模板；目录与 Maven 制品名改为 `property-patrol-*` 不改变这些外部契约。
 
@@ -51,6 +51,10 @@ Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT，版本和插件由根 
 
 - [报事报修](modules/property-repair/README.md)：工单、流程、审核、通知、报表导出、二维码及既有报修目录投影；通过独立报修服务装配，前端由 `report-saas-ui/2.20` 提供。
 
+- [品质核查](modules/property-quality/README.md)：公司及项目配置、核查任务、整改复验、统计与转报修，独立服务部署及授权迁移见 [品质部署](deploy/quality/README.md)。设备维保抽查延期。
+- [设施能源](modules/property-facility-energy/README.md)：设备台账、巡检维保、能源采集统计及预警通知，独立服务与 Cloud 适配器的部署边界见 [设施部署](deploy/facility-energy/README.md)。
+- [装修管理](modules/property-decoration/README.md)、[承接查验](modules/property-handover/)：保留各自已有业务模块、独立服务及部署边界。
+
 ## 独立构建与启动
 
 需要 JDK17、Maven 及目标 SaaS 对应 JetLinks 制品的仓库权限。根目录执行以下命令只构建所选系统及其契约依赖（巡更包含 base-core），不会构建或启动兄弟 manager：
@@ -60,9 +64,11 @@ mvn -pl :property-patrol-service -am verify
 mvn -pl :property-base-service -am verify
 mvn -pl :property-finance-service -am verify
 mvn -pl :property-repair-service -am verify
+mvn -pl :property-quality-service -am verify
+mvn -pl :property-facility-energy-service -am verify
 ```
 
-也可执行 `mvn verify` 构建全仓库；这仍只生成四个独立 JAR，不产生统一业务进程。产物分别位于 `services/property-<system>-service/target/application.jar`，发布时须保留系统目录或镜像名区别，不能把多个同名 JAR 混放。
+也可执行 `mvn verify` 构建全仓库；每个业务系统分别生成独立 JAR，不产生统一业务进程。产物分别位于 `services/property-<system>-service/target/application.jar`，发布时须保留系统目录或镜像名区别，不能把多个同名 JAR 混放。
 
 先准备业务库、环境变量及可达的 SaaS 公共服务，启动基础档案，再按需启动业务服务：
 
@@ -109,8 +115,4 @@ SaaS 聚合工作区通过 `modules/property-management` 引用本仓库，前�
 
 ## 物业组共享开发
 
-共享分支为 `2.20`，与 Cloud 聚合仓库的 `property/2.20-dev` 配套。巡更提交范围使用 `物业-巡更`，其他系统使用自身的 `物业-系统名`，公共聚合提交使用 `物业`。各系统继续独立装配，基础能力通过公开命令复用；推送本仓库后再更新 `cloud.jetlinks/modules/property-management` 指针。同事从 SaaS 聚合仓库递归检出固定版本，开始修改本仓库前再切换并快进共享分支，不在 detached HEAD 上直接开发。
-
-## 品质核查
-
-`modules/property-quality/property-quality-manager` 提供品质业务，`services/property-quality-service` 独立启动和发布，默认端口 8507；只依赖基础档案与报修 core 公开命令。公司/项目配置、核查整改复验、统计及转报修通过 `/quality/**` 提供，PC 和独立员工 H5 共用此服务。应用菜单和授权迁移见 [部署说明](deploy/quality/README.md)。设备维保抽查延期。
+共享版本分支为 `2.20`，开发增量通过整合分支与 PR 汇入。Cloud 聚合仓库以子模块提交固定后端版本，`property/2.20-dev` 可用于集成验证；后端合入不会自动更新宿主引用。巡更提交范围使用 `物业-巡更`，其他系统使用自身的 `物业-系统名`，公共聚合提交使用 `物业`。各系统继续独立装配，基础能力通过公开命令复用；推送本仓库后再更新 `cloud.jetlinks/modules/property-management` 指针。同事从 SaaS 聚合仓库递归检出固定版本，开始修改本仓库前再切换并快进共享分支，不在 detached HEAD 上直接开发。

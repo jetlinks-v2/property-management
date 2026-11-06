@@ -65,7 +65,11 @@ public class UserSyncWriter {
                     if (!id.equals(source.getId())) throw SaasUserSource.invalid();
                     if (!existing.containsKey(id)) added.add(entity(source, now));
                 });
-        Mono<Void> inserts = added.isEmpty() ? Mono.empty() : users.insertBatch(added).then();
+        // PostgreSQL Bind 参数数有上限；小批顺序写入仍处于整轮快照的同一事务中。
+        Mono<Void> inserts = Flux.fromIterable(added)
+                .buffer(200)
+                .concatMap(users::insertBatch)
+                .then();
         return organizationTree
                 .createQuery()
                 .where("deleted", false)

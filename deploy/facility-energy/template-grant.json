@@ -1,0 +1,1230 @@
+{
+  "menus": [
+    {
+      "id": "facility-Overview",
+      "code": "facility/Overview",
+      "name": "综合工作台",
+      "url": "/facility/overview",
+      "owner": "app",
+      "sortIndex": 1,
+      "permissions": [
+        {
+          "permission": "facility-report",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [],
+      "assetTypes": [
+        "facilityDevice",
+        "facilityTask",
+        "facilityFault",
+        "facilityMapping",
+        "facilityTarget"
+      ],
+      "parentId": "-1",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "granted": true,
+      "icon": "DashboardOutlined",
+      "options": {
+        "show": true,
+        "appName": "facility-energy-ui",
+        "meta": {
+          "componentCode": "facility/Overview"
+        }
+      },
+      "i18nMessages": {
+        "name": {
+          "en": "Overview",
+          "zh": "综合工作台",
+          "en_US": "Overview",
+          "zh_CN": "综合工作台"
+        }
+      }
+    },
+    {
+      "id": "facility-Devices",
+      "code": "facility/Devices",
+      "name": "设备资产",
+      "url": "/facility/devices",
+      "owner": "app",
+      "sortIndex": 2,
+      "permissions": [
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-group",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "device-instance",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "save",
+          "name": "同步与维护档案",
+          "permissions": [
+            {
+              "permission": "facility-device",
+              "actions": [
+                "save"
+              ]
+            },
+            {
+              "permission": "facility-group",
+              "actions": [
+                "save",
+                "delete"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        }
+      ],
+      "assetTypes": [
+        "facilityDevice",
+        "facilityGroup",
+        "device"
+      ],
+      "parentId": "-1",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "granted": true,
+      "icon": "ToolOutlined",
+      "options": {
+        "show": true,
+        "appName": "facility-energy-ui",
+        "meta": {
+          "componentCode": "facility/Devices"
+        }
+      },
+      "i18nMessages": {
+        "name": {
+          "en": "Device assets",
+          "zh": "设备资产",
+          "en_US": "Device assets",
+          "zh_CN": "设备资产"
+        }
+      }
+    },
+    {
+      "id": "facility-Inspection",
+      "code": "facility/Inspection",
+      "name": "巡检管理",
+      "url": "/facility/inspection",
+      "owner": "app",
+      "sortIndex": 3,
+      "permissions": [
+        {
+          "permission": "facility-task",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-standard",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-plan",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-group",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "execute",
+          "name": "接单与执行",
+          "permissions": [
+            {
+              "permission": "facility-task",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        },
+        {
+          "id": "dispatch",
+          "name": "分派与撤回",
+          "permissions": [
+            {
+              "permission": "facility-task",
+              "actions": [
+                "dispatch"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        },
+        {
+          "id": "review",
+          "name": "审核与整改",
+          "permissions": [
+            {
+              "permission": "facility-task",
+              "actions": [
+                "review"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        },
+        {
+          "id": "generate",
+          "name": "生成任务",
+          "permissions": [
+            {
+              "permission": "facility-task",
+              "actions": [
+                "generate"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        },
+        {
+          "id": "configure",
+          "name": "维护标准与计划",
+          "permissions": [
+            {
+              "permission": "facility-standard",
+              "actions": [
+                "save",
+                "delete"
+              ]
+            },
+            {
+              "permission": "facility-plan",
+              "actions": [
+                "save",
+                "delete"
+              ]
+            },
+            {
+              "permission": "facility-group",
+              "actions": [
+                "save",
+                "delete"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        }
+      ],
+      "assetTypes": [
+        "facilityTask",
+        "facilityStandard",
+        "facilityPlan",
+        "facilityGroup",
+        "facilityDevice"
+      ],
+      "parentId": "-1",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "granted": true,
+      "icon": "CheckSquareOutlined",
+      "options": {
+        "show": true,
+        "appName": "facility-energy-ui",
+        "meta": {
+          "componentCode": "facility/Inspection"
+        }
+      },
+      "i18nMessages": {
+        "name": {
+          "en": "Inspections",
+          "zh": "巡检管理",
+          "en_US": "Inspections",
+          "zh_CN": "巡检管理"
+        }
+      }
+    },
+    {
+      "id": "facility-Maintenance",
+      "code": "facility/Maintenance",
+      "name": "维保管理",
+      "url": "/facility/maintenance",
+      "owner": "app",
+      "sortIndex": 4,
+      "permissions": [
+        {
+          "permission": "facility-task",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-standard",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-plan",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-group",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "execute",
+          "name": "接单与执行",
+          "permissions": [
+            {
+              "permission": "facility-task",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        },
+        {
+          "id": "dispatch",
+          "name": "分派与撤回",
+          "permissions": [
+            {
+              "permission": "facility-task",
+              "actions": [
+                "dispatch"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        },
+        {
+          "id": "review",
+          "name": "审核与整改",
+          "permissions": [
+            {
+              "permission": "facility-task",
+              "actions": [
+                "review"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        },
+        {
+          "id": "generate",
+          "name": "生成任务",
+          "permissions": [
+            {
+              "permission": "facility-task",
+              "actions": [
+                "generate"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        },
+        {
+          "id": "configure",
+          "name": "维护标准与计划",
+          "permissions": [
+            {
+              "permission": "facility-standard",
+              "actions": [
+                "save",
+                "delete"
+              ]
+            },
+            {
+              "permission": "facility-plan",
+              "actions": [
+                "save",
+                "delete"
+              ]
+            },
+            {
+              "permission": "facility-group",
+              "actions": [
+                "save",
+                "delete"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        }
+      ],
+      "assetTypes": [
+        "facilityTask",
+        "facilityStandard",
+        "facilityPlan",
+        "facilityGroup",
+        "facilityDevice"
+      ],
+      "parentId": "-1",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "granted": true,
+      "icon": "ScheduleOutlined",
+      "options": {
+        "show": true,
+        "appName": "facility-energy-ui",
+        "meta": {
+          "componentCode": "facility/Maintenance"
+        }
+      },
+      "i18nMessages": {
+        "name": {
+          "en": "Maintenance",
+          "zh": "维保管理",
+          "en_US": "Maintenance",
+          "zh_CN": "维保管理"
+        }
+      }
+    },
+    {
+      "id": "facility-Faults",
+      "code": "facility/Faults",
+      "name": "故障管理",
+      "url": "/facility/faults",
+      "owner": "app",
+      "sortIndex": 5,
+      "permissions": [
+        {
+          "permission": "facility-fault",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "save",
+          "name": "故障处理与复核",
+          "permissions": [
+            {
+              "permission": "facility-fault",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        }
+      ],
+      "assetTypes": [
+        "facilityFault",
+        "facilityDevice"
+      ],
+      "parentId": "-1",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "granted": true,
+      "icon": "WarningOutlined",
+      "options": {
+        "show": true,
+        "appName": "facility-energy-ui",
+        "meta": {
+          "componentCode": "facility/Faults"
+        }
+      },
+      "i18nMessages": {
+        "name": {
+          "en": "Faults",
+          "zh": "故障管理",
+          "en_US": "Faults",
+          "zh_CN": "故障管理"
+        }
+      }
+    },
+    {
+      "id": "facility-Energy",
+      "code": "facility/Energy",
+      "name": "能源管理",
+      "url": "/facility/energy",
+      "owner": "app",
+      "sortIndex": 6,
+      "permissions": [
+        {
+          "permission": "facility-mapping",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "device-instance",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "save",
+          "name": "配置计量与审核",
+          "permissions": [
+            {
+              "permission": "facility-mapping",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        }
+      ],
+      "assetTypes": [
+        "facilityDevice",
+        "facilityMapping",
+        "device"
+      ],
+      "parentId": "-1",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "granted": true,
+      "icon": "ThunderboltOutlined",
+      "options": {
+        "show": true,
+        "appName": "facility-energy-ui",
+        "meta": {
+          "componentCode": "facility/Energy"
+        }
+      },
+      "i18nMessages": {
+        "name": {
+          "en": "Energy management",
+          "zh": "能源管理",
+          "en_US": "Energy management",
+          "zh_CN": "能源管理"
+        }
+      }
+    },
+    {
+      "id": "facility-Alerts",
+      "code": "facility/Alerts",
+      "name": "预警中心",
+      "url": "/facility/alerts",
+      "owner": "app",
+      "sortIndex": 7,
+      "permissions": [
+        {
+          "permission": "facility-alert",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-rule",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-group",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "handle",
+          "name": "处理预警",
+          "permissions": [
+            {
+              "permission": "facility-alert",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        },
+        {
+          "id": "rules",
+          "name": "配置规则",
+          "permissions": [
+            {
+              "permission": "facility-rule",
+              "actions": [
+                "save",
+                "delete"
+              ]
+            },
+            {
+              "permission": "notifier",
+              "actions": [
+                "send"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        }
+      ],
+      "assetTypes": [
+        "facilityDevice",
+        "facilityRule",
+        "facilityTarget",
+        "facilityGroup"
+      ],
+      "parentId": "-1",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "granted": true,
+      "icon": "AlertOutlined",
+      "options": {
+        "show": true,
+        "appName": "facility-energy-ui",
+        "meta": {
+          "componentCode": "facility/Alerts"
+        }
+      },
+      "i18nMessages": {
+        "name": {
+          "en": "Alert center",
+          "zh": "预警中心",
+          "en_US": "Alert center",
+          "zh_CN": "预警中心"
+        }
+      }
+    },
+    {
+      "id": "facility-Notifications",
+      "code": "facility/Notifications",
+      "name": "客户与通知",
+      "url": "/facility/notifications",
+      "owner": "app",
+      "sortIndex": 8,
+      "permissions": [
+        {
+          "permission": "facility-alert",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "retry",
+          "name": "重试失败通知",
+          "permissions": [
+            {
+              "permission": "facility-alert",
+              "actions": [
+                "save"
+              ]
+            },
+            {
+              "permission": "notifier",
+              "actions": [
+                "send"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        }
+      ],
+      "assetTypes": [
+        "facilityDevice",
+        "facilityTarget"
+      ],
+      "parentId": "-1",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "granted": true,
+      "icon": "BellOutlined",
+      "options": {
+        "show": true,
+        "appName": "facility-energy-ui",
+        "meta": {
+          "componentCode": "facility/Notifications"
+        }
+      },
+      "i18nMessages": {
+        "name": {
+          "en": "Customers and notifications",
+          "zh": "客户与通知",
+          "en_US": "Customers and notifications",
+          "zh_CN": "客户与通知"
+        }
+      }
+    },
+    {
+      "id": "facility-Reports",
+      "code": "facility/Reports",
+      "name": "统计报表",
+      "url": "/facility/reports",
+      "owner": "app",
+      "sortIndex": 9,
+      "permissions": [
+        {
+          "permission": "facility-report",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "save",
+          "name": "维护能耗计划",
+          "permissions": [
+            {
+              "permission": "facility-report",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        }
+      ],
+      "assetTypes": [
+        "facilityDevice",
+        "facilityTask",
+        "facilityFault",
+        "facilityMapping",
+        "facilityTarget"
+      ],
+      "parentId": "-1",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "granted": true,
+      "icon": "BarChartOutlined",
+      "options": {
+        "show": true,
+        "appName": "facility-energy-ui",
+        "meta": {
+          "componentCode": "facility/Reports"
+        }
+      },
+      "i18nMessages": {
+        "name": {
+          "en": "Reports",
+          "zh": "统计报表",
+          "en_US": "Reports",
+          "zh_CN": "统计报表"
+        }
+      }
+    },
+    {
+      "id": "facility-system-Sync",
+      "code": "system-management/Sync",
+      "name": "设备同步状态",
+      "url": "/system-management/sync",
+      "owner": "app",
+      "sortIndex": 100,
+      "parentId": "-1",
+      "permissions": [
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [],
+      "assetTypes": [
+        "organization"
+      ],
+      "options": {
+        "show": true,
+        "appName": "facility-energy-ui",
+        "meta": {
+          "componentCode": "system-management/Sync"
+        }
+      },
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "granted": true,
+      "icon": "SettingOutlined",
+      "i18nMessages": {
+        "name": {
+          "en": "Device sync status",
+          "zh": "设备同步状态",
+          "en_US": "Device sync status",
+          "zh_CN": "设备同步状态"
+        }
+      }
+    },
+    {
+      "id": "facility-system-Operations",
+      "code": "system-management/Operations",
+      "name": "应用操作日志",
+      "url": "/system-management/operations",
+      "owner": "app",
+      "sortIndex": 100,
+      "parentId": "-1",
+      "permissions": [
+        {
+          "permission": "facility-operation",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [],
+      "assetTypes": [
+        "organization"
+      ],
+      "options": {
+        "show": true,
+        "appName": "facility-energy-ui",
+        "meta": {
+          "componentCode": "system-management/Operations"
+        }
+      },
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "granted": true,
+      "icon": "SettingOutlined",
+      "i18nMessages": {
+        "name": {
+          "en": "Activity log",
+          "zh": "应用操作日志",
+          "en_US": "Activity log",
+          "zh_CN": "应用操作日志"
+        }
+      }
+    },
+    {
+      "id": "facility-Employee",
+      "code": "facility/Employee",
+      "name": "员工移动端",
+      "url": "/facility/employee",
+      "owner": "app",
+      "sortIndex": 100,
+      "parentId": "-1",
+      "permissions": [
+        {
+          "permission": "facility-task",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-group",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "execute",
+          "name": "接单与执行",
+          "permissions": [
+            {
+              "permission": "facility-task",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        },
+        {
+          "id": "attachments",
+          "name": "上传执行照片",
+          "permissions": [
+            {
+              "permission": "file",
+              "actions": [
+                "query",
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        }
+      ],
+      "assetTypes": [
+        "facilityTask",
+        "facilityDevice",
+        "facilityGroup"
+      ],
+      "options": {
+        "show": false,
+        "appName": "facility-energy-ui",
+        "meta": {
+          "componentCode": "facility/Employee"
+        }
+      },
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "granted": true,
+      "icon": "SettingOutlined",
+      "i18nMessages": {
+        "name": {
+          "en": "Staff mobile",
+          "zh": "员工移动端",
+          "en_US": "Staff mobile",
+          "zh_CN": "员工移动端"
+        }
+      }
+    },
+    {
+      "id": "facility-Owner",
+      "code": "facility/Owner",
+      "name": "业主移动端",
+      "url": "/facility/owner",
+      "owner": "app",
+      "sortIndex": 100,
+      "parentId": "-1",
+      "permissions": [
+        {
+          "permission": "facility-owner",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [],
+      "assetTypes": [],
+      "options": {
+        "show": false,
+        "appName": "facility-energy-ui",
+        "meta": {
+          "componentCode": "facility/Owner"
+        }
+      },
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "granted": true,
+      "icon": "SettingOutlined",
+      "i18nMessages": {
+        "name": {
+          "en": "Owner mobile",
+          "zh": "业主移动端",
+          "en_US": "Owner mobile",
+          "zh_CN": "业主移动端"
+        }
+      }
+    }
+  ],
+  "assetAccesses": [
+    {
+      "assetType": "facilityDevice",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        },
+        {
+          "supportId": "business_application"
+        },
+        {
+          "supportId": "org-include-children"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "facilityGroup",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        },
+        {
+          "supportId": "business_application"
+        },
+        {
+          "supportId": "org-include-children"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "facilityStandard",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        },
+        {
+          "supportId": "business_application"
+        },
+        {
+          "supportId": "org-include-children"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "facilityPlan",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        },
+        {
+          "supportId": "business_application"
+        },
+        {
+          "supportId": "org-include-children"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "facilityTask",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        },
+        {
+          "supportId": "business_application"
+        },
+        {
+          "supportId": "org-include-children"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "facilityFault",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        },
+        {
+          "supportId": "business_application"
+        },
+        {
+          "supportId": "org-include-children"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "facilityMapping",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        },
+        {
+          "supportId": "business_application"
+        },
+        {
+          "supportId": "org-include-children"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "facilityRule",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        },
+        {
+          "supportId": "business_application"
+        },
+        {
+          "supportId": "org-include-children"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "facilityTarget",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        },
+        {
+          "supportId": "business_application"
+        },
+        {
+          "supportId": "org-include-children"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "organization",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "user",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "space",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        },
+        {
+          "supportId": "org-include-children"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "file",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    },
+    {
+      "assetType": "device",
+      "accesses": [
+        {
+          "supportId": "tenant"
+        },
+        {
+          "supportId": "org-include-children"
+        }
+      ],
+      "options": {
+        "scopeStrategy": "IGNORE"
+      }
+    }
+  ]
+}

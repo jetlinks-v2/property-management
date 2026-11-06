@@ -1,0 +1,49 @@
+services:
+  facility-energy:
+    image: ${FACILITY_IMAGE:-property-facility-energy:local}
+    build:
+      context: ../..
+      dockerfile: deploy/facility-energy/Dockerfile
+    restart: unless-stopped
+    environment:
+      DB_HOST: ${DB_HOST:?required}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_DATABASE: ${DB_DATABASE:-property_facility_energy}
+      DB_USERNAME: ${DB_USERNAME:?required}
+      DB_PASSWORD: ${DB_PASSWORD:?required}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-16}
+      REDIS_HOST: ${REDIS_HOST:?required}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
+      REDIS_DATABASE: ${REDIS_DATABASE:-0}
+      RPC_TOKEN: ${RPC_TOKEN:?required}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:?required}
+      CLUSTER_SEEDS: ${CLUSTER_SEEDS:?required}
+      CLUSTER_EXTERNAL_HOST: ${CLUSTER_EXTERNAL_HOST:-facility-energy}
+      RPC_EXTERNAL_HOST: ${RPC_EXTERNAL_HOST:-facility-energy}
+      FACILITY_SMS_RECEIPT_SECRET: ${FACILITY_SMS_RECEIPT_SECRET:-}
+      FACILITY_JOBS_ENABLED: ${FACILITY_JOBS_ENABLED:-true}
+    ports:
+      - "127.0.0.1:8508:8508"
+    volumes:
+      - facility-data:/app/data
+    networks: [cloud]
+  facility-h5:
+    profiles: [web]
+    build:
+      context: ../../../saas-runtime-ui/modules/facility-energy-ui
+      dockerfile: mobile-h5/Dockerfile
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: ${API_UPSTREAM:?required}
+    volumes:
+      - ./h5-config.json:/usr/share/nginx/html/config.json:ro
+    ports:
+      - "127.0.0.1:${H5_PORT:-9502}:80"
+    networks: [cloud]
+networks:
+  cloud:
+    external: true
+    name: ${CLOUD_NETWORK:?required}
+volumes:
+  facility-data:

@@ -1,0 +1,161 @@
+server:
+  port: ${SERVER_PORT:8508}
+  error:
+    include-message: always
+  max-http-request-header-size: 200KB
+
+spring:
+  profiles:
+    default: default
+  application:
+    name: property-facility-energy-service
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    serialization:
+      WRITE_DATES_AS_TIMESTAMPS: true
+    default-property-inclusion: non_null
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:127.0.0.1}:${DB_PORT:5432}/${DB_DATABASE:property_facility_energy}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    pool:
+      # Reserve a bounded connection budget when business services share PostgreSQL.
+      max-size: ${DB_POOL_MAX_SIZE:16}
+      max-idle-time: 60s
+      max-life-time: 1m
+      max-acquire-time: 10s
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      timeout: 20s
+      password: ${REDIS_PASSWORD}
+      database: ${REDIS_DATABASE:0}
+
+easyorm:
+  default-schema: ${DB_SCHEMA:public}
+  dialect: postgres
+
+hsweb:
+  webflux:
+    response-wrapper:
+      enabled: true
+      excludes:
+        - org.springdoc
+  authorize:
+    auto-parse: true
+  cache:
+    type: redis
+    redis:
+      local-cache-type: caffeine
+
+jetlinks:
+  server-id: ${SERVER_ID:property-facility-energy-service-1}
+  cluster:
+    id: ${jetlinks.server-id}
+    name: ${spring.application.name}
+    port: ${CLUSTER_PORT:18508}
+    external-host: ${CLUSTER_EXTERNAL_HOST:127.0.0.1}
+    external-port: ${CLUSTER_EXTERNAL_PORT:${jetlinks.cluster.port}}
+    rpc-port: ${RPC_PORT:28508}
+    rpc-external-host: ${RPC_EXTERNAL_HOST:${jetlinks.cluster.external-host}}
+    rpc-external-port: ${RPC_EXTERNAL_PORT:${jetlinks.cluster.rpc-port}}
+    rpc-token: ${RPC_TOKEN}
+    seeds: ${CLUSTER_SEEDS:127.0.0.1:18800}
+    event-namespace: property-facility-energy
+    config-storage-namespace: property-facility-energy
+    namespace: default,property-facility-energy
+  tenant:
+    assets:
+      asset-tables:
+        s_space_info: space
+        s_space_type: space_type
+        fe_device: facilityDevice
+        fe_group: facilityGroup
+        fe_standard: facilityStandard
+        fe_plan: facilityPlan
+        fe_task: facilityTask
+        fe_fault: facilityFault
+        fe_mapping: facilityMapping
+        fe_rule: facilityRule
+        fe_energy_target: facilityTarget
+  assets:
+    direct:
+      enabled: true
+      tables:
+        fe_device:
+          asset-type: facilityDevice
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_group:
+          asset-type: facilityGroup
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_standard:
+          asset-type: facilityStandard
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_plan:
+          asset-type: facilityPlan
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_task:
+          asset-type: facilityTask
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_fault:
+          asset-type: facilityFault
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_mapping:
+          asset-type: facilityMapping
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_rule:
+          asset-type: facilityRule
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_energy_target:
+          asset-type: facilityTarget
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+  microservice:
+    discovery:
+      enabled: true
+    token:
+      jwt:
+        decode-key: ${JWT_PUBLIC_KEY}
+
+logging:
+  file:
+    name: ./data/logs/${spring.application.name}_${server.port}.log
+    path: ./data/logs
+
+springdoc:
+  group-configs:
+    - group: ${spring.application.name}
+      display-name: 设施设备能源
+      packages-to-scan:
+        - org.jetlinks.pro.property.facility.web
+  security:
+    enabled: true
+
+facility:
+  jobs:
+    enabled: ${FACILITY_JOBS_ENABLED:true}
+    interval: 30s
+  sms:
+    receipt-secret: ${FACILITY_SMS_RECEIPT_SECRET:}
+  telemetry:
+    batch-size: 100
+    max-history-days: 7

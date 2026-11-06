@@ -4,8 +4,8 @@ set -euo pipefail
 # Each executable JAR contains only its own business system and platform libraries.
 system_name="${1:-patrol}"
 case "$system_name" in
-  base|finance|patrol|repair) ;;
-  *) echo 'Usage: start-service.sh {base|finance|patrol|repair} [application-local.yml]' >&2; exit 2 ;;
+  base|finance|patrol|repair|quality|facility-energy) ;;
+  *) echo 'Usage: start-service.sh {base|finance|patrol|repair|quality|facility-energy} [application-local.yml]' >&2; exit 2 ;;
 esac
 repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 service_jar="$repository_root/services/property-$system_name-service/target/application.jar"

@@ -71,6 +71,28 @@ class UserPersistenceTest {
     }
 
     @Test
+    void thousandsOfNewUsersFitPostgresBindLimitAndKeepLocalIdentities() {
+        var existing = user("existing-owner");
+        snapshot(existing);
+        sync.synchronize().block(WAIT);
+        service.updateIdentities(existing.getId(), Set.of(UserIdentity.owner), 0)
+                .contextWrite(access(Set.of(existing.getId()))).block(WAIT);
+        var batch = new LinkedHashMap<String, UserDetail>();
+        batch.put(existing.getId(), existing);
+        for (int index = 0; index < 4087; index++) {
+            var added = user(String.format("owner-%05d", index));
+            batch.put(added.getId(), added);
+        }
+        when(source.fetchAll()).thenReturn(Mono.just(batch));
+        var result = sync.synchronize().block(Duration.ofSeconds(60));
+        assertEquals(4087, result.added());
+        assertEquals(4088, users.createQuery().count().block(WAIT));
+        assertTrue(users.findById(existing.getId()).block(WAIT).getOwner());
+        assertFalse(users.findById("owner-04086").block(WAIT).getOwner());
+        assertEquals("succeeded", sync.status().block(WAIT).status());
+    }
+
+    @Test
     void identityAuditStoresDisplayNameAndFallsBackToUsername() {
         snapshot(user("a"));
         sync.synchronize().block(WAIT);
