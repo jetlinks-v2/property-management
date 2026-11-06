@@ -243,13 +243,9 @@ class PropertyDirectoryPersistenceTest {
 
     @Import({OrganizationPersistenceTest.Config.class, PropertyDirectoryCommandSupport.class, PropertyUserScope.class, PropertyUserService.class})
     static class Config {
+        // 生产权限入口必须直接受真实 Holder 约束，不能以测试替身掩盖不存在的目录命令。
         @Bean SaasUserSource userSource() {
-            return new SaasUserSource() {
-                @Override public Flux<String> authorizedIds(List<String> ids) {
-                    return AssetsHolder.filterAssets(Flux.fromIterable(ids), AssetType.of("user"),
-                        id -> id, org.jetlinks.pro.assets.crud.CrudAssetPermission.read);
-                }
-            };
+            return new SaasUserSource();
         }
         @Bean AssetManager assets() { return mock(AssetManager.class); }
         @Bean ArchiveScope archive(ReactiveRepository<PropertyOrganizationEntity, String> organizations,

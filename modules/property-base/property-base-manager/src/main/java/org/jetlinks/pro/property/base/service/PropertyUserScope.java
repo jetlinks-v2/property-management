@@ -14,7 +14,7 @@ import java.util.Set;
 
 /**
  * 用户镜像列表和目录命令共用的只读权限适配。
- * 认证服务的只读人员命令通过 AssetsHolder 解析原 user 权限，本地只执行 pm_user 查询；
+ * 通过平台 AssetsHolder 批量校验原 user 资产，本地只执行 pm_user 查询；
  * 授权 ID 在分页、统计前取交集，权限故障直接传播，不缓存或修改调用者上下文。
  */
 @Component

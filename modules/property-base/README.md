@@ -28,7 +28,7 @@
 
 | 命令 | 输入 / 输出 | 权限与空结果 |
 | --- | --- | --- |
-| `QueryPropertyEmployeePageCommand` | `query: QueryParamEntity` → `PagerResult<PropertyEmployeeInfo>`；每页1–200 | 认证及 user 资产范围（资产条件在认证服务解析为用户 ID，再与基础有效员工相交）；先过滤未删除、启用、employee=true，再分页。应用成员关系由消费方在认证服务中解析并以 ID 相交，不能把认证库的 in-dimension 条件发送到基础库 |
+| `QueryPropertyEmployeePageCommand` | `query: QueryParamEntity` → `PagerResult<PropertyEmployeeInfo>`；每页1–200 | 认证及 user 资产范围（平台 AssetsHolder 批量校验原 user 资产，再与基础有效员工相交）；先过滤未删除、启用、employee=true，再分页。应用成员关系由消费方在认证服务中解析并以 ID 相交，不能把认证库的 in-dimension 条件发送到基础库 |
 | `GetCurrentPropertyEmployeeCommand` | 无输入 → 本人 `PropertyEmployeeInfo` | 从可信认证身份读取，不要求用户维护菜单或目录授权；非员工、停用或已删除返回空；匿名和服务错误传播 |
 
 DTO 仅含 id、name、telephone、直接 organizationIds；员工 ID 与 SaaS user ID 一致，不包含密码、客户资料或内部审计字段。query 通过 AbstractCommand 属性序列化；调用方不能把空结果当有效执行身份，也不能降级为任意 SaaS 用户。员工与客户双身份按 employee 状态判断，纯客户不进入巡更岗位候选。
