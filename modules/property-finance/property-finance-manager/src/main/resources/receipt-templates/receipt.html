@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    @page { size: A5 landscape; margin: 8mm 9mm 12mm; @bottom-right { content: counter(page) " / " counter(pages); font-family: "Noto Sans SC"; font-size: 8px; color: #64748b; } }
+    body { margin: 0; color: #1e293b; font-family: "Noto Sans SC", sans-serif; font-size: 10px; }
+    h1 { margin: 0 0 2mm; font-size: 21px; color: #1e3a5f; }
+    .heading { display: table; width: 100%; border-bottom: 2px solid #334e68; padding-bottom: 2mm; margin-bottom: 2mm; }
+    .brand, .meta { display: table-cell; vertical-align: bottom; }
+    .meta { text-align: right; font-size: 9px; line-height: 1.7; }
+    .summary { line-height: 1.9; margin: 2mm 0; }
+    .muted { color: #64748b; }
+    .status { color: #b42318; font-weight: bold; font-size: 16px; padding-left: 4mm; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; -fs-table-paginate: paginate; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+    th, td { border: 1px solid #b5c3cf; padding: 1.5mm; text-align: left; word-wrap: break-word; }
+    th { background: #edf2f7; color: #334e68; font-weight: normal; }
+    th.index { width: 5%; }
+    th.space { width: 31%; }
+    th.subject { width: 19%; }
+    th.period { width: 29%; }
+    th.money { width: 16%; }
+    .money { text-align: right; white-space: nowrap; }
+    .repeat th { border: 0; background: white; padding: 0 0 2mm; font-size: 8px; }
+    .repeat .status { font-size: 12px; padding-left: 3mm; }
+    .total { padding: 3mm 0; border-bottom: 1px solid #b5c3cf; line-height: 1.8; page-break-inside: avoid; }
+    .total strong { color: #1e3a5f; font-size: 16px; }
+    .remark { margin: 2mm 0; word-wrap: break-word; }
+    .footer { color: #64748b; margin-top: 3mm; font-size: 8px; }
+  </style>
+</head>
+<body>
+  <div class="heading">
+    <div class="brand"><h1>{{title}}<span class="status">{{status}}</span></h1><div>{{company}}</div></div>
+    <div class="meta">{{numberLabel}}：{{number}}<br />{{dateLabel}}：{{date}}</div>
+  </div>
+  <div class="summary"><span class="muted">{{buyerLabel}}：</span>{{buyer}}<br /><span class="muted">{{customerLabel}}：</span>{{customer}}<br /><span class="muted">{{operatorLabel}}：</span>{{operator}}</div>
+  <table>
+    <colgroup><col style="width: 5%;" /><col style="width: 31%;" /><col style="width: 19%;" /><col style="width: 29%;" /><col style="width: 16%;" /></colgroup>
+    <thead>
+      <tr class="repeat"><th colspan="5">{{numberLabel}}：{{number}}<span class="status">{{status}}</span></th></tr>
+      <tr><th class="index">{{index}}</th><th class="space">{{space}}</th><th class="subject">{{subject}}</th><th class="period">{{period}}</th><th class="money">{{money}}</th></tr>
+    </thead>
+    <tbody>{{rows}}</tbody>
+  </table>
+  <div class="total"><strong>{{amountLabel}}：￥{{amount}}</strong><br /><span class="muted">{{upperLabel}}：</span>{{upper}}</div>
+  <div class="remark"><span class="muted">{{remarkLabel}}：</span>{{remark}}</div>
+  <div class="footer">{{company}} · {{footer}}<span class="status">{{status}}</span></div>
+</body>
+</html>

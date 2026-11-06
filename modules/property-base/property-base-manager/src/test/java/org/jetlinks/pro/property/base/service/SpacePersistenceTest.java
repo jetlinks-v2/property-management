@@ -45,6 +45,7 @@ class SpacePersistenceTest {
     @Autowired SpaceSyncWriter writer;
     @Autowired SpaceSyncService sync;
     @Autowired SaasSpaceSource source;
+    @Autowired SpaceOrganizationAssets organizationAssets;
 
     @BeforeEach
     void resetData() {
@@ -52,6 +53,21 @@ class SpacePersistenceTest {
                 .block(TIMEOUT);
         states.deleteById(SpaceSyncService.STATE_ID).block(TIMEOUT);
         reset(source);
+    }
+
+    @Test
+    void assetRegistrationFailureRollsBackSnapshotAndDoesNotReportSuccess() {
+        snapshot(node("a", null, "一栋"));
+        when(organizationAssets.synchronize(anyMap(), anyMap()))
+                .thenReturn(Mono.error(new IllegalStateException("asset store unavailable")));
+        try {
+            StepVerifier.create(sync.synchronize()).expectError().verify(TIMEOUT);
+            assertEquals(0, spaces.createQuery().count().block(TIMEOUT));
+            assertNull(sync.status().block(TIMEOUT).lastSuccessTime());
+            assertFalse(sync.status().block(TIMEOUT).running());
+        } finally {
+            when(organizationAssets.synchronize(anyMap(), anyMap())).thenReturn(Mono.empty());
+        }
     }
 
     @Test
@@ -221,10 +237,18 @@ class SpacePersistenceTest {
         }
 
         @Bean
+        SpaceOrganizationAssets organizationAssets() {
+            var assets = mock(SpaceOrganizationAssets.class);
+            when(assets.synchronize(anyMap(), anyMap())).thenReturn(Mono.empty());
+            return assets;
+        }
+
+        @Bean
         SpaceSyncWriter spaceWriter(
                 ReactiveRepository<PropertySpaceEntity, String> spaces,
-                ReactiveRepository<SpaceSyncStateEntity, String> states) {
-            return new SpaceSyncWriter(spaces, states);
+                ReactiveRepository<SpaceSyncStateEntity, String> states,
+                SpaceOrganizationAssets organizationAssets) {
+            return new SpaceSyncWriter(spaces, organizationAssets, states);
         }
 
         @Bean

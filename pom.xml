@@ -19,6 +19,8 @@
         <project.build.jdk>${java.version}</project.build.jdk>
         <jetlinks.pro.version>2.20.0-SNAPSHOT</jetlinks.pro.version>
         <spring.boot.version>3.4.13</spring.boot.version>
+        <openhtmltopdf.version>1.0.10</openhtmltopdf.version>
+        <pdfbox.version>2.0.35</pdfbox.version>
     </properties>
 
     <modules>
@@ -42,6 +44,26 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>com.openhtmltopdf</groupId>
+                <artifactId>openhtmltopdf-pdfbox</artifactId>
+                <version>${openhtmltopdf.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.pdfbox</groupId>
+                <artifactId>pdfbox</artifactId>
+                <version>${pdfbox.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.pdfbox</groupId>
+                <artifactId>fontbox</artifactId>
+                <version>${pdfbox.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.pdfbox</groupId>
+                <artifactId>xmpbox</artifactId>
+                <version>${pdfbox.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.jetlinks.pro</groupId>
                 <artifactId>jetlinks-parent</artifactId>

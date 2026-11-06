@@ -155,3 +155,7 @@ return CommandSupportManagerProviders
 跨服务调用使用 core 的 `QueryPropertyHouseholdsCommand`，服务 ID 为 `propertyService:household`；`projectId` 必填，`spaceId`、`customerId` 可选，同时指定取交集，`mine=true` 仅匹配认证账号的 `userId`。命令参数进入正式负载，错误原样传播，不跨库或按手机号猜测关系。查询复用平台 HTTP/命令链路追踪，无新增后台任务或常驻状态。
 
 `property-file-support` 提供 Cloud 文件所有者侧的 `AssertPropertyFilesCommand` 实现，需由持有 Cloud 文件元数据的服务装配；品质与报修只依赖 core 公开命令，不跨库查询文件。
+
+空间关联项目时，基础模块通过 `AssetBindManager` 为整棵空间树登记 `org` 归属。解除关联、来源节点删除或跨根移动会撤销旧归属；空间同步会幂等补齐已有关系。空间与房屋接口仍执行原有 `AssetsHolder` 权限校验。
+
+旧版本升级可以在基础模块业务库执行 `modules/property-base/sql/backfill-space-organization-assets.sql`，即时补齐缺失的组织资产关系；脚本可重复执行，不覆盖既有授权。重启基础服务后，首次空间同步也会自动补齐。独立数据库部署应在基础服务业务库执行，不在收费业务库执行。

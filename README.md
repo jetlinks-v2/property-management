@@ -11,6 +11,8 @@ property-management/
 │   ├── property-decoration/
 │   ├── property-facility-energy/
 │   ├── property-finance/
+│   │   ├── property-finance-core/
+│   │   └── property-finance-manager/
 │   ├── property-handover/
 │   ├── property-patrol/
 │   ├── property-quality/
@@ -46,7 +48,7 @@ Java 17、Spring Boot 3.4.13、JetLinks 2.20.0-SNAPSHOT，版本和插件由根 
 ## 当前业务范围
 
 - [基础档案](modules/property-base/README.md)：包含组织与用户镜像、空间同步、房屋客户档案、字典、导入导出及默认字典 SQL，由独立基础档案服务装配。
-- [财务收费](modules/property-finance/README.md)：已有模块和独立启动骨架，收费业务尚待开发。
+- [财务收费](modules/property-finance/README.md)：计费基础、收费标准与设置、应收、柜台收款及退款、预收押金、活动、独立模拟票据、交账、月结及财务报表；由独立收费服务承载，基础资料通过公共命令读取。
 - [智能巡更](modules/property-patrol/README.md)：包含现有分类、点位、标准、岗位、排班、计划、任务、执行及统计实现与测试；后续巡更后端统一在本仓库开发。
 
 - [报事报修](modules/property-repair/README.md)：工单、流程、审核、通知、报表导出、二维码及既有报修目录投影；通过独立报修服务装配，前端由 `report-saas-ui/2.20` 提供。
