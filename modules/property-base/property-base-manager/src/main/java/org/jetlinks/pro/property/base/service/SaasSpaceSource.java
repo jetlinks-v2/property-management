@@ -23,33 +23,31 @@ public class SaasSpaceSource {
 
     public Mono<List<SaasSpaceInfo>> fetchAll() {
         // 整轮至多 20000 条、90 秒；拒绝截断而非把部分页面当成可删除的完整来源。
-        return Mono.defer(() -> readPage(0, -1, new ArrayList<>(), false))
-                .flatMap(this::fillTypes)
+        return Mono.defer(() -> readPage(0, -1, new ArrayList<>()))
                 .timeout(Duration.ofSeconds(90))
                 .contextWrite(ignored -> Context.empty());
     }
 
     private Mono<List<SaasSpaceInfo>> readPage(
-            int pageIndex, long expected, List<SaasSpaceInfo> result, boolean type) {
+            int pageIndex, long expected, List<SaasSpaceInfo> result) {
         if (pageIndex > SpaceSnapshot.MAX_NODES / PAGE_SIZE)
             return Mono.error(SpaceSnapshot.invalid());
         var query = new QueryParamEntity();
         query.setPageIndex(pageIndex);
         query.setPageSize(PAGE_SIZE);
         query.orderBy("id");
-        return (type ? typePage(query) : page(query))
+        return page(query)
                 .switchIfEmpty(Mono.error(SpaceSnapshot.invalid()))
-                .flatMap(page -> acceptPage(page, query, expected, result, type));
+                .flatMap(page -> acceptPage(page, query, expected, result));
     }
 
     private Mono<List<SaasSpaceInfo>> acceptPage(
             PagerResult<SaasSpaceInfo> page,
             QueryParamEntity query,
             long expected,
-            List<SaasSpaceInfo> result,
-            boolean type) {
+            List<SaasSpaceInfo> result) {
         long total = page.getTotal();
-        log.debug("Space source page: type={}, requested={}, returned={}, total={}, rows={}", type,
+        log.debug("Space source page: requested={}, returned={}, total={}, rows={}",
             query.getPageIndex(),page.getPageIndex(),total,page.getData()==null?-1:page.getData().size());
         int wanted =
                 (int)
@@ -67,8 +65,8 @@ public class SaasSpaceSource {
         for (var node : page.getData()) {
             try { SpaceSnapshot.validate(node); }
             catch (BusinessException error) {
-                log.warn("Space source rejected node: type={}, idPresent={}, namePresent={}, parentPresent={}, spaceTypePresent={}",
-                    type,node.getId()!=null,node.getName()!=null,node.getParentId()!=null,node.getSpaceTypeId()!=null);
+                log.warn("Space source rejected node: idPresent={}, namePresent={}, parentPresent={}, spaceTypePresent={}",
+                    node.getId()!=null,node.getName()!=null,node.getParentId()!=null,node.getSpaceTypeId()!=null);
                 throw error;
             }
             if (previous != null && previous.compareTo(node.getId()) >= 0)
@@ -78,28 +76,7 @@ public class SaasSpaceSource {
         }
         return result.size() == total
                 ? Mono.just(result)
-                : readPage(query.getPageIndex() + 1, total, result, type);
-    }
-
-    private Mono<List<SaasSpaceInfo>> fillTypes(List<SaasSpaceInfo> spaces) {
-        if (spaces.stream().noneMatch(space -> space.getSpaceTypeId() != null))
-            return Mono.just(spaces);
-        // 类型页和空间页任意一页失败都会拒绝本轮快照，不能悄悄抹掉既有类型名称。
-        return readPage(0, -1, new ArrayList<>(), true)
-                .map(
-                        types -> {
-                            var byId = new java.util.HashMap<String, String>();
-                            types.forEach(type -> byId.put(type.getId(), type.getName()));
-                            spaces.forEach(
-                                    space ->
-                                            space.setSpaceTypeName(
-                                                    byId.get(space.getSpaceTypeId())));
-                            return spaces;
-                        });
-    }
-
-    protected Mono<PagerResult<SaasSpaceInfo>> typePage(QueryParamEntity query) {
-        return commandPage("spaceService:space-type", query);
+                : readPage(query.getPageIndex() + 1, total, result);
     }
 
     protected Mono<PagerResult<SaasSpaceInfo>> page(QueryParamEntity query) {

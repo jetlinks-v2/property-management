@@ -22,7 +22,7 @@ import java.util.*;
 public final class ArchiveExcel {
     public static final int MAX_BYTES = 10 * 1024 * 1024;
     public static final List<String> SPACE =
-            List.of("spaceId", "spaceName", "fullName", "spaceTypeName", "spaceLocation");
+            List.of("spaceId", "spaceName", "fullName");
     public static final List<String> HOUSE =
             List.of(
                     "spaceId",
@@ -106,7 +106,7 @@ public final class ArchiveExcel {
         HEADERS.put("modifierId", "修改人标识");
         HEADERS.put("modifierName", "修改人");
         GUIDES.put("spaceId", "必填，复制空间参考中的空间标识");
-        GUIDES.put("spacePath", "必填，填写或选择当前项目完整空间路径，例如园区/1栋/101；不创建空间，重名或不存在时拒绝");
+        GUIDES.put("spacePath", "必填，手动填写当前项目完整空间路径，例如园区/1栋/101；不创建空间，重名或不存在时拒绝");
         GUIDES.put("personName", "必填，按同步用户姓名匹配；重名再用联系电话区分，不存在或仍重名时拒绝");
         GUIDES.put("companyName", "必填，按同步用户企业名称匹配；重名再用联系电话区分，不存在或仍重名时拒绝");
         GUIDES.put("houseType", "必填，填写字典参考中的房屋类型名称，例如住宅");

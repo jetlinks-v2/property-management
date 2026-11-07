@@ -40,7 +40,7 @@ class ArchiveExcelServiceTest {
         var document = service.template("project", "house").block();
         assertEquals("5G园区-空间资料-下载模板.xlsx", document.filename());
         assertTrue(document.data().rows().isEmpty());
-        assertEquals(List.of("5G园区/1栋/101"), document.options().get("spacePath"));
+        assertFalse(document.options().containsKey("spacePath"));
         assertEquals(
                 1,
                 document.references().stream()
@@ -56,6 +56,7 @@ class ArchiveExcelServiceTest {
                         .orElseThrow();
         assertEquals("5G园区/1栋/101", reference.rows().get(0).get("spacePath"));
         assertEquals("已完善", reference.rows().get(0).get("completed"));
+        assertEquals(List.of("spacePath", "completed"), reference.columns());
     }
 
     @Test
@@ -76,7 +77,7 @@ class ArchiveExcelServiceTest {
         for (String type : List.of("person", "company")) {
             var document = service.template("project", type).block();
             assertTrue(document.data().rows().isEmpty());
-            assertEquals(List.of("5G园区/101", "5G园区/102"), document.options().get("spacePath"));
+            assertFalse(document.options().containsKey("spacePath"));
             var example =
                     document.references().stream()
                             .filter(sheet -> sheet.name().equals("填写示例"))
@@ -172,14 +173,14 @@ class ArchiveExcelServiceTest {
         when(scope.project("project", CrudAssetPermission.save))
                 .thenReturn(Mono.just(new PropertyOrganizationEntity()));
         when(scope.lock("project")).thenReturn(Mono.empty());
-        when(scope.leaf(eq("project"), anyString(), eq(CrudAssetPermission.save)))
+        when(scope.space(eq("project"), anyString(), eq(CrudAssetPermission.save)))
                 .thenReturn(Mono.just(new PropertySpaceEntity()));
         var first = new PropertyHouseService.HouseView();
         first.setProjectId("project");
         first.setVersion(0L);
         first.setCompleted(false);
         doReturn(Mono.just(first)).when(service).detail("project", "101");
-        doReturn(Mono.error(new BusinessException.NoStackTrace("not-a-leaf", 400)))
+        doReturn(Mono.error(new BusinessException.NoStackTrace("space-missing", 400)))
                 .when(service)
                 .detail("project", "102");
         when(dictionary.validateSelection(anyString(), anyString(), isNull()))

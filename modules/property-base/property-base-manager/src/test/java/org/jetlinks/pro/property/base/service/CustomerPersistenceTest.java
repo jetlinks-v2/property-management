@@ -49,6 +49,7 @@ class CustomerPersistenceTest {
     @Autowired PropertyCustomerService service;
     @Autowired PropertyCustomerCommandSupport directory;
     @Autowired PropertyDictionaryService dictionary;
+    @Autowired PropertyHouseService houseService;
     @Autowired ReactiveRepository<PropertyCustomerEntity, String> customers;
     @Autowired ReactiveRepository<PropertyCustomerRelationshipEntity, String> relationships;
     @Autowired ReactiveRepository<PropertyOrganizationEntity, String> organizations;
@@ -156,6 +157,30 @@ class CustomerPersistenceTest {
         customers
                 .deleteById(customers.createQuery().fetch().map(PropertyCustomerEntity::getId))
                 .block(WAIT);
+    }
+
+    @Test
+    void nonLeafCustomerAssociationRequiresCompletedSpaceAndPreservesLeafFact() {
+        StepVerifier.create(service.create("project", person("alice", "root")).contextWrite(all()))
+                .expectErrorMatches(error -> error instanceof BusinessException e
+                        && e.getMessage().equals("error.property_archive_house_incomplete"))
+                .verify(WAIT);
+        assertEquals(0, customers.createQuery().count().block(WAIT));
+        for (var entry : Map.of("house-type", "residential", "house-state", "delivered").entrySet()) {
+            dictionary.createType(new PropertyDictionaryService.TypeRequest(
+                    entry.getKey(), entry.getKey(), true, null)).contextWrite(all()).block(WAIT);
+            dictionary.createItem(entry.getKey(), new PropertyDictionaryService.ItemRequest(
+                    entry.getValue(), entry.getValue(), true, null, null)).contextWrite(all()).block(WAIT);
+        }
+        houseService.save("project", "root", new PropertyHouseService.HouseWrite(
+                0L, "residential", "delivered", BigDecimal.TEN, null, null, null, null, "root"))
+                .contextWrite(all()).block(WAIT);
+        var customer = service.create("project", person("alice", "root")).contextWrite(all()).block(WAIT);
+        assertEquals("root", customer.getRelationships().get(0).getSpaceId());
+        assertFalse(spaces.findById("root").block(WAIT).getLeaf());
+        var another = service.create("project", person("bob", "one")).contextWrite(all()).block(WAIT);
+        service.link("project", another.getId(), link("root")).contextWrite(all()).block(WAIT);
+        assertEquals(2, relationships.createQuery().where("spaceId", "root").count().block(WAIT));
     }
 
     @Test

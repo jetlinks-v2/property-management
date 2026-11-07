@@ -47,47 +47,24 @@ class SaasSpaceSourceTest {
     }
 
     @Test
-    void sourceTypesAreResolvedByIdAndTypeFailureRejectsWholeSnapshot() {
+    void spacesWithLegacyTypeIdsDoNotRequireRemovedTypeService() {
         var room = SpaceSnapshotTest.node("room", null, "101");
-        room.setSpaceTypeId("room-type");
-        var source =
-                new SaasSpaceSource() {
-                    @Override
-                    protected Mono<PagerResult<SaasSpaceInfo>> page(QueryParamEntity query) {
-                        return Mono.just(PagerResult.of(1, List.of(room), query));
-                    }
-
-                    @Override
-                    protected Mono<PagerResult<SaasSpaceInfo>> typePage(QueryParamEntity query) {
-                        return Mono.just(
-                                PagerResult.of(
-                                        1,
-                                        List.of(SpaceSnapshotTest.node("room-type", null, "房间")),
-                                        query));
-                    }
-                };
+        room.setSpaceTypeId("legacy-type");
+        var source = new SaasSpaceSource() {
+            @Override
+            protected Mono<PagerResult<SaasSpaceInfo>> page(QueryParamEntity query) {
+                return Mono.just(PagerResult.of(1, List.of(room), query));
+            }
+        };
+        // 不注册类型命令服务，仍可读取完整空间快照。
         StepVerifier.create(source.fetchAll())
-                .assertNext(
-                        rows -> {
-                            assertEquals("room-type", rows.get(0).getSpaceTypeId());
-                            assertEquals("房间", rows.get(0).getSpaceTypeName());
-                        })
+                .assertNext(rows -> {
+                    assertEquals(1, rows.size());
+                    assertEquals("room", rows.get(0).getId());
+                    assertEquals("101", rows.get(0).getName());
+                    assertNull(rows.get(0).getSpaceTypeName());
+                })
                 .verifyComplete();
-        var failed =
-                new SaasSpaceSource() {
-                    @Override
-                    protected Mono<PagerResult<SaasSpaceInfo>> page(QueryParamEntity query) {
-                        return Mono.just(PagerResult.of(1, List.of(room), query));
-                    }
-
-                    @Override
-                    protected Mono<PagerResult<SaasSpaceInfo>> typePage(QueryParamEntity query) {
-                        return Mono.error(new IllegalStateException("type service unavailable"));
-                    }
-                };
-        StepVerifier.create(failed.fetchAll())
-                .expectErrorMessage("type service unavailable")
-                .verify();
     }
 
     @Test

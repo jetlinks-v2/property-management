@@ -115,7 +115,7 @@ public class ArchiveExcelService {
                         "field",
                         "匹配规则",
                         "description",
-                        "完整空间路径精确匹配当前项目末端；客户按同步用户名称匹配，重名再用电话区分。不存在或仍重名时拒绝；不创建空间或SaaS账号。"));
+                        "手动填写完整空间路径，精确匹配当前项目内空间；客户只能关联已完善资料的空间；客户按同步用户名称匹配，重名再用电话区分。不存在或仍重名时拒绝；不创建空间或SaaS账号。"));
         instructions.add(
                 Map.of(
                         "field",
@@ -123,7 +123,7 @@ public class ArchiveExcelService {
                         "description",
                         customer
                                 ? "已有客户只新增当前空间记录，不覆盖资料。同账号多行主档资料须一致。每条记录的开始时间由系统在保存时自动记录，无需填写。"
-                                : "仅补充未完善的空间资料，修改已有资料请使用界面编辑。完整空间路径下拉及空间参考保留本项目全部末端空间。"));
+                                : "仅补充未完善的空间资料，修改已有资料请使用界面编辑。空间路径手动填写，空间参考保留本项目各层级空间。"));
         for (var key : columns)
             instructions.add(Map.of("field", header(key), "description", guide(key)));
         var references = new ArrayList<SheetData>();
@@ -131,16 +131,10 @@ public class ArchiveExcelService {
         references.add(
                 new SheetData(
                         "空间参考",
-                        List.of("spacePath", "spaceTypeName", "spaceLocation", "completed"),
+                        List.of("spacePath", "completed"),
                         spaces.stream().map(this::spaceRow).toList()));
         var dictionaryRows = new ArrayList<Map<String, Object>>();
         Map<String, List<String>> options = new LinkedHashMap<>();
-        options.put(
-                "spacePath",
-                available.stream()
-                        .map(PropertyHouseService.HouseView::getFullName)
-                        .distinct()
-                        .toList());
         DICTIONARY_FIELDS.forEach(
                 (field, code) -> {
                     if (!columns.contains(field)) return;
@@ -370,7 +364,10 @@ public class ArchiveExcelService {
                                     "房屋资料.xlsx",
                                     new SheetData(
                                             "房屋资料",
-                                            concat(columns(false), List.of("completed")),
+                                            concat(columns(false), List.of("completed")).stream()
+                                                    .filter(column -> !"spaceId".equals(column)
+                                                            && !"spaceName".equals(column))
+                                                    .toList(),
                                             rows),
                                     List.of());
                         });
@@ -484,8 +481,6 @@ public class ArchiveExcelService {
         row.put("spaceName", house.getName());
         row.put("fullName", house.getFullName());
         row.put("spacePath", house.getFullName());
-        row.put("spaceTypeName", house.getSpaceTypeName());
-        row.put("spaceLocation", house.getSpaceLocation());
         row.put("completed", Boolean.TRUE.equals(house.getCompleted()) ? "已完善" : "待完善");
         return row;
     }

@@ -49,7 +49,7 @@ public class PropertyHouseCommandSupport {
         return houses.summary(command.getProjectIds());
     }
 
-    @CommandHandler(name = "查询可用房屋", description = "返回当前授权项目及空间范围中已完善资料的末端房屋分页")
+    @CommandHandler(name = "查询可用房屋", description = "返回当前授权项目及空间范围中已完善资料的各层级空间房屋分页")
     public Mono<PropertyHousePage> queryHouses(QueryPropertyHousesCommand command) {
         return Mono.defer(
                 () -> {
@@ -81,7 +81,7 @@ public class PropertyHouseCommandSupport {
     }
 
     @Transactional
-    @CommandHandler(name = "查询房屋业务资料", description = "返回已完善末端房屋和本房屋当前客户，不包含已结束或逻辑删除关系")
+    @CommandHandler(name = "查询房屋业务资料", description = "返回已完善空间房屋和本空间当前客户，不包含已结束或逻辑删除关系")
     // 独立服务只在本次读取事务持锁；不承诺跨服务事务或锁延续到收费写入。
     public Mono<PropertyHouseContext> queryHouseContext(QueryPropertyHouseContextCommand command) {
         Mono<Void> lock =

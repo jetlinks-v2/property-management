@@ -82,27 +82,15 @@ class ArchiveExcelControllerTest {
                         new ByteArrayInputStream(bytes))) {
             assertEquals("导入数据", workbook.getSheetName(0));
             assertEquals(0, workbook.getSheetAt(0).getLastRowNum());
-            var dropdown =
-                    workbook.getSheetAt(0).getDataValidations().stream()
-                            .filter(
-                                    v ->
-                                            v.getRegions()
-                                                            .getCellRangeAddresses()[0]
-                                                            .getFirstColumn()
-                                                    == 0)
-                            .findFirst()
-                            .orElseThrow();
-            var range = workbook.getName(dropdown.getValidationConstraint().getFormula1());
-            var area =
-                    new org.apache.poi.ss.util.AreaReference(
-                            range.getRefersToFormula(),
-                            org.apache.poi.ss.SpreadsheetVersion.EXCEL2007);
-            assertEquals(
-                    "园区/1栋/101",
-                    workbook.getSheet(area.getFirstCell().getSheetName())
-                            .getRow(area.getFirstCell().getRow())
-                            .getCell(area.getFirstCell().getCol())
-                            .getStringCellValue());
+            var validations = workbook.getSheetAt(0).getDataValidations();
+            assertTrue(validations.stream().noneMatch(v -> v.getRegions()
+                    .getCellRangeAddresses()[0].getFirstColumn() == 0));
+            // 空间路径手填，房屋类型/房态仍使用字典下拉。
+            assertTrue(validations.stream().anyMatch(v -> v.getRegions()
+                    .getCellRangeAddresses()[0].getFirstColumn() == 1));
+            assertTrue(validations.stream().anyMatch(v -> v.getRegions()
+                    .getCellRangeAddresses()[0].getFirstColumn() == 2));
+            assertEquals(2, workbook.getSheet("空间参考").getRow(0).getLastCellNum());
             assertEquals(1, workbook.getSheet("填写示例").getLastRowNum());
             for (var sheet : List.of(workbook.getSheetAt(0), workbook.getSheet("填写示例"))) {
                 for (int column = 0; column < 8; column++) {
@@ -119,6 +107,52 @@ class ArchiveExcelControllerTest {
             assertEquals(
                     "园区/1栋/101",
                     workbook.getSheet("空间参考").getRow(1).getCell(0).getStringCellValue());
+        }
+    }
+
+    @Test
+    void houseExportKeepsPathAndBusinessDataWithoutInternalSpaceColumns() throws Exception {
+        var house = new PropertyHouseService.HouseView();
+        house.setSpaceId("00101");
+        house.setName("101");
+        house.setFullName("园区/1栋/101");
+        house.setHouseType("residential");
+        house.setHouseState("occupied");
+        house.setBillingArea(new BigDecimal("123.45"));
+        house.setCompleted(true);
+        when(houses.export(eq("project"), eq("building"), any()))
+                .thenReturn(Mono.just(List.of(house)));
+        byte[] bytes =
+                client.post()
+                        .uri("/property/house/_export?projectId=project&spaceId=building")
+                        .bodyValue(new QueryParamEntity())
+                        .exchange()
+                        .expectStatus()
+                        .isOk()
+                        .expectHeader()
+                        .contentType(
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                        .expectBody(byte[].class)
+                        .returnResult()
+                        .getResponseBody();
+        try (var book =
+                org.apache.poi.ss.usermodel.WorkbookFactory.create(
+                        new ByteArrayInputStream(bytes))) {
+            var sheet = book.getSheetAt(0);
+            var values = new LinkedHashMap<String, String>();
+            var formatter = new org.apache.poi.ss.usermodel.DataFormatter();
+            for (var cell : sheet.getRow(0)) {
+                values.put(cell.getStringCellValue(),
+                        formatter.formatCellValue(sheet.getRow(1).getCell(cell.getColumnIndex())));
+            }
+            assertEquals(List.of("完整空间路径（只读）", "房屋类型", "房态", "计费面积（㎡）",
+                            "建筑面积（㎡）", "套内面积（㎡）", "交房日期", "备注", "空间资料状态"),
+                    new ArrayList<>(values.keySet()));
+            assertEquals("园区/1栋/101", values.get("完整空间路径（只读）"));
+            assertEquals("住宅", values.get("房屋类型"));
+            assertEquals("自住", values.get("房态"));
+            assertEquals("123.45", values.get("计费面积（㎡）"));
+            assertEquals("已完善", values.get("空间资料状态"));
         }
     }
 

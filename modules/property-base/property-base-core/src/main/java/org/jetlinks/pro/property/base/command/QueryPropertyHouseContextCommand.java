@@ -8,7 +8,7 @@ import reactor.core.publisher.Mono;
 import java.io.Serial;
 
 /**
- * 校验项目、末端及已完善房屋资料后，返回当前有效客户；来源失败不能降级为空快照。
+ * 校验项目、空间及已完善房屋资料后，返回当前有效客户；来源失败不能降级为空快照。
  *
  * @see PropertyHouseContext
  * @since 2.20.0

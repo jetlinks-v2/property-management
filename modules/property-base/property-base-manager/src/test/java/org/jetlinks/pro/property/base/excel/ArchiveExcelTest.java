@@ -65,7 +65,7 @@ class ArchiveExcelTest {
                                         List.of("spaceId"),
                                         List.of(Map.of("spaceId", "101")))));
         try (var book = WorkbookFactory.create(new ByteArrayInputStream(bytes(doc)))) {
-            assertEquals("房屋类型", book.getSheetAt(0).getRow(0).getCell(5).getStringCellValue());
+            assertEquals("房屋类型", book.getSheetAt(0).getRow(0).getCell(ArchiveExcel.columns(false).indexOf("houseType")).getStringCellValue());
             assertEquals(0, book.getSheetAt(0).getLastRowNum());
             assertEquals("101", book.getSheet("空间参考").getRow(1).getCell(0).getStringCellValue());
         }

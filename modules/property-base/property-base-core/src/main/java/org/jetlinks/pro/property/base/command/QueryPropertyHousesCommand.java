@@ -8,7 +8,7 @@ import reactor.core.publisher.Mono;
 import java.io.Serial;
 
 /**
- * 查询授权项目内已完善资料的末端房屋；空间范围可选，页大小1到200。
+ * 查询授权项目内已完善资料的空间房屋；空间范围可选，页大小1到200。
  *
  * @see PropertyHousePage
  * @since 2.20.0

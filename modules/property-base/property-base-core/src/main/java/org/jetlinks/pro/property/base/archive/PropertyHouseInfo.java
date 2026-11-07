@@ -3,7 +3,7 @@ package org.jetlinks.pro.property.base.archive;
 import java.math.BigDecimal;
 
 /**
- * 房屋公开只读资料；末端类型不限定楼栋、楼层或房间，消费模块保存自己的历史快照。
+ * 房屋公开只读资料；可维护任意层级空间，消费模块保存自己的历史快照。
  *
  * @since 2.20.0
  */

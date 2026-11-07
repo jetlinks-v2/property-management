@@ -300,15 +300,15 @@ class ArchivePersistenceTest {
         request.setTypeCode("missing-type"); assertTrue(provider.query(request).contextWrite(all()).collectList().block(WAIT).isEmpty());
     }
     @Test
-    void singleRootAndArbitraryDepthLeafCanBecomeHouseButNonLeafCannot() {
+    void everyAuthorizedLevelCanBeCompletedAndSubtreeIncludesCurrentNode() {
         var initial =
                 houseService
                         .query("project", null, new QueryParamEntity())
                         .contextWrite(all())
                         .block(WAIT);
-        assertEquals(2, initial.getTotal());
+        assertEquals(4, initial.getTotal());
         assertEquals(
-                Set.of("single", "room"),
+                Set.of("single", "tower", "middle", "room"),
                 initial.getData().stream()
                         .map(PropertyHouseService.HouseView::getId)
                         .collect(java.util.stream.Collectors.toSet()));
@@ -326,14 +326,18 @@ class ArchivePersistenceTest {
                         .contextWrite(all())
                         .block(WAIT)
                         .getCompleted());
-        StepVerifier.create(
-                        houseService
-                                .save("project", "middle", write("middle", 0L, "30"))
-                                .contextWrite(all()))
-                .expectErrorMatches(error -> status(error, 409))
-                .verify(WAIT);
+        assertTrue(houseService.save("project", "middle", write("middle", 0L, "30"))
+                .contextWrite(all()).block(WAIT).getCompleted());
+        var subtree = houseService.query("project", "middle", new QueryParamEntity())
+                .contextWrite(all()).block(WAIT);
+        assertEquals(Set.of("middle", "room"), subtree.getData().stream()
+                .map(PropertyHouseService.HouseView::getId).collect(java.util.stream.Collectors.toSet()));
+        assertEquals("middle", houseService.requireCompleted("project", "middle", CrudAssetPermission.save)
+                .contextWrite(all()).block(WAIT).getId());
+        StepVerifier.create(houseService.requireCompleted("project", "tower", CrudAssetPermission.save)
+                .contextWrite(all())).expectErrorMatches(error -> status(error, 409)).verify(WAIT);
         assertFalse(spaces.findById("middle").block(WAIT).getLeaf());
-        assertEquals(2, houses.createQuery().count().block(WAIT));
+        assertEquals(3, houses.createQuery().count().block(WAIT));
     }
 
     @Test
@@ -345,7 +349,7 @@ class ArchivePersistenceTest {
         assertTrue(tree.get(0).getChildren().isEmpty());
         assertFalse(tree.get(0).getLeaf());
         assertEquals(
-                0,
+                1,
                 houseService
                         .query("project", null, new QueryParamEntity())
                         .contextWrite(limited)
@@ -689,7 +693,7 @@ class ArchivePersistenceTest {
                                         "project",
                                         List.of(
                                                 write("single", 0L, "10"),
-                                                write("middle", 0L, "20")))
+                                                write("middle", 0L, "-1")))
                                 .contextWrite(all()))
                 .expectError()
                 .verify(WAIT);
@@ -699,7 +703,7 @@ class ArchivePersistenceTest {
                 houseService
                         .importRows(
                                 "project",
-                                List.of(write("single", 0L, "10"), write("room", 0L, "20")))
+                                List.of(write("single", 0L, "10"), write("middle", 0L, "20")))
                         .contextWrite(all())
                         .block(WAIT)
                         .count());

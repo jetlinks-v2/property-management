@@ -150,7 +150,7 @@ class ArchiveCustomerImportTest {
     void templateSeparatesPersonalAndCompanyAndSuppliesOnlyBusinessNames() {
         var personal = service.template("project", "person").block();
         assertEquals(ArchiveImportSchema.columns("person"), personal.data().columns());
-        assertEquals(List.of("园区/101"), personal.options().get("spacePath"));
+        assertFalse(personal.options().containsKey("spacePath"));
         assertTrue(
                 personal.references().stream()
                         .flatMap(s -> s.columns().stream())

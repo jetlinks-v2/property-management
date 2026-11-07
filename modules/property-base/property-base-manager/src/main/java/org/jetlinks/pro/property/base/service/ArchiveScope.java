@@ -139,13 +139,13 @@ public class ArchiveScope {
                         });
     }
 
-    public Mono<PropertySpaceEntity> leaf(
+    public Mono<PropertySpaceEntity> space(
             String projectId, String spaceId, CrudAssetPermission permission) {
         return spaces(projectId, spaceId, permission)
                 .flatMapMany(Flux::fromIterable)
-                .filter(e -> e.getId().equals(spaceId) && Boolean.TRUE.equals(e.getLeaf()))
+                .filter(e -> e.getId().equals(spaceId))
                 .next()
-                .switchIfEmpty(Mono.error(error("space_not_leaf", 409)));
+                .switchIfEmpty(Mono.error(error("space_not_found", 404)));
     }
 
     public static BusinessException error(String suffix, int status) {

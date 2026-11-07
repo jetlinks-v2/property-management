@@ -21,7 +21,7 @@ import reactor.core.publisher.Mono;
 import java.math.BigDecimal;
 import java.util.*;
 
-/** 维护真实末端的房屋扩展；项目事务锁保护保存、导入及客户存在时的删除约束。 */
+/** 维护任意层级空间的房屋扩展；项目事务锁保护保存、导入及客户存在时的删除约束。 */
 @Service
 @RequiredArgsConstructor
 public class PropertyHouseService {
@@ -57,7 +57,7 @@ public class PropertyHouseService {
                 || ids.stream().anyMatch(id -> id == null || id.isBlank() || id.length() > 64))
             return Mono.error(error("invalid_query", 400));
         return reactor.core.publisher.Flux.fromIterable(new LinkedHashSet<>(ids))
-                .concatMap(id -> all(id, null))
+                .concatMap(id -> all(id, null, true))
                 .flatMapIterable(rows -> rows)
                 .collectList()
                 .flatMap(
@@ -77,7 +77,7 @@ public class PropertyHouseService {
     }
 
     public Mono<HouseView> detail(String projectId, String spaceId) {
-        return scope.leaf(projectId, spaceId, CrudAssetPermission.read)
+        return scope.space(projectId, spaceId, CrudAssetPermission.read)
                 .flatMap(
                         node ->
                                 houses.findById(spaceId)
@@ -88,7 +88,7 @@ public class PropertyHouseService {
 
     public Mono<PropertyHouseEntity> requireCompleted(
             String projectId, String spaceId, CrudAssetPermission permission) {
-        return scope.leaf(projectId, spaceId, permission)
+        return scope.space(projectId, spaceId, permission)
                 .then(houses.findById(spaceId))
                 .filter(
                         e ->
@@ -98,25 +98,29 @@ public class PropertyHouseService {
     }
 
     private Mono<List<HouseView>> all(String projectId, String spaceId) {
+        return all(projectId, spaceId, false);
+    }
+
+    private Mono<List<HouseView>> all(String projectId, String spaceId, boolean leavesOnly) {
         return scope.spaces(projectId, spaceId, CrudAssetPermission.read)
                 .flatMap(
                         nodes -> {
-                            var leaves =
+                            var selected =
                                     nodes.stream()
-                                            .filter(e -> Boolean.TRUE.equals(e.getLeaf()))
+                                            .filter(e -> !leavesOnly || Boolean.TRUE.equals(e.getLeaf()))
                                             .toList();
-                            if (leaves.isEmpty()) return Mono.just(List.of());
+                            if (selected.isEmpty()) return Mono.just(List.of());
                             return houses.createQuery()
                                     .in(
                                             "id",
-                                            leaves.stream()
+                                            selected.stream()
                                                     .map(PropertySpaceEntity::getId)
                                                     .toList())
                                     .fetch()
                                     .collectMap(PropertyHouseEntity::getId)
                                     .map(
                                             byId ->
-                                                    leaves.stream()
+                                                    selected.stream()
                                                             .map(
                                                                     node ->
                                                                             view(
@@ -133,7 +137,7 @@ public class PropertyHouseService {
     public Mono<HouseView> save(String projectId, String spaceId, HouseWrite input) {
         return scope.project(projectId, CrudAssetPermission.save)
                 .then(scope.lock(projectId))
-                .then(scope.leaf(projectId, spaceId, CrudAssetPermission.save))
+                .then(scope.space(projectId, spaceId, CrudAssetPermission.save))
                 .flatMap(
                         node ->
                                 houses.findById(spaceId)
@@ -282,7 +286,7 @@ public class PropertyHouseService {
                                                                                             "import_duplicate",
                                                                                             400));
                                                                         validate(row);
-                                                                        return scope.leaf(
+                                                                        return scope.space(
                                                                                         projectId,
                                                                                         row
                                                                                                 .spaceId(),
