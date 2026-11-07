@@ -384,7 +384,6 @@ public class CarryForwardPlanService {
     }
 
     private Mono<Void> lockStandards(String project, CarryForwardPlanInput input) {
-        if (input.getStandardIds() == null || input.getStandardIds().isEmpty()) return Mono.empty();
         var q = new QueryParamEntity();
         q.setForUpdate(true);
         // 科目及下发行已锁定，再按ID锁标准，和收费标准维护保持同序。
@@ -521,8 +520,7 @@ public class CarryForwardPlanService {
         var copy = JSON.parseObject(JSON.toJSONString(input), CarryForwardPlanInput.class);
         copy.setName(copy.getName().trim());
         copy.setSubjectIds(copy.getSubjectIds().stream().sorted().toList());
-        if (copy.getStandardIds() != null)
-            copy.setStandardIds(copy.getStandardIds().stream().sorted().toList());
+        copy.setStandardIds(copy.getStandardIds().stream().sorted().toList());
         return copy;
     }
 

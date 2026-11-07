@@ -56,6 +56,7 @@ class CarryForwardPlanPersistenceTest {
         var i = new CarryForwardPlanInput();
         i.setName("物业费自动结转");
         i.setSubjectIds(List.of(fixture.subjectId));
+        i.setStandardIds(List.of(fixture.standardId));
         i.setPeriodStart("2024-01-01");
         i.setPeriodEnd("2024-12-31");
         i.setFrequency("MONTHLY");
@@ -101,6 +102,29 @@ class CarryForwardPlanPersistenceTest {
                 .execute()
                 .block(WAIT);
         assertTrue(run(service.options(fixture.project)).isEmpty());
+    }
+
+    @Test
+    void missingStandardsCannotCreateOrOverwriteAPlan() {
+        var i = input();
+        i.setStandardIds(null);
+        reject(service.create(fixture.project, i), 400);
+        i.setStandardIds(List.of());
+        reject(service.create(fixture.project, i), 400);
+        assertEquals(0, plans.createQuery().where("projectId", fixture.project).count().block(WAIT));
+        i.setStandardIds(List.of(fixture.standardId, "other-standard"));
+        reject(service.create(fixture.project, i), 400);
+        i.setStandardIds(List.of(fixture.standardId));
+        i.setSubjectIds(List.of(fixture.subjectId, "other-subject"));
+        reject(service.create(fixture.project, i), 400);
+        i.setSubjectIds(List.of(fixture.subjectId));
+        i.setStandardIds(List.of());
+        var saved = create();
+        i.setVersion(saved.plan().getVersion());
+        reject(service.update(fixture.project, saved.plan().getId(), i), 400);
+        assertEquals(List.of(fixture.standardId),
+                run(service.detail(fixture.project, saved.plan().getId())).input().getStandardIds());
+        assertEquals(1, logs.createQuery().where("planId", saved.plan().getId()).count().block(WAIT));
     }
 
     @Test
@@ -230,7 +254,7 @@ class CarryForwardPlanPersistenceTest {
     @Test
     void missingDisabledOrUnissuedSubjectRejectsWholePlan() {
         var i = input();
-        i.setSubjectIds(List.of(fixture.subjectId, "missing"));
+        i.setSubjectIds(List.of("missing"));
         reject(service.create(fixture.project, i), 409);
         subjects.createUpdate()
                 .set("enabled", false)
@@ -273,10 +297,15 @@ class CarryForwardPlanPersistenceTest {
         var i = input();
         i.setVersion(d.plan().getVersion());
         i.setSubjectIds(List.of(other.subjectId));
+        i.setStandardIds(List.of(other.standardId));
+        standards.createUpdate().set("projectId", fixture.project)
+                .set("code", other.standardId).set("codeKey", other.standardId)
+                .where("id", other.standardId).execute().block(WAIT);
         var edited = run(service.update(fixture.project, d.plan().getId(), i));
         create(); // 原科目已释放。
         i.setVersion(edited.plan().getVersion());
         i.setSubjectIds(List.of(fixture.subjectId));
+        i.setStandardIds(List.of(fixture.standardId));
         reject(service.update(fixture.project, d.plan().getId(), i), 409);
         assertEquals(
                 List.of(other.subjectId),

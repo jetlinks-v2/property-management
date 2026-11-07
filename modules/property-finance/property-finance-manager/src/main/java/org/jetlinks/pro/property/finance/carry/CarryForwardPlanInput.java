@@ -15,9 +15,10 @@ import java.util.List;
 public class CarryForwardPlanInput {
     private Long version;
     private String name;
+    /** 保留既有数组契约，仅允许一个收费科目。 */
     private List<String> subjectIds;
 
-    /** 空列表沿用历史科目范围；指定时仅结转这些标准产生的账单。 */
+    /** 必填且仅允许一个收费标准，必须属于所选科目。 */
     private List<String> standardIds;
 
     private String periodStart, periodEnd;

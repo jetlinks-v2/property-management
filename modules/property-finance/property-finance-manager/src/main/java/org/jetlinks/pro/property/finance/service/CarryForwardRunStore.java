@@ -116,18 +116,19 @@ public class CarryForwardRunStore {
                             var input =
                                     JSON.parseObject(
                                             run.getConfigJson(), CarryForwardPlanInput.class);
+                            // 恢复旧批次也必须校验范围，未选或多选标准不能退化为科目内全部账单。
+                            CarryForwardRules.validate(input);
                             var q =
                                     bills.createQuery()
                                             .setParam(page(size))
                                             .where("projectId", run.getProjectId())
                                             .and("deleted", false)
                                             .in("subjectId", input.getSubjectIds())
+                                            .in("standardId", input.getStandardIds())
                                             .gte("calcStartDate", input.getPeriodStart())
                                             .lte("calcEndDate", input.getPeriodEnd())
                                             .lte("createTime", run.getCreateTime())
                                             .gt("arrears", java.math.BigDecimal.ZERO);
-                            if (input.getStandardIds() != null && !input.getStandardIds().isEmpty())
-                                q.in("standardId", input.getStandardIds());
                             if (run.getCursorId() != null) q.gt("id", run.getCursorId());
                             return q.fetch()
                                     .collectList()

@@ -27,21 +27,19 @@ public final class CarryForwardRules {
                 || p.getName().isBlank()
                 || p.getName().length() > 100
                 || p.getSubjectIds() == null
-                || p.getSubjectIds().isEmpty()
-                || p.getSubjectIds().size() > 100
+                || p.getSubjectIds().size() != 1
                 || p.getEnabled() == null
                 || p.getIncludeLateFee() == null) throw error("carry_plan_invalid", 400);
         var ids = new HashSet<String>();
         for (var id : p.getSubjectIds())
             if (id == null || id.isBlank() || id.length() > 64 || !ids.add(id))
                 throw error("carry_plan_invalid", 400);
-        if (p.getStandardIds() != null) {
-            if (p.getStandardIds().size() > 100) throw error("carry_plan_invalid", 400);
-            ids.clear();
-            for (var id : p.getStandardIds())
-                if (id == null || id.isBlank() || id.length() > 64 || !ids.add(id))
-                    throw error("carry_plan_invalid", 400);
-        }
+        if (p.getStandardIds() == null || p.getStandardIds().size() != 1)
+            throw error("carry_plan_invalid", 400);
+        ids.clear();
+        for (var id : p.getStandardIds())
+            if (id == null || id.isBlank() || id.length() > 64 || !ids.add(id))
+                throw error("carry_plan_invalid", 400);
         try {
             if (LocalDate.parse(p.getPeriodEnd()).isBefore(LocalDate.parse(p.getPeriodStart())))
                 throw error("carry_plan_invalid", 400);
@@ -140,7 +138,7 @@ public final class CarryForwardRules {
                 arrears.subtract(remission).subtract(amount));
     }
 
-    /** 自动选择仍须满足同项目、房屋、科目、公司和完整收费对象快照，不能只比较首位客户。 */
+    /** 预收款与账单须属于同项目、房屋、科目、标准、公司及收费对象，禁止跨标准抵扣。 */
     public static boolean matches(
             String project,
             CarryForwardPlanInput p,
@@ -152,6 +150,7 @@ public final class CarryForwardRules {
                 || !"ADVANCE".equals(account.getType())
                 || !Objects.equals(bill.getSpaceId(), account.getSpaceId())
                 || !Objects.equals(bill.getSubjectId(), account.getSubjectId())
+                || !Objects.equals(bill.getStandardId(), account.getStandardId())
                 || !p.getSubjectIds().contains(bill.getSubjectId())
                 || !includesStandard(p, bill.getStandardId())
                 || Boolean.TRUE.equals(bill.getDeleted())
@@ -164,9 +163,9 @@ public final class CarryForwardRules {
     }
 
     public static boolean includesStandard(CarryForwardPlanInput p, String standardId) {
-        return p.getStandardIds() == null
-                || p.getStandardIds().isEmpty()
-                || p.getStandardIds().contains(standardId);
+        return p.getStandardIds() != null
+                && p.getStandardIds().size() == 1
+                && p.getStandardIds().contains(standardId);
     }
 
     private static BigDecimal money(BigDecimal value) {

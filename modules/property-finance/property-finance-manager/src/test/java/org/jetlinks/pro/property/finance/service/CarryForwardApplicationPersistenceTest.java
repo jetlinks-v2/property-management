@@ -71,11 +71,13 @@ class CarryForwardApplicationPersistenceTest {
         project = fixture.project;
         bill = fixture.fixture.bill("carry");
         bill.setSubjectId(fixture.setting.subjectId);
+        bill.setStandardId(fixture.setting.standardId);
         var snapshot = JSON.parseObject(bill.getSnapshotJson());
         snapshot.getJSONObject("standard").put("companyId", "company");
         bill.setSnapshotJson(snapshot.toJSONString());
         bills.createUpdate()
                 .set("subjectId", bill.getSubjectId())
+                .set("standardId", bill.getStandardId())
                 .set("snapshotJson", bill.getSnapshotJson())
                 .where("id", bill.getId())
                 .execute()
@@ -83,6 +85,7 @@ class CarryForwardApplicationPersistenceTest {
         input = new CarryForwardPlanInput();
         input.setName("物业费自动结转");
         input.setSubjectIds(List.of(bill.getSubjectId()));
+        input.setStandardIds(List.of(bill.getStandardId()));
         input.setPeriodStart("2024-01-01");
         input.setPeriodEnd("2024-12-31");
         input.setFrequency("DAILY");
@@ -127,6 +130,21 @@ class CarryForwardApplicationPersistenceTest {
     }
 
     @Autowired FinancialPeriodTestSupport periods;
+
+    @Test
+    void anotherStandardCannotConsumeBalanceOrApplyRemission() {
+        var account = topup("150.00");
+        String otherStandard = UUID.randomUUID().toString();
+        accounts.createUpdate().set("standardId", otherStandard)
+                .where("id", account.getId()).execute().block(WAIT);
+        fixture.rejects(service.apply(project, request(account.getId()), DATE), 409);
+        money("150.00", accounts.findById(account.getId()).block(WAIT).getBalance());
+        money("100.00", currentBill().getArrears());
+        money("0.00", currentBill().getFeeReductionAmount());
+        assertEquals(0, items.createQuery().where("planId", plan.getId()).count().block(WAIT));
+        assertEquals(0, remissions.createQuery().where("planId", plan.getId()).count().block(WAIT));
+        assertEquals(0, payments.createQuery().where("projectId", project).count().block(WAIT));
+    }
 
     @Test
     void closedPeriodAlsoBlocksRemissionWithoutAFundAccount() {

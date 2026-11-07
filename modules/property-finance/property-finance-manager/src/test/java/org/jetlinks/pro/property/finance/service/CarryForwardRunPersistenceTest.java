@@ -45,6 +45,33 @@ class CarryForwardRunPersistenceTest extends CarryForwardApplicationPersistenceT
     }
 
     @Test
+    void automaticRunSkipsBalanceFromAnotherStandard() {
+        var a = topup("150.00");
+        accounts.createUpdate().set("standardId", "other-standard")
+                .where("id", a.getId()).execute().block(WAIT);
+        var result = execute();
+        assertEquals("SUCCEEDED", result.getStatus());
+        assertEquals(1, result.getSkipped());
+        money("150.00", accounts.findById(a.getId()).block(WAIT).getBalance());
+        money("100.00", currentBill().getArrears());
+        money("0.00", currentBill().getFeeReductionAmount());
+        assertEquals(0, payments.createQuery().where("projectId", project).count().block(WAIT));
+    }
+
+    @Test
+    void unfinishedLegacyRunWithNoStandardCannotExpandItsScan() {
+        var run = authorized(runner.prepare(project, plan.getId(), now));
+        input.setStandardIds(List.of());
+        runs.createUpdate().set("configJson", JSON.toJSONString(input))
+                .where("id", run.getId()).execute().block(WAIT);
+        var owner = store.claim(run.getId()).block(WAIT);
+        StepVerifier.create(store.stagePage(run.getId(), owner, 2))
+                .expectErrorMatches(e -> TaxItemPersistenceTest.status(e, 400)).verify(WAIT);
+        assertEquals(0, works.createQuery().where("runId", run.getId()).count().block(WAIT));
+        money("100.00", currentBill().getArrears());
+    }
+
+    @Test
     void selectedStandardFiltersScannedBillsAndDirectApplicationWithoutChangingFunds() {
         var a = topup("150.00");
         input.setStandardIds(List.of("other-standard"));
@@ -136,6 +163,7 @@ class CarryForwardRunPersistenceTest extends CarryForwardApplicationPersistenceT
             var row = fixture.fixture.bill("page" + i);
             bills.createUpdate()
                     .set("subjectId", bill.getSubjectId())
+                    .set("standardId", bill.getStandardId())
                     .where("id", row.getId())
                     .execute()
                     .block(WAIT);
@@ -157,6 +185,7 @@ class CarryForwardRunPersistenceTest extends CarryForwardApplicationPersistenceT
                 var later = fixture.fixture.bill("created-later");
                 bills.createUpdate()
                         .set("subjectId", bill.getSubjectId())
+                        .set("standardId", bill.getStandardId())
                         .set("createTime", run.getCreateTime() + 10_000)
                         .where("id", later.getId())
                         .execute()

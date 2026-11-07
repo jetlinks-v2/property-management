@@ -120,6 +120,7 @@ class CarryForwardJobPersistenceTest extends CarryForwardRunPersistenceTest {
             var row = fixture.fixture.bill("job-page-" + i);
             bills.createUpdate()
                     .set("subjectId", bill.getSubjectId())
+                    .set("standardId", bill.getStandardId())
                     .where("id", row.getId())
                     .execute()
                     .block(WAIT);

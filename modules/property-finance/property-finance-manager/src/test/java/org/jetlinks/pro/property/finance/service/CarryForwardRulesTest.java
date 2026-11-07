@@ -18,6 +18,7 @@ class CarryForwardRulesTest {
         var p = new CarryForwardPlanInput();
         p.setName("物业预收自动结转");
         p.setSubjectIds(List.of("property"));
+        p.setStandardIds(List.of("standard"));
         p.setPeriodStart("2024-01-01");
         p.setPeriodEnd("2024-12-31");
         p.setFrequency("DAILY");
@@ -214,15 +215,23 @@ class CarryForwardRulesTest {
     }
 
     @Test
-    void standardSelectionRejectsDuplicatesAndRetainsLegacyUnfilteredScope() {
+    void standardSelectionIsRequiredAndNeverExpandsAnEmptyScope() {
         var p = plan();
-        assertTrue(CarryForwardRules.includesStandard(p, "any"));
+        p.setStandardIds(null);
+        assertFalse(CarryForwardRules.includesStandard(p, "any"));
+        assertThrows(BusinessException.class, () -> CarryForwardRules.validate(p));
         p.setStandardIds(List.of());
-        assertTrue(CarryForwardRules.includesStandard(p, "any"));
+        assertFalse(CarryForwardRules.includesStandard(p, "any"));
+        assertThrows(BusinessException.class, () -> CarryForwardRules.validate(p));
         p.setStandardIds(List.of("chosen"));
         assertTrue(CarryForwardRules.includesStandard(p, "chosen"));
         assertFalse(CarryForwardRules.includesStandard(p, "other"));
         p.setStandardIds(List.of("chosen", "chosen"));
+        assertThrows(BusinessException.class, () -> CarryForwardRules.validate(p));
+        p.setStandardIds(List.of("chosen", "other"));
+        assertThrows(BusinessException.class, () -> CarryForwardRules.validate(p));
+        p.setStandardIds(List.of("chosen"));
+        p.setSubjectIds(List.of("property", "water"));
         assertThrows(BusinessException.class, () -> CarryForwardRules.validate(p));
     }
 
@@ -233,6 +242,7 @@ class CarryForwardRulesTest {
         bill.setProjectId("project");
         bill.setSpaceId("leaf-building-with-no-rooms");
         bill.setSubjectId("property");
+        bill.setStandardId("standard");
         bill.setCalcStartDate("2024-02-01");
         bill.setCalcEndDate("2024-02-29");
         bill.setCustomerId("first");
@@ -243,9 +253,23 @@ class CarryForwardRulesTest {
         a.setSpaceId(bill.getSpaceId());
         a.setType("ADVANCE");
         a.setSubjectId("property");
+        a.setStandardId("standard");
         a.setCompanyId("company");
         a.setCustomerId("second");
         assertTrue(CarryForwardRules.matches("project", p, bill, a));
+        // 即使科目一致，也不能用另一收费标准的预收余额抵扣。
+        a.setStandardId("other-standard");
+        assertFalse(CarryForwardRules.matches("project", p, bill, a));
+        bill.setStandardId("other-standard");
+        p.setStandardIds(List.of("other-standard"));
+        assertTrue(CarryForwardRules.matches("project", p, bill, a));
+        a.setStandardId("standard");
+        assertFalse(CarryForwardRules.matches("project", p, bill, a));
+        bill.setStandardId("standard");
+        p.setStandardIds(List.of("standard"));
+        a.setSubjectId("other-subject");
+        assertFalse(CarryForwardRules.matches("project", p, bill, a));
+        a.setSubjectId("property");
         a.setType("DEPOSIT");
         assertFalse(CarryForwardRules.matches("project", p, bill, a));
         a.setType("ADVANCE");
