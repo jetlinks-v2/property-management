@@ -12,7 +12,6 @@ import reactor.core.publisher.Mono;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * 原报表的任务、检查项、整改率和条线环比口径。
@@ -33,9 +32,9 @@ public class QualityStatistics {
     public Flux<Map<String, Object>> tasks(QualityReportFilter filter) {
         return taskAccess.query(taskQuery(filter)).flatMapMany(q -> tasks.createQuery().setParam(q).fetch())
             .collect(LinkedHashMap<String, Map<String, Object>>::new, (groups, task) -> {
-                String key = filter.getTaskLevel() == 1 ? Objects.toString(task.getBusinessTypeId(), "") : task.getProjectId();
+                String key = task.getProjectId();
                 var row = groups.computeIfAbsent(key, ignored -> dimension(filter.getTaskLevel(), key,
-                    filter.getTaskLevel() == 1 ? task.getBusinessTypeName() : task.getProjectName()));
+                    task.getProjectName()));
                 QualityReportRules.add(row, "totalTask", 1);
                 if (task.getTaskStatus() == 2) QualityReportRules.add(row, "completeTask", 1);
                 if (task.getTaskStatus() == 3) QualityReportRules.add(row, "closeTask", 1);
@@ -45,8 +44,7 @@ public class QualityStatistics {
                 // 无授权任务的项目不可能通过 taskQuery 关联到检查项；保留零值行，省去空明细查询。
                 if (QualityReportRules.number(row, "totalTask") == 0) return Mono.just(QualityReportRules.taskRates(row));
                 var dimensionFilter = copy(filter);
-                if (filter.getTaskLevel() == 1) dimensionFilter.setBusinessTypeId(row.get("businessTypeId").toString());
-                else dimensionFilter.setProjectId(row.get("projectId").toString());
+                dimensionFilter.setProjectId(row.get("projectId").toString());
                 // 旧任务总表不按条线时间窗口筛选；日期仅属于条线统计及问题明细。
                 dimensionFilter.setStartTime(null); dimensionFilter.setEndTime(null);
                 return entries(dimensionFilter).reduce(row, (summary, entry) -> {
@@ -122,9 +120,8 @@ public class QualityStatistics {
     }
 
     private Mono<LinkedHashMap<String, Map<String, Object>>> includeProjects(QualityReportFilter filter, LinkedHashMap<String, Map<String, Object>> groups) {
-        if (filter.getTaskLevel() == 1) return Mono.just(groups);
         return directory.projects().filter(project -> filter.getProjectId() == null || filter.getProjectId().equals(project.getId()))
-            .doOnNext(project -> groups.computeIfAbsent(project.getId(), key -> dimension(2, key, project.getName())))
+            .doOnNext(project -> groups.computeIfAbsent(project.getId(), key -> dimension(filter.getTaskLevel(), key, project.getName())))
             .then(Mono.just(groups));
     }
 
@@ -132,24 +129,20 @@ public class QualityStatistics {
         var query = QueryParamEntity.newQuery().where("taskLevel", filter.getTaskLevel()).getParam();
         query.setPaging(false);
         if (filter.getProjectId() != null) query.toQuery().and("projectId", filter.getProjectId());
-        if (filter.getBusinessTypeId() != null) {
-            if (filter.getBusinessTypeId().isEmpty()) query.toQuery().isNull("businessTypeId");
-            else query.toQuery().and("businessTypeId", filter.getBusinessTypeId());
-        }
         return query;
     }
 
     private static Map<String, Object> dimension(int level, String id, String name) {
         var row = new LinkedHashMap<String, Object>();
-        row.put(level == 1 ? "businessTypeId" : "projectId", id);
-        row.put(level == 1 ? "businessTypeName" : "projectName", name);
+        row.put("projectId", id);
+        row.put("projectName", name);
         for (String key : List.of("totalTask", "completeTask", "closeTask", "qualifiedContentCount", "unqualifiedContentCount", "totalRectificationCount")) row.put(key, 0L);
         return row;
     }
 
     private static QualityReportFilter copy(QualityReportFilter source) {
         var result = new QualityReportFilter(); result.setTaskLevel(source.getTaskLevel()); result.setProjectId(source.getProjectId());
-        result.setBusinessTypeId(source.getBusinessTypeId()); result.setLineId(source.getLineId()); result.setStartTime(source.getStartTime()); result.setEndTime(source.getEndTime());
+        result.setLineId(source.getLineId()); result.setStartTime(source.getStartTime()); result.setEndTime(source.getEndTime());
         return result;
     }
 

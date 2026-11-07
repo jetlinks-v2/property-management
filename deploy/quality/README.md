@@ -19,3 +19,13 @@
 完成转换后，将结果逐一合并到原模板、套餐和角色，并刷新目标项目的订阅快照；通过实际账号检查公共用户的标注/同步权限，以及普通员工无法维护公共档案。`python3 deploy/quality/migrate-menu-grants-test.py` 覆盖省略权限定义、禁止扩权、幂等和恢复。
 
 大租户候选人通过有限并发解析实时授权，初次核查分配与整改/转派均保留原应用、动作和资产校验；不缓存授权快照，也不按人员组织粗筛替代资格校验。
+
+## 项目绑定迁移
+
+公司检查内容配置及模板使用基础档案项目 ID，独立的 `business-type` 维护已停用。公司共用条线、科目、检查要求不绑定项目；项目级基础配置仍在项目内维护。配置与模板归属保存后不可变；需要用于另一项目时，复制为新配置/模板并重新选择该项目检查项。
+
+更新前通过授权接口导出 `applicationId`、`tenantId`、`projects`、`configurations`、`tasks` 到一个 JSON 快照：项目取 `/quality/context/projects`；配置和任务查询取消分页、限定当前应用，遍历完整结果。快照与映射文件放在权限为 600 的部署备份目录。映射示例：`{"businessTypes":{"旧业态配置ID":"基础项目ID"},"configurations":{"特定模板或检查配置ID":"基础项目ID"}}`。映射必须由真实项目核对，不能把旧配置 ID 当项目 ID。
+
+运行 `python3 deploy/quality/migrate-project-bindings.py --snapshot snapshot.json --mapping mapping.json --output migration`，检查 `plan.json` 后再执行 `apply.sql`。脚本只生成 SQL，不连接数据库；应用 SQL 使用租户、应用和版本条件，任何并发修改都会使整批回滚。备份品质数据库后，暂停品质写入并在 PostgreSQL 执行 SQL，再发布后端及 PC/H5。其他业务服务无需更新。
+
+模板、检查配置、历史任务的项目不一致时脚本拒绝生成迁移，须先按真实项目拆分复用模板和检查配置并核对历史关联，禁止猜测或覆盖。工单、检查记录、照片、分数、整改复验轨迹不在迁移写入范围。`rollback.sql` 仅在迁移后对应配置尚未再次修改时可用；已有新写入时需按备份和版本逐项处理。

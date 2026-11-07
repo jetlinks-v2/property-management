@@ -19,8 +19,6 @@ public class QualityTaskEntity extends QualityEntity {
  @Column private Integer taskLevel;
  @Column(length=128) private String templateId;
  @Column(length=256) private String templateName;
- @Column(length=128) private String businessTypeId;
- @Column(length=256) private String businessTypeName;
  @Column(length=128) private String checkRole;
  @Column(length=256) private String checkRoleName;
  @Column private Integer inspectionFrequency;

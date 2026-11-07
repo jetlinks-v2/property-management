@@ -38,25 +38,19 @@ public class QualityConfigurationManager {
  private Mono<QualityConfigurationEntity> saveAuthorized(QualityConfigurationEntity input,QualityConfigurationEntity r,boolean create,boolean companyOperation){
     if(!create){require(Objects.equals(r.getVersion(),input.getVersion()),"conflict");require(r.getKind().equals(input.getKind())&&r.getConfigLevel().equals(input.getConfigLevel())&&Objects.equals(r.getProjectId(),input.getProjectId()),"scope_immutable");}
     r.setKind(input.getKind());r.setName(input.getName().trim());r.setConfigLevel(input.getConfigLevel());r.setStatus(input.getStatus());r.setParentId(input.getParentId());r.setSortOrder(input.getSortOrder());r.setData(new LinkedHashMap<>(input.getData()));
-    if(create)r.setProjectId(input.getConfigLevel()==1?null:input.getProjectId());
+    // 公司基础定义共用，检查配置与模板始终归属基础档案中的真实项目。
+    if(create)r.setProjectId(input.getConfigLevel()==2||Set.of("template","inspection-content").contains(input.getKind())?input.getProjectId():null);
     if(create)r.setSourceType(input.getConfigLevel()==1||companyOperation?1:2);
     r.setUniqueKey(r.getKind()+":"+r.getConfigLevel()+":"+Objects.toString(r.getProjectId(),"company")+":"+Objects.toString(r.getParentId(),"root")+":"+r.getName());
-    if(r.getKind().equals("inspection-content"))r.setUniqueKey("inspection-content:"+r.getConfigLevel()+":"+Objects.toString(r.getProjectId(),text(r.getData(),"businessTypeId"))+":"+r.getSourceType()+":"+text(r.getData(),"checkContentId"));
+    if(r.getKind().equals("inspection-content"))r.setUniqueKey("inspection-content:"+r.getConfigLevel()+":"+r.getProjectId()+":"+r.getSourceType()+":"+text(r.getData(),"checkContentId"));
     Mono<Void> project=r.getProjectId()==null?Mono.empty():directory.project(r.getProjectId()).doOnNext(p->{r.setProjectName(p.getName());r.setOrganizationId(p.getId());}).then();
     return project.then(validateReference(r)).then(prepareDimensions(r)).then(prepareTemplate(r)).then(validateEvaluation(r)).then(Mono.defer(()->persist(r,create)));
  }
- /** 模板的业态名称来自当前应用配置；项目模板的作业维度与检查项一致。 */
+ /** 项目是唯一业务维度；旧业态字段不再进入新的配置与快照。 */
  private Mono<Void> prepareDimensions(QualityConfigurationEntity row){
-  if(!Set.of("template","inspection-content").contains(row.getKind()))return Mono.empty();
+  row.getData().remove("businessTypeId");row.getData().remove("businessTypeName");
   if(row.getConfigLevel()==2&&row.getKind().equals("template"))require(Set.of(1,2,3).contains(number(row.getData().get("inspectionFrequency"))),"frequency_required");
-  String businessType=text(row.getData(),"businessTypeId");
-  if(row.getConfigLevel()==1)require(!businessType.isBlank(),"business_type_required");
-  else {row.getData().remove("businessTypeId");row.getData().remove("businessTypeName");return Mono.empty();}
-  if(businessType.isBlank())return Mono.empty();
-  return read(businessType).doOnNext(type->{
-   require(type.getKind().equals("business-type")&&type.getConfigLevel()==1&&type.getStatus()==1,"invalid_reference");
-   row.getData().put("businessTypeName",type.getName());
-  }).then();
+  return Mono.empty();
  }
  private Mono<Void> validateReference(QualityConfigurationEntity row){
   String ref=Set.of("subject","content").contains(row.getKind())?row.getParentId():row.getKind().equals("inspection-content")?text(row.getData(),"checkContentId"):null;
@@ -65,7 +59,7 @@ public class QualityConfigurationManager {
   return read(ref).doOnNext(parent->{
    String expected=switch(row.getKind()){case "subject"->"line";case "content"->"subject";default->"content";};
    require(parent.getKind().equals(expected)&&parent.getStatus()==1,"invalid_reference");
-   require(parent.getConfigLevel().equals(row.getConfigLevel())&&Objects.equals(parent.getProjectId(),row.getProjectId()),"reference_scope");
+   require(parent.getConfigLevel().equals(row.getConfigLevel())&&Objects.equals(parent.getProjectId(),row.getConfigLevel()==1?null:row.getProjectId()),"reference_scope");
    row.getData().put("parentName",parent.getName());
    if(row.getKind().equals("inspection-content")){row.getData().put("contentName",parent.getName());row.getData().put("checkContent",parent.getData().get("checkContent"));row.getData().put("photoRequirement",parent.getData().get("photoRequirement"));row.getData().put("subjectId",parent.getParentId());row.getData().put("subjectName",parent.getData().get("parentName"));row.getData().put("subjectParentId",parent.getData().get("subjectParentId"));row.getData().put("subjectParentName",parent.getData().get("subjectParentName"));}
    if(row.getKind().equals("content")){row.getData().put("subjectParentId",parent.getParentId());row.getData().put("subjectParentName",parent.getData().get("parentName"));}
@@ -78,8 +72,7 @@ public class QualityConfigurationManager {
   return Flux.fromIterable(configs).concatMap(item->read(text(item,"configId")).map(config->{
    require(config.getKind().equals("inspection-content")&&config.getStatus()==1,"invalid_reference");
    require(config.getConfigLevel().equals(row.getConfigLevel()),"reference_scope");
-   if(row.getConfigLevel()==2)require(Objects.equals(config.getProjectId(),row.getProjectId()),"reference_scope");
-   if(row.getConfigLevel()==1)require(Objects.equals(config.getData().get("businessTypeId"),row.getData().get("businessTypeId")),"reference_scope");
+   require(Objects.equals(config.getProjectId(),row.getProjectId()),"reference_scope");
    if(row.getConfigLevel()==2)require(Objects.equals(config.getData().get("inspectionFrequency"),row.getData().get("inspectionFrequency")),"frequency_required");
    Map<String,Object> snap=new LinkedHashMap<>(config.getData());snap.put("configId",config.getId());snap.put("projectId",Objects.toString(config.getProjectId(),""));snap.put("contentName",config.getName());
    Object score=item.getOrDefault("score",snap.get("score"));QualityConfigurationRules.score(score);snap.put("score",score);snap.put("deductionStandard",item.getOrDefault("deductionStandard",snap.getOrDefault("deductionStandard","")));return snap;
@@ -96,7 +89,7 @@ public class QualityConfigurationManager {
  }
  private Mono<QualityConfigurationEntity> persist(QualityConfigurationEntity row,boolean create){
   row.setLineId(text(row.getData(),"subjectParentId"));row.setSubjectId(text(row.getData(),"subjectId"));
-  row.setBusinessTypeId(text(row.getData(),"businessTypeId"));row.setCategoryId(text(row.getData(),"categoryId"));
+  row.setCategoryId(text(row.getData(),"categoryId"));
   row.setInspectionFrequency(row.getData().get("inspectionFrequency")==null?null:number(row.getData().get("inspectionFrequency")));
   if(row.getKind().equals("subject"))row.setLineId(row.getParentId());
   if(row.getKind().equals("content"))row.setSubjectId(row.getParentId());

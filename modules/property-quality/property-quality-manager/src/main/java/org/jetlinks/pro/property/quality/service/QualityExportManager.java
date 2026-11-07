@@ -65,7 +65,7 @@ public class QualityExportManager {
   })).flatMap(ids->{
    QualityScope.require(ids.size()<=10000,"export_limit");row.setSourceOrderIds(ids);row.setWorkOrderCount(ids.size());
    boolean taskReport=row.getExportScope().equals("task-statistics");
-   var headers=taskReport?List.of(filter.getTaskLevel()==1?"businessTypeName":"projectName","totalTask","closeTask","completeTask","totalRate","validRate","qualifiedContentCount","unqualifiedContentCount","totalRectificationCount","rectificationRate","comprehensiveQualifiedRate")
+   var headers=taskReport?List.of("projectName","totalTask","closeTask","completeTask","totalRate","validRate","qualifiedContentCount","unqualifiedContentCount","totalRectificationCount","rectificationRate","comprehensiveQualifiedRate")
     :List.of("lineName","problemCount","rectifiedCount","unrectifiedCount","score","rectificationRate","previousProblemCount","problemGrowthRate");
    return write(row,taskReport?statistics.tasks(filter):statistics.lines(filter),headers);
   });

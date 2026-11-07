@@ -22,7 +22,6 @@ public class QualityConfigurationEntity extends QualityEntity {
  /** 可检索维度均由已验证引用派生，不接受客户端直接指定列值。 */
  @Column(length=128) private String lineId;
  @Column(length=128) private String subjectId;
- @Column(length=128) private String businessTypeId;
  @Column(length=128) private String categoryId;
  @Column private Integer inspectionFrequency;
  @Column(length=128) private String parentId;
