@@ -32,6 +32,8 @@
 
 报修服务的界面异常与通知资源位于 `property-repair-manager/src/main/resources/i18n/smart-park-repair/`，中文与英文分别维护在 `messages_zh.properties`、`messages_en.properties`，沿用平台请求语言解析。公开二维码表单也发送 `Accept-Language`，不发送登录令牌、租户或应用认证头。菜单与按钮的中英文元数据位于 `deploy/repair`。
 
+站内通知在生成发件快照时读取触发请求的语言，正文和标题使用同一语言；后台投递、失败重试沿用快照中的语言。没有请求语言的定时任务沿用平台默认语言。历史消息保留生成时的正文，不因后续切换界面语言重写。
+
 
 ## 统计、候选人与导出查询
 

@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -48,12 +49,13 @@ public class RepairNotificationService {
 
     Mono<Void> record(RepairProcessEntity process){
         if(Set.of("archive","autoEvaluate").contains(process.getAction()))return Mono.empty();
-        return orders.findById(process.getOrderId())
+        // 在异步查库和收件人校验前读取请求语言，并随发件快照保存供后台投递及重试使用。
+        return LocaleUtils.currentReactive().flatMap(locale->orders.findById(process.getOrderId())
             .filter(order->sameScope(process.getTenantId(),process.getApplicationId(),order))
             .flatMap(order->targets(process,order)
                 .concatMap(target->recipients(target,order,context(order)))
                 .distinct(Recipient::userId)
-                .concatMap(recipient->store.insert(entry(process,order,recipient))).then());
+                .concatMap(recipient->store.insert(entry(process,order,recipient,locale))).then()));
     }
 
     private Flux<Target> targets(RepairProcessEntity process,RepairOrderEntity order){
@@ -158,24 +160,27 @@ public class RepairNotificationService {
         return new RepairContext(Objects.toString(order.getExtension("tenantId")),order.getApplicationId(),"system","系统");
     }
 
-    static RepairNotificationEntity entry(RepairProcessEntity process,RepairOrderEntity order,Recipient recipient){
+    static RepairNotificationEntity entry(RepairProcessEntity process,RepairOrderEntity order,Recipient recipient,Locale locale){
         RepairNotificationEntity entry=new RepairNotificationEntity();
         entry.setId(java.util.UUID.nameUUIDFromBytes((process.getId()+":"+recipient.userId()).getBytes(StandardCharsets.UTF_8)).toString().replace("-",""));
         entry.setProcessId(process.getId());entry.setOrderId(order.getId());entry.setTenantId(process.getTenantId());
         entry.setApplicationId(order.getApplicationId());entry.setUserId(recipient.userId());
         entry.setRoleId(recipient.roleId());entry.setRequiredAction(recipient.action());entry.setAction(process.getAction());
         entry.setState("pending");entry.setAttempts(0);entry.setCreateTime(process.getCreateTime());entry.setNextAttemptTime(process.getCreateTime());
-        String actionText=LocaleUtils.resolveMessage("message.repair.notice."+process.getAction(),process.getAction());
-        entry.setMessage(LocaleUtils.resolveMessage("message.repair.notice.content","[{0}]工单{1}：{2}",order.getBusinessProjectName(),order.getNumber(),actionText));
+        String actionText=LocaleUtils.resolveMessage("message.repair.notice."+process.getAction(),locale,process.getAction());
+        entry.setMessage(LocaleUtils.resolveMessage("message.repair.notice.content",locale,"[{0}]工单{1}：{2}",order.getBusinessProjectName(),order.getNumber(),actionText));
         entry.setDetail(Map.of("orderId",order.getId(),"number",order.getNumber(),"applicationId",order.getApplicationId(),
-            "businessProjectId",order.getBusinessProjectId(),"action",process.getAction(),"status",order.getStatus()));
+            "businessProjectId",order.getBusinessProjectId(),"action",process.getAction(),"status",order.getStatus(),"locale",locale.toLanguageTag()));
         return entry;
     }
 
     /** 唯一远程边界：固定站内通道及可信目标用户，事件ID用于定位，不用客户端任意收件人。 */
     static SendUserNotificationCommand command(RepairNotificationEntity entry){
+        // 已发布的旧发件记录没有语言快照，保留原来的语言解析；新记录的标题与正文使用同一语言。
+        Object language=entry.getDetail()==null?null:entry.getDetail().get("locale");
+        Locale locale=language instanceof String tag&&!tag.isBlank()?Locale.forLanguageTag(tag):LocaleUtils.current();
         return new SendUserNotificationCommand().withUserId(entry.getUserId()).withChannelProvider("inside-mail")
-            .withTopicProvider(RepairNotifySubscriberProvider.ID).withTopicName(LocaleUtils.resolveMessage("message.repair.notifications","报事报修通知"))
+            .withTopicProvider(RepairNotifySubscriberProvider.ID).withTopicName(LocaleUtils.resolveMessage("message.repair.notifications",locale,"报事报修通知"))
             .withSubscribeId(RepairNotifySubscriberProvider.ID).withCode(entry.getAction())
             .withDataId(entry.getProcessId()).withNotifyTime(entry.getCreateTime())
             .withMessage(entry.getMessage()).withDetail(entry.getDetail());

@@ -3,12 +3,13 @@ package org.jetlinks.pro.smartpark.repair.service;
 import org.jetlinks.pro.smartpark.repair.entity.RepairOrderEntity;
 import org.jetlinks.pro.smartpark.repair.entity.RepairProcessEntity;
 import org.junit.jupiter.api.Test;
+import java.util.Locale;
 import static org.junit.jupiter.api.Assertions.*;
 
 /** 远程命令与发件快照契约：固定站内渠道、可定位事件、无业主隐私，重试不换事件。 */
 class RepairNotificationContractTest {
     @Test void commandTargetsOnlyTheAuthorizedEmployeeAndInsideMail(){
-        var entry=RepairNotificationService.entry(process(),order(),new RepairNotificationService.Recipient("worker","repair-role","accept"));
+        var entry=RepairNotificationService.entry(process(),order(),new RepairNotificationService.Recipient("worker","repair-role","accept"),Locale.SIMPLIFIED_CHINESE);
         var command=RepairNotificationService.command(entry);
         assertEquals(java.util.List.of("worker"),command.getUserIds());
         assertEquals(java.util.List.of("inside-mail"),command.getChannelProviders());
@@ -24,9 +25,9 @@ class RepairNotificationContractTest {
     }
     @Test void duplicateProcessAndRecipientHaveTheSameQueueIdButDifferentRecipientsDoNot(){
         var person=new RepairNotificationService.Recipient("worker",null,"query");
-        var first=RepairNotificationService.entry(process(),order(),person);
-        var retry=RepairNotificationService.entry(process(),order(),person);
-        var other=RepairNotificationService.entry(process(),order(),new RepairNotificationService.Recipient("other",null,"query"));
+        var first=RepairNotificationService.entry(process(),order(),person,Locale.SIMPLIFIED_CHINESE);
+        var retry=RepairNotificationService.entry(process(),order(),person,Locale.SIMPLIFIED_CHINESE);
+        var other=RepairNotificationService.entry(process(),order(),new RepairNotificationService.Recipient("other",null,"query"),Locale.SIMPLIFIED_CHINESE);
         assertEquals(first.getId(),retry.getId());
         assertNotEquals(first.getId(),other.getId());
         assertEquals("pending",first.getState());
