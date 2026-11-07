@@ -408,10 +408,18 @@ class CollectionImportPersistenceTest {
     @Test
     void httpUploadQueryEditAndApprovePublishTheRevisedCashAmount() throws Exception {
         var bill = data.fixture.bill("http");
+        var queue = mock(FinanceImportQueue.class);
+        when(queue.uploadCollection(anyString(), anyString(), any()))
+                .thenAnswer(
+                        call ->
+                                service.importFile(
+                                        call.getArgument(0),
+                                        call.getArgument(1),
+                                        call.getArgument(2)));
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(
                                 new org.jetlinks.pro.property.finance.web
-                                        .CollectionImportController(service))
+                                        .CollectionImportController(service, queue))
                         .webFilter(
                                 (exchange, chain) ->
                                         chain.filter(exchange).contextWrite(data.fixture.allowed()))

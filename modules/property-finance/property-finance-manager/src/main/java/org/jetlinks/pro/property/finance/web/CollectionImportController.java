@@ -22,6 +22,7 @@ import java.util.List;
 @Resource(id = "property-finance-collection-import", name = "收款导入")
 public class CollectionImportController {
     private final CollectionImportService service;
+    private final org.jetlinks.pro.property.finance.service.FinanceImportQueue queue;
 
     @GetMapping("/template.xlsx")
     @ResourceAction(id = "import", name = "导入")
@@ -44,7 +45,16 @@ public class CollectionImportController {
             @PathVariable String projectId,
             @PathVariable String kind,
             @RequestPart("file") FilePart file) {
-        return service.importFile(projectId, kind, file);
+        return queue.uploadCollection(projectId, kind, file);
+    }
+
+    @PostMapping("/{recordId}/_retry")
+    @ResourceAction(id = "import", name = "导入")
+    public Mono<Void> retry(
+            @PathVariable String projectId,
+            @PathVariable String kind,
+            @PathVariable String recordId) {
+        return queue.retry(projectId, kind, recordId);
     }
 
     @PostMapping("/_query")
@@ -84,6 +94,17 @@ public class CollectionImportController {
             @PathVariable String kind,
             @PathVariable String recordId,
             @RequestBody CollectionImportService.Decision input) {
+        if (input != null && (input.items() == null || input.items().isEmpty()))
+            return queue.reviewCollections(
+                            projectId,
+                            kind,
+                            new CollectionImportService.BulkDecision(
+                                    List.of(
+                                            new CollectionImportService.Item(
+                                                    recordId, input.version())),
+                                    input.reason()),
+                            true)
+                    .map(rows -> rows.get(0));
         return service.decide(projectId, kind, recordId, input, true);
     }
 
@@ -94,6 +115,17 @@ public class CollectionImportController {
             @PathVariable String kind,
             @PathVariable String recordId,
             @RequestBody CollectionImportService.Decision input) {
+        if (input != null && (input.items() == null || input.items().isEmpty()))
+            return queue.reviewCollections(
+                            projectId,
+                            kind,
+                            new CollectionImportService.BulkDecision(
+                                    List.of(
+                                            new CollectionImportService.Item(
+                                                    recordId, input.version())),
+                                    input.reason()),
+                            false)
+                    .map(rows -> rows.get(0));
         return service.decide(projectId, kind, recordId, input, false);
     }
 
@@ -103,7 +135,7 @@ public class CollectionImportController {
             @PathVariable String projectId,
             @PathVariable String kind,
             @RequestBody CollectionImportService.BulkDecision input) {
-        return service.decideMany(projectId, kind, input, true);
+        return queue.reviewCollections(projectId, kind, input, true);
     }
 
     @PostMapping("/_reject")
@@ -112,6 +144,6 @@ public class CollectionImportController {
             @PathVariable String projectId,
             @PathVariable String kind,
             @RequestBody CollectionImportService.BulkDecision input) {
-        return service.decideMany(projectId, kind, input, false);
+        return queue.reviewCollections(projectId, kind, input, false);
     }
 }

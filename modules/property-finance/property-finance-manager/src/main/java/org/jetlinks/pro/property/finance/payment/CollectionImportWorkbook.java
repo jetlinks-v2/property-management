@@ -22,7 +22,7 @@ import java.util.*;
 public final class CollectionImportWorkbook {
     private CollectionImportWorkbook() {}
 
-    public static final int LIMIT = 500;
+    public static final int LIMIT = FinanceExcelRows.LIMIT;
     public static final Set<String> KINDS = Set.of("RECEIVED", "ADVANCE", "DEPOSIT", "TEMPORARY");
     public static final List<String> FIELDS =
             List.of(
@@ -54,55 +54,96 @@ public final class CollectionImportWorkbook {
 
     public static List<Line> parse(byte[] bytes, String kind) throws Exception {
         try (var book = WorkbookFactory.create(new ByteArrayInputStream(bytes))) {
-            if (book.getNumberOfSheets() == 0) throw rowError(1, "文件", "collection_file_invalid");
             var sheet = book.getSheetAt(0);
-            var formatter = new DataFormatter(Locale.ROOT);
-            for (int c = 0; c < HEADERS.size(); c++)
-                if (!HEADERS.get(c).equals(text(sheet.getRow(0), c, formatter, 1)))
-                    throw rowError(1, HEADERS.get(c), "collection_header_invalid");
+            var fmt = new DataFormatter(Locale.ROOT);
             if (sheet.getLastRowNum() > LIMIT) throw rowError(LIMIT + 2, "文件", "collection_limit");
+            var header = new ArrayList<String>();
+            for (var cell : sheet.getRow(0)) header.add(fmt.formatCellValue(cell));
+            var seen = new HashSet<String>();
             var result = new ArrayList<Line>();
-            var sources = new HashSet<String>();
-            var receivables = new HashSet<String>();
             for (int r = 1; r <= sheet.getLastRowNum(); r++) {
                 var row = sheet.getRow(r);
                 if (row == null) continue;
                 var values = new ArrayList<String>();
-                for (int c = 0; c < FIELDS.size(); c++) values.add(text(row, c, formatter, r + 1));
-                if (values.stream().allMatch(String::isBlank)) continue;
-                var input = new CollectionImportInput();
-                var wrapper = new BeanWrapperImpl(input);
-                for (int c = 0; c < FIELDS.size(); c++) {
-                    var value = values.get(c);
-                    if (value.isBlank()) continue;
-                    try {
-                        var cell = row.getCell(c);
-                        if (Set.of(10, 12, 13).contains(c)
-                                && cell.getCellType() == CellType.NUMERIC
-                                && DateUtil.isCellDateFormatted(cell))
-                            value =
-                                    c == 10
-                                            ? cell.getLocalDateTimeCellValue().toString()
-                                            : cell.getLocalDateTimeCellValue()
-                                                    .toLocalDate()
-                                                    .toString();
-                        wrapper.setPropertyValue(
-                                FIELDS.get(c),
-                                Set.of(9, 15, 17).contains(c) ? new BigDecimal(value) : value);
-                    } catch (RuntimeException e) {
-                        throw rowError(r + 1, HEADERS.get(c), "collection_field_invalid");
-                    }
+                for (int c = 0; c < header.size(); c++) {
+                    var cell = row.getCell(c);
+                    if (cell != null
+                            && (cell.getCellType() == CellType.FORMULA
+                                    || cell.getCellType() == CellType.ERROR))
+                        throw rowError(r + 1, header.get(c), "collection_formula_denied");
+                    var value = cell == null ? "" : fmt.formatCellValue(cell).trim();
+                    if (cell != null
+                            && cell.getCellType() == CellType.NUMERIC
+                            && DateUtil.isCellDateFormatted(cell))
+                        value = cell.getLocalDateTimeCellValue().toString();
+                    values.add(value);
                 }
-                validate(kind, input, r + 1);
-                if (!sources.add(input.getExternalNo()))
-                    throw rowError(r + 1, HEADERS.get(0), "collection_duplicate");
-                if ("RECEIVED".equals(kind) && !receivables.add(input.getReceivableId()))
-                    throw rowError(r + 1, "应收明细ID", "collection_receivable_duplicate");
-                result.add(new Line(r + 1, input));
+                var decoded = decode(kind, header, new FinanceExcelRows.Row(r + 1, values), seen);
+                if (decoded != null) result.add(decoded);
             }
             if (result.isEmpty()) throw rowError(2, "文件", "collection_empty");
             return result;
         }
+    }
+
+    public static Line decode(
+            String kind, List<String> header, FinanceExcelRows.Row row, Set<String> seen) {
+        var fields = CollectionImportSchema.fields(kind);
+        boolean legacy = header.equals(HEADERS);
+        if (!legacy
+                && !header.equals(
+                        fields.stream().map(CollectionImportSchema.Field::title).toList()))
+            throw rowError(1, "表头", "collection_header_invalid");
+        var keys =
+                legacy ? FIELDS : fields.stream().map(CollectionImportSchema.Field::key).toList();
+        var input = new CollectionImportInput();
+        var wrap = new BeanWrapperImpl(input);
+        if (row.cells().stream().allMatch(String::isBlank)) return null;
+        for (int c = 0; c < keys.size(); c++) {
+            var value = c < row.cells().size() ? row.cells().get(c) : "";
+            if (value.isBlank() || keys.get(c).equals("arrears")) continue;
+            try {
+                if (Set.of("startDate", "endDate").contains(keys.get(c)) && value.contains("T"))
+                    value = value.substring(0, 10);
+                wrap.setPropertyValue(
+                        keys.get(c),
+                        Set.of("amount", "quantity", "reductionAmount").contains(keys.get(c))
+                                ? new BigDecimal(value)
+                                : value);
+            } catch (RuntimeException e) {
+                throw rowError(row.number(), header.get(c), "collection_field_invalid");
+            }
+        }
+        // 兼容旧预填模板的空付款行；已填写支付信息却漏填金额时仍报错，不能悄悄丢行。
+        if (!legacy
+                && "RECEIVED".equals(kind)
+                && input.getAmount() == null
+                && input.getMethodText() == null
+                && input.getPaidAt() == null
+                && input.getExternalNo() == null
+                && input.getReductionAmount() == null
+                && input.getReductionReason() == null
+                && input.getPayerName() == null
+                && input.getRemark() == null) return null;
+        validate(kind, input, row.number());
+        if (input.getExternalNo() != null && !seen.add("NO:" + input.getExternalNo()))
+            throw rowError(row.number(), "原收款单号", "collection_duplicate");
+        if ("RECEIVED".equals(kind)) {
+            var key =
+                    input.getReceivableId() != null
+                            ? input.getReceivableId()
+                            : String.join(
+                                    "|",
+                                    input.getFullName(),
+                                    input.getCustomerName(),
+                                    input.getSubjectName(),
+                                    input.getStandardName(),
+                                    input.getStartDate(),
+                                    input.getEndDate());
+            if (!seen.add("BILL:" + key))
+                throw rowError(row.number(), "房屋/客户/科目/标准/计费日期", "collection_receivable_duplicate");
+        }
+        return new Line(row.number(), input);
     }
 
     public static void validate(String kind, CollectionImportInput input, int row) {
@@ -129,13 +170,8 @@ public final class CollectionImportWorkbook {
                                             : 255))
                 throw rowError(row, HEADERS.get(FIELDS.indexOf(field)), "collection_field_invalid");
         }
-        require(input.getExternalNo(), row, 0);
-        require(
-                input.getCompanyId() == null ? input.getCompanyName() : input.getCompanyId(),
-                row,
-                6);
         require(input.getMethod() == null ? input.getMethodText() : input.getMethod(), row, 7);
-        require(input.getPayerName(), row, 11);
+        if (input.getPayerName() == null) input.setPayerName(input.getCustomerName());
         if (input.getQuantity() != null
                 && (input.getQuantity().signum() <= 0
                         || input.getQuantity().scale() > 4
@@ -161,8 +197,7 @@ public final class CollectionImportWorkbook {
             if (input.getReductionAmount().signum() > 0)
                 require(input.getReductionReason(), row, 18);
         }
-        if ("RECEIVED".equals(kind)) require(input.getReceivableId(), row, 1);
-        else {
+        if (!"RECEIVED".equals(kind) || input.getReceivableId() == null) {
             require(
                     input.getSubjectId() == null ? input.getSubjectName() : input.getSubjectId(),
                     row,
@@ -191,7 +226,8 @@ public final class CollectionImportWorkbook {
                         row,
                         4);
         }
-        if (Set.of("ADVANCE", "TEMPORARY").contains(kind)
+        if ((Set.of("ADVANCE", "TEMPORARY").contains(kind)
+                        || "RECEIVED".equals(kind) && input.getReceivableId() == null)
                 || input.getStartDate() != null
                 || input.getEndDate() != null) {
             try {
@@ -202,6 +238,8 @@ public final class CollectionImportWorkbook {
                 throw rowError(row, "计费开始日期/计费结束日期", "collection_field_invalid");
             }
         }
+        if ("TEMPORARY".equals(kind) && input.getAccountPeriod() == null)
+            input.setAccountPeriod(input.getPaidAt().substring(0, 7));
         if ("TEMPORARY".equals(kind)) {
             try {
                 YearMonth.parse(input.getAccountPeriod());
@@ -235,12 +273,13 @@ public final class CollectionImportWorkbook {
                         "error.property_finance_" + reason, "error.property_finance_" + reason));
     }
 
-    /** 数据页保持空白；脱敏示例独立在第二张表，不会作为实际收款导入。 */
-    public static Flux<DataBuffer> template(
-            String kind, Map<String, List<List<String>>> references) {
+    /** 四类模板仅填写表内一条脱敏示例；用户删除示例后填写，不预填真实账单。 */
+    public static Flux<DataBuffer> template(String kind, Map<String, List<List<String>>> refs) {
+        var fields = CollectionImportSchema.fields(kind);
         var headers =
-                HEADERS.stream().map(h -> new ExcelHeader(h, h, CellDataType.STRING)).toList();
-        var refs = references;
+                fields.stream()
+                        .map(f -> new ExcelHeader(f.title(), f.title(), CellDataType.STRING))
+                        .toList();
         return Flux.defer(
                         () ->
                                 ExcelUtils.write(
@@ -249,107 +288,118 @@ public final class CollectionImportWorkbook {
                                         "xlsx",
                                         WorkbookOption.of(
                                                 book -> {
-                                                    var red = book.createFont();
-                                                    red.setColor(IndexedColors.RED.getIndex());
-                                                    red.setBold(true);
-                                                    var required = book.createCellStyle();
-                                                    required.setFont(red);
-                                                    var data = book.createSheet("收款导入");
+                                                    var font = book.createFont();
+                                                    font.setColor(IndexedColors.RED.getIndex());
+                                                    font.setBold(true);
+                                                    var red = book.createCellStyle();
+                                                    red.setFont(font);
                                                     var text = book.createCellStyle();
                                                     text.setDataFormat(
                                                             book.createDataFormat().getFormat("@"));
-                                                    var head = data.createRow(0);
-                                                    var requiredColumns =
-                                                            new HashSet<>(
-                                                                    List.of(0, 6, 7, 9, 10, 11));
-                                                    if ("RECEIVED".equals(kind))
-                                                        requiredColumns.add(1);
-                                                    else requiredColumns.addAll(List.of(2, 3, 4));
-                                                    if (Set.of("ADVANCE", "TEMPORARY")
-                                                            .contains(kind))
-                                                        requiredColumns.addAll(List.of(5, 12, 13));
-                                                    if ("TEMPORARY".equals(kind))
-                                                        requiredColumns.add(14);
-                                                    for (int c = 0; c < HEADERS.size(); c++) {
+                                                    var sheet = book.createSheet("收款导入");
+                                                    var head = sheet.createRow(0);
+                                                    var er = sheet.createRow(1);
+                                                    Map<String, String> examples =
+                                                            Map.ofEntries(
+                                                                    Map.entry(
+                                                                            "fullName",
+                                                                            "示例小区/1栋/1单元/101"),
+                                                                    Map.entry(
+                                                                            "customerName", "示例客户"),
+                                                                    Map.entry("subjectName", "物业费"),
+                                                                    Map.entry(
+                                                                            "standardName",
+                                                                            "住宅物业费标准"),
+                                                                    Map.entry("amount", "100.00"),
+                                                                    Map.entry(
+                                                                            "paidAt",
+                                                                            "2024-01-15 10:00"),
+                                                                    Map.entry(
+                                                                            "startDate",
+                                                                            "2024-01-01"),
+                                                                    Map.entry(
+                                                                            "endDate",
+                                                                            "2024-01-31"),
+                                                                    Map.entry("methodText", "现金"),
+                                                                    Map.entry(
+                                                                            "remark",
+                                                                            "脱敏示例，导入前请删除本行"));
+                                                    for (int c = 0; c < fields.size(); c++) {
+                                                        var f = fields.get(c);
                                                         var cell = head.createCell(c);
-                                                        cell.setCellValue(HEADERS.get(c));
-                                                        if (requiredColumns.contains(c))
-                                                            cell.setCellStyle(required);
-                                                        data.setColumnWidth(
-                                                                c, (c == 2 ? 48 : 23) * 256);
-                                                        data.setDefaultColumnStyle(c, text);
-                                                    }
-                                                    data.createFreezePane(0, 1);
-                                                    var example = book.createSheet("填写示例");
-                                                    var eh = example.createRow(0);
-                                                    var er = example.createRow(1);
-                                                    var examples =
-                                                            List.of(
-                                                                    "示例-请勿导入",
-                                                                    "请从应收参考表选择",
-                                                                    "示例小区/1栋/1单元/101",
-                                                                    "示例客户",
-                                                                    "示例科目",
-                                                                    "示例标准",
-                                                                    "示例物业公司",
-                                                                    "现金",
-                                                                    "",
-                                                                    "100.00",
-                                                                    "2024-01-15 10:00",
-                                                                    "示例缴款人",
-                                                                    "2024-01-01",
-                                                                    "2024-01-31",
-                                                                    "2024-01",
-                                                                    "1",
-                                                                    "脱敏填写示例，不会自动导入",
-                                                                    "RECEIVED".equals(kind)
-                                                                            ? "0.00"
-                                                                            : "",
-                                                                    "");
-                                                    for (int c = 0; c < HEADERS.size(); c++) {
-                                                        eh.createCell(c)
-                                                                .setCellValue(HEADERS.get(c));
+                                                        cell.setCellValue(f.title());
+                                                        if (f.required()) cell.setCellStyle(red);
+                                                        sheet.setColumnWidth(
+                                                                c, (c == 0 ? 48 : 24) * 256);
+                                                        sheet.setDefaultColumnStyle(c, text);
                                                         er.createCell(c)
-                                                                .setCellValue(examples.get(c));
-                                                        example.setColumnWidth(c, 25 * 256);
+                                                                .setCellValue(
+                                                                        examples.getOrDefault(
+                                                                                f.key(), ""));
                                                     }
+                                                    sheet.createFreezePane(0, 1);
                                                     var instruction = book.createSheet("填写说明");
-                                                    instruction
-                                                            .createRow(0)
-                                                            .createCell(0)
-                                                            .setCellValue(
-                                                                    "红色表头必填；只导入第一张表，最多500行；全文件校验通过才暂存，审批才入账。外部编号同项目/类型内不得重复。金额正数最多两位小数，不接受公式；同名多义必须先修正资料。押金可只填收费科目，其他非实收需收费标准；预收、临时必须填写计费起止，临时必须填写账期。收款时间格式"
-                                                                        + " yyyy-MM-dd"
-                                                                        + " HH:mm（精确到分钟）；审批后的款项统一待交账，不复刻旧系统已交账/已入账状态。实收仅需应收ID，房屋客户科目标准由该应收取得；预收/临时需科目和标准，押金科目必填标准选填。实收有减免时填写减免金额和原因。");
-                                                    for (var ref : refs.entrySet()) {
-                                                        var sheet = book.createSheet(ref.getKey());
+                                                    var notes =
+                                                            List.of(
+                                                                    "红色表头必填；只导入第一张表，最多50000行。整份文件校验通过后后台暂存，审核通过才入账。",
+                                                                    "项目由页面带入；公司从应收、标准或项目配置取得，不需要填写内部编号。",
+                                                                    "原收款单号选填；没有原单号时检查相同收款内容，疑似重复请先核对原导入记录。缴款人留空默认客户。",
+                                                                    "收款时间格式：2024-01-15"
+                                                                        + " 10:00，计费日期格式：2024-01-01。金额保留两位小数，禁止公式。",
+                                                                    "模板第二行仅为脱敏示例，导入前请自行删除。实收按房屋、客户、科目、标准、计费起止唯一匹配。",
+                                                                    "支付方式从下拉选择；转账选项包含账户名称，无需另填银行。减免大于0时必须填写原因。");
+                                                    for (int r = 0; r < notes.size(); r++)
+                                                        instruction
+                                                                .createRow(r)
+                                                                .createCell(0)
+                                                                .setCellValue(notes.get(r));
+                                                    instruction.setColumnWidth(0, 110 * 256);
+                                                    for (var entry : refs.entrySet()) {
+                                                        if (entry.getKey().equals("应收参考")) continue;
+                                                        var ref = book.createSheet(entry.getKey());
                                                         for (int r = 0;
-                                                                r < ref.getValue().size();
+                                                                r < entry.getValue().size();
                                                                 r++) {
-                                                            var line = sheet.createRow(r);
+                                                            var line = ref.createRow(r);
                                                             for (int c = 0;
                                                                     c
-                                                                            < ref.getValue()
+                                                                            < entry.getValue()
                                                                                     .get(r)
                                                                                     .size();
                                                                     c++) {
                                                                 line.createCell(c)
                                                                         .setCellValue(
-                                                                                ref.getValue()
+                                                                                entry.getValue()
                                                                                         .get(r)
                                                                                         .get(c));
-                                                                sheet.setColumnWidth(c, 30 * 256);
+                                                                ref.setColumnWidth(c, 30 * 256);
                                                             }
                                                         }
                                                     }
-                                                    dropdown(book, data, refs, "应收参考", 0, 1);
-                                                    dropdown(book, data, refs, "房屋客户参考", 0, 2);
-                                                    dropdown(book, data, refs, "房屋客户参考", 1, 3);
-                                                    dropdown(book, data, refs, "科目标准参考", 0, 4);
-                                                    dropdown(book, data, refs, "科目标准参考", 1, 5);
-                                                    dropdown(book, data, refs, "公司支付参考", 0, 6);
-                                                    dropdown(book, data, refs, "公司支付参考", 1, 7);
-                                                    dropdown(book, data, refs, "公司支付参考", 2, 8);
+                                                    var mapping =
+                                                            Map.of(
+                                                                    "fullName",
+                                                                    List.of("房屋客户参考", "0"),
+                                                                    "customerName",
+                                                                    List.of("房屋客户参考", "1"),
+                                                                    "subjectName",
+                                                                    List.of("科目标准参考", "0"),
+                                                                    "standardName",
+                                                                    List.of("科目标准参考", "1"),
+                                                                    "methodText",
+                                                                    List.of("支付方式参考", "0"));
+                                                    for (int c = 0; c < fields.size(); c++) {
+                                                        var f = fields.get(c);
+                                                        var source = mapping.get(f.key());
+                                                        if (source != null)
+                                                            dropdown(
+                                                                    book,
+                                                                    sheet,
+                                                                    refs,
+                                                                    source.get(0),
+                                                                    Integer.parseInt(source.get(1)),
+                                                                    c);
+                                                    }
                                                 })))
                 .subscribeOn(Schedulers.boundedElastic());
     }
@@ -383,6 +433,8 @@ public final class CollectionImportWorkbook {
                     value,
                     java.time.format.DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm")
                             .withResolverStyle(java.time.format.ResolverStyle.STRICT));
-        return LocalDateTime.parse(value);
+        if (value != null && value.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}"))
+            return LocalDate.parse(value).atStartOfDay();
+        return LocalDateTime.parse(value).withSecond(0).withNano(0);
     }
 }

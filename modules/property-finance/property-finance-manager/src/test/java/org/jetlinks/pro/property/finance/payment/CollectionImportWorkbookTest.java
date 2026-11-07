@@ -15,7 +15,7 @@ import java.util.*;
 
 class CollectionImportWorkbookTest {
     @Test
-    void frameworkTemplateHasBlankDataSeparateExampleRequiredRedAndEveryChoiceDropdown()
+    void frameworkTemplateHasOneRemovableExampleRequiredRedAndEveryChoiceDropdown()
             throws Exception {
         var references =
                 Map.of(
@@ -23,10 +23,19 @@ class CollectionImportWorkbookTest {
                         List.of(List.of("房屋", "客户"), List.of("园区/101", "脱敏客户")),
                         "科目标准参考",
                         List.of(List.of("科目", "标准"), List.of("物业费", "月费")),
-                        "公司支付参考",
-                        List.of(List.of("公司", "支付方式", "银行"), List.of("测试物业", "现金", "")),
+                        "支付方式参考",
+                        List.of(List.of("支付方式"), List.of("现金")),
                         "应收参考",
-                        List.of(List.of("应收ID"), List.of("bill-1")));
+                        List.of(
+                                List.of("房屋", "客户", "科目", "标准", "开始", "结束", "欠费"),
+                                List.of(
+                                        "园区/101",
+                                        "脱敏客户",
+                                        "物业费",
+                                        "月费",
+                                        "2024-01-01",
+                                        "2024-01-31",
+                                        "100.00")));
         for (var kind : CollectionImportWorkbook.KINDS) {
             var joined =
                     DataBufferUtils.join(CollectionImportWorkbook.template(kind, references))
@@ -41,25 +50,38 @@ class CollectionImportWorkbookTest {
             try (var workbook = WorkbookFactory.create(new ByteArrayInputStream(bytes))) {
                 var data = workbook.getSheetAt(0);
                 assertEquals("收款导入", data.getSheetName());
-                assertEquals(0, data.getLastRowNum());
-                assertEquals(8, data.getDataValidations().size());
-                for (var c : List.of(0, 6, 7, 9, 10, 11))
+                assertEquals(1, data.getLastRowNum());
+                assertNull(workbook.getSheet("应收参考"));
+                assertNull(workbook.getSheet("填写示例"));
+                assertEquals(5, data.getDataValidations().size());
+                var fields = CollectionImportSchema.fields(kind);
+                for (int c = 0; c < fields.size(); c++) {
                     assertEquals(
-                            IndexedColors.RED.getIndex(),
-                            workbook.getFontAt(
-                                            data.getRow(0).getCell(c).getCellStyle().getFontIndex())
-                                    .getColor());
-                assertEquals(
-                        "示例-请勿导入",
-                        workbook.getSheet("填写示例").getRow(1).getCell(0).getStringCellValue());
-                assertEquals(
-                        "2024-01-15 10:00",
-                        workbook.getSheet("填写示例").getRow(1).getCell(10).getStringCellValue());
-                assertEquals(
-                        "RECEIVED".equals(kind) ? "0.00" : "",
-                        workbook.getSheet("填写示例").getRow(1).getCell(17).getStringCellValue());
-                assertThrows(
-                        BusinessException.class, () -> CollectionImportWorkbook.parse(bytes, kind));
+                            fields.get(c).title(), data.getRow(0).getCell(c).getStringCellValue());
+                    if (fields.get(c).required())
+                        assertEquals(
+                                IndexedColors.RED.getIndex(),
+                                workbook.getFontAt(
+                                                data.getRow(0)
+                                                        .getCell(c)
+                                                        .getCellStyle()
+                                                        .getFontIndex())
+                                        .getColor());
+                }
+                assertFalse(
+                        fields.stream()
+                                .anyMatch(
+                                        f ->
+                                                Set.of("receivableId", "companyName", "bankName")
+                                                        .contains(f.key())));
+                assertEquals("示例小区/1栋/1单元/101", data.getRow(1).getCell(0).getStringCellValue());
+                int paid =
+                        java.util.stream.IntStream.range(0, fields.size())
+                                .filter(c -> fields.get(c).key().equals("paidAt"))
+                                .findFirst()
+                                .orElseThrow();
+                assertEquals("2024-01-15 10:00", data.getRow(1).getCell(paid).getStringCellValue());
+                assertEquals(1, CollectionImportWorkbook.parse(bytes, kind).size());
             }
         }
     }
@@ -81,7 +103,7 @@ class CollectionImportWorkbookTest {
                         BusinessException.class,
                         () -> CollectionImportWorkbook.parse(workbook(true, false), "RECEIVED"));
         assertEquals(5, error.getArgs()[0]);
-        assertEquals("应收明细ID", error.getArgs()[1]);
+        assertEquals("房屋/客户/科目/标准/计费日期", error.getArgs()[1]);
     }
 
     @Test

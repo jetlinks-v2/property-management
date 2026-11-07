@@ -37,13 +37,19 @@ public class CollectionImportSources {
             String project, String kind, CollectionImportInput source, int row) {
         var input = JSON.parseObject(JSON.toJSONString(source), CollectionImportInput.class);
         CollectionImportWorkbook.validate(kind, input, row);
-        return resolveCompany(project, input, row)
-                .then(
-                        "RECEIVED".equals(kind)
-                                ? received(project, input, row)
-                                : resolveHouse(project, input, row)
-                                        .then(resolveStandard(project, input, row))
-                                        .then(Mono.defer(() -> previewOther(project, kind, input))))
+        return Mono.defer(
+                        () ->
+                                "RECEIVED".equals(kind)
+                                        ? received(project, input, row)
+                                        : resolveHouse(project, input, row)
+                                                .then(resolveStandard(project, input, row))
+                                                .then(resolveCompany(project, input, row))
+                                                .then(
+                                                        Mono.defer(
+                                                                () ->
+                                                                        previewOther(
+                                                                                project, kind,
+                                                                                input))))
                 .onErrorMap(
                         org.hswebframework.web.exception.BusinessException.class,
                         e -> {
@@ -77,7 +83,10 @@ public class CollectionImportSources {
     }
 
     private Mono<Void> resolveCompany(String project, CollectionImportInput i, int row) {
-        return cashier.options(project)
+        return (i.getCompanyId() == null && i.getCompanyName() == null && i.getStandardId() == null
+                        ? funds.defaultCompanyId(project).doOnNext(i::setCompanyId).then()
+                        : Mono.<Void>empty())
+                .then(cashier.options(project))
                 .flatMap(
                         options -> {
                             var matches =
@@ -88,10 +97,11 @@ public class CollectionImportSources {
                                                                     ? c.id().equals(
                                                                                     i
                                                                                             .getCompanyId())
-                                                                    : c.name()
-                                                                            .equals(
-                                                                                    i
-                                                                                            .getCompanyName()))
+                                                                    : i.getCompanyName() == null
+                                                                            || c.name()
+                                                                                    .equals(
+                                                                                            i
+                                                                                                    .getCompanyName()))
                                             .toList();
                             if (matches.size() != 1)
                                 return Mono.error(
@@ -113,10 +123,14 @@ public class CollectionImportSources {
                                                                                     f.recordedId(),
                                                                                     i
                                                                                             .getRecordedId())
-                                                                    : f.text()
-                                                                                    .equals(
-                                                                                            i
-                                                                                                    .getMethodText())
+                                                                    : (paymentLabel(f)
+                                                                                            .equals(
+                                                                                                    i
+                                                                                                            .getMethodText())
+                                                                                    || f.text()
+                                                                                            .equals(
+                                                                                                    i
+                                                                                                            .getMethodText()))
                                                                             && (i.getBankName()
                                                                                             == null
                                                                                     || i.getBankName()
@@ -135,7 +149,7 @@ public class CollectionImportSources {
                             var method = funding.get(0);
                             i.setMethod(method.method());
                             i.setRecordedId(method.recordedId());
-                            i.setMethodText(method.text());
+                            i.setMethodText(paymentLabel(method));
                             i.setBankName(method.bankName());
                             return Mono.empty();
                         });
@@ -227,6 +241,8 @@ public class CollectionImportSources {
                                 var s = matches.get(0);
                                 i.setStandardId(s.getId());
                                 i.setStandardName(s.getStandardName());
+                                if (i.getCompanyId() == null && i.getCompanyName() == null)
+                                    i.setCompanyId(s.getCompanyId());
                                 i.setSubjectId(s.getSubjectId());
                                 i.setSubjectName(s.getSubjectName());
                                 return Mono.empty();
@@ -281,25 +297,65 @@ public class CollectionImportSources {
                             i.setSubjectName(bill.getSubjectName());
                             i.setStandardId(bill.getStandardId());
                             i.setStandardName(bill.getStandardName());
-                            return cashier.preview(project, cash(i, bill), LocalDate.now())
+                            i.setReceivableId(bill.getId());
+                            if (i.getPayerName() == null) i.setPayerName(bill.getCustomerName());
+                            if (i.getCompanyId() == null && i.getCompanyName() == null)
+                                i.setCompanyId(null);
+                            return standards
+                                    .findById(bill.getStandardId())
+                                    .doOnNext(
+                                            standard -> {
+                                                if (i.getCompanyId() == null
+                                                        && i.getCompanyName() == null)
+                                                    i.setCompanyId(standard.getCompanyId());
+                                            })
+                                    .then(resolveCompany(project, i, row))
+                                    .then(
+                                            Mono.defer(
+                                                    () ->
+                                                            cashier.preview(
+                                                                    project,
+                                                                    cash(i, bill),
+                                                                    LocalDate.now())))
                                     .thenReturn(new Prepared(i));
                         });
     }
 
     private Mono<ReceivableEntity> bill(String project, CollectionImportInput i) {
-        return bills.createQuery()
-                .where("projectId", project)
-                .and("id", i.getReceivableId())
-                .and("deleted", false)
-                .fetchOne()
-                .switchIfEmpty(Mono.error(error("receivable_not_found", 404)))
+        var q = new QueryParamEntity();
+        q.setPaging(true);
+        q.setPageSize(2);
+        var query =
+                bills.createQuery().setParam(q).where("projectId", project).and("deleted", false);
+        if (i.getReceivableId() != null) query.and("id", i.getReceivableId());
+        else
+            query.and("fullName", i.getFullName())
+                    .and("customerName", i.getCustomerName())
+                    .and("subjectName", i.getSubjectName())
+                    .and("standardName", i.getStandardName())
+                    .and("calcStartDate", i.getStartDate())
+                    .and("calcEndDate", i.getEndDate());
+        return query.fetch()
+                .collectList()
                 .flatMap(
-                        b ->
-                                AssetsHolder.assertPermission(
-                                                AssetType.of("space"),
-                                                b.getSpaceId(),
-                                                CrudAssetPermission.save)
-                                        .thenReturn(b));
+                        rows -> {
+                            if (rows.isEmpty())
+                                return Mono.error(error("receivable_not_found", 404));
+                            if (rows.size() != 1)
+                                return Mono.error(error("collection_bill_ambiguous", 409));
+                            var bill = rows.get(0);
+                            return AssetsHolder.assertPermission(
+                                            AssetType.of("space"),
+                                            bill.getSpaceId(),
+                                            CrudAssetPermission.save)
+                                    .thenReturn(bill);
+                        });
+    }
+
+    private static String paymentLabel(CashierConfiguration.FundingOption option) {
+        return option.bankName() == null || option.bankName().isBlank()
+                ? option.text()
+                : option.text() + " · " + option.bankName();
     }
 
     private Mono<Prepared> previewOther(String project, String kind, CollectionImportInput i) {
@@ -412,6 +468,10 @@ public class CollectionImportSources {
     }
 
     public Mono<Map<String, List<List<String>>>> references(String project) {
+        return references(project, "RECEIVED");
+    }
+
+    public Mono<Map<String, List<List<String>>>> references(String project, String kind) {
         return Mono.zip(
                         houses(project, 0)
                                 .flatMapMany(Flux::fromIterable)
@@ -460,19 +520,27 @@ public class CollectionImportSources {
                                                                                                             f
                                                                                                                     .bankName(),
                                                                                                             "")))));
-                            map.put("公司支付参考", companies);
-                            if (map.values().stream().anyMatch(rows -> rows.size() > 5001))
+                            var payments = new ArrayList<List<String>>();
+                            payments.add(List.of("支付方式"));
+                            tuple.getT2()
+                                    .forEach(
+                                            c ->
+                                                    c.funding()
+                                                            .forEach(
+                                                                    f -> {
+                                                                        var entry =
+                                                                                List.of(
+                                                                                        paymentLabel(
+                                                                                                f));
+                                                                        if (!payments.contains(
+                                                                                entry))
+                                                                            payments.add(entry);
+                                                                    }));
+                            map.put("支付方式参考", payments);
+                            if (map.values().stream().anyMatch(rows -> rows.size() > 50001))
                                 throw error("collection_reference_limit", 400);
                             return map;
-                        })
-                .flatMap(
-                        refs ->
-                                receivableReferences(project)
-                                        .map(
-                                                rows -> {
-                                                    refs.put("应收参考", rows);
-                                                    return refs;
-                                                }));
+                        });
     }
 
     /** 押金允许科目无标准；参考只列当前项目已下发有效科目，不展示未下发标准。 */
@@ -482,11 +550,11 @@ public class CollectionImportSources {
                 .and("deleted", false)
                 .fetch()
                 .map(ProjectSubjectEntity::getSubjectId)
-                .take(5001)
+                .take(50001)
                 .collectList()
                 .flatMap(
                         ids -> {
-                            if (ids.size() > 5000)
+                            if (ids.size() > 50000)
                                 return Mono.error(error("collection_reference_limit", 400));
                             if (ids.isEmpty()) return Mono.just(List.<List<String>>of());
                             return Mono.zip(
@@ -502,11 +570,11 @@ public class CollectionImportSources {
                                                     .and("deleted", false)
                                                     .in("subjectId", ids)
                                                     .fetch()
-                                                    .take(5001)
+                                                    .take(50001)
                                                     .collectList())
                                     .map(
                                             tuple -> {
-                                                if (tuple.getT2().size() > 5000)
+                                                if (tuple.getT2().size() > 50000)
                                                     throw error("collection_reference_limit", 400);
                                                 var rows = new ArrayList<List<String>>();
                                                 for (var subject : tuple.getT1()) {
@@ -531,38 +599,10 @@ public class CollectionImportSources {
                                                                                         s
                                                                                                 .getStandardName())));
                                                 }
-                                                if (rows.size() > 5000)
+                                                if (rows.size() > 50000)
                                                     throw error("collection_reference_limit", 400);
                                                 return (List<List<String>>) rows;
                                             });
-                        });
-    }
-
-    private Mono<List<List<String>>> receivableReferences(String project) {
-        var query = new QueryParamEntity();
-        query.setPaging(false);
-        query.toQuery().and("projectId", project).and("deleted", false);
-        return FinanceSpaceQuery.inject(query, bills, CrudAssetPermission.read)
-                .flatMapMany(secured -> bills.createQuery().setParam(secured).fetch())
-                .take(5001)
-                .collectList()
-                .map(
-                        rows -> {
-                            if (rows.size() > 5000) throw error("collection_reference_limit", 400);
-                            var refs = new ArrayList<List<String>>();
-                            refs.add(List.of("应收明细ID", "房屋完整路径", "客户名称", "收费科目", "账期", "欠款金额"));
-                            rows.forEach(
-                                    b ->
-                                            refs.add(
-                                                    List.of(
-                                                            b.getId(),
-                                                            b.getFullName(),
-                                                            b.getCustomerName(),
-                                                            b.getSubjectName(),
-                                                            Objects.toString(
-                                                                    b.getAccountPeriod(), ""),
-                                                            Objects.toString(b.getArrears(), ""))));
-                            return (List<List<String>>) refs;
                         });
     }
 
@@ -570,7 +610,7 @@ public class CollectionImportSources {
         return archive.houses(project, null, null, page, 200)
                 .flatMap(
                         result -> {
-                            if (result.total() > 5000)
+                            if (result.total() > 50000)
                                 return Mono.error(error("collection_reference_limit", 400));
                             if (result.data().isEmpty() && page * 200L < result.total())
                                 return Mono.error(error("house_source_unavailable", 503));

@@ -22,7 +22,8 @@ import java.util.*;
 public final class HistoricalWorkbook {
     private HistoricalWorkbook() {}
 
-    public static final int LIMIT = 500;
+    public static final int LIMIT =
+            org.jetlinks.pro.property.finance.payment.FinanceExcelRows.LIMIT;
     public static final List<String> HEADERS =
             List.of(
                     "合同编号", "房屋完整路径", "客户名称", "收费科目", "收费标准", "计费开始日期", "计费结束日期", "应收账期", "应收日期",
@@ -115,6 +116,53 @@ public final class HistoricalWorkbook {
         }
     }
 
+    /** 流式行解码，沿用相同字段及金额恒等式，保留Excel物理行号。 */
+    public static Line decode(
+            org.jetlinks.pro.property.finance.payment.FinanceExcelRows.Row row, Set<String> seen) {
+        var v = new ArrayList<String>(row.cells());
+        while (v.size() < HEADERS.size()) v.add("");
+        if (v.stream().allMatch(String::isBlank)) return null;
+        for (int c = 1; c <= 11; c++)
+            if (v.get(c).isBlank())
+                throw rowError(row.number(), HEADERS.get(c), "historical_required");
+        LocalDate start, end, due;
+        try {
+            start = LocalDate.parse(v.get(5));
+            end = LocalDate.parse(v.get(6));
+            due = LocalDate.parse(v.get(8));
+        } catch (RuntimeException e) {
+            throw rowError(row.number(), "计费开始日期/计费结束日期/应收日期", "historical_date_invalid");
+        }
+        if (start.isAfter(end))
+            throw rowError(row.number(), HEADERS.get(6), "historical_dates_invalid");
+        if (!v.get(7).matches("[0-9]{4}-(0[1-9]|1[0-2])"))
+            throw rowError(row.number(), HEADERS.get(7), "historical_period_invalid");
+        var original = money(v.get(9), row.number(), 9);
+        var reduction = money(v.get(10), row.number(), 10);
+        var actual = money(v.get(11), row.number(), 11);
+        if (original.subtract(reduction).compareTo(actual) != 0)
+            throw rowError(row.number(), HEADERS.get(11), "historical_amount_mismatch");
+        if (v.get(0).length() > 100 || v.get(12).length() > 1000)
+            throw rowError(row.number(), "合同编号/备注", "historical_text_limit");
+        if (!seen.add(com.alibaba.fastjson.JSON.toJSONString(v.subList(1, 7))))
+            throw rowError(row.number(), "房屋/客户/科目/标准/日期", "historical_duplicate_file");
+        return new Line(
+                row.number(),
+                v.get(0),
+                v.get(1),
+                v.get(2),
+                v.get(3),
+                v.get(4),
+                start,
+                end,
+                v.get(7),
+                due,
+                original,
+                reduction,
+                actual,
+                v.get(12));
+    }
+
     private static String text(Row row, int col, DataFormatter formatter, int number) {
         if (row == null) return "";
         var cell = row.getCell(col);
@@ -197,26 +245,25 @@ public final class HistoricalWorkbook {
                                                             "项目科目与标准",
                                                             List.of("收费科目", "收费标准"),
                                                             standards);
-                                                    reference(
-                                                            book,
-                                                            "填写示例",
-                                                            HEADERS,
+                                                    var example = data.createRow(1);
+                                                    var values =
                                                             List.of(
-                                                                    List.of(
-                                                                            "HT-示例001",
-                                                                            "示例园区/1栋/101",
-                                                                            "张某",
-                                                                            "物业费",
-                                                                            "示例收费标准",
-                                                                            "2026-01-01",
-                                                                            "2026-01-31",
-                                                                            "2026-01",
-                                                                            "2026-02-05",
-                                                                            "100.00",
-                                                                            "0.00",
-                                                                            "100.00",
-                                                                            "脱敏示例，请用本项目实际数据填写第一张表")));
-                                                    header(book, book.getSheet("填写示例"));
+                                                                    "HT-示例001",
+                                                                    "示例园区/1栋/101",
+                                                                    "张某",
+                                                                    "物业费",
+                                                                    "示例收费标准",
+                                                                    "2026-01-01",
+                                                                    "2026-01-31",
+                                                                    "2026-01",
+                                                                    "2026-02-05",
+                                                                    "100.00",
+                                                                    "0.00",
+                                                                    "100.00",
+                                                                    "脱敏示例，导入前请删除本行");
+                                                    for (int c = 0; c < values.size(); c++)
+                                                        example.createCell(c)
+                                                                .setCellValue(values.get(c));
                                                     reference(
                                                             book,
                                                             "填写说明",
@@ -225,7 +272,7 @@ public final class HistoricalWorkbook {
                                                                     List.of("所属项目", project),
                                                                     List.of(
                                                                             "必填",
-                                                                            "红色表头为必填；最多500行；只导入第一张表；不接受公式。填写示例页为脱敏示例，不会被导入。"),
+                                                                            "红色表头为必填；最多50000行；只导入第一张表；不接受公式。第二行是脱敏示例，导入前请自行删除。"),
                                                                     List.of(
                                                                             "日期",
                                                                             "计费起止和应收日期填写yyyy-MM-dd，应收账期填写yyyy-MM。"),

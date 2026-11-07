@@ -19,6 +19,7 @@ import reactor.core.publisher.Mono;
 @Resource(id = "property-finance-receivable", name = "应收款管理")
 public class HistoricalImportAuditController {
     private final HistoricalImportAuditService service;
+    private final org.jetlinks.pro.property.finance.service.FinanceImportQueue queue;
     private final HistoricalImportEditService edits;
 
     @PutMapping("/{recordId}/lines/{lineId}")
@@ -46,6 +47,16 @@ public class HistoricalImportAuditController {
             @PathVariable String projectId,
             @PathVariable String recordId,
             @RequestBody HistoricalImportAuditService.Decision input) {
+        if (input != null && (input.items() == null || input.items().isEmpty()))
+            return queue.reviewHistorical(
+                            projectId,
+                            new HistoricalImportAuditService.BatchDecision(
+                                    java.util.List.of(
+                                            new HistoricalImportAuditService.Item(
+                                                    recordId, input.version())),
+                                    input.reason()),
+                            true)
+                    .map(rows -> rows.get(0));
         return service.decide(projectId, recordId, input, true);
     }
 
@@ -55,6 +66,16 @@ public class HistoricalImportAuditController {
             @PathVariable String projectId,
             @PathVariable String recordId,
             @RequestBody HistoricalImportAuditService.Decision input) {
+        if (input != null && (input.items() == null || input.items().isEmpty()))
+            return queue.reviewHistorical(
+                            projectId,
+                            new HistoricalImportAuditService.BatchDecision(
+                                    java.util.List.of(
+                                            new HistoricalImportAuditService.Item(
+                                                    recordId, input.version())),
+                                    input.reason()),
+                            false)
+                    .map(rows -> rows.get(0));
         return service.decide(projectId, recordId, input, false);
     }
 
@@ -63,7 +84,7 @@ public class HistoricalImportAuditController {
     public Mono<java.util.List<ReceivableImportEntity>> approveBatches(
             @PathVariable String projectId,
             @RequestBody HistoricalImportAuditService.BatchDecision input) {
-        return service.decideBatches(projectId, input, true);
+        return queue.reviewHistorical(projectId, input, true);
     }
 
     @PostMapping("/_reject")
@@ -71,6 +92,6 @@ public class HistoricalImportAuditController {
     public Mono<java.util.List<ReceivableImportEntity>> rejectBatches(
             @PathVariable String projectId,
             @RequestBody HistoricalImportAuditService.BatchDecision input) {
-        return service.decideBatches(projectId, input, false);
+        return queue.reviewHistorical(projectId, input, false);
     }
 }

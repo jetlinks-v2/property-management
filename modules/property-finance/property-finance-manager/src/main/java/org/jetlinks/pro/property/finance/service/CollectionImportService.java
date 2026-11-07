@@ -43,9 +43,243 @@ public class CollectionImportService {
     private final ReactiveRepository<CollectionImportLineEntity, String> lines;
     private final ReactiveTransactionManager transactions;
 
+    /** 全文件先写校验阶段文件，校验完成前不插待审明细；写入阶段每100行独立事务。 */
+    Mono<Void> processLarge(
+            String project,
+            String kind,
+            String id,
+            java.nio.file.Path raw,
+            java.nio.file.Path prepared,
+            java.util.function.BiFunction<String, Integer, Mono<Void>> progress) {
+        return scope.authenticated()
+                .flatMap(
+                        auth ->
+                                record(project, kind, id, false)
+                                        .flatMap(
+                                                batch -> {
+                                                    var header =
+                                                            new java.util.concurrent.atomic
+                                                                            .AtomicReference<
+                                                                    List<String>>();
+                                                    var seen = new HashSet<String>();
+                                                    var input =
+                                                            FinanceExcelRows.read(raw)
+                                                                    .concatMap(
+                                                                            row -> {
+                                                                                if (row.number()
+                                                                                        == 1) {
+                                                                                    header.set(
+                                                                                            row
+                                                                                                    .cells());
+                                                                                    return Mono
+                                                                                            .<CollectionImportWorkbook
+                                                                                                            .Line>
+                                                                                                    empty();
+                                                                                }
+                                                                                if (header.get()
+                                                                                        == null)
+                                                                                    return Mono
+                                                                                            .error(
+                                                                                                    CollectionImportWorkbook
+                                                                                                            .rowError(
+                                                                                                                    1,
+                                                                                                                    "表头",
+                                                                                                                    "collection_header_invalid"));
+                                                                                var decoded =
+                                                                                        CollectionImportWorkbook
+                                                                                                .decode(
+                                                                                                        kind,
+                                                                                                        header
+                                                                                                                .get(),
+                                                                                                        row,
+                                                                                                        seen);
+                                                                                return decoded
+                                                                                                == null
+                                                                                        ? Mono
+                                                                                                .<CollectionImportWorkbook
+                                                                                                                .Line>
+                                                                                                        empty()
+                                                                                        : Mono.just(
+                                                                                                decoded);
+                                                                            },
+                                                                            1);
+                                                    var keys = new HashSet<String>();
+                                                    var staged = new int[1];
+                                                    var validated =
+                                                            input.concatMap(
+                                                                    row ->
+                                                                            prepareDraft(
+                                                                                            project,
+                                                                                            kind,
+                                                                                            id, row,
+                                                                                            auth)
+                                                                                    .timeout(
+                                                                                            Duration
+                                                                                                    .ofMinutes(
+                                                                                                            2))
+                                                                                    .flatMap(
+                                                                                            draft -> {
+                                                                                                if (!keys
+                                                                                                        .add(
+                                                                                                                draft
+                                                                                                                        .getSourceKey()))
+                                                                                                    return Mono
+                                                                                                            .error(
+                                                                                                                    CollectionImportWorkbook
+                                                                                                                            .rowError(
+                                                                                                                                    row
+                                                                                                                                            .row(),
+                                                                                                                                    "原收款单号/收款信息",
+                                                                                                                                    "collection_duplicate"));
+                                                                                                return atomic(
+                                                                                                        periods.lock(
+                                                                                                                        project)
+                                                                                                                .flatMap(
+                                                                                                                        control ->
+                                                                                                                                periods
+                                                                                                                                        .assertOpen(
+                                                                                                                                                control,
+                                                                                                                                                LocalDateTime
+                                                                                                                                                        .parse(
+                                                                                                                                                                row.payload()
+                                                                                                                                                                        .getPaidAt())
+                                                                                                                                                        .toLocalDate()))
+                                                                                                                .thenReturn(
+                                                                                                                        draft));
+                                                                                            }),
+                                                                    1);
+                                                    return FinanceImportFiles.write(
+                                                                    prepared,
+                                                                    validated,
+                                                                    n ->
+                                                                            progress.apply(
+                                                                                    "VALIDATING",
+                                                                                    n))
+                                                            .flatMap(
+                                                                    total -> {
+                                                                        if (total == 0)
+                                                                            return Mono.error(
+                                                                                    CollectionImportWorkbook
+                                                                                            .rowError(
+                                                                                                    2,
+                                                                                                    "文件",
+                                                                                                    "collection_empty"));
+                                                                        return records.createUpdate()
+                                                                                .set(
+                                                                                        "totalCount",
+                                                                                        total)
+                                                                                .where("id", id)
+                                                                                .execute()
+                                                                                .then(
+                                                                                        progress
+                                                                                                .apply(
+                                                                                                        "STAGING",
+                                                                                                        0))
+                                                                                .thenMany(
+                                                                                        FinanceImportFiles
+                                                                                                .read(
+                                                                                                        prepared,
+                                                                                                        CollectionImportLineEntity
+                                                                                                                .class)
+                                                                                                .buffer(
+                                                                                                        100)
+                                                                                                .concatMap(
+                                                                                                        rows ->
+                                                                                                                atomic(
+                                                                                                                                Flux
+                                                                                                                                        .fromIterable(
+                                                                                                                                                rows)
+                                                                                                                                        .concatMap(
+                                                                                                                                                draft ->
+                                                                                                                                                        org
+                                                                                                                                                                .jetlinks
+                                                                                                                                                                .pro
+                                                                                                                                                                .assets
+                                                                                                                                                                .AssetsHolder
+                                                                                                                                                                .assertPermission(
+                                                                                                                                                                        org
+                                                                                                                                                                                .jetlinks
+                                                                                                                                                                                .pro
+                                                                                                                                                                                .assets
+                                                                                                                                                                                .AssetType
+                                                                                                                                                                                .of(
+                                                                                                                                                                                        "space"),
+                                                                                                                                                                        draft
+                                                                                                                                                                                .getSpaceId(),
+                                                                                                                                                                        CrudAssetPermission
+                                                                                                                                                                                .save)
+                                                                                                                                                                .then(
+                                                                                                                                                                        lines
+                                                                                                                                                                                .findById(
+                                                                                                                                                                                        draft
+                                                                                                                                                                                                .getId()))
+                                                                                                                                                                .flatMap(
+                                                                                                                                                                        existing -> {
+                                                                                                                                                                            if (!existing.getImportId()
+                                                                                                                                                                                            .equals(
+                                                                                                                                                                                                    id)
+                                                                                                                                                                                    || !existing.getPayloadJson()
+                                                                                                                                                                                            .equals(
+                                                                                                                                                                                                    draft
+                                                                                                                                                                                                            .getPayloadJson()))
+                                                                                                                                                                                return Mono
+                                                                                                                                                                                        .error(
+                                                                                                                                                                                                error(
+                                                                                                                                                                                                        "version_conflict",
+                                                                                                                                                                                                        409));
+                                                                                                                                                                            return Mono
+                                                                                                                                                                                    .just(
+                                                                                                                                                                                            existing);
+                                                                                                                                                                        })
+                                                                                                                                                                .switchIfEmpty(
+                                                                                                                                                                        lines.insert(
+                                                                                                                                                                                        draft)
+                                                                                                                                                                                .thenReturn(
+                                                                                                                                                                                        draft)),
+                                                                                                                                                1)
+                                                                                                                                        .then())
+                                                                                                                        .then(
+                                                                                                                                progress
+                                                                                                                                        .apply(
+                                                                                                                                                "STAGING",
+                                                                                                                                                staged[
+                                                                                                                                                                0] +=
+                                                                                                                                                        rows
+                                                                                                                                                                .size())),
+                                                                                                        1))
+                                                                                .then(
+                                                                                        records.createUpdate()
+                                                                                                .set(
+                                                                                                        "status",
+                                                                                                        "PENDING")
+                                                                                                .set(
+                                                                                                        "phase",
+                                                                                                        "PENDING")
+                                                                                                .set(
+                                                                                                        "processedCount",
+                                                                                                        total)
+                                                                                                .set(
+                                                                                                        "errorCount",
+                                                                                                        0)
+                                                                                                .set(
+                                                                                                        "errorMessage",
+                                                                                                        "")
+                                                                                                .set(
+                                                                                                        "finishTime",
+                                                                                                        System
+                                                                                                                .currentTimeMillis())
+                                                                                                .where(
+                                                                                                        "id",
+                                                                                                        id)
+                                                                                                .execute())
+                                                                                .then();
+                                                                    });
+                                                }));
+    }
+
     public Flux<DataBuffer> template(String project, String kind) {
         return authorize(project, kind, CrudAssetPermission.read)
-                .then(sources.references(project))
+                .then(sources.references(project, kind))
                 .flatMapMany(refs -> CollectionImportWorkbook.template(kind, refs));
     }
 
@@ -206,21 +440,51 @@ public class CollectionImportService {
             String recordId,
             CollectionImportWorkbook.Line row,
             Authentication auth) {
-        var key = sourceKey(project, kind, row.payload().getExternalNo());
+        var payload = row.payload();
+        var external = payload.getExternalNo();
+        // 缺少原单号时按规范化业务内容识别疑似重复，不生成每次不同的随机号来绕过去重。
+        if (external == null)
+            external =
+                    "CONTENT:"
+                            + DigestUtils.sha256Hex(
+                                    JSON.toJSONString(
+                                            Arrays.asList(
+                                                    payload.getFullName(),
+                                                    payload.getCustomerName(),
+                                                    payload.getSubjectName(),
+                                                    payload.getStandardName(),
+                                                    payload.getAmount()
+                                                            .stripTrailingZeros()
+                                                            .toPlainString(),
+                                                    payload.getPaidAt(),
+                                                    payload.getMethodText(),
+                                                    payload.getStartDate(),
+                                                    payload.getEndDate())));
+        var key = sourceKey(project, kind, external);
         return lines.createQuery()
                 .where("sourceKey", key)
-                .count()
+                .fetchOne()
+                .map(found -> !recordId.equals(found.getImportId()))
+                .defaultIfEmpty(false)
                 .flatMap(
-                        count -> {
-                            if (count > 0)
+                        duplicate -> {
+                            if (duplicate)
                                 return Mono.error(
                                         CollectionImportWorkbook.rowError(
-                                                row.row(), "外部收款编号", "collection_duplicate"));
+                                                row.row(), "原收款单号/收款信息", "collection_duplicate"));
                             return sources.prepare(project, kind, row.payload(), row.row())
                                     .map(
                                             prepared -> {
                                                 var draft = new CollectionImportLineEntity();
-                                                draft.setId(UUID.randomUUID().toString());
+                                                draft.setId(
+                                                        UUID.nameUUIDFromBytes(
+                                                                        (recordId + ":" + row.row())
+                                                                                .getBytes(
+                                                                                        java.nio
+                                                                                                .charset
+                                                                                                .StandardCharsets
+                                                                                                .UTF_8))
+                                                                .toString());
                                                 init(draft, auth);
                                                 draft.setProjectId(project);
                                                 draft.setImportId(recordId);
@@ -411,26 +675,22 @@ public class CollectionImportService {
                 .where("importId", recordId)
                 .and("deleted", false)
                 .fetch()
-                .collectList()
+                .any(
+                        row ->
+                                !row.getId().equals(edited.getId())
+                                        && Objects.equals(
+                                                payload.getReceivableId(),
+                                                JSON.parseObject(
+                                                                row.getPayloadJson(),
+                                                                CollectionImportInput.class)
+                                                        .getReceivableId()))
                 .flatMap(
-                        rows ->
-                                rows.stream()
-                                                .anyMatch(
-                                                        row ->
-                                                                !row.getId().equals(edited.getId())
-                                                                        && Objects.equals(
-                                                                                payload
-                                                                                        .getReceivableId(),
-                                                                                JSON.parseObject(
-                                                                                                row
-                                                                                                        .getPayloadJson(),
-                                                                                                CollectionImportInput
-                                                                                                        .class)
-                                                                                        .getReceivableId()))
+                        duplicate ->
+                                duplicate
                                         ? Mono.error(
                                                 CollectionImportWorkbook.rowError(
                                                         edited.getLineNumber(),
-                                                        "应收明细ID",
+                                                        "应收账单",
                                                         "collection_receivable_duplicate"))
                                         : Mono.empty());
     }
@@ -648,46 +908,37 @@ public class CollectionImportService {
 
     private Mono<CollectionImportEntity> refreshRecord(
             CollectionImportEntity record, Authentication auth) {
-        return lines.createQuery()
-                .where("importId", record.getId())
-                .and("deleted", false)
-                .fetch()
-                .collectList()
+        return Mono.zip(
+                        lines.createQuery()
+                                .where("importId", record.getId())
+                                .and("deleted", false)
+                                .count(),
+                        lines.createQuery()
+                                .where("importId", record.getId())
+                                .and("deleted", false)
+                                .and("status", "APPROVED")
+                                .count(),
+                        lines.createQuery()
+                                .where("importId", record.getId())
+                                .and("deleted", false)
+                                .and("status", "REJECTED")
+                                .count())
                 .flatMap(
-                        rows -> {
-                            int
-                                    approved =
-                                            (int)
-                                                    rows.stream()
-                                                            .filter(
-                                                                    r ->
-                                                                            "APPROVED"
-                                                                                    .equals(
-                                                                                            r
-                                                                                                    .getStatus()))
-                                                            .count(),
-                                    rejected =
-                                            (int)
-                                                    rows.stream()
-                                                            .filter(
-                                                                    r ->
-                                                                            "REJECTED"
-                                                                                    .equals(
-                                                                                            r
-                                                                                                    .getStatus()))
-                                                            .count();
+                        counts -> {
+                            long total = counts.getT1(),
+                                    approved = counts.getT2(),
+                                    rejected = counts.getT3();
                             String status =
-                                    approved + rejected < rows.size()
+                                    approved + rejected < total
                                             ? "PENDING"
-                                            : approved == rows.size()
+                                            : approved == total
                                                     ? "APPROVED"
-                                                    : rejected == rows.size()
-                                                            ? "REJECTED"
-                                                            : "COMPLETED";
+                                                    : rejected == total ? "REJECTED" : "COMPLETED";
                             return records.createUpdate()
                                     .set("status", status)
-                                    .set("successCount", approved)
-                                    .set("rejectedCount", rejected)
+                                    .set("phase", status)
+                                    .set("successCount", (int) approved)
+                                    .set("rejectedCount", (int) rejected)
                                     .set("version", record.getVersion() + 1)
                                     .set("modifyTime", System.currentTimeMillis())
                                     .set("modifierId", auth.getUser().getId())
@@ -696,13 +947,177 @@ public class CollectionImportService {
                                     .and("version", record.getVersion())
                                     .execute()
                                     .flatMap(
-                                            count ->
-                                                    count == 1
+                                            n ->
+                                                    n == 1
                                                             ? records.findById(record.getId())
                                                             : Mono.error(
                                                                     error(
                                                                             "version_conflict",
                                                                             409)));
+                        });
+    }
+
+    /** 批次独占REVIEWING，先校验全部空间，再逐行事务发布；中断后只处理仍待审的行。 */
+    Mono<Void> reviewLarge(
+            String project,
+            String kind,
+            String id,
+            String reason,
+            boolean approve,
+            java.util.function.Function<Integer, Mono<Void>> progress) {
+        return scope.authenticated()
+                .flatMap(
+                        auth -> {
+                            var validated = new int[1];
+                            var processed = new int[1];
+                            return lines.createQuery()
+                                    .where("importId", id)
+                                    .and("deleted", false)
+                                    .and("status", "PENDING")
+                                    .fetch()
+                                    .concatMap(
+                                            row ->
+                                                    AssetsHolder.assertPermission(
+                                                                    AssetType.of("space"),
+                                                                    row.getSpaceId(),
+                                                                    CrudAssetPermission.save)
+                                                            .then(
+                                                                    approve
+                                                                            ? sources.prepare(
+                                                                                            project,
+                                                                                            kind,
+                                                                                            JSON
+                                                                                                    .parseObject(
+                                                                                                            row
+                                                                                                                    .getPayloadJson(),
+                                                                                                            CollectionImportInput
+                                                                                                                    .class),
+                                                                                            row
+                                                                                                    .getLineNumber())
+                                                                                    .timeout(
+                                                                                            Duration
+                                                                                                    .ofMinutes(
+                                                                                                            2))
+                                                                                    .then()
+                                                                            : Mono.empty())
+                                                            .then(
+                                                                    ++validated[0] % 10 == 0
+                                                                            ? progress.apply(
+                                                                                    validated[0])
+                                                                            : Mono.empty()),
+                                            1)
+                                    .then()
+                                    .thenMany(
+                                            Flux.defer(
+                                                            () -> {
+                                                                var q = new QueryParamEntity();
+                                                                q.setPaging(true);
+                                                                q.setPageSize(100);
+                                                                q.toQuery()
+                                                                        .orderByAsc("lineNumber");
+                                                                return lines.createQuery()
+                                                                        .setParam(q)
+                                                                        .where("importId", id)
+                                                                        .and("deleted", false)
+                                                                        .and("status", "PENDING")
+                                                                        .fetch()
+                                                                        .collectList()
+                                                                        .flatMap(
+                                                                                rows -> {
+                                                                                    if (rows
+                                                                                            .isEmpty())
+                                                                                        return Mono
+                                                                                                .just(
+                                                                                                        true);
+                                                                                    return Flux
+                                                                                            .fromIterable(
+                                                                                                    rows)
+                                                                                            .concatMap(
+                                                                                                    row ->
+                                                                                                            atomic(
+                                                                                                                    periods.lock(
+                                                                                                                                    project)
+                                                                                                                            .then(
+                                                                                                                                    record(
+                                                                                                                                            project,
+                                                                                                                                            kind,
+                                                                                                                                            id,
+                                                                                                                                            true))
+                                                                                                                            .flatMap(
+                                                                                                                                    record -> {
+                                                                                                                                        if (!"REVIEWING"
+                                                                                                                                                .equals(
+                                                                                                                                                        record
+                                                                                                                                                                .getStatus()))
+                                                                                                                                            return Mono
+                                                                                                                                                    .error(
+                                                                                                                                                            error(
+                                                                                                                                                                    "version_conflict",
+                                                                                                                                                                    409));
+                                                                                                                                        return lockedLines(
+                                                                                                                                                        project,
+                                                                                                                                                        id,
+                                                                                                                                                        List
+                                                                                                                                                                .of(
+                                                                                                                                                                        row
+                                                                                                                                                                                .getId()))
+                                                                                                                                                .flatMap(
+                                                                                                                                                        locked -> {
+                                                                                                                                                            var
+                                                                                                                                                                    current =
+                                                                                                                                                                            locked
+                                                                                                                                                                                    .get(
+                                                                                                                                                                                            0);
+                                                                                                                                                            if (!"PENDING"
+                                                                                                                                                                    .equals(
+                                                                                                                                                                            current
+                                                                                                                                                                                    .getStatus()))
+                                                                                                                                                                return Mono
+                                                                                                                                                                        .empty();
+                                                                                                                                                            return AssetsHolder
+                                                                                                                                                                    .assertPermission(
+                                                                                                                                                                            AssetType
+                                                                                                                                                                                    .of(
+                                                                                                                                                                                            "space"),
+                                                                                                                                                                            current
+                                                                                                                                                                                    .getSpaceId(),
+                                                                                                                                                                            CrudAssetPermission
+                                                                                                                                                                                    .save)
+                                                                                                                                                                    .then(
+                                                                                                                                                                            reviewLine(
+                                                                                                                                                                                    project,
+                                                                                                                                                                                    kind,
+                                                                                                                                                                                    current,
+                                                                                                                                                                                    reason,
+                                                                                                                                                                                    approve,
+                                                                                                                                                                                    auth));
+                                                                                                                                                        });
+                                                                                                                                    })),
+                                                                                                    1)
+                                                                                            .then(
+                                                                                                    progress
+                                                                                                            .apply(
+                                                                                                                    processed[
+                                                                                                                                    0] +=
+                                                                                                                            rows
+                                                                                                                                    .size()))
+                                                                                            .thenReturn(
+                                                                                                    false);
+                                                                                })
+                                                                        .flux();
+                                                            })
+                                                    .repeat()
+                                                    .takeUntil(Boolean::booleanValue))
+                                    .then(
+                                            record(project, kind, id, false)
+                                                    .flatMap(row -> refreshRecord(row, auth)))
+                                    .then()
+                                    .onErrorResume(
+                                            failure ->
+                                                    record(project, kind, id, false)
+                                                            .flatMap(
+                                                                    row -> refreshRecord(row, auth))
+                                                            .then(Mono.error(failure)));
                         });
     }
 

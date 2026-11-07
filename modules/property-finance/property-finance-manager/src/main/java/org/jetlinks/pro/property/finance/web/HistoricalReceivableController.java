@@ -20,6 +20,7 @@ import reactor.core.publisher.Mono;
 @Resource(id = "property-finance-receivable", name = "应收款管理")
 public class HistoricalReceivableController {
     private final HistoricalReceivableService service;
+    private final org.jetlinks.pro.property.finance.service.FinanceImportQueue queue;
 
     @GetMapping("/template.xlsx")
     @ResourceAction(id = "import", name = "导入")
@@ -39,7 +40,13 @@ public class HistoricalReceivableController {
     @ResourceAction(id = "import", name = "导入")
     public Mono<ReceivableImportEntity> upload(
             @PathVariable String projectId, @RequestPart("file") FilePart file) {
-        return service.importFile(projectId, file);
+        return queue.uploadHistorical(projectId, file);
+    }
+
+    @PostMapping("/{recordId}/_retry")
+    @ResourceAction(id = "import", name = "导入")
+    public Mono<Void> retry(@PathVariable String projectId, @PathVariable String recordId) {
+        return queue.retry(projectId, "HISTORICAL", recordId);
     }
 
     @PostMapping("/_query")

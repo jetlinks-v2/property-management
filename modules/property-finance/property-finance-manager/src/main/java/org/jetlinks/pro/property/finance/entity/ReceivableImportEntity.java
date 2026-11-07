@@ -38,4 +38,9 @@ public class ReceivableImportEntity extends FinanceEntity {
     private String operatorName;
 
     @Column private Long finishTime;
+
+    @Column(length = 24)
+    private String phase;
+
+    @Column private Integer processedCount;
 }

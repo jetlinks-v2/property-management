@@ -49,6 +49,310 @@ public class HistoricalReceivableService {
     private final ReactiveRepository<ReceivableImportLineEntity, String> drafts;
     private final ReactiveTransactionManager transactions;
 
+    /** 全文件校验落阶段文件，结束后再按100行事务暂存；不在校验期锁住整个项目。 */
+    Mono<Void> processLarge(
+            String project,
+            String id,
+            java.nio.file.Path raw,
+            java.nio.file.Path prepared,
+            java.util.function.BiFunction<String, Integer, Mono<Void>> progress) {
+        return scope.authenticated()
+                .flatMap(
+                        auth ->
+                                records.findById(id)
+                                        .flatMap(
+                                                record -> {
+                                                    var seen = new HashSet<String>();
+                                                    var keys = new HashSet<String>();
+                                                    var header = new boolean[1];
+                                                    var staged = new int[1];
+                                                    var input =
+                                                            org.jetlinks.pro.property.finance
+                                                                    .payment.FinanceExcelRows.read(
+                                                                            raw)
+                                                                    .concatMap(
+                                                                            row -> {
+                                                                                if (row.number()
+                                                                                        == 1) {
+                                                                                    if (!HistoricalWorkbook
+                                                                                            .HEADERS
+                                                                                            .equals(
+                                                                                                    row
+                                                                                                            .cells()))
+                                                                                        return Mono
+                                                                                                .error(
+                                                                                                        HistoricalWorkbook
+                                                                                                                .rowError(
+                                                                                                                        1,
+                                                                                                                        "表头",
+                                                                                                                        "historical_header_invalid"));
+                                                                                    header[0] =
+                                                                                            true;
+                                                                                    return Mono
+                                                                                            .<HistoricalWorkbook
+                                                                                                            .Line>
+                                                                                                    empty();
+                                                                                }
+                                                                                if (!header[0])
+                                                                                    return Mono
+                                                                                            .error(
+                                                                                                    HistoricalWorkbook
+                                                                                                            .rowError(
+                                                                                                                    1,
+                                                                                                                    "表头",
+                                                                                                                    "historical_header_invalid"));
+                                                                                var line =
+                                                                                        HistoricalWorkbook
+                                                                                                .decode(
+                                                                                                        row,
+                                                                                                        seen);
+                                                                                return line == null
+                                                                                        ? Mono
+                                                                                                .<HistoricalWorkbook
+                                                                                                                .Line>
+                                                                                                        empty()
+                                                                                        : Mono.just(
+                                                                                                line);
+                                                                            },
+                                                                            1);
+                                                    var validated =
+                                                            input.concatMap(
+                                                                    line ->
+                                                                            archive.houses(
+                                                                                            project,
+                                                                                            null,
+                                                                                            line
+                                                                                                    .fullName(),
+                                                                                            0,
+                                                                                            200)
+                                                                                    .flatMap(
+                                                                                            houses -> {
+                                                                                                if (houses
+                                                                                                                .total()
+                                                                                                        > 200)
+                                                                                                    return Mono
+                                                                                                            .error(
+                                                                                                                    HistoricalWorkbook
+                                                                                                                            .rowError(
+                                                                                                                                    line
+                                                                                                                                            .row(),
+                                                                                                                                    "房屋完整路径",
+                                                                                                                                    "historical_match_invalid"));
+                                                                                                return TransactionalOperator
+                                                                                                        .create(
+                                                                                                                transactions)
+                                                                                                        .transactional(
+                                                                                                                periodGate
+                                                                                                                        .lock(
+                                                                                                                                project)
+                                                                                                                        .flatMap(
+                                                                                                                                control ->
+                                                                                                                                        periodGate
+                                                                                                                                                .assertOpen(
+                                                                                                                                                        control,
+                                                                                                                                                        LocalDate
+                                                                                                                                                                .now())
+                                                                                                                                                .then(
+                                                                                                                                                        periodGate
+                                                                                                                                                                .assertOpen(
+                                                                                                                                                                        control,
+                                                                                                                                                                        line
+                                                                                                                                                                                .start())))
+                                                                                                                        .then(
+                                                                                                                                prepareLine(
+                                                                                                                                        project,
+                                                                                                                                        record,
+                                                                                                                                        line,
+                                                                                                                                        houses
+                                                                                                                                                .data(),
+                                                                                                                                        auth)));
+                                                                                            })
+                                                                                    .timeout(
+                                                                                            java
+                                                                                                    .time
+                                                                                                    .Duration
+                                                                                                    .ofMinutes(
+                                                                                                            2))
+                                                                                    .map(
+                                                                                            bill -> {
+                                                                                                if (!keys
+                                                                                                        .add(
+                                                                                                                bill
+                                                                                                                        .getBillKey()))
+                                                                                                    throw HistoricalWorkbook
+                                                                                                            .rowError(
+                                                                                                                    line
+                                                                                                                            .row(),
+                                                                                                                    "房屋/客户/科目/标准/日期",
+                                                                                                                    "historical_duplicate_file");
+                                                                                                bill
+                                                                                                        .setId(
+                                                                                                                UUID.nameUUIDFromBytes(
+                                                                                                                                (id
+                                                                                                                                                + ":"
+                                                                                                                                                + line
+                                                                                                                                                        .row())
+                                                                                                                                        .getBytes(
+                                                                                                                                                StandardCharsets
+                                                                                                                                                        .UTF_8))
+                                                                                                                        .toString());
+                                                                                                var
+                                                                                                        draft =
+                                                                                                                new ReceivableImportLineEntity();
+                                                                                                init(
+                                                                                                        draft,
+                                                                                                        auth);
+                                                                                                draft
+                                                                                                        .setId(
+                                                                                                                bill
+                                                                                                                        .getId());
+                                                                                                draft
+                                                                                                        .setProjectId(
+                                                                                                                project);
+                                                                                                draft
+                                                                                                        .setImportId(
+                                                                                                                id);
+                                                                                                draft
+                                                                                                        .setSpaceId(
+                                                                                                                bill
+                                                                                                                        .getSpaceId());
+                                                                                                draft
+                                                                                                        .setFullName(
+                                                                                                                bill
+                                                                                                                        .getFullName());
+                                                                                                draft
+                                                                                                        .setCustomerName(
+                                                                                                                bill
+                                                                                                                        .getCustomerName());
+                                                                                                draft
+                                                                                                        .setLineNumber(
+                                                                                                                line
+                                                                                                                        .row());
+                                                                                                draft
+                                                                                                        .setStatus(
+                                                                                                                "PENDING");
+                                                                                                draft
+                                                                                                        .setPayloadJson(
+                                                                                                                JSON
+                                                                                                                        .toJSONString(
+                                                                                                                                bill));
+                                                                                                return draft;
+                                                                                            }),
+                                                                    1);
+                                                    return FinanceImportFiles.write(
+                                                                    prepared,
+                                                                    validated,
+                                                                    n ->
+                                                                            progress.apply(
+                                                                                    "VALIDATING",
+                                                                                    n))
+                                                            .flatMap(
+                                                                    total -> {
+                                                                        if (total == 0)
+                                                                            return Mono.error(
+                                                                                    HistoricalWorkbook
+                                                                                            .rowError(
+                                                                                                    2,
+                                                                                                    "文件",
+                                                                                                    "historical_file_empty"));
+                                                                        return records.createUpdate()
+                                                                                .set(
+                                                                                        "totalCount",
+                                                                                        total)
+                                                                                .where("id", id)
+                                                                                .execute()
+                                                                                .then(
+                                                                                        progress
+                                                                                                .apply(
+                                                                                                        "STAGING",
+                                                                                                        0))
+                                                                                .thenMany(
+                                                                                        FinanceImportFiles
+                                                                                                .read(
+                                                                                                        prepared,
+                                                                                                        ReceivableImportLineEntity
+                                                                                                                .class)
+                                                                                                .buffer(
+                                                                                                        100)
+                                                                                                .concatMap(
+                                                                                                        batch ->
+                                                                                                                TransactionalOperator
+                                                                                                                        .create(
+                                                                                                                                transactions)
+                                                                                                                        .transactional(
+                                                                                                                                Flux
+                                                                                                                                        .fromIterable(
+                                                                                                                                                batch)
+                                                                                                                                        .concatMap(
+                                                                                                                                                draft ->
+                                                                                                                                                        org
+                                                                                                                                                                .jetlinks
+                                                                                                                                                                .pro
+                                                                                                                                                                .assets
+                                                                                                                                                                .AssetsHolder
+                                                                                                                                                                .assertPermission(
+                                                                                                                                                                        org
+                                                                                                                                                                                .jetlinks
+                                                                                                                                                                                .pro
+                                                                                                                                                                                .assets
+                                                                                                                                                                                .AssetType
+                                                                                                                                                                                .of(
+                                                                                                                                                                                        "space"),
+                                                                                                                                                                        draft
+                                                                                                                                                                                .getSpaceId(),
+                                                                                                                                                                        CrudAssetPermission
+                                                                                                                                                                                .save)
+                                                                                                                                                                .then(
+                                                                                                                                                                        drafts
+                                                                                                                                                                                .findById(
+                                                                                                                                                                                        draft
+                                                                                                                                                                                                .getId()))
+                                                                                                                                                                .switchIfEmpty(
+                                                                                                                                                                        drafts.insert(
+                                                                                                                                                                                        draft)
+                                                                                                                                                                                .thenReturn(
+                                                                                                                                                                                        draft)),
+                                                                                                                                                1)
+                                                                                                                                        .then())
+                                                                                                                        .then(
+                                                                                                                                progress
+                                                                                                                                        .apply(
+                                                                                                                                                "STAGING",
+                                                                                                                                                staged[
+                                                                                                                                                                0] +=
+                                                                                                                                                        batch
+                                                                                                                                                                .size())),
+                                                                                                        1))
+                                                                                .then(
+                                                                                        records.createUpdate()
+                                                                                                .set(
+                                                                                                        "status",
+                                                                                                        "PENDING")
+                                                                                                .set(
+                                                                                                        "phase",
+                                                                                                        "PENDING")
+                                                                                                .set(
+                                                                                                        "processedCount",
+                                                                                                        total)
+                                                                                                .set(
+                                                                                                        "errorCount",
+                                                                                                        0)
+                                                                                                .set(
+                                                                                                        "errorMessage",
+                                                                                                        "")
+                                                                                                .set(
+                                                                                                        "finishTime",
+                                                                                                        System
+                                                                                                                .currentTimeMillis())
+                                                                                                .where(
+                                                                                                        "id",
+                                                                                                        id)
+                                                                                                .execute())
+                                                                                .then();
+                                                                    });
+                                                }));
+    }
+
     public Flux<DataBuffer> template(String project) {
         return scope.project(project, CrudAssetPermission.read)
                 .flatMapMany(
@@ -101,11 +405,11 @@ public class HistoricalReceivableService {
                 .and("deleted", false)
                 .in("subjectId", ids)
                 .fetch()
-                .take(5001)
+                .take(50001)
                 .collectList()
                 .flatMapMany(
                         rows -> {
-                            if (rows.size() > 5000)
+                            if (rows.size() > 50000)
                                 return Flux.error(error("historical_reference_limit", 400));
                             if (rows.isEmpty())
                                 return Flux.error(error("historical_no_standards", 409));
@@ -117,7 +421,7 @@ public class HistoricalReceivableService {
         return archive.houses(project, null, null, page, 200)
                 .flatMap(
                         result -> {
-                            if (result.total() > 5000)
+                            if (result.total() > 50000)
                                 return Mono.error(error("historical_reference_limit", 400));
                             if (result.data().isEmpty() && page * 200L < result.total())
                                 return Mono.error(error("house_source_unavailable", 503));

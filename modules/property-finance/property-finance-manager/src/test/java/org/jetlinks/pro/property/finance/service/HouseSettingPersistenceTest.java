@@ -187,6 +187,11 @@ class HouseSettingPersistenceTest {
         return input;
     }
 
+    @BeforeAll
+    static void importMessages() {
+        CollectionImportPersistenceTest.messages();
+    }
+
     @Test
     void multipleChargeCustomersShareOneBillAndEverySelectionMustBeCurrent() {
         var context = context("room");
@@ -230,7 +235,8 @@ class HouseSettingPersistenceTest {
 
     Context allowed() {
         var holder = mock(AssetsHolder.class);
-        when(holder.isScopeIgnored(any(org.jetlinks.pro.assets.AssetType.class))).thenReturn(Mono.just(false));
+        when(holder.isScopeIgnored(any(org.jetlinks.pro.assets.AssetType.class)))
+                .thenReturn(Mono.just(false));
         when(holder.assertPermission(anyString(), anyCollection(), any())).thenReturn(Mono.empty());
         when(holder.injectQuery(
                         any(org.hswebframework.web.api.crud.entity.QueryParamEntity.class),
@@ -249,11 +255,26 @@ class HouseSettingPersistenceTest {
                                                     List.of("room", "job", "failed-job")));
                             return Mono.just(query);
                         });
-        when(holder.filter(any(Flux.class), any(org.jetlinks.pro.assets.AssetType.class),
-                        any(java.util.function.Function.class), any(org.jetlinks.pro.assets.AssetPermission[].class)))
-                .thenAnswer(call -> ((Flux<?>) call.getArgument(0)).filter(value ->
-                        List.of("room", "job", "failed-job").contains(
-                                ((java.util.function.Function<Object, ?>) call.getArgument(2)).apply(value))));
+        when(holder.filter(
+                        any(Flux.class),
+                        any(org.jetlinks.pro.assets.AssetType.class),
+                        any(java.util.function.Function.class),
+                        any(org.jetlinks.pro.assets.AssetPermission[].class)))
+                .thenAnswer(
+                        call ->
+                                ((Flux<?>) call.getArgument(0))
+                                        .filter(
+                                                value ->
+                                                        List.of("room", "job", "failed-job")
+                                                                .contains(
+                                                                        ((java.util.function
+                                                                                                        .Function<
+                                                                                                Object,
+                                                                                                ?>)
+                                                                                        call
+                                                                                                .getArgument(
+                                                                                                        2))
+                                                                                .apply(value))));
         return auth().put(AssetsHolder.class, holder);
     }
 
@@ -432,7 +453,13 @@ class HouseSettingPersistenceTest {
                 .expectError()
                 .verify(WAIT);
         assertEquals(1, rows.createQuery().where("projectId", project).count().block(WAIT));
-        assertEquals("PENDING", rows.createQuery().where("projectId", project).fetchOne().block(WAIT).getReviewState());
+        assertEquals(
+                "PENDING",
+                rows.createQuery()
+                        .where("projectId", project)
+                        .fetchOne()
+                        .block(WAIT)
+                        .getReviewState());
         assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
     }
 
@@ -485,8 +512,7 @@ class HouseSettingPersistenceTest {
         var bad = input("bad", "2024-02-01", null);
         bad.setCustomerRelationshipIds(List.of("missing"));
         conflict(
-                createBatchApproved(
-                        project, List.of(input("good", "2024-02-01", null), bad), DATE),
+                createBatchApproved(project, List.of(input("good", "2024-02-01", null), bad), DATE),
                 409);
         assertEquals(0, rows.createQuery().where("projectId", project).count().block(WAIT));
         var saved =
@@ -1623,7 +1649,9 @@ class HouseSettingPersistenceTest {
                 .expectErrorMatches(
                         e ->
                                 e instanceof org.hswebframework.web.exception.BusinessException
-                                        && e.getMessage().contains("historical_row"))
+                                        && ((org.hswebframework.web.exception.BusinessException) e)
+                                                .getI18nCode()
+                                                .contains("historical_row"))
                 .verify(WAIT);
         assertEquals(
                 draft.getVersion(), importDrafts.findById(draft.getId()).block(WAIT).getVersion());
@@ -1733,39 +1761,96 @@ class HouseSettingPersistenceTest {
     }
 
     @Test
-    void historicalPendingEditRejectsDuplicatesForeignScopeAndClosedOriginalPeriod() throws Exception {
+    void historicalPendingEditRejectsDuplicatesForeignScopeAndClosedOriginalPeriod()
+            throws Exception {
         mockHistoricalHouses();
-        var record = historical.importFile(project, historicalPart(historicalFile("100.00", true)))
-                .contextWrite(allowed()).block(WAIT);
-        var first = importDrafts.createQuery().where("importId", record.getId()).and("lineNumber", 2)
-                .fetchOne().block(WAIT);
-        var second = importDrafts.createQuery().where("importId", record.getId()).and("lineNumber", 3)
-                .fetchOne().block(WAIT);
-        var original = com.alibaba.fastjson.JSON.parseObject(first.getPayloadJson(), ReceivableEntity.class);
-        var duplicate = com.alibaba.fastjson.JSON.parseObject(second.getPayloadJson(), ReceivableEntity.class);
-        StepVerifier.create(importEdits.edit(project, record.getId(), first.getId(),
-                        historicalEdit(record, first, duplicate, "100.00")).contextWrite(allowed()))
-                .expectError(org.hswebframework.web.exception.BusinessException.class).verify(WAIT);
-        StepVerifier.create(importEdits.edit("foreign-project", record.getId(), first.getId(),
-                        historicalEdit(record, first, original, "100.00")).contextWrite(allowed()))
-                .expectError(org.hswebframework.web.exception.BusinessException.class).verify(WAIT);
+        var record =
+                historical
+                        .importFile(project, historicalPart(historicalFile("100.00", true)))
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var first =
+                importDrafts
+                        .createQuery()
+                        .where("importId", record.getId())
+                        .and("lineNumber", 2)
+                        .fetchOne()
+                        .block(WAIT);
+        var second =
+                importDrafts
+                        .createQuery()
+                        .where("importId", record.getId())
+                        .and("lineNumber", 3)
+                        .fetchOne()
+                        .block(WAIT);
+        var original =
+                com.alibaba.fastjson.JSON.parseObject(
+                        first.getPayloadJson(), ReceivableEntity.class);
+        var duplicate =
+                com.alibaba.fastjson.JSON.parseObject(
+                        second.getPayloadJson(), ReceivableEntity.class);
+        StepVerifier.create(
+                        importEdits
+                                .edit(
+                                        project,
+                                        record.getId(),
+                                        first.getId(),
+                                        historicalEdit(record, first, duplicate, "100.00"))
+                                .contextWrite(allowed()))
+                .expectError(org.hswebframework.web.exception.BusinessException.class)
+                .verify(WAIT);
+        StepVerifier.create(
+                        importEdits
+                                .edit(
+                                        "foreign-project",
+                                        record.getId(),
+                                        first.getId(),
+                                        historicalEdit(record, first, original, "100.00"))
+                                .contextWrite(allowed()))
+                .expectError(org.hswebframework.web.exception.BusinessException.class)
+                .verify(WAIT);
         var denied = mock(AssetsHolder.class);
         when(denied.assertPermission(anyString(), anyCollection(), any()))
                 .thenReturn(Mono.error(new IllegalStateException("space denied")));
-        StepVerifier.create(importEdits.edit(project, record.getId(), first.getId(),
-                        historicalEdit(record, first, original, "100.00"))
-                        .contextWrite(allowed().put(AssetsHolder.class, denied)))
-                .expectError().verify(WAIT);
-        financialPeriods.close(project, LocalDate.of(2023, 1, 31)).contextWrite(allowed()).block(WAIT);
+        StepVerifier.create(
+                        importEdits
+                                .edit(
+                                        project,
+                                        record.getId(),
+                                        first.getId(),
+                                        historicalEdit(record, first, original, "100.00"))
+                                .contextWrite(allowed().put(AssetsHolder.class, denied)))
+                .expectError()
+                .verify(WAIT);
+        financialPeriods
+                .close(project, LocalDate.of(2023, 1, 31))
+                .contextWrite(allowed())
+                .block(WAIT);
         original.setCalcStartDate("2023-03-01");
         original.setCalcEndDate("2023-03-31");
         original.setAccountPeriod("2023-03");
-        StepVerifier.create(importEdits.edit(project, record.getId(), first.getId(),
-                        historicalEdit(record, first, original, "100.00")).contextWrite(allowed()))
-                .expectErrorMatches(e -> e.getMessage().contains("period_closed")).verify(WAIT);
-        assertEquals(first.getVersion(), importDrafts.findById(first.getId()).block(WAIT).getVersion());
-        assertEquals(first.getPayloadJson(), importDrafts.findById(first.getId()).block(WAIT).getPayloadJson());
-        assertEquals(record.getVersion(), importRecords.findById(record.getId()).block(WAIT).getVersion());
+        StepVerifier.create(
+                        importEdits
+                                .edit(
+                                        project,
+                                        record.getId(),
+                                        first.getId(),
+                                        historicalEdit(record, first, original, "100.00"))
+                                .contextWrite(allowed()))
+                .expectErrorMatches(
+                        e ->
+                                ((org.hswebframework.web.exception.BusinessException) e)
+                                        .getI18nCode()
+                                        .contains("period_closed"))
+                .verify(WAIT);
+        assertEquals(
+                first.getVersion(), importDrafts.findById(first.getId()).block(WAIT).getVersion());
+        assertEquals(
+                first.getPayloadJson(),
+                importDrafts.findById(first.getId()).block(WAIT).getPayloadJson());
+        assertEquals(
+                record.getVersion(),
+                importRecords.findById(record.getId()).block(WAIT).getVersion());
         assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
     }
 
@@ -1926,7 +2011,9 @@ class HouseSettingPersistenceTest {
                 .expectErrorMatches(
                         e ->
                                 e instanceof org.hswebframework.web.exception.BusinessException
-                                        && e.getMessage().contains("historical_row"))
+                                        && ((org.hswebframework.web.exception.BusinessException) e)
+                                                .getI18nCode()
+                                                .contains("historical_row"))
                 .verify(WAIT);
         assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
         assertEquals(
@@ -2348,14 +2435,116 @@ class HouseSettingPersistenceTest {
     }
 
     @Test
+    void historicalLargeStagesOverFiveHundredWithoutPublishingAndResumesCheckpoint()
+            throws Exception {
+        mockHistoricalHouses();
+        when(archive.houses(eq(project), isNull(), anyString(), eq(0), eq(200)))
+                .thenReturn(
+                        Mono.just(
+                                new PropertyHousePage(
+                                        1, 0, 200, List.of(context("room").house()))));
+        var batch = new ReceivableImportEntity();
+        StandardPersistenceTest.initialize(batch);
+        batch.setId(UUID.randomUUID().toString());
+        batch.setProjectId(project);
+        batch.setFileName("历史应收.xlsx");
+        batch.setStatus("PROCESSING");
+        batch.setTotalCount(0);
+        batch.setSuccessCount(0);
+        batch.setErrorCount(0);
+        importRecords.insert(batch).block(WAIT);
+        var directory = java.nio.file.Files.createTempDirectory("historical-large-");
+        try {
+            var source = directory.resolve("large.xlsx");
+            var raw = directory.resolve("raw.jsonl");
+            var prepared = directory.resolve("prepared.jsonl");
+            try (var book = new org.apache.poi.xssf.streaming.SXSSFWorkbook(100);
+                    var output = java.nio.file.Files.newOutputStream(source)) {
+                var sheet = book.createSheet("历史应收");
+                var headers =
+                        org.jetlinks.pro.property.finance.receivable.HistoricalWorkbook.HEADERS;
+                var head = sheet.createRow(0);
+                for (int c = 0; c < headers.size(); c++)
+                    head.createCell(c).setCellValue(headers.get(c));
+                for (int n = 0; n < 601; n++) {
+                    var day = java.time.LocalDate.of(2020, 1, 1).plusDays(n);
+                    var row = sheet.createRow(n + 1);
+                    var values =
+                            java.util.List.of(
+                                    "",
+                                    context("room").house().fullName(),
+                                    context("room").customers().get(0).name(),
+                                    "物业费",
+                                    "面积月费",
+                                    day.toString(),
+                                    day.toString(),
+                                    java.time.YearMonth.from(day).toString(),
+                                    day.toString(),
+                                    "100.00",
+                                    "0.00",
+                                    "100.00",
+                                    "");
+                    for (int c = 0; c < values.size(); c++)
+                        row.createCell(c).setCellValue(values.get(c));
+                }
+                book.write(output);
+                book.dispose();
+            }
+            org.jetlinks.pro.property.finance.payment.FinanceExcelRows.spool(source, raw);
+            historical
+                    .processLarge(
+                            project, batch.getId(), raw, prepared, (phase, count) -> Mono.empty())
+                    .contextWrite(allowed())
+                    .block(java.time.Duration.ofMinutes(3));
+            assertEquals(
+                    601,
+                    importDrafts
+                            .createQuery()
+                            .where("importId", batch.getId())
+                            .count()
+                            .block(WAIT));
+            assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
+            historical
+                    .processLarge(
+                            project, batch.getId(), raw, prepared, (phase, count) -> Mono.empty())
+                    .contextWrite(allowed())
+                    .block(java.time.Duration.ofMinutes(3));
+            assertEquals(
+                    601,
+                    importDrafts
+                            .createQuery()
+                            .where("importId", batch.getId())
+                            .count()
+                            .block(WAIT));
+        } finally {
+            try (var files = java.nio.file.Files.list(directory)) {
+                for (var file : files.toList()) java.nio.file.Files.delete(file);
+            }
+            java.nio.file.Files.delete(directory);
+        }
+    }
+
+    @Test
     void historicalHttpTemplateUploadAndHistoryUseProjectScope() throws Exception {
         mockHistoricalHouses();
+        var queue = mock(FinanceImportQueue.class);
+        when(queue.reviewHistorical(anyString(), any(), anyBoolean()))
+                .thenAnswer(
+                        call ->
+                                importAudit.decideBatches(
+                                        call.getArgument(0),
+                                        call.getArgument(1),
+                                        call.getArgument(2)));
+        when(queue.uploadHistorical(anyString(), any()))
+                .thenAnswer(
+                        call -> historical.importFile(call.getArgument(0), call.getArgument(1)));
         var client =
                 org.springframework.test.web.reactive.server.WebTestClient.bindToController(
                                 new org.jetlinks.pro.property.finance.web
-                                        .HistoricalReceivableController(historical),
+                                        .HistoricalReceivableController(historical, queue),
                                 new org.jetlinks.pro.property.finance.web
-                                        .HistoricalImportAuditController(importAudit, importEdits))
+                                        .HistoricalImportAuditController(
+                                        importAudit, queue, importEdits))
                         .webFilter(
                                 (exchange, chain) -> chain.filter(exchange).contextWrite(allowed()))
                         .build();
@@ -2376,6 +2565,9 @@ class HouseSettingPersistenceTest {
                 org.apache.poi.ss.usermodel.WorkbookFactory.create(
                         new java.io.ByteArrayInputStream(template))) {
             assertEquals("房屋完整路径", book.getSheetAt(0).getRow(0).getCell(1).getStringCellValue());
+            assertEquals(1, book.getSheetAt(0).getLastRowNum());
+            assertEquals("张某", book.getSheetAt(0).getRow(1).getCell(2).getStringCellValue());
+            assertNull(book.getSheet("填写示例"));
             assertEquals(
                     context("room").house().fullName(),
                     book.getSheet("项目房屋与客户").getRow(1).getCell(0).getStringCellValue());
@@ -3116,7 +3308,8 @@ class HouseSettingPersistenceTest {
         assertTrue(record.getErrorMessage().contains("3"), record.getErrorMessage());
         assertTrue(
                 record.getErrorMessage().contains("period_closed")
-                        || record.getErrorMessage().contains("已关闭"),
+                        || record.getErrorMessage().contains("已关闭")
+                        || record.getErrorMessage().contains("已月结"),
                 record.getErrorMessage());
         assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
         assertEquals(
@@ -3173,7 +3366,10 @@ class HouseSettingPersistenceTest {
         assertTrue(results.getT2().isOnError());
         var failure = results.getT2().getThrowable();
         assertTrue(TaxItemPersistenceTest.status(failure, 409));
-        assertTrue(failure.getMessage().contains("period_closed"));
+        assertTrue(
+                ((org.hswebframework.web.exception.BusinessException) failure)
+                        .getI18nCode()
+                        .contains("period_closed"));
         assertEquals(0, bills.createQuery().where("settingId", saved.getId()).count().block(WAIT));
     }
 
@@ -3212,44 +3408,71 @@ class HouseSettingPersistenceTest {
     // 既有算费回归显式经过设置审批；新增审批测试直接调用保存接口验证待审批行为。
     private Mono<HouseSettingService.SaveResult> approveSetting(
             String project, HouseSettingService.SaveResult saved, LocalDate date) {
-        return settingReview.decide(project, new HouseSettingReviewService.Input(
-                List.of(new HouseSettingReviewService.Item(saved.setting().getId(), saved.setting().getVersion())),
-                "核对收费规则"), true, date).map(results -> results.get(0));
+        return settingReview
+                .decide(
+                        project,
+                        new HouseSettingReviewService.Input(
+                                List.of(
+                                        new HouseSettingReviewService.Item(
+                                                saved.setting().getId(),
+                                                saved.setting().getVersion())),
+                                "核对收费规则"),
+                        true,
+                        date)
+                .map(results -> results.get(0));
     }
 
-    Mono<HouseSettingService.SaveResult> createApproved(String project, SettingInput input, LocalDate date) {
-        return settings.create(project, input, date).flatMap(saved -> approveSetting(project, saved, date));
+    Mono<HouseSettingService.SaveResult> createApproved(
+            String project, SettingInput input, LocalDate date) {
+        return settings.create(project, input, date)
+                .flatMap(saved -> approveSetting(project, saved, date));
     }
 
-    private Mono<HouseSettingService.SaveResult> updateApproved(String project, String id, SettingInput input, LocalDate date) {
-        return settings.update(project, id, input, date).flatMap(saved -> approveSetting(project, saved, date));
+    private Mono<HouseSettingService.SaveResult> updateApproved(
+            String project, String id, SettingInput input, LocalDate date) {
+        return settings.update(project, id, input, date)
+                .flatMap(saved -> approveSetting(project, saved, date));
     }
 
-    private Mono<HouseSettingService.SaveResult> nextVersionApproved(String project, String id, SettingInput input, LocalDate date) {
-        return settings.nextVersion(project, id, input, date).flatMap(saved -> approveSetting(project, saved, date));
+    private Mono<HouseSettingService.SaveResult> nextVersionApproved(
+            String project, String id, SettingInput input, LocalDate date) {
+        return settings.nextVersion(project, id, input, date)
+                .flatMap(saved -> approveSetting(project, saved, date));
     }
 
-    private Mono<List<HouseSettingService.SaveResult>> createBatchApproved(String project, List<SettingInput> inputs, LocalDate date) {
-        return settings.createBatch(project, inputs, date).flatMapMany(Flux::fromIterable)
-                .concatMap(saved -> approveSetting(project, saved, date)).collectList();
+    private Mono<List<HouseSettingService.SaveResult>> createBatchApproved(
+            String project, List<SettingInput> inputs, LocalDate date) {
+        return settings.createBatch(project, inputs, date)
+                .flatMapMany(Flux::fromIterable)
+                .concatMap(saved -> approveSetting(project, saved, date))
+                .collectList();
     }
 
     @Test
     void settingApprovalIsIndependentAndCannotBeBypassedByGeneration() {
-        var pending = settings.create(project, input("room", "2024-02-10", null), DATE)
-                .contextWrite(allowed()).block(WAIT);
+        var pending =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
         assertEquals("PENDING", pending.setting().getReviewState());
         assertEquals(0, pending.generated());
         assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
         conflict(generation.generate(project, pending.setting().getId(), DATE), 409);
-        StepVerifier.create(generation.scheduled(project, pending.setting().getId(), DATE, BillingTaskKind.ALL))
-                .expectErrorMatches(e -> TaxItemPersistenceTest.status(e, 409)).verify(WAIT);
+        StepVerifier.create(
+                        generation.scheduled(
+                                project, pending.setting().getId(), DATE, BillingTaskKind.ALL))
+                .expectErrorMatches(e -> TaxItemPersistenceTest.status(e, 409))
+                .verify(WAIT);
         var approved = approveSetting(project, pending, DATE).contextWrite(allowed()).block(WAIT);
         assertEquals("APPROVED", approved.setting().getReviewState());
         assertNotNull(approved.setting().getReviewedBy());
         assertEquals("核对收费规则", approved.setting().getReviewReason());
         assertEquals(1, approved.generated());
-        var bill = bills.createQuery().where("settingId", approved.setting().getId()).fetchOne().block(WAIT);
+        var bill =
+                bills.createQuery()
+                        .where("settingId", approved.setting().getId())
+                        .fetchOne()
+                        .block(WAIT);
         assertEquals("APPROVED", bill.getReviewState(), "账单继承设置审批结果，无需二次审核");
         assertEquals(approved.setting().getReviewedBy(), bill.getReviewedBy());
         conflict(approveSetting(project, pending, DATE), 409);
@@ -3258,55 +3481,141 @@ class HouseSettingPersistenceTest {
 
     @Test
     void rejectedSettingCanBeEditedAndSubmittedAgainWithoutChangingBills() {
-        var pending = settings.create(project, input("room", "2024-02-10", null), DATE)
-                .contextWrite(allowed()).block(WAIT);
-        var rejected = settingReview.decide(project, new HouseSettingReviewService.Input(
-                List.of(new HouseSettingReviewService.Item(pending.setting().getId(), pending.setting().getVersion())),
-                "请核对面积"), false, DATE).contextWrite(allowed()).block(WAIT).get(0).setting();
+        var pending =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var rejected =
+                settingReview
+                        .decide(
+                                project,
+                                new HouseSettingReviewService.Input(
+                                        List.of(
+                                                new HouseSettingReviewService.Item(
+                                                        pending.setting().getId(),
+                                                        pending.setting().getVersion())),
+                                        "请核对面积"),
+                                false,
+                                DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .get(0)
+                        .setting();
         assertEquals("REJECTED", rejected.getReviewState());
         assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
         var request = input("room", "2024-02-10", null);
         request.setVersion(rejected.getVersion());
-        var revised = settings.update(project, rejected.getId(), request, DATE).contextWrite(allowed()).block(WAIT);
+        var revised =
+                settings.update(project, rejected.getId(), request, DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
         assertEquals("PENDING", revised.setting().getReviewState());
         assertNull(revised.setting().getReviewedAt());
         assertNull(revised.setting().getReviewReason());
-        assertEquals(1, approveSetting(project, revised, DATE).contextWrite(allowed()).block(WAIT).generated());
+        assertEquals(
+                1,
+                approveSetting(project, revised, DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .generated());
     }
 
     @Test
     void settingApprovalBatchStaleItemAndWrongProjectHaveNoPartialWrites() {
-        var pending = settings.createBatch(project, List.of(input("room", "2024-02-10", null),
-                input("job", "2024-02-10", null)), DATE).contextWrite(allowed()).block(WAIT);
+        var pending =
+                settings.createBatch(
+                                project,
+                                List.of(
+                                        input("room", "2024-02-10", null),
+                                        input("job", "2024-02-10", null)),
+                                DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
         var one = pending.get(0).setting();
         var two = pending.get(1).setting();
-        conflict(settingReview.decide(project, new HouseSettingReviewService.Input(List.of(
-                new HouseSettingReviewService.Item(one.getId(), one.getVersion()),
-                new HouseSettingReviewService.Item(two.getId(), two.getVersion() + 1)), "确认"), true, DATE), 409);
+        conflict(
+                settingReview.decide(
+                        project,
+                        new HouseSettingReviewService.Input(
+                                List.of(
+                                        new HouseSettingReviewService.Item(
+                                                one.getId(), one.getVersion()),
+                                        new HouseSettingReviewService.Item(
+                                                two.getId(), two.getVersion() + 1)),
+                                "确认"),
+                        true,
+                        DATE),
+                409);
         assertEquals("PENDING", rows.findById(one.getId()).block(WAIT).getReviewState());
         assertEquals(0, bills.createQuery().where("projectId", project).count().block(WAIT));
         conflict(approveSetting("wrong-project", pending.get(0), DATE), 404);
-        conflict(settingReview.decide(project, new HouseSettingReviewService.Input(List.of(
-                new HouseSettingReviewService.Item(one.getId(), one.getVersion())), " "), true, DATE), 400);
-        StepVerifier.create(approveSetting(project, pending.get(0), DATE)).expectError().verify(WAIT);
+        conflict(
+                settingReview.decide(
+                        project,
+                        new HouseSettingReviewService.Input(
+                                List.of(
+                                        new HouseSettingReviewService.Item(
+                                                one.getId(), one.getVersion())),
+                                " "),
+                        true,
+                        DATE),
+                400);
+        StepVerifier.create(approveSetting(project, pending.get(0), DATE))
+                .expectError()
+                .verify(WAIT);
     }
 
     @Test
     void approvalCalculationFailureOnLastSettingRollsBackFirstApprovalAndBill() {
-        standards.createUpdate().set("formulaExpression", "1/(${BILLING_AREA}-1)")
-                .where("id", standardId).execute().block(WAIT);
+        standards
+                .createUpdate()
+                .set("formulaExpression", "1/(${BILLING_AREA}-1)")
+                .where("id", standardId)
+                .execute()
+                .block(WAIT);
         var original = context("job");
         var house = original.house();
-        when(archive.context(project, "job", true)).thenReturn(Mono.just(new PropertyHouseContext(
-                new PropertyHouseInfo(house.spaceId(), house.projectId(), house.name(), house.fullName(),
-                        house.spaceTypeId(), house.spaceTypeName(), house.spaceLocation(), BigDecimal.ONE,
-                        null, null, null, house.version()), original.customers())));
-        var pending = settings.createBatch(project, List.of(input("room", "2024-02-10", null),
-                input("job", "2024-02-10", null)), DATE).contextWrite(allowed()).block(WAIT);
-        var request = new HouseSettingReviewService.Input(pending.stream().map(saved ->
-                new HouseSettingReviewService.Item(saved.setting().getId(), saved.setting().getVersion())).toList(), "整批核对");
-        StepVerifier.create(settingReview.decide(project, request, true, DATE).contextWrite(allowed()))
-                .expectError().verify(WAIT);
+        when(archive.context(project, "job", true))
+                .thenReturn(
+                        Mono.just(
+                                new PropertyHouseContext(
+                                        new PropertyHouseInfo(
+                                                house.spaceId(),
+                                                house.projectId(),
+                                                house.name(),
+                                                house.fullName(),
+                                                house.spaceTypeId(),
+                                                house.spaceTypeName(),
+                                                house.spaceLocation(),
+                                                BigDecimal.ONE,
+                                                null,
+                                                null,
+                                                null,
+                                                house.version()),
+                                        original.customers())));
+        var pending =
+                settings.createBatch(
+                                project,
+                                List.of(
+                                        input("room", "2024-02-10", null),
+                                        input("job", "2024-02-10", null)),
+                                DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var request =
+                new HouseSettingReviewService.Input(
+                        pending.stream()
+                                .map(
+                                        saved ->
+                                                new HouseSettingReviewService.Item(
+                                                        saved.setting().getId(),
+                                                        saved.setting().getVersion()))
+                                .toList(),
+                        "整批核对");
+        StepVerifier.create(
+                        settingReview.decide(project, request, true, DATE).contextWrite(allowed()))
+                .expectError()
+                .verify(WAIT);
         for (var saved : pending) {
             var retained = rows.findById(saved.setting().getId()).block(WAIT);
             assertEquals("PENDING", retained.getReviewState());
@@ -3318,52 +3627,109 @@ class HouseSettingPersistenceTest {
 
     @Test
     void pendingReplacementNeverStopsOriginalAndRejectLeavesOriginalUntouched() {
-        var saved = createApproved(project, input("room", "2024-02-10", null), DATE)
-                .contextWrite(allowed()).block(WAIT);
+        var saved =
+                createApproved(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
         var nextInput = input("room", "2024-03-01", null);
         nextInput.setVersion(saved.setting().getVersion());
-        var next = settings.nextVersion(project, saved.setting().getId(), nextInput, DATE)
-                .contextWrite(allowed()).block(WAIT);
+        var next =
+                settings.nextVersion(project, saved.setting().getId(), nextInput, DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
         assertEquals("PENDING", next.setting().getReviewState());
         assertEquals("ACTIVE", rows.findById(saved.setting().getId()).block(WAIT).getStatus());
         assertNull(rows.findById(saved.setting().getId()).block(WAIT).getEffectiveEndDate());
-        settingReview.decide(project, new HouseSettingReviewService.Input(List.of(
-                new HouseSettingReviewService.Item(next.setting().getId(), next.setting().getVersion())),
-                "规则尚未确定"), false, DATE).contextWrite(allowed()).block(WAIT);
+        settingReview
+                .decide(
+                        project,
+                        new HouseSettingReviewService.Input(
+                                List.of(
+                                        new HouseSettingReviewService.Item(
+                                                next.setting().getId(),
+                                                next.setting().getVersion())),
+                                "规则尚未确定"),
+                        false,
+                        DATE)
+                .contextWrite(allowed())
+                .block(WAIT);
         assertEquals("ACTIVE", rows.findById(saved.setting().getId()).block(WAIT).getStatus());
-        assertEquals(0, bills.createQuery().where("settingId", next.setting().getId()).count().block(WAIT));
+        assertEquals(
+                0,
+                bills.createQuery().where("settingId", next.setting().getId()).count().block(WAIT));
     }
 
     @Test
     void approvedReplacementSwitchesOriginalAndKeepsBillApproved() {
-        var old = createApproved(project, input("room", "2024-02-10", null), DATE)
-                .contextWrite(allowed()).block(WAIT).setting();
+        var old =
+                createApproved(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .setting();
         var input = input("room", "2024-03-01", null);
         input.setVersion(old.getVersion());
-        var next = settings.nextVersion(project, old.getId(), input, DATE).contextWrite(allowed()).block(WAIT);
-        var result = approveSetting(project, next, LocalDate.of(2024, 3, 5)).contextWrite(allowed()).block(WAIT);
+        var next =
+                settings.nextVersion(project, old.getId(), input, DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT);
+        var result =
+                approveSetting(project, next, LocalDate.of(2024, 3, 5))
+                        .contextWrite(allowed())
+                        .block(WAIT);
         assertEquals("APPROVED", result.setting().getReviewState());
         assertEquals(1, result.generated());
         var previous = rows.findById(old.getId()).block(WAIT);
         assertEquals("SUPERSEDED", previous.getStatus());
         assertEquals("2024-02-29", previous.getEffectiveEndDate());
-        assertEquals("APPROVED", bills.createQuery().where("settingId", result.setting().getId()).fetchOne().block(WAIT).getReviewState());
+        assertEquals(
+                "APPROVED",
+                bills.createQuery()
+                        .where("settingId", result.setting().getId())
+                        .fetchOne()
+                        .block(WAIT)
+                        .getReviewState());
     }
 
     @Test
     void settingMigrationIsIdempotentAndOnlyPublishesLegacySettingBills() throws Exception {
-        var pending = settings.create(project, input("room", "2024-02-10", null), DATE)
-                .contextWrite(allowed()).block(WAIT).setting();
-        var existing = createApproved(project, input("job", "2024-02-10", null), DATE)
-                .contextWrite(allowed()).block(WAIT).setting();
+        var pending =
+                settings.create(project, input("room", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .setting();
+        var existing =
+                createApproved(project, input("job", "2024-02-10", null), DATE)
+                        .contextWrite(allowed())
+                        .block(WAIT)
+                        .setting();
         var bill = bills.createQuery().where("settingId", existing.getId()).fetchOne().block(WAIT);
-        bills.createUpdate().set("reviewState", "PENDING").where("id", bill.getId()).execute().block(WAIT);
-        var script = java.nio.file.Files.readString(java.nio.file.Path.of("../sql/migrate-setting-review.sql"));
+        bills.createUpdate()
+                .set("reviewState", "PENDING")
+                .where("id", bill.getId())
+                .execute()
+                .block(WAIT);
+        var script =
+                java.nio.file.Files.readString(
+                        java.nio.file.Path.of("../sql/migrate-setting-review.sql"));
         for (int run = 0; run < 2; run++) {
-            var result = DB.execInContainer("psql", "-X", "-U", "postgres", "-d", "setting_test", "-v", "ON_ERROR_STOP=1", "-c", script);
+            var result =
+                    DB.execInContainer(
+                            "psql",
+                            "-X",
+                            "-U",
+                            "postgres",
+                            "-d",
+                            "setting_test",
+                            "-v",
+                            "ON_ERROR_STOP=1",
+                            "-c",
+                            script);
             assertEquals(0, result.getExitCode(), result.getStderr());
         }
-        assertEquals("PENDING", rows.findById(pending.getId()).block(WAIT).getReviewState(), "新提交待审设置不能被重复升级发布");
+        assertEquals(
+                "PENDING",
+                rows.findById(pending.getId()).block(WAIT).getReviewState(),
+                "新提交待审设置不能被重复升级发布");
         var migrated = bills.findById(bill.getId()).block(WAIT);
         assertEquals("APPROVED", migrated.getReviewState());
         assertEquals(bill.getActualReceivableAmount(), migrated.getActualReceivableAmount());

@@ -29,6 +29,7 @@ import java.util.*;
 public class HistoricalImportAuditService {
     private static final AssetType SPACE = AssetType.of("space");
     private final FinanceScope scope;
+    private final org.springframework.transaction.ReactiveTransactionManager transactions;
     private final FinancialPeriodGate periodGate;
     private final ReactiveRepository<ReceivableImportEntity, String> records;
     private final ReactiveRepository<ReceivableImportLineEntity, String> drafts;
@@ -314,51 +315,239 @@ public class HistoricalImportAuditService {
 
     private Mono<ReceivableImportEntity> refresh(
             ReceivableImportEntity record, Authentication auth) {
-        return drafts.createQuery()
-                .where("projectId", record.getProjectId())
-                .and("importId", record.getId())
-                .and("deleted", false)
-                .fetch()
-                .collectList()
+        return Mono.zip(
+                        drafts.createQuery()
+                                .where("importId", record.getId())
+                                .and("deleted", false)
+                                .count(),
+                        drafts.createQuery()
+                                .where("importId", record.getId())
+                                .and("deleted", false)
+                                .and("status", "APPROVED")
+                                .count(),
+                        drafts.createQuery()
+                                .where("importId", record.getId())
+                                .and("deleted", false)
+                                .and("status", "REJECTED")
+                                .count())
                 .flatMap(
-                        rows -> {
-                            int approved =
-                                    (int)
-                                            rows.stream()
-                                                    .filter(
-                                                            row ->
-                                                                    "APPROVED"
-                                                                            .equals(
-                                                                                    row
-                                                                                            .getStatus()))
-                                                    .count();
-                            int rejected =
-                                    (int)
-                                            rows.stream()
-                                                    .filter(
-                                                            row ->
-                                                                    "REJECTED"
-                                                                            .equals(
-                                                                                    row
-                                                                                            .getStatus()))
-                                                    .count();
-                            boolean pending =
-                                    rows.stream()
-                                            .anyMatch(row -> "PENDING".equals(row.getStatus()));
+                        counts -> {
+                            long total = counts.getT1(),
+                                    approved = counts.getT2(),
+                                    rejected = counts.getT3();
+                            String status =
+                                    approved + rejected < total
+                                            ? "PENDING"
+                                            : approved > 0 ? "APPROVED" : "REJECTED";
                             return audit(records.createUpdate(), auth, record.getVersion())
-                                    .set("successCount", approved)
-                                    .set("rejectedCount", rejected)
-                                    .set(
-                                            "status",
-                                            pending
-                                                    ? "PENDING"
-                                                    : approved > 0 ? "APPROVED" : "REJECTED")
+                                    .set("status", status)
+                                    .set("phase", status)
+                                    .set("successCount", (int) approved)
+                                    .set("rejectedCount", (int) rejected)
                                     .where("id", record.getId())
-                                    .and("projectId", record.getProjectId())
                                     .and("version", record.getVersion())
                                     .execute()
                                     .flatMap(SubjectService::changed)
                                     .then(records.findById(record.getId()));
+                        });
+    }
+
+    /** 后台整批审核使用同一发布规则，每行事务避免上万行长事务；已完成行不会再次发布。 */
+    Mono<Void> processLarge(
+            String project,
+            String id,
+            String reason,
+            boolean approve,
+            java.util.function.Function<Integer, Mono<Void>> progress) {
+        return scope.authenticated()
+                .flatMap(
+                        auth -> {
+                            var checked = new int[1];
+                            var processed = new int[1];
+                            return drafts.createQuery()
+                                    .where("importId", id)
+                                    .and("deleted", false)
+                                    .and("status", "PENDING")
+                                    .fetch()
+                                    .concatMap(
+                                            row ->
+                                                    AssetsHolder.assertPermission(
+                                                                    SPACE,
+                                                                    row.getSpaceId(),
+                                                                    CrudAssetPermission.save)
+                                                            .then(
+                                                                    approve
+                                                                            ? org.springframework
+                                                                                    .transaction
+                                                                                    .reactive
+                                                                                    .TransactionalOperator
+                                                                                    .create(
+                                                                                            transactions)
+                                                                                    .transactional(
+                                                                                            periodGate
+                                                                                                    .lock(
+                                                                                                            project)
+                                                                                                    .flatMap(
+                                                                                                            control ->
+                                                                                                                    periodGate
+                                                                                                                            .assertOpen(
+                                                                                                                                    control,
+                                                                                                                                    LocalDate
+                                                                                                                                            .now())
+                                                                                                                            .then(
+                                                                                                                                    periodGate
+                                                                                                                                            .assertOpen(
+                                                                                                                                                    control,
+                                                                                                                                                    LocalDate
+                                                                                                                                                            .parse(
+                                                                                                                                                                    JSON.parseObject(
+                                                                                                                                                                                    row
+                                                                                                                                                                                            .getPayloadJson(),
+                                                                                                                                                                                    ReceivableEntity
+                                                                                                                                                                                            .class)
+                                                                                                                                                                            .getCalcStartDate())))))
+                                                                            : Mono.empty())
+                                                            .then(
+                                                                    ++checked[0] % 10 == 0
+                                                                            ? progress.apply(
+                                                                                    checked[0])
+                                                                            : Mono.empty()),
+                                            1)
+                                    .then()
+                                    .thenMany(
+                                            Flux.defer(
+                                                            () -> {
+                                                                var q = new QueryParamEntity();
+                                                                q.setPaging(true);
+                                                                q.setPageSize(100);
+                                                                q.toQuery()
+                                                                        .orderByAsc("lineNumber");
+                                                                return drafts.createQuery()
+                                                                        .setParam(q)
+                                                                        .where("importId", id)
+                                                                        .and("deleted", false)
+                                                                        .and("status", "PENDING")
+                                                                        .fetch()
+                                                                        .collectList()
+                                                                        .flatMap(
+                                                                                rows -> {
+                                                                                    if (rows
+                                                                                            .isEmpty())
+                                                                                        return Mono
+                                                                                                .just(
+                                                                                                        true);
+                                                                                    return Flux
+                                                                                            .fromIterable(
+                                                                                                    rows)
+                                                                                            .concatMap(
+                                                                                                    row ->
+                                                                                                            org
+                                                                                                                    .springframework
+                                                                                                                    .transaction
+                                                                                                                    .reactive
+                                                                                                                    .TransactionalOperator
+                                                                                                                    .create(
+                                                                                                                            transactions)
+                                                                                                                    .transactional(
+                                                                                                                            periodGate
+                                                                                                                                    .lock(
+                                                                                                                                            project)
+                                                                                                                                    .flatMap(
+                                                                                                                                            control ->
+                                                                                                                                                    record(
+                                                                                                                                                                    project,
+                                                                                                                                                                    id,
+                                                                                                                                                                    true)
+                                                                                                                                                            .flatMap(
+                                                                                                                                                                    batch -> {
+                                                                                                                                                                        if (!"REVIEWING"
+                                                                                                                                                                                .equals(
+                                                                                                                                                                                        batch
+                                                                                                                                                                                                .getStatus()))
+                                                                                                                                                                            return Mono
+                                                                                                                                                                                    .error(
+                                                                                                                                                                                            error(
+                                                                                                                                                                                                    "version_conflict",
+                                                                                                                                                                                                    409));
+                                                                                                                                                                        var
+                                                                                                                                                                                locking =
+                                                                                                                                                                                        new QueryParamEntity();
+                                                                                                                                                                        locking
+                                                                                                                                                                                .setForUpdate(
+                                                                                                                                                                                        true);
+                                                                                                                                                                        return drafts.createQuery()
+                                                                                                                                                                                .setParam(
+                                                                                                                                                                                        locking)
+                                                                                                                                                                                .where(
+                                                                                                                                                                                        "id",
+                                                                                                                                                                                        row
+                                                                                                                                                                                                .getId())
+                                                                                                                                                                                .and(
+                                                                                                                                                                                        "status",
+                                                                                                                                                                                        "PENDING")
+                                                                                                                                                                                .fetchOne()
+                                                                                                                                                                                .flatMap(
+                                                                                                                                                                                        current ->
+                                                                                                                                                                                                AssetsHolder
+                                                                                                                                                                                                        .assertPermission(
+                                                                                                                                                                                                                SPACE,
+                                                                                                                                                                                                                current
+                                                                                                                                                                                                                        .getSpaceId(),
+                                                                                                                                                                                                                CrudAssetPermission
+                                                                                                                                                                                                                        .save)
+                                                                                                                                                                                                        .then(
+                                                                                                                                                                                                                approve
+                                                                                                                                                                                                                        ? periodGate
+                                                                                                                                                                                                                                .assertOpen(
+                                                                                                                                                                                                                                        control,
+                                                                                                                                                                                                                                        LocalDate
+                                                                                                                                                                                                                                                .now())
+                                                                                                                                                                                                                                .then(
+                                                                                                                                                                                                                                        periodGate
+                                                                                                                                                                                                                                                .assertOpen(
+                                                                                                                                                                                                                                                        control,
+                                                                                                                                                                                                                                                        LocalDate
+                                                                                                                                                                                                                                                                .parse(
+                                                                                                                                                                                                                                                                        JSON.parseObject(
+                                                                                                                                                                                                                                                                                        current
+                                                                                                                                                                                                                                                                                                .getPayloadJson(),
+                                                                                                                                                                                                                                                                                        ReceivableEntity
+                                                                                                                                                                                                                                                                                                .class)
+                                                                                                                                                                                                                                                                                .getCalcStartDate())))
+                                                                                                                                                                                                                        : Mono
+                                                                                                                                                                                                                                .empty())
+                                                                                                                                                                                                        .then(
+                                                                                                                                                                                                                apply(
+                                                                                                                                                                                                                        project,
+                                                                                                                                                                                                                        current,
+                                                                                                                                                                                                                        reason,
+                                                                                                                                                                                                                        approve,
+                                                                                                                                                                                                                        auth)));
+                                                                                                                                                                    }))),
+                                                                                                    1)
+                                                                                            .then(
+                                                                                                    progress
+                                                                                                            .apply(
+                                                                                                                    processed[
+                                                                                                                                    0] +=
+                                                                                                                            rows
+                                                                                                                                    .size()))
+                                                                                            .thenReturn(
+                                                                                                    false);
+                                                                                })
+                                                                        .flux();
+                                                            })
+                                                    .repeat()
+                                                    .takeUntil(Boolean::booleanValue))
+                                    .then(
+                                            record(project, id, false)
+                                                    .flatMap(batch -> refresh(batch, auth)))
+                                    .then()
+                                    .onErrorResume(
+                                            failure ->
+                                                    record(project, id, false)
+                                                            .flatMap(batch -> refresh(batch, auth))
+                                                            .then(Mono.error(failure)));
                         });
     }
 

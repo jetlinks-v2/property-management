@@ -34,7 +34,10 @@ class FinancialPeriodTestSupport {
                 .expectErrorMatches(
                         error ->
                                 TaxItemPersistenceTest.status(error, 409)
-                                        && error.getMessage().contains("period_closed"))
+                                        && ((org.hswebframework.web.exception.BusinessException)
+                                                        error)
+                                                .getI18nCode()
+                                                .contains("period_closed"))
                 .verify(CashierPersistenceTest.WAIT);
     }
 }
