@@ -175,7 +175,7 @@ public class CarryForwardPlanService {
                 .flatMap(
                         snapshot -> {
                             row.setExecutorSnapshot(snapshot);
-                            return replaceClaims(project, row.getId(), input.getSubjectIds(), auth)
+                            return replaceClaims(project, row.getId(), input, auth)
                                     .then(plans.insert(row))
                                     .then(log(null, row, "CREATE", auth))
                                     .thenReturn(detail(row));
@@ -284,7 +284,7 @@ public class CarryForwardPlanService {
                         snapshot -> {
                             after.setExecutorSnapshot(snapshot);
                             return replaceClaims(
-                                            project, before.getId(), input.getSubjectIds(), auth)
+                                            project, before.getId(), input, auth)
                                     .then(
                                             audit(plans.createUpdate(), auth, before.getVersion())
                                                     .set("name", after.getName())
@@ -356,7 +356,7 @@ public class CarryForwardPlanService {
 
     private Mono<Void> lockSubjects(
             String project, Collection<String> ids, boolean requireAvailable) {
-        // 配置最多100科目；排序后串行行锁使并发创建、科目维护和下发撤回遵守相同顺序。
+        // 编辑可能同时涉及新旧科目；排序后串行行锁保持创建、维护和下发撤回的锁序。
         return Flux.fromIterable(new TreeSet<>(ids))
                 .concatMap(
                         id ->
@@ -416,39 +416,32 @@ public class CarryForwardPlanService {
     }
 
     private Mono<Void> replaceClaims(
-            String project, String plan, List<String> ids, Authentication auth) {
+            String project, String plan, CarryForwardPlanInput input, Authentication auth) {
+        String subject = input.getSubjectIds().get(0);
+        String standard = input.getStandardIds().get(0);
         return claims.createQuery()
                 .where("projectId", project)
                 .and("planId", plan)
                 .and("deleted", false)
                 .fetch()
-                .map(CarryForwardSubjectEntity::getSubjectId)
                 .collectList()
                 .flatMap(
                         current -> {
-                            var removed = current.stream().filter(id -> !ids.contains(id)).toList();
-                            var added =
-                                    ids.stream()
-                                            .filter(id -> !current.contains(id))
-                                            .map(
-                                                    subject -> {
-                                                        var claim = new CarryForwardSubjectEntity();
-                                                        claim.setId(UUID.randomUUID().toString());
-                                                        init(claim, auth);
-                                                        claim.setProjectId(project);
-                                                        claim.setPlanId(plan);
-                                                        claim.setSubjectId(subject);
-                                                        claim.setActiveKey("ACTIVE");
-                                                        return claim;
-                                                    })
-                                            .toList();
-                            return (removed.isEmpty()
-                                            ? Mono.<Void>empty()
-                                            : release(project, plan, removed, auth))
-                                    .then(
-                                            added.isEmpty()
-                                                    ? Mono.empty()
-                                                    : claims.insertBatch(Mono.just(added)).then());
+                            if (current.size() == 1
+                                    && subject.equals(current.get(0).getSubjectId())
+                                    && standard.equals(current.get(0).getStandardId()))
+                                return Mono.empty();
+                            var claim = new CarryForwardSubjectEntity();
+                            claim.setId(UUID.randomUUID().toString());
+                            init(claim, auth);
+                            claim.setProjectId(project);
+                            claim.setPlanId(plan);
+                            claim.setSubjectId(subject);
+                            claim.setStandardId(standard);
+                            claim.setActiveKey("ACTIVE");
+                            // 释放旧范围与取得新范围同事务；唯一键冲突时连同计划、审计一起回滚。
+                            return release(project, plan, null, auth)
+                                    .then(claims.insert(claim)).then();
                         });
     }
 

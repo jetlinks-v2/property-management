@@ -76,6 +76,19 @@ class CarryForwardPlanPersistenceTest {
         return run(service.create(fixture.project, input()));
     }
 
+    String anotherStandard() {
+        var original = standards.findById(fixture.standardId).block(WAIT);
+        var other = new StandardEntity();
+        org.springframework.beans.BeanUtils.copyProperties(original, other);
+        other.setId(UUID.randomUUID().toString());
+        other.setStandardCode(other.getId());
+        other.setCodeKey(other.getId());
+        other.setStandardName("另一收费标准");
+        other.setNameKey(other.getId().substring(0, 30));
+        standards.insert(other).block(WAIT);
+        return other.getId();
+    }
+
     void reject(Mono<?> action, int status) {
         StepVerifier.create(action.contextWrite(fixture.allowed()))
                 .expectErrorMatches(e -> TaxItemPersistenceTest.status(e, status))
@@ -189,7 +202,7 @@ class CarryForwardPlanPersistenceTest {
     }
 
     @Test
-    void concurrentPlansForSameProjectSubjectCannotSilentlyStealOrSkipSubjects() {
+    void concurrentPlansForSameProjectSubjectAndStandardCannotStealScope() {
         var outcomes =
                 Flux.merge(
                                 service.create(fixture.project, input())
@@ -212,6 +225,96 @@ class CarryForwardPlanPersistenceTest {
         reject(service.create(fixture.project, input()), 409);
         assertEquals(
                 1, plans.createQuery().where("projectId", fixture.project).count().block(WAIT));
+    }
+
+    @Test
+    void scopeMigrationBackfillsLegacyClaimsRejectsAmbiguousPlansAndCanBeRepeated() throws Exception {
+        var saved = create();
+        String schema = "carry_migration_" + UUID.randomUUID().toString().replace("-", "");
+        String prepare = "CREATE SCHEMA " + schema + ";"
+                + "CREATE TABLE " + schema + ".pm_fin_carry_plan (LIKE public.pm_fin_carry_plan INCLUDING DEFAULTS);"
+                + "CREATE TABLE " + schema + ".pm_fin_carry_subject (LIKE public.pm_fin_carry_subject INCLUDING DEFAULTS);"
+                + "INSERT INTO " + schema + ".pm_fin_carry_plan SELECT * FROM public.pm_fin_carry_plan WHERE id='" + saved.plan().getId() + "';"
+                + "INSERT INTO " + schema + ".pm_fin_carry_subject SELECT * FROM public.pm_fin_carry_subject WHERE plan_id='" + saved.plan().getId() + "';"
+                + "ALTER TABLE " + schema + ".pm_fin_carry_subject DROP COLUMN standard_id;"
+                + "CREATE UNIQUE INDEX uk_pm_fin_carry_subject ON " + schema + ".pm_fin_carry_subject(project_id,subject_id,active_key);";
+        assertEquals(0, migrationSql(prepare).getExitCode());
+        String script = java.nio.file.Files.readString(java.nio.file.Path.of("../sql/migrate-carry-plan-standard-scope.sql"))
+                .replace("public.", schema + ".");
+        assertEquals(0, migrationSql("UPDATE " + schema + ".pm_fin_carry_plan SET config_json="
+                + "jsonb_set(config_json::jsonb,'{standardIds}','[]'::jsonb)::text;").getExitCode());
+        var rejected = migrationSql(script);
+        assertNotEquals(0, rejected.getExitCode());
+        assertTrue(rejected.getStderr().contains("Invalid carry-forward scope"));
+        assertEquals("0", migrationSql("SELECT count(*) FROM information_schema.columns WHERE table_schema='"
+                + schema + "' AND table_name='pm_fin_carry_subject' AND column_name='standard_id';").getStdout().trim());
+        assertEquals(0, migrationSql("UPDATE " + schema + ".pm_fin_carry_plan SET config_json=(SELECT config_json FROM public.pm_fin_carry_plan WHERE id='"
+                + saved.plan().getId() + "');").getExitCode());
+        for (int attempt = 0; attempt < 2; attempt++) {
+            var result = migrationSql(script);
+            assertEquals(0, result.getExitCode(), result.getStderr());
+        }
+        assertEquals(fixture.standardId, migrationSql("SELECT standard_id FROM " + schema + ".pm_fin_carry_subject;").getStdout().trim());
+        assertEquals("0", migrationSql("SELECT count(*) FROM pg_indexes WHERE schemaname='" + schema
+                + "' AND indexname='uk_pm_fin_carry_subject';").getStdout().trim());
+        String add = "INSERT INTO " + schema + ".pm_fin_carry_subject(id,version,deleted,project_id,plan_id,subject_id,standard_id,active_key) VALUES ('new',0,false,'"
+                + fixture.project + "','other-plan','" + fixture.subjectId + "','other-standard','ACTIVE');";
+        assertEquals(0, migrationSql(add).getExitCode());
+        assertNotEquals(0, migrationSql(add.replace("'new'", "'duplicate'")).getExitCode());
+        assertNotEquals(0, migrationSql(add.replace("'new'", "'missing-standard'")
+                .replace("'other-standard'", "NULL")).getExitCode());
+    }
+
+    private org.testcontainers.containers.Container.ExecResult migrationSql(String sql) throws Exception {
+        return HouseSettingPersistenceTest.DB.execInContainer("psql", "-U", "postgres", "-d", "setting_test",
+                "-At", "-v", "ON_ERROR_STOP=1", "-c", sql);
+    }
+
+    @Test
+    void differentStandardsOfSameSubjectCoexistAndChangingStandardReleasesOnlyOldScope() {
+        var first = create();
+        String secondStandard = anotherStandard();
+        var secondInput = input();
+        secondInput.setStandardIds(List.of(secondStandard));
+        var second = run(service.create(fixture.project, secondInput));
+        assertEquals(2, claims.createQuery().where("projectId", fixture.project)
+                .and("deleted", false).count().block(WAIT));
+        var edit = input();
+        edit.setVersion(first.plan().getVersion());
+        edit.setStandardIds(List.of(secondStandard));
+        reject(service.update(fixture.project, first.plan().getId(), edit), 409);
+        assertEquals(List.of(fixture.standardId),
+                run(service.detail(fixture.project, first.plan().getId())).input().getStandardIds());
+        assertEquals(1, claims.createQuery().where("planId", first.plan().getId())
+                .and("standardId", fixture.standardId).and("deleted", false).count().block(WAIT));
+        String thirdStandard = anotherStandard();
+        edit.setStandardIds(List.of(thirdStandard));
+        run(service.update(fixture.project, first.plan().getId(), edit));
+        create(); // 同科目下原标准释放后可以重建，另一标准的计划不受影响。
+        assertEquals(List.of(secondStandard),
+                run(service.detail(fixture.project, second.plan().getId())).input().getStandardIds());
+        assertEquals(3, claims.createQuery().where("projectId", fixture.project)
+                .and("deleted", false).count().block(WAIT));
+        assertEquals(2, logs.createQuery().where("planId", first.plan().getId()).count().block(WAIT));
+    }
+
+    @Test
+    void concurrentDifferentStandardsOfSameSubjectBothCreateAndDisabledScopeRemainsReserved() {
+        String secondStandard = anotherStandard();
+        var secondInput = input();
+        secondInput.setStandardIds(List.of(secondStandard));
+        var created = Flux.merge(service.create(fixture.project, input()),
+                        service.create(fixture.project, secondInput))
+                .contextWrite(fixture.allowed()).collectList().block(WAIT);
+        assertEquals(2, created.size());
+        var second = created.stream().filter(d -> d.input().getStandardIds().contains(secondStandard))
+                .findFirst().orElseThrow();
+        var disabled = run(service.state(fixture.project, second.plan().getId(), second.plan().getVersion(), false));
+        reject(service.create(fixture.project, secondInput), 409);
+        run(service.delete(fixture.project, second.plan().getId(), disabled.plan().getVersion()));
+        assertNotEquals(second.plan().getId(), run(service.create(fixture.project, secondInput)).plan().getId());
+        assertEquals(2, claims.createQuery().where("projectId", fixture.project)
+                .and("deleted", false).count().block(WAIT));
     }
 
     @Test
