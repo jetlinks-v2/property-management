@@ -36,30 +36,27 @@ class SaasUserSourceTest {
     @Test
     void directoryPermissionQueryKeepsCallerScopeAndFailsClosed() {
         var marker = new Object();
-        var holder = org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetsHolder.class);
-        org.mockito.Mockito.when(holder.filter(org.mockito.ArgumentMatchers.any(reactor.core.publisher.Flux.class),
-                org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetType.class),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetPermission[].class)))
-                .thenAnswer(call -> reactor.core.publisher.Flux.deferContextual(ctx -> {
+        var source = new SaasUserSource() {
+            @Override protected reactor.core.publisher.Flux<String> accountIds(QueryParamEntity query) {
+                assertFalse(query.isPaging());
+                assertEquals(java.util.Set.of("id"), query.getIncludes());
+                assertEquals("id", query.getTerms().get(0).getColumn());
+                return reactor.core.publisher.Flux.deferContextual(ctx -> {
                     assertSame(marker, ctx.get("scope-marker"));
-                    assertEquals("user", call.<org.jetlinks.pro.assets.AssetType>getArgument(1).getId());
-                    return call.<reactor.core.publisher.Flux<String>>getArgument(0)
-                            .filter("allowed"::equals);
-                }));
-        var source = new SaasUserSource();
-        StepVerifier.create(source.authorizedIds(List.of("allowed", "hidden", "allowed"))
-                .contextWrite(ctx -> ctx.put("scope-marker", marker)
-                        .put(org.jetlinks.pro.assets.AssetsHolder.class, holder)))
+                    return reactor.core.publisher.Flux.just("allowed", "foreign", "allowed");
+                });
+            }
+        };
+        StepVerifier.create(source.authorizedIds(List.of("allowed", "hidden"))
+                .contextWrite(ctx -> ctx.put("scope-marker", marker)))
                 .expectNext("allowed").verifyComplete();
-        org.mockito.Mockito.when(holder.filter(org.mockito.ArgumentMatchers.any(reactor.core.publisher.Flux.class),
-                org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetType.class),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetPermission[].class)))
-                .thenReturn(reactor.core.publisher.Flux.error(new IllegalStateException("asset unavailable")));
-        StepVerifier.create(source.authorizedIds(List.of("allowed"))
-                .contextWrite(ctx -> ctx.put(org.jetlinks.pro.assets.AssetsHolder.class, holder)))
-                .expectErrorMessage("asset unavailable").verify();
+        var failed = new SaasUserSource() {
+            @Override protected reactor.core.publisher.Flux<String> accountIds(QueryParamEntity query) {
+                return reactor.core.publisher.Flux.error(new IllegalStateException("auth unavailable"));
+            }
+        };
+        StepVerifier.create(failed.authorizedIds(List.of("allowed")))
+                .expectError(IllegalStateException.class).verify();
         StepVerifier.create(source.authorizedIds(List.of())).verifyComplete();
     }
 
@@ -67,22 +64,17 @@ class SaasUserSourceTest {
     void directoryBatchesUniqueCandidatesAndNeverRequestsAnEmptyBatch() {
         var requested = new java.util.ArrayList<String>();
         var batches = new java.util.ArrayList<Integer>();
-        var holder = org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetsHolder.class);
-        org.mockito.Mockito.when(holder.filter(org.mockito.ArgumentMatchers.any(reactor.core.publisher.Flux.class),
-                org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetType.class),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetPermission[].class)))
-                .thenAnswer(call -> call.<reactor.core.publisher.Flux<String>>getArgument(0)
-                        .collectList().flatMapMany(ids -> {
-                            assertFalse(ids.isEmpty()); assertTrue(ids.size() <= 200);
-                            requested.addAll(ids); batches.add(ids.size());
-                            return reactor.core.publisher.Flux.fromIterable(ids);
-                        }));
-        var source = new SaasUserSource();
+        var source = new SaasUserSource() {
+            @Override protected reactor.core.publisher.Flux<String> accountIds(QueryParamEntity query) {
+                var ids = (java.util.List<String>) query.getTerms().get(0).getValue();
+                assertFalse(ids.isEmpty()); assertTrue(ids.size() <= 200);
+                requested.addAll(ids); batches.add(ids.size());
+                return reactor.core.publisher.Flux.fromIterable(ids);
+            }
+        };
         var ids = java.util.stream.IntStream.range(0, 450).mapToObj(i -> "candidate-" + i).toList();
         var duplicates = new java.util.ArrayList<>(ids); duplicates.add(ids.get(0));
-        StepVerifier.create(source.authorizedIds(duplicates).collectList()
-                .contextWrite(ctx -> ctx.put(org.jetlinks.pro.assets.AssetsHolder.class, holder)))
+        StepVerifier.create(source.authorizedIds(duplicates).collectList())
             .assertNext(result -> assertEquals(ids, result)).verifyComplete();
         assertEquals(ids, requested); assertEquals(java.util.List.of(200, 200, 50), batches);
         StepVerifier.create(source.authorizedIds(java.util.List.of())).verifyComplete();
