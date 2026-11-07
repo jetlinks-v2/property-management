@@ -199,6 +199,70 @@ class TaxItemPersistenceTest {
     }
 
     @Test
+    void priceUsesTwoDecimalsForCreateUpdateAndRejectsExcessPrecisionWithoutWrites() {
+        var input = input("两位单价", "PRICE2");
+        input.setPrice(new BigDecimal("80.0000000000"));
+        var saved = service.create("project-a", input)
+                .contextWrite(InvoiceCompanyPersistenceTest.auth()).block(WAIT);
+        assertEquals(new BigDecimal("80.00"), saved.getPrice());
+        assertEquals(new BigDecimal("80.00"), items.findById(saved.getId()).block(WAIT).getPrice());
+        input.setVersion(saved.getVersion());
+        input.setPrice(new BigDecimal("100.05"));
+        var updated = service.update("project-a", saved.getId(), input)
+                .contextWrite(InvoiceCompanyPersistenceTest.auth()).block(WAIT);
+        assertEquals(new BigDecimal("100.05"), updated.getPrice());
+        input.setVersion(updated.getVersion());
+        for (String invalid : List.of("0.001", "80.999", "-0.01", "10000000000000")) {
+            input.setPrice(new BigDecimal(invalid));
+            StepVerifier.create(service.update("project-a", saved.getId(), input)
+                            .contextWrite(InvoiceCompanyPersistenceTest.auth()))
+                    .expectErrorMatches(failure -> status(failure, 400)).verify(WAIT);
+            StepVerifier.create(service.create("project-a", input)
+                            .contextWrite(InvoiceCompanyPersistenceTest.auth()))
+                    .expectErrorMatches(failure -> status(failure, 400)).verify(WAIT);
+        }
+        assertEquals(new BigDecimal("100.05"), items.findById(saved.getId()).block(WAIT).getPrice());
+        assertEquals(1, items.createQuery().where("companyId", companyId).count().block(WAIT));
+        assertEquals(2, operations.createQuery().where("taxItemId", saved.getId()).count().block(WAIT));
+        input.setPrice(null);
+        assertNull(service.update("project-a", saved.getId(), input)
+                .contextWrite(InvoiceCompanyPersistenceTest.auth()).block(WAIT).getPrice());
+    }
+
+    @Test
+    void priceMigrationRefusesRoundingAndCanBeRepeatedAfterCorrection() throws Exception {
+        var saved = create("迁移单价", "MIGRATE2");
+        String script = java.nio.file.Files.readString(
+                java.nio.file.Path.of("../sql/migrate-tax-item-price-scale.sql"));
+        assertEquals(0, DB.execInContainer("psql", "-U", "postgres", "-d", "tax_test",
+                "-v", "ON_ERROR_STOP=1", "-c",
+                "ALTER TABLE pm_fin_tax_item ALTER COLUMN price TYPE numeric(23,10);"
+                        + "UPDATE pm_fin_tax_item SET price=0.005 WHERE id='" + saved.getId() + "';")
+                .getExitCode());
+        var rejected = DB.execInContainer("psql", "-U", "postgres", "-d", "tax_test",
+                "-v", "ON_ERROR_STOP=1", "-c", script);
+        assertNotEquals(0, rejected.getExitCode());
+        assertTrue(rejected.getStderr().contains("exceed 2 decimal places"));
+        var unchanged = DB.execInContainer("psql", "-U", "postgres", "-d", "tax_test",
+                "-Atc", "SELECT price FROM pm_fin_tax_item WHERE id='" + saved.getId() + "';");
+        assertEquals(0, unchanged.getExitCode());
+        assertEquals(0, new BigDecimal("0.005").compareTo(
+                new BigDecimal(unchanged.getStdout().trim())));
+        assertEquals(0, DB.execInContainer("psql", "-U", "postgres", "-d", "tax_test",
+                "-v", "ON_ERROR_STOP=1", "-c",
+                "UPDATE pm_fin_tax_item SET price=0.01 WHERE id='" + saved.getId() + "';").getExitCode());
+        for (int i = 0; i < 2; i++) {
+            var migrated = DB.execInContainer("psql", "-U", "postgres", "-d", "tax_test",
+                    "-v", "ON_ERROR_STOP=1", "-c", script);
+            assertEquals(0, migrated.getExitCode(), migrated.getStderr());
+        }
+        var converted = DB.execInContainer("psql", "-U", "postgres", "-d", "tax_test",
+                "-Atc", "SELECT price FROM pm_fin_tax_item WHERE id='" + saved.getId() + "';");
+        assertEquals(0, converted.getExitCode());
+        assertEquals(new BigDecimal("0.01"), new BigDecimal(converted.getStdout().trim()));
+    }
+
+    @Test
     void invalidRatePrecisionPriceAndPolicyNeverPersist() {
         for (var rate : List.of("-0.01", "1.01", "0.0000001")) {
             var input = input("错误税率", "301");
@@ -232,7 +296,7 @@ class TaxItemPersistenceTest {
                                                 .contextWrite(InvoiceCompanyPersistenceTest.auth()))
                         .build();
         var input = input("精确单价", "301");
-        input.setPrice(new BigDecimal("1234567890123.1234567890"));
+        input.setPrice(new BigDecimal("1234567890123.12"));
         var tax =
                 service.create("project-a", input)
                         .contextWrite(InvoiceCompanyPersistenceTest.auth())
@@ -245,7 +309,7 @@ class TaxItemPersistenceTest {
                 .isOk()
                 .expectBody()
                 .jsonPath("$.price")
-                .isEqualTo("1234567890123.1234567890");
+                .isEqualTo("1234567890123.12");
         client.delete().uri(uri).exchange().expectStatus().isBadRequest();
         client.put()
                 .uri(uri + "/state")
@@ -261,7 +325,7 @@ class TaxItemPersistenceTest {
                         .fetchOne()
                         .block(WAIT)
                         .getAfterSnapshot();
-        assertTrue(snapshot.contains("1234567890123.1234567890"));
+        assertTrue(snapshot.contains("1234567890123.12"));
         assertFalse(snapshot.contains("matchKey"));
         assertFalse(items.findById(tax.getId()).block(WAIT).getDeleted());
         assertTrue(items.findById(tax.getId()).block(WAIT).getEnabled());

@@ -61,7 +61,7 @@ public class TaxItemEntity extends FinanceEntity {
 
     @com.fasterxml.jackson.databind.annotation.JsonSerialize(
             using = com.fasterxml.jackson.databind.ser.std.ToStringSerializer.class)
-    @Column(precision = 23, scale = 10)
+    @Column(precision = 15, scale = 2)
     private BigDecimal price;
 
     @Column(nullable = false)

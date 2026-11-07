@@ -21,6 +21,30 @@ class TaxWorkbookTest {
     }
 
     @Test
+    void priceValidationUsesTwoDecimalsAndReportsPhysicalRow() throws Exception {
+        for (String price : new String[] {"80", "80.10", "80.1000000000", "0"}) {
+            var rows = TaxWorkbook.read(workbookWithPrice(price), "company");
+            assertEquals(2, rows.get(0).getPrice().scale());
+            assertEquals(0, new java.math.BigDecimal(price).compareTo(rows.get(0).getPrice()));
+        }
+        var failure = assertThrows(BusinessException.class,
+                () -> TaxWorkbook.read(workbookWithPrice("80.123"), "company"));
+        String message = failure.getArgs()[0].toString();
+        assertTrue(message.contains("2:"));
+        assertTrue(message.contains("price") || message.contains("单价"));
+        assertEquals(1, failure.getArgs()[2]);
+    }
+
+    private byte[] workbookWithPrice(String price) throws Exception {
+        try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(workbook(false, false)));
+                var out = new ByteArrayOutputStream()) {
+            workbook.getSheetAt(0).getRow(1).createCell(5).setCellValue(price);
+            workbook.write(out);
+            return out.toByteArray();
+        }
+    }
+
+    @Test
     void malformedSecondRowDoesNotReturnPartialPlan() throws Exception {
         var failure =
                 assertThrows(

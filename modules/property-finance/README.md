@@ -28,6 +28,8 @@ psql -h <数据库地址> -p <端口> -U <用户名> -d <数据库> -W -v ON_ERR
 
 税目和收费科目的Excel模板、解析及校验由后端提供，只接受Excel；先全量校验，再事务写入，失败包含行号、字段和原因。关键写入与算费使用MonoTracer。
 
+税目单价最多13位整数、2位小数，新增、编辑和导入统一校验，超过两位有效小数拒绝保存。已有库停收费服务并备份后，在收费业务库执行 `sql/migrate-tax-item-price-scale.sql`，再启动新版本；脚本可重复执行，存在超过两位有效小数的旧单价时整笔回滚，须先核对修正这些主档单价。历史账单与审计快照保持原值，税率仍保留6位小数。
+
 ## 收费概览
 
 `POST /property/finance/overview/_query` 使用 `property-finance-overview:query` 功能权限，同时逐项校验项目 organization read 和空间 read 权限。请求为 `projectIds`（1～100个）、`startDate`、`endDate`（严格 `YYYY-MM-DD`，含首尾最多366天）；混入无权项目时整个请求失败，不返回部分汇总。

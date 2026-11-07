@@ -124,6 +124,7 @@ public final class TaxWorkbook {
                     input.setIncludingTaxFlag(flag(values, "includingTaxFlag", i + 1));
                     input.setFavouredPolicyFlag(flag(values, "favouredPolicyFlag", i + 1));
                     var valid = TaxItemRules.validate(input);
+                    input.setPrice(valid.getPrice());
                     var previous = keys.putIfAbsent(valid.getMatchKey(), i + 1);
                     if (previous != null) {
                         failures.add((i + 1) + ":税目:duplicate");

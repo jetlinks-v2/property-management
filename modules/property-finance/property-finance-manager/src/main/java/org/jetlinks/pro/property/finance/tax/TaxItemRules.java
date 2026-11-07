@@ -57,8 +57,10 @@ public final class TaxItemRules {
         if (price != null
                 && (price.signum() < 0
                         || price.precision() - price.scale() > 13
-                        || price.stripTrailingZeros().scale() > 10))
+                        || price.stripTrailingZeros().scale() > 2))
             throw error("tax_invalid_price", 400);
+        // 新增、编辑与导入共用两位单价；仅补齐尾零，不舍入有效小数。
+        if (price != null) item.setPrice(price.setScale(2));
         item.setIncludingTaxFlag(
                 input.getIncludingTaxFlag() == null ? 0 : input.getIncludingTaxFlag());
         item.setFavouredPolicyFlag(
