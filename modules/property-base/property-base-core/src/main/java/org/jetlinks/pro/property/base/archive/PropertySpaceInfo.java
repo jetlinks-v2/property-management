@@ -14,4 +14,10 @@ public record PropertySpaceInfo(
         String fullName,
         String spaceTypeId,
         String spaceTypeName,
-        Boolean leaf) {}
+        Boolean leaf,
+        Boolean customerBound) {
+    public PropertySpaceInfo(String id, String parentId, String rootId, String name,
+            String fullName, String spaceTypeId, String spaceTypeName, Boolean leaf) {
+        this(id, parentId, rootId, name, fullName, spaceTypeId, spaceTypeName, leaf, null);
+    }
+}

@@ -25,6 +25,7 @@ public class ActivitySource {
                 () -> {
                     var command = new QueryPropertySpaceNodesCommand();
                     command.setProjectId(project);
+                    command.setCustomerBound(true);
                     return CommandSupportManagerProviders.getCommandSupport(
                                     QueryPropertySpaceNodesCommand.SERVICE_ID)
                             .switchIfEmpty(Mono.error(error("house_source_unavailable", 503)))

@@ -43,8 +43,10 @@ public class PropertySpaceController {
 
     @GetMapping("/_tree")
     @ResourceAction(id = "query", name = "查询")
-    public Mono<List<PropertySpaceService.SpaceView>> tree(@RequestParam String projectId) {
-        return spaces.tree(projectId);
+    public Mono<List<PropertySpaceService.SpaceView>> tree(
+            @RequestParam String projectId,
+            @RequestParam(defaultValue = "false") boolean customerBound) {
+        return customerBound ? spaces.customerTree(projectId) : spaces.tree(projectId);
     }
 
     @PutMapping("/{rootId}/organization")

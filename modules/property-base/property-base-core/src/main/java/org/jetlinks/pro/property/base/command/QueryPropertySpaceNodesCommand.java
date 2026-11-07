@@ -27,4 +27,13 @@ public class QueryPropertySpaceNodesCommand
     public void setProjectId(String value) {
         with("projectId", value);
     }
+
+    /** 收费选房时仅保留有效客户所在空间和授权祖先；默认仍返回全部空间。 */
+    public boolean isCustomerBound() {
+        return Boolean.TRUE.equals(getOrNull("customerBound", Boolean.class));
+    }
+
+    public void setCustomerBound(boolean value) {
+        with("customerBound", value);
+    }
 }

@@ -107,6 +107,15 @@ public class PropertyCustomerService {
                                         .flatMap(rows -> assembleCurrent(rows, spaces)));
     }
 
+    /** 仅返回调用者有权读取且仍有有效客户的空间，不包含结束关联和删除档案。 */
+    public Mono<Set<String>> boundSpaceIds(String projectId) {
+        return current(projectId, null)
+                .map(rows -> rows.stream()
+                        .flatMap(row -> row.getRelationships().stream())
+                        .map(RelationshipView::getSpaceId)
+                        .collect(Collectors.toSet()));
+    }
+
     private Mono<List<CustomerView>> assembleCurrent(
             List<PropertyCustomerRelationshipEntity> rows, List<PropertySpaceEntity> spaces) {
         return customerMap(rows)

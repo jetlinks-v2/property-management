@@ -62,4 +62,13 @@ public class QueryPropertyHousesCommand
     public void setPageSize(int value) {
         with("pageSize", value);
     }
+
+    /** 收费候选房屋要求当前仍有客户；不改变普通档案查询语义。 */
+    public boolean isCustomerBound() {
+        return Boolean.TRUE.equals(getOrNull("customerBound", Boolean.class));
+    }
+
+    public void setCustomerBound(boolean value) {
+        with("customerBound", value);
+    }
 }

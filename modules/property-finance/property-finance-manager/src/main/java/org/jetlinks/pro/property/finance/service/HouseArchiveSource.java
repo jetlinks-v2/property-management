@@ -49,6 +49,7 @@ public class HouseArchiveSource {
                     command.setKeyword(keyword);
                     command.setPageIndex(pageIndex);
                     command.setPageSize(pageSize);
+                    command.setCustomerBound(true);
                     return CommandSupportManagerProviders.getCommandSupport(command.SERVICE_ID)
                             .switchIfEmpty(Mono.error(error("house_source_unavailable", 503)))
                             .flatMap(support -> support.execute(command))

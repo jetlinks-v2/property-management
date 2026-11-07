@@ -8,6 +8,7 @@ import org.jetlinks.pro.annotation.command.CommandService;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.base.archive.PropertySpaceInfo;
 import org.jetlinks.pro.property.base.service.ArchiveScope;
+import org.jetlinks.pro.property.base.service.PropertySpaceService;
 import org.springframework.stereotype.Component;
 
 import reactor.core.publisher.Mono;
@@ -26,9 +27,14 @@ import java.util.List;
 @CommandService(id = QueryPropertySpaceNodesCommand.SERVICE_ID, name = "物业空间资料服务")
 public class PropertySpaceCommandSupport {
     private final ArchiveScope scope;
+    private final PropertySpaceService spaces;
 
     @CommandHandler(name = "查询授权项目空间", description = "返回全部来源层级，不按类型或深度限制")
     public Mono<List<PropertySpaceInfo>> querySpaces(QueryPropertySpaceNodesCommand command) {
+        if (command.isCustomerBound()) {
+            return spaces.customerTree(command.getProjectId())
+                    .map(nodes -> flatten(nodes).toList());
+        }
         return scope.spaces(command.getProjectId(), null, CrudAssetPermission.read)
                 .map(
                         nodes ->
@@ -45,5 +51,14 @@ public class PropertySpaceCommandSupport {
                                                                 node.getSpaceTypeName(),
                                                                 node.getLeaf()))
                                         .toList());
+    }
+
+    private static java.util.stream.Stream<PropertySpaceInfo> flatten(
+            List<PropertySpaceService.SpaceView> nodes) {
+        return nodes.stream().flatMap(node -> java.util.stream.Stream.concat(
+                java.util.stream.Stream.of(new PropertySpaceInfo(node.getId(), node.getParentId(),
+                        node.getRootId(), node.getName(), node.getFullName(), node.getSpaceTypeId(),
+                        node.getSpaceTypeName(), node.getLeaf(), node.getCustomerBound())),
+                flatten(node.getChildren())));
     }
 }

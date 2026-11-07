@@ -25,6 +25,50 @@ import java.util.Map;
 /** 使用真实平台注册器复现本地收费命令遮蔽远程基础项目服务的故障。 */
 class FinanceCommandRegistrationTest {
     @Test
+    void financeCandidatesRequestCustomerSpacesWhileContractSourceKeepsAllLevels() {
+        var providers = CommandSupportManagerProvider.supports;
+        var previous = providers.get("propertyService").orElse(null);
+        var remote = mock(CommandSupport.class);
+        when(remote.execute(any(org.jetlinks.pro.property.base.command.QueryPropertyHousesCommand.class)))
+                .thenAnswer(call -> {
+                    org.jetlinks.pro.property.base.command.QueryPropertyHousesCommand command = call.getArgument(0);
+                    assertTrue(command.isCustomerBound());
+                    assertEquals("project", command.getProjectId());
+                    assertEquals("building", command.getSpaceId());
+                    return Mono.just(new org.jetlinks.pro.property.base.archive.PropertyHousePage(0, 0, 200, java.util.List.of()));
+                });
+        var modes = new java.util.ArrayList<Boolean>();
+        when(remote.execute(any(org.jetlinks.pro.property.base.command.QueryPropertySpaceNodesCommand.class)))
+                .thenAnswer(call -> {
+                    org.jetlinks.pro.property.base.command.QueryPropertySpaceNodesCommand command = call.getArgument(0);
+                    modes.add(command.isCustomerBound());
+                    assertEquals("project", command.getProjectId());
+                    return Mono.just(java.util.List.<org.jetlinks.pro.property.base.archive.PropertySpaceInfo>of());
+                });
+        try {
+            providers.register("propertyService", new CommandSupportManagerProvider() {
+                @Override
+                public String getProvider() { return "propertyService"; }
+
+                @Override
+                public Mono<? extends CommandSupport> getCommandSupport(String module, Map<String, Object> options) {
+                    return Mono.just(remote);
+                }
+            });
+            StepVerifier.create(new HouseArchiveSource().houses("project", "building", null, 0, 200))
+                    .assertNext(page -> assertEquals(0, page.total())).verifyComplete();
+            StepVerifier.create(new ActivitySource(mock(SubjectDictionaryService.class)).spaces("project"))
+                    .assertNext(rows -> assertTrue(rows.isEmpty())).verifyComplete();
+            StepVerifier.create(new ContractSpaceSource().spaces("project"))
+                    .assertNext(rows -> assertTrue(rows.isEmpty())).verifyComplete();
+            assertEquals(java.util.List.of(true, false), modes);
+        } finally {
+            providers.unregister("propertyService");
+            if (previous != null) providers.register("propertyService", previous);
+        }
+    }
+
+    @Test
     void localFinanceCommandsKeepRemoteBaseProjectReachable() {
         var providers = CommandSupportManagerProvider.supports;
         var previous = new LinkedHashMap<String, CommandSupportManagerProvider>();

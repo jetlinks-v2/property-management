@@ -29,6 +29,7 @@ public class PropertySpaceService {
     private final ReactiveRepository<PropertySpaceBindingEntity, String> bindings;
     private final ReactiveRepository<PropertyOrganizationEntity, String> organizations;
     private final ReactiveRepository<PropertyHouseEntity, String> houses;
+    private final PropertyCustomerService customers;
 
     public Mono<List<Project>> projects() {
         return scope.authenticated()
@@ -88,6 +89,22 @@ public class PropertySpaceService {
                                             });
                             return result;
                         });
+    }
+
+    /** 收费空间仅保留有效客户所在节点及授权祖先，来源 leaf 不承担业务可选资格。 */
+    public Mono<List<SpaceView>> customerTree(String projectId) {
+        return Mono.zip(tree(projectId), customers.boundSpaceIds(projectId))
+                .map(values -> customerBranches(values.getT1(), values.getT2()));
+    }
+
+    private static List<SpaceView> customerBranches(List<SpaceView> nodes, Set<String> bound) {
+        var result = new ArrayList<SpaceView>();
+        for (var node : nodes) {
+            node.setChildren(customerBranches(node.getChildren(), bound));
+            node.setCustomerBound(bound.contains(node.getId()));
+            if (node.getCustomerBound() || !node.getChildren().isEmpty()) result.add(node);
+        }
+        return result;
     }
 
     /** 组织配置中的只读预览，同时校验根空间和已关联组织的读取权限。 */
@@ -336,6 +353,7 @@ public class PropertySpaceService {
         private String spaceTypeId, spaceTypeName, spaceLocation;
         private Long sortIndex, version;
         private Boolean leaf;
+        private Boolean customerBound;
         private List<SpaceView> children = new ArrayList<>();
     }
 }

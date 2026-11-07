@@ -73,6 +73,82 @@ class ArchivePersistenceTest {
     @Autowired SpaceOrganizationAssets organizationAssets;
 
     @Test
+    void financeTreeAndHousePageUseActiveCustomersAtAnyLevelWithoutChangingSourceLeaves() {
+        for (var id : List.of("single", "middle", "room")) {
+            houseService.save("project", id, write(id, 0L, "30.00")).contextWrite(all()).block(WAIT);
+        }
+        customerSpace("parent", "middle", false, false);
+        customerSpace("child", "room", false, false);
+        customerSpace("ended", "single", true, false);
+        customerSpace("deleted", "single", false, true);
+        var tree = spaceService.customerTree("project").contextWrite(all()).block(WAIT);
+        assertEquals(List.of("tower"), tree.stream().map(PropertySpaceService.SpaceView::getId).toList());
+        assertFalse(tree.get(0).getCustomerBound());
+        var parent = tree.get(0).getChildren().get(0);
+        assertEquals("middle", parent.getId());
+        assertTrue(parent.getCustomerBound());
+        assertFalse(parent.getLeaf());
+        assertEquals("room", parent.getChildren().get(0).getId());
+        assertTrue(parent.getChildren().get(0).getCustomerBound());
+
+        var spacesCommand = new QueryPropertySpaceNodesCommand();
+        spacesCommand.setProjectId("project");
+        spacesCommand.setCustomerBound(true);
+        var nodes = financeSpaceCommands.querySpaces(spacesCommand).contextWrite(all()).block(WAIT);
+        assertEquals(Set.of("tower", "middle", "room"), nodes.stream().map(node -> node.id())
+                .collect(java.util.stream.Collectors.toSet()));
+        assertFalse(nodes.stream().filter(node -> node.id().equals("middle")).findFirst().orElseThrow().leaf());
+
+        var query = new QueryPropertyHousesCommand();
+        query.setProjectId("project");
+        query.setCustomerBound(true);
+        query.setPageSize(1);
+        var first = financeHouseCommands.queryHouses(query).contextWrite(all()).block(WAIT);
+        query.setPageIndex(1);
+        var second = financeHouseCommands.queryHouses(query).contextWrite(all()).block(WAIT);
+        assertEquals(2, first.total());
+        assertEquals(2, second.total());
+        assertEquals(Set.of("middle", "room"), Set.of(first.data().get(0).spaceId(), second.data().get(0).spaceId()));
+
+        var limited = spaceService.customerTree("project")
+                .contextWrite(access(Set.of("room"), Set.of("project"))).block(WAIT);
+        assertEquals(List.of("room"), limited.stream().map(PropertySpaceService.SpaceView::getId).toList());
+        StepVerifier.create(spaceService.customerTree("project")).expectError().verify(WAIT);
+        assertEquals(2, spaceService.tree("project").contextWrite(all()).block(WAIT).size());
+
+        relationships.createUpdate().set("endTime", 2000L).where("id", "parent").execute().block(WAIT);
+        var refreshed = spaceService.customerTree("project").contextWrite(all()).block(WAIT);
+        assertFalse(refreshed.get(0).getChildren().get(0).getCustomerBound());
+        assertEquals("room", refreshed.get(0).getChildren().get(0).getChildren().get(0).getId());
+        customers.createUpdate().set("deleted", true).where("id", "child").execute().block(WAIT);
+        assertTrue(spaceService.customerTree("project").contextWrite(all()).block(WAIT).isEmpty());
+        assertEquals(0, financeHouseCommands.queryHouses(query).contextWrite(all()).block(WAIT).total());
+    }
+
+    private void customerSpace(String id, String space, boolean ended, boolean deleted) {
+        var customer = new PropertyCustomerEntity();
+        customer.setId(id);
+        customer.setProjectId("project");
+        customer.setUserId(id);
+        customer.setCustomerType("person");
+        customer.setName("测试客户");
+        customer.setTelephone("13000000000");
+        customer.setDeleted(deleted);
+        customer.setVersion(0L);
+        customers.insert(customer).block(WAIT);
+        var relation = new PropertyCustomerRelationshipEntity();
+        relation.setId(id);
+        relation.setProjectId("project");
+        relation.setCustomerId(id);
+        relation.setSpaceId(space);
+        relation.setStartTime(1000L);
+        relation.setEndTime(ended ? 2000L : null);
+        relation.setDeleted(false);
+        relation.setVersion(0L);
+        relationships.insert(relation).block(WAIT);
+    }
+
+    @Test
     void overviewCountsOnlyAuthorizedTrueLeavesAndRejectsMixedProjectScope() {
         houseService
                 .save("project", "single", write("single", 0L, "123.45"))

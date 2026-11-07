@@ -67,7 +67,14 @@ public class PropertyHouseCommandSupport {
                         query.and("fullName", "like", command.getKeyword().trim());
                     query.orderBy("fullName");
                     query.orderBy("id");
-                    return houses.query(command.getProjectId(), command.getSpaceId(), query)
+                    Mono<QueryParamEntity> scopedQuery = command.isCustomerBound()
+                            ? customers.boundSpaceIds(command.getProjectId()).map(ids -> {
+                                query.and("spaceId", "in", ids);
+                                return query;
+                            })
+                            : Mono.just(query);
+                    return scopedQuery.flatMap(value -> houses.query(
+                                    command.getProjectId(), command.getSpaceId(), value))
                             .map(
                                     page ->
                                             new PropertyHousePage(
