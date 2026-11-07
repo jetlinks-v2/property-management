@@ -1,0 +1,7 @@
+{
+  "name": "设施设备",
+  "code": "FacilityEnergy",
+  "provider": "official",
+  "description": "Cloud设备档案、巡检维保、水电气监测、预警与业主提醒",
+  "state": "enabled"
+}

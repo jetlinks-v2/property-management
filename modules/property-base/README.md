@@ -22,13 +22,17 @@
 
 基础服务须配置 `property.files.server-id`，或环境变量 `PROPERTY_FILES_SERVER_ID`，指向现有公共文件节点；未配置时明确拒绝上传，不回退本机文件。装修通过组织命令服务的 `GetPropertyProjectSealCommand` 按项目读取，保留当前认证和资产上下文，不跨库、不接受客户端章 URL。
 
+## 房屋汇总公开命令
+
+房屋汇总公开命令 `QueryPropertyHouseSummaryCommand` 使用 `propertyService:house`，输入 `projectIds`（1～100个），返回 `Mono<PropertyHouseSummary>`。按调用者项目及空间 read 权限统计未删除的真末级空间；未完善的末级空间仍计入总数和待完善数，面积仅取已完善资料。房态按 `house-state` 字典顺序展示，启用项含零值，有引用的停用项保留，未标注房态单独计数。多项目去重，任一项目非法或无权则整请求失败；不触发同步，不允许覆盖调用者身份。
+
 ## 员工公开命令
 
 服务标识 `propertyService:employee`，仅只读，不触发同步或改变员工身份。
 
 | 命令 | 输入 / 输出 | 权限与空结果 |
 | --- | --- | --- |
-| `QueryPropertyEmployeePageCommand` | `query: QueryParamEntity` → `PagerResult<PropertyEmployeeInfo>`；每页1–200 | 认证及 user 资产范围（资产条件在认证服务解析为用户 ID，再与基础有效员工相交）；先过滤未删除、启用、employee=true，再分页。应用成员关系由消费方在认证服务中解析并以 ID 相交，不能把认证库的 in-dimension 条件发送到基础库 |
+| `QueryPropertyEmployeePageCommand` | `query: QueryParamEntity` → `PagerResult<PropertyEmployeeInfo>`；每页1–200 | 认证及 user 资产范围（平台 AssetsHolder 批量校验原 user 资产，再与基础有效员工相交）；先过滤未删除、启用、employee=true，再分页。应用成员关系由消费方在认证服务中解析并以 ID 相交，不能把认证库的 in-dimension 条件发送到基础库 |
 | `GetCurrentPropertyEmployeeCommand` | 无输入 → 本人 `PropertyEmployeeInfo` | 从可信认证身份读取，不要求用户维护菜单或目录授权；非员工、停用或已删除返回空；匿名和服务错误传播 |
 
 DTO 仅含 id、name、telephone、直接 organizationIds；员工 ID 与 SaaS user ID 一致，不包含密码、客户资料或内部审计字段。query 通过 AbstractCommand 属性序列化；调用方不能把空结果当有效执行身份，也不能降级为任意 SaaS 用户。员工与客户双身份按 employee 状态判断，纯客户不进入巡更岗位候选。
@@ -113,6 +117,8 @@ return CommandSupportManagerProviders
 
 报修通过 `propertyService:directory` 消费本模块公开的 `QueryPropertyProjectsCommand`、`QueryPropertyUsersCommand` 和 `QueryPropertySpacesCommand`，只返回当前租户及资产权限交集内的项目、用户身份和绑定空间。消费方仅依赖 `property-base-core`；参数通过命令容器传递，项目范围和员工筛选跨 RPC 保持一致。空目录正常返回，缺少身份、权限或服务异常明确拒绝，不触发同步或查询旧报修目录。
 
+用户目录也支持仅选择 `business_application` Scope 的应用入口，不强制额外选择租户。平台 `AssetsHolder` 继续校验应用 Scope 及原用户资产权限；同时选择租户时继续取租户交集，无租户和应用范围时拒绝。收银员姓名查询沿用该命令，不额外要求用户管理菜单权限。
+
 项目目录在基础服务查询 `pm_organization`，使用 AssetsHolder 批量资产过滤并与可信租户取交集；不能把依赖 Cloud 的 `s_organization` 的资产条件拼进基础镜像库或报修库。消费方将命令返回的授权项目 ID 与业务查询在分页前取交集；空目录对应空业务结果，命令失败向上传播。
 
 真实末端由完整来源树判断：只有一个“1栋”时也可完善为房屋，权限过滤后隐藏子节点不会把父节点变成末端。顶级空间仅可关联项目类型的组织，外协单位及未标注组织不可关联；一个组织最多关联一个根空间，根空间与组织一对一绑定。已有空间绑定时禁止修改或清除组织类型，需先解除绑定；项目选择返回已标注为项目且有权访问的组织。已有房屋资料的根不能直接改归属，避免客户历史随绑定静默迁移。
@@ -155,3 +161,7 @@ return CommandSupportManagerProviders
 跨服务调用使用 core 的 `QueryPropertyHouseholdsCommand`，服务 ID 为 `propertyService:household`；`projectId` 必填，`spaceId`、`customerId` 可选，同时指定取交集，`mine=true` 仅匹配认证账号的 `userId`。命令参数进入正式负载，错误原样传播，不跨库或按手机号猜测关系。查询复用平台 HTTP/命令链路追踪，无新增后台任务或常驻状态。
 
 `property-file-support` 提供 Cloud 文件所有者侧的 `AssertPropertyFilesCommand` 实现，需由持有 Cloud 文件元数据的服务装配；品质与报修只依赖 core 公开命令，不跨库查询文件。
+
+空间关联项目时，基础模块通过 `AssetBindManager` 为整棵空间树登记 `org` 归属。解除关联、来源节点删除或跨根移动会撤销旧归属；空间同步会幂等补齐已有关系。空间与房屋接口仍执行原有 `AssetsHolder` 权限校验。
+
+旧版本升级可以在基础模块业务库执行 `modules/property-base/sql/backfill-space-organization-assets.sql`，即时补齐缺失的组织资产关系；脚本可重复执行，不覆盖既有授权。重启基础服务后，首次空间同步也会自动补齐。独立数据库部署应在基础服务业务库执行，不在收费业务库执行。

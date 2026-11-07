@@ -137,12 +137,20 @@ public class RepairOrderManager {
   });
  }
  /** 候选列表按目标工单检查每人的真实处理授权；无需与工单组织具有相同人员归属。 */
- public Flux<RepairAssignee> assignees(String id){
+ public Flux<RepairAssignee> assignees(String id){return assignees(id,"",0);}
+ /** 搜索先缩小目录候选，再逐人核验；只限制返回数量，提交时仍重新校验目标人员。 */
+ public Flux<RepairAssignee> assignees(String id,String search,int limit){
   return contexts.current().flatMapMany(ctx->read(id).flatMapMany(order->{
    RepairFlowRules.require(java.util.Set.of(0,6,7,1).contains(order.getStatus()),"invalid_state");
-   return people.employees()
-    .filterWhen(person->assignees.canHandle(person,order,ctx),8)
-    .map(person->new RepairAssignee(person.getId(),display(person.getName(),person.getName())));
+   String text=search==null?"":search.trim().toLowerCase(java.util.Locale.ROOT);
+   Flux<RepairAssignee> candidates=people.employees()
+    .filter(person->text.isEmpty() || person.getId().toLowerCase(java.util.Locale.ROOT).contains(text)
+     || java.util.Objects.toString(person.getName(),"").toLowerCase(java.util.Locale.ROOT).contains(text))
+    // filterWhen 的 bufferSize 不会并发订阅；受控并发校验授权并保持目录顺序。
+    .flatMapSequential(person->assignees.canHandle(person,order,ctx)
+     .filter(Boolean.TRUE::equals)
+     .map(allowed->new RepairAssignee(person.getId(),display(person.getName(),person.getName()))),8,1);
+   return limit>0?candidates.take(Math.min(limit,50)):candidates;
   }));
  }
  public Flux<RepairReviewEntity> reviews(String id){

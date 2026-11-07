@@ -34,7 +34,9 @@ public class RepairCandidateService {
 
     public Mono<Boolean> available(String role, RepairOrderEntity order, RepairContext context) {
         return people.employeesFor(order)
-            .filterWhen(person -> assignees.canHandle(person, order, context, role), 8).hasElements();
+            // filterWhen 的 bufferSize 不会并发授权；限制并发为 8，找到一名合格员工后取消其余检查。
+            .flatMap(person -> assignees.canHandle(person, order, context, role)
+                .filter(Boolean.TRUE::equals), 8, 1).hasElements();
     }
 
     public Mono<Void> accept(RepairOrderEntity order, RepairContext context) {

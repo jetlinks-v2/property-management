@@ -21,6 +21,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SpaceSyncWriter {
     private final ReactiveRepository<PropertySpaceEntity, String> spaces;
+    private final SpaceOrganizationAssets organizationAssets;
     private final ReactiveRepository<SpaceSyncStateEntity, String> states;
 
     @Transactional
@@ -41,7 +42,31 @@ public class SpaceSyncWriter {
                                         : Mono.error(
                                                 new BusinessException.NoStackTrace(
                                                         "error.property_space_sync_busy", 409)))
-                .flatMap(existing -> applySnapshot(owner, snapshot, existing, now));
+                .flatMap(
+                        existing ->
+                                lockRoots(existing)
+                                        .then(
+                                                Mono.defer(
+                                                        () ->
+                                                                applySnapshot(
+                                                                        owner, snapshot, existing,
+                                                                        now))));
+    }
+
+    private Mono<Void> lockRoots(Map<String, PropertySpaceEntity> existing) {
+        var ids =
+                existing.values().stream()
+                        .filter(node -> node.getParentId() == null)
+                        .map(PropertySpaceEntity::getId)
+                        .sorted()
+                        .toList();
+        if (ids.isEmpty()) return Mono.empty();
+        var query = new org.hswebframework.web.api.crud.entity.QueryParamEntity();
+        query.setForUpdate(true);
+        query.setPaging(false);
+        query.orderBy("id");
+        // 与组织关联共用根节点行锁，防止同步把已解除/变更的归属重新登记。
+        return spaces.createQuery().setParam(query).in("id", ids).fetch().then();
     }
 
     private Mono<SpaceSyncResult> applySnapshot(
@@ -87,6 +112,7 @@ public class SpaceSyncWriter {
         return inserts.thenMany(
                         Flux.fromIterable(updated).concatMap(entity -> updateSource(entity, now)))
                 .then(removals)
+                .then(Mono.defer(() -> organizationAssets.synchronize(existing, snapshot)))
                 .then(
                         Mono.defer(
                                 () ->

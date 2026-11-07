@@ -5,6 +5,7 @@ import org.hswebframework.ezorm.rdb.mapping.ReactiveRepository;
 import org.hswebframework.web.authorization.Authentication;
 import org.hswebframework.web.authorization.exception.UnAuthorizedException;
 import org.jetlinks.pro.property.base.entity.*;
+import org.jetlinks.pro.property.base.dictionary.PropertyDictionaryOption;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Mono;
@@ -45,6 +46,22 @@ public class PropertyDictionaryService {
                                         Comparator.nullsLast(Long::compareTo))
                                 .thenComparing(PropertyDictionaryItemEntity::getValue))
                 .collectList();
+    }
+
+    /** 跨模块新业务选值入口；维护查询仍可查看停用项，不能混用两种语义。 */
+    public Mono<List<PropertyDictionaryOption>> availableOptions(String code) {
+        return authenticated()
+                .then(Mono.defer(() -> {
+                    code(code);
+                    return type(code).flatMap(type -> {
+                        if (!Boolean.TRUE.equals(type.getEnabled()))
+                            return Mono.error(error("dictionary_disabled", 409));
+                        return items(code).map(rows -> rows.stream()
+                                .filter(row -> Boolean.TRUE.equals(row.getEnabled()))
+                                .map(row -> new PropertyDictionaryOption(row.getValue(), row.getText()))
+                                .toList());
+                    });
+                }));
     }
 
     @Transactional

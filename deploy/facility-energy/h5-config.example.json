@@ -1,0 +1,8 @@
+{
+  "applicationId": "REPLACE_WITH_APPLICATION_ID",
+  "tenantDomain": "REPLACE_WITH_CLOUD_PROJECT_CODE",
+  "title": "设施设备",
+  "allowedHostOrigins": [],
+  "apiBase": "/api",
+  "propertyTelephone": ""
+}

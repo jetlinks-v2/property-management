@@ -45,6 +45,28 @@ public class PropertyHouseService {
     private final ReactiveRepository<PropertyHouseEntity, String> houses;
     private final ReactiveRepository<PropertyCustomerRelationshipEntity, String> relationships;
 
+    /** 跨项目统计沿用与房屋列表相同的空间权限；不分页，不把非末级节点计为房屋。 */
+    @Transactional(
+            readOnly = true,
+            isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
+    public Mono<org.jetlinks.pro.property.base.archive.PropertyHouseSummary> summary(
+            List<String> ids) {
+        if (ids == null
+                || ids.isEmpty()
+                || ids.size() > 100
+                || ids.stream().anyMatch(id -> id == null || id.isBlank() || id.length() > 64))
+            return Mono.error(error("invalid_query", 400));
+        return reactor.core.publisher.Flux.fromIterable(new LinkedHashSet<>(ids))
+                .concatMap(id -> all(id, null))
+                .flatMapIterable(rows -> rows)
+                .collectList()
+                .flatMap(
+                        rows ->
+                                dictionaries
+                                        .items("house-state")
+                                        .map(items -> HouseSummaryRules.summarize(rows, items)));
+    }
+
     public Mono<PagerResult<HouseView>> query(
             String projectId, String spaceId, QueryParamEntity query) {
         return all(projectId, spaceId).map(rows -> ArchiveQuery.page(rows, query, FIELDS));

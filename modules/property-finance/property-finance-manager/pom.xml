@@ -13,6 +13,40 @@
     <dependencies>
         <dependency>
             <groupId>org.jetlinks.pro</groupId>
+            <artifactId>property-finance-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.openhtmltopdf</groupId>
+            <artifactId>openhtmltopdf-pdfbox</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jetlinks.pro</groupId>
+            <artifactId>io-component</artifactId>
+            <version>${jetlinks.pro.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetlinks.pro</groupId>
+            <artifactId>property-base-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetlinks.pro</groupId>
+            <artifactId>test-component</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hswebframework.web</groupId>
+            <artifactId>hsweb-authorization-basic</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jetlinks.pro</groupId>
             <artifactId>common-component</artifactId>
         </dependency>
         <dependency>
@@ -28,5 +62,22 @@
             <groupId>org.hswebframework.web</groupId>
             <artifactId>hsweb-commons-crud</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.r2dbc</groupId>
+            <artifactId>r2dbc-spi</artifactId>
+        </dependency>
     </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- 各测试类独立 JVM：隔离继承测试共用的静态数据库、升级 DDL 和全局 Reactor 资源。 -->
+                    <forkCount>1</forkCount>
+                    <reuseForks>false</reuseForks>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

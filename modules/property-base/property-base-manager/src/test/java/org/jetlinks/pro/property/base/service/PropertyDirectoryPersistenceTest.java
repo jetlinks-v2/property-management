@@ -8,12 +8,21 @@ import org.hswebframework.web.authorization.simple.SimpleAuthentication;
 import org.hswebframework.web.authorization.simple.SimpleUser;
 import org.jetlinks.pro.assets.*;
 import org.jetlinks.pro.assets.impl.CreatorAssetsHolder;
+import org.jetlinks.pro.assets.scope.AssetScope;
+import org.jetlinks.pro.assets.scope.AssetScopeActivation;
+import org.jetlinks.pro.assets.scope.AssetScopeContext;
+import org.jetlinks.pro.assets.scope.AssetScopeConstraint;
+import org.jetlinks.pro.assets.scope.AssetScopeMaterialization;
+import org.jetlinks.pro.assets.scope.AssetScopeMaterializer;
+import org.jetlinks.pro.assets.scope.AssetScopeMaterializers;
+import org.jetlinks.pro.assets.scope.AssetScopeStrategy;
 import org.jetlinks.pro.command.CommandSupportManagerProviders;
 import org.jetlinks.pro.property.base.command.*;
 import org.jetlinks.pro.property.base.entity.*;
 import org.jetlinks.pro.property.base.organization.OrganizationType;
 import org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo;
 import org.jetlinks.pro.tenant.holder.TenantHolder;
+import org.jetlinks.pro.tenant.assets.TenantAssetsHolder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +33,7 @@ import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import reactor.util.context.Context;
 
@@ -129,6 +139,68 @@ class PropertyDirectoryPersistenceTest {
             .expectErrorMessage("asset service unavailable").verify();
     }
 
+    @Test
+    void applicationUserDirectoryDoesNotRequireTenantSelectionAndKeepsAssetPermissions() {
+        addUser("allowed", "reader", "tenant-a");
+        addUser("forbidden", "other", "tenant-a");
+        var ordinary = access();
+        Authentication authentication = ordinary.get(Authentication.class);
+        var activation = AssetScopeActivation.activate(authentication,
+            authentication.getDimensions().stream()
+                .filter(dimension -> "business_application".equals(dimension.getType().getId()))
+                .findFirst().orElseThrow(), Map.of("user", AssetScopeStrategy.IGNORE));
+        assertTrue(activation.context().contains("business_application"), activation.context().toString());
+        var request = new QueryPropertyUsersCommand();
+        request.setIds(List.of("allowed", "forbidden"));
+        // IGNORE 仅表示应用没有额外收窄 user，原创建人资产权限仍然生效。
+        StepVerifier.create(directory.users(request).map(user -> user.getId()).collectList()
+                .contextWrite(activation.write()).contextWrite(ordinary))
+            .assertNext(ids -> assertEquals(List.of("allowed"), ids)).verifyComplete();
+
+        StepVerifier.create(directory.users(request).contextWrite(ordinary))
+            .expectError(AccessDenyException.class).verify();
+        StepVerifier.create(directory.users(request)
+                .contextWrite(AssetScopeContext.write(AssetScope.of("business_application", "forged")))
+                .contextWrite(ordinary))
+            .expectError(AccessDenyException.class).verify();
+        // 同时显式选择租户时继续取交集，不因应用入口放宽跨租户可见范围。
+        StepVerifier.create(directory.users(request).contextWrite(TenantHolder.makeCurrent("tenant-b"))
+                .contextWrite(activation.write()).contextWrite(ordinary))
+            .verifyComplete();
+    }
+
+    @Test
+    void applicationUserDirectoryIntersectsApplicationCeilingWithOrdinaryUserPermission() {
+        addUser("allowed", "reader", "tenant-a");
+        addUser("other-application", "reader", "tenant-b");
+        addUser("forbidden", "other", "tenant-a");
+        var ordinary = access();
+        Authentication authentication = ordinary.get(Authentication.class);
+        var application = authentication.getDimensions().stream()
+            .filter(dimension -> "business_application".equals(dimension.getType().getId()))
+            .findFirst().orElseThrow();
+        var activation = AssetScopeActivation.activate(authentication, application,
+            Map.of("user", AssetScopeStrategy.SELECT));
+        // 只替换远端应用范围物化；真实 ScopedAssetsHolder 与 TenantAssetsHolder 计算权限交集。
+        var registration = AssetsHolderHolder.registerScopeMaterializers(new AssetScopeMaterializers(List.of(
+            new AssetScopeMaterializer() {
+                public String getScopeType() { return "business_application"; }
+                public Mono<AssetScopeConstraint> materialize(AssetScopeMaterialization request) {
+                    assertEquals(application.getId(), request.grant().getScope().id());
+                    return Mono.just(AssetScopeConstraint.candidateOnly(
+                        new TenantAssetsHolder(List.of("tenant-a"), assets)));
+                }
+            })));
+        try {
+            StepVerifier.create(directory.users(new QueryPropertyUsersCommand())
+                    .map(user -> user.getId()).collectList()
+                    .contextWrite(activation.write()).contextWrite(ordinary))
+                .assertNext(ids -> assertEquals(List.of("allowed"), ids)).verifyComplete();
+        } finally {
+            registration.dispose();
+        }
+    }
+
     private void addUser(String id, String creator, String tenant) {
         var row = new PropertyUserEntity(); row.setId(id); row.setName(id); row.setUsername(id);
         row.setStatus((byte) 1); row.setAccountType("user"); row.setOwner(false); row.setEmployee(true);
@@ -171,13 +243,9 @@ class PropertyDirectoryPersistenceTest {
 
     @Import({OrganizationPersistenceTest.Config.class, PropertyDirectoryCommandSupport.class, PropertyUserScope.class, PropertyUserService.class})
     static class Config {
+        // 生产权限入口必须直接受真实 Holder 约束，不能以测试替身掩盖不存在的目录命令。
         @Bean SaasUserSource userSource() {
-            return new SaasUserSource() {
-                @Override public Flux<String> authorizedIds(List<String> ids) {
-                    return AssetsHolder.filterAssets(Flux.fromIterable(ids), AssetType.of("user"),
-                        id -> id, org.jetlinks.pro.assets.crud.CrudAssetPermission.read);
-                }
-            };
+            return new SaasUserSource();
         }
         @Bean AssetManager assets() { return mock(AssetManager.class); }
         @Bean ArchiveScope archive(ReactiveRepository<PropertyOrganizationEntity, String> organizations,

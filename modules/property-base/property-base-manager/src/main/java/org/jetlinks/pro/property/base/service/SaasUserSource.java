@@ -105,28 +105,15 @@ public class SaasUserSource {
     }
 
     /**
-     * 员工目录按候选 ID 读取调用者可见的 SaaS 用户。与后台镜像同步不同，此方法保留认证及应用 Scope；
-     * user 资产条件只交给认证服务解析，不在物业库执行跨库 SQL。空结果为无权限，服务异常直接传播。
+     * 用户镜像按统一资产权限批量裁剪，保留调用者认证及租户/应用 Scope。
+     * 与详情使用相同的 user 资产；不依赖额外目录命令，也不把 Cloud 表条件注入镜像库。
      */
     public Flux<String> authorizedIds(List<String> ids) {
-        if (ids.isEmpty()) return Flux.empty();
-        return Flux.fromIterable(ids).distinct().buffer(PAGE_SIZE).concatMap(batch -> {
-            var query = QueryParamEntity.newQuery().in("id", batch).getParam();
-            query.setPaging(false);
-            query.setIncludes(Set.of("id"));
-            // owner 注入权限，消费方只限定候选；保留请求身份、租户和应用Scope。
-            return accountIds(query).filter(batch::contains);
-        }).distinct();
-    }
-
-    protected Flux<String> accountIds(QueryParamEntity query) {
-        var command = QueryListCommand.of(UserInfo.class);
-        command.withQueryParam(query);
-        return CommandSupportManagerProviders.getCommandSupport("authService:user-directory")
-                .switchIfEmpty(Mono.error(new BusinessException.NoStackTrace(
-                        "error.property_user_source_unavailable", 503)))
-                .flatMapMany(support -> support.execute(command))
-                .map(UserInfo::getId).timeout(Duration.ofSeconds(10));
+        return Flux.fromIterable(ids).distinct().buffer(PAGE_SIZE)
+                .concatMap(batch -> org.jetlinks.pro.assets.AssetsHolder.filterAssets(
+                        Flux.fromIterable(batch), org.jetlinks.pro.assets.AssetType.of("user"),
+                        id -> id, org.jetlinks.pro.assets.crud.CrudAssetPermission.read))
+                .timeout(Duration.ofSeconds(10));
     }
 
     protected Mono<PagerResult<UserDetail>> page(QueryParamEntity query) {

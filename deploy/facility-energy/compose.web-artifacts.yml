@@ -1,0 +1,39 @@
+# Serve verified production bundles through the Cloud gateway, independently of Vite.
+services:
+  facility-cloud-web:
+    image: ${WEB_IMAGE:-nginx:1.28-alpine}
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: ${API_UPSTREAM:?required}
+    ports:
+      - "127.0.0.1:${PC_PORT:-9508}:80"
+    volumes:
+      - ${CLOUD_WEB_DIST:?required}:/usr/share/nginx/html:ro
+      - ./web-nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+    networks: [cloud]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/index.html"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  facility-h5-web:
+    image: ${WEB_IMAGE:-nginx:1.28-alpine}
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: ${API_UPSTREAM:?required}
+    ports:
+      - "127.0.0.1:${H5_ARTIFACT_PORT:-9509}:80"
+    volumes:
+      - ${H5_WEB_DIST:?required}:/usr/share/nginx/html:ro
+      - ./h5-config.json:/usr/share/nginx/html/config.json:ro
+      - ./web-nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+    networks: [cloud]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/index.html"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+networks:
+  cloud:
+    external: true
+    name: ${CLOUD_NETWORK:?required}
