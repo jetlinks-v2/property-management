@@ -170,7 +170,7 @@ public class PrepayQuoteService {
                 && value.equals(value.trim());
     }
 
-    private static View view(PrepayQuoteEntity row) {
+    static View view(PrepayQuoteEntity row) {
         var snapshot = ActivityCodec.decode(row.getSnapshotJson(), PrepayQuoteSnapshot.class);
         String status =
                 "OPEN".equals(row.getStatus()) && row.getExpiresAt() <= System.currentTimeMillis()

@@ -59,14 +59,32 @@ public class PrepayQuoteSource {
                                                                                         setting,
                                                                                         context,
                                                                                         input,
-                                                                                        date))));
+                                                                                        date,
+                                                                                        activitySource
+                                                                                                .spaces(
+                                                                                                        project)))));
+    }
+
+    /** 仅接受本人命令取得的可信上下文；保持柜台的计算、活动和账期校验完全相同。 */
+    Mono<PrepayQuoteSnapshot> prepareOwner(
+            String project, PrepayQuoteInput input, LocalDate date, PropertyOwnerHouse owner) {
+        return setting(project, input.settingId(), false)
+                .flatMap(
+                        setting ->
+                                resolve(
+                                        setting,
+                                        owner.context(),
+                                        input,
+                                        date,
+                                        Mono.just(owner.ancestors())));
     }
 
     private Mono<PrepayQuoteSnapshot> resolve(
             HouseSettingEntity setting,
             PropertyHouseContext context,
             PrepayQuoteInput input,
-            LocalDate date) {
+            LocalDate date,
+            Mono<List<PropertySpaceInfo>> spaces) {
         if (!setting.getProjectId().equals(context.house().projectId())
                 || !setting.getSpaceId().equals(context.house().spaceId())
                 || !"ACTIVE".equals(setting.getStatus())
@@ -74,7 +92,7 @@ public class PrepayQuoteSource {
             return Mono.error(error("prepay_source_changed", 409));
         var payer = payer(input, setting, context);
         return references(setting)
-                .then(activity(setting.getProjectId(), setting, input, date))
+                .then(activity(setting.getProjectId(), setting, input, date, spaces))
                 .flatMap(
                         activity ->
                                 rows(setting)
@@ -143,7 +161,11 @@ public class PrepayQuoteSource {
     }
 
     private Mono<Optional<ActivityEntity>> activity(
-            String project, HouseSettingEntity setting, PrepayQuoteInput input, LocalDate date) {
+            String project,
+            HouseSettingEntity setting,
+            PrepayQuoteInput input,
+            LocalDate date,
+            Mono<List<PropertySpaceInfo>> availableSpaces) {
         if (input.activityId() == null) return Mono.just(Optional.empty());
         var query = new QueryParamEntity();
         query.setForUpdate(true);
@@ -187,7 +209,7 @@ public class PrepayQuoteSource {
                                                                             "prepay_activity_used",
                                                                             409))
                                                             : Mono.empty())
-                                    .then(activitySource.spaces(project))
+                                    .then(availableSpaces)
                                     .map(
                                             spaces -> {
                                                 if (covers(

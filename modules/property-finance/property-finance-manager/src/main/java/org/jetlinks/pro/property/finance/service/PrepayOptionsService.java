@@ -59,17 +59,35 @@ public class PrepayOptionsService {
         if (!project.equals(context.house().projectId())
                 || !space.equals(context.house().spaceId()))
             return Mono.error(error("prepay_source_changed", 409));
-        return availableSettings(project, space).flatMap(rows -> choices(context, rows, date));
+        return availableSettings(project, space)
+                .flatMap(rows -> choices(context, rows, date, source.spaces(project)));
+    }
+
+    /** 本人只读边界先验证有效关系，此处复用候选规则，不要求员工收款权限。 */
+    Mono<List<Setting>> ownerOptions(PropertyOwnerHouse owner, LocalDate date) {
+        var context = owner.context();
+        return availableSettings(context.house().projectId(), context.house().spaceId())
+                .flatMap(rows -> choices(context, rows, date, Mono.just(owner.ancestors())));
     }
 
     private Mono<List<Setting>> choices(
-            PropertyHouseContext context, List<HouseSettingEntity> rows, LocalDate date) {
+            PropertyHouseContext context,
+            List<HouseSettingEntity> rows,
+            LocalDate date,
+            Mono<List<PropertySpaceInfo>> spaces) {
         if (rows.isEmpty()) return Mono.just(List.of());
         return availableActivities(
-                        context.house().projectId(), context.house().spaceId(), rows, date)
+                        context.house().projectId(), context.house().spaceId(), rows, date, spaces)
                 .map(
                         available ->
                                 rows.stream()
+                                        .filter(
+                                                row ->
+                                                        row.getEffectiveEndDate() == null
+                                                                || !LocalDate.parse(
+                                                                                row
+                                                                                        .getEffectiveEndDate())
+                                                                        .isBefore(date))
                                         .map(row -> setting(row, context, available))
                                         .filter(row -> !row.payers().isEmpty())
                                         .toList());
@@ -146,7 +164,11 @@ public class PrepayOptionsService {
     }
 
     private Mono<List<ActivityEntity>> availableActivities(
-            String project, String space, List<HouseSettingEntity> rows, LocalDate date) {
+            String project,
+            String space,
+            List<HouseSettingEntity> rows,
+            LocalDate date,
+            Mono<List<PropertySpaceInfo>> spaces) {
         var ids = rows.stream().map(HouseSettingEntity::getStandardId).distinct().toList();
         var query = page(501);
         query.toQuery().orderByAsc("startDate").orderByAsc("id");
@@ -168,7 +190,7 @@ public class PrepayOptionsService {
                                 return Mono.error(error("prepay_options_limit", 400));
                             if (found.isEmpty()) return Mono.just(List.of());
                             return Mono.zip(
-                                            source.spaces(project),
+                                            spaces,
                                             consumption
                                                     .createQuery()
                                                     .setParam(unpaged())
