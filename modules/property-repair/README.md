@@ -12,7 +12,7 @@
 
 1. 按仓库根目录说明配置数据库、Redis、RPC token 和 JWT 公钥，连接原报修使用的数据库及 schema 可读取既有报修数据。
 2. 默认业务库为 `property_repair`；接管原报修数据时显式指定原数据库及 schema。基础服务独立配置自己的业务库并接入同一 SaaS 集群；财务与巡更无需启动。报修服务发现名及事件/配置命名空间保留 `smart-park-repair-service` / `smart-park-repair`。
-3. 执行 `mvn -pl :property-repair-service -am verify`，运行 `services/property-repair-service/target/application.jar`，默认 HTTP / 集群 / RPC 端口为 8506 / 18506 / 28506，避免与既有巡更 8502 冲突。
+3. 发布构建执行 `mvn -pl :property-repair-service -am clean verify`，运行 `services/property-repair-service/target/application.jar`，默认 HTTP / 集群 / RPC 端口为 8506 / 18506 / 28506，避免与既有巡更 8502 冲突。
 4. 切换环境时停止旧 `smart-park-repair-service`，再启用基础服务与本仓库报修服务，避免重复注册 `/repair/**` 路由和重复运行报修调度。等待服务发现完成后通过 SaaS 网关验证。空间同步需要共享运行服务提供 `spaceService:space` 和 `spaceService:space-type` 两个只读命令。
 5. 原应用模板与权限配置位于 `deploy/repair`。已有环境保留现有模板、订阅快照和角色授权；新环境替换模板中的环境标识后导入并授权。前端通过网关访问，不直连业务服务。
 
@@ -27,6 +27,8 @@
 ## 验证边界
 
 迁入的领域测试覆盖流程、配置、动作表单、权限、二维码和导出等规则；报修服务测试覆盖组件扫描、路由与资产配置及独立装配。构建与测试不能替代目标环境的网关服务发现、登录、模板订阅授权和真实业务联调。
+
+品质报修联动由 `propertyRepair:quality` 公开命令提供。发布时核对最终 JAR 内报修 manager 的 `META-INF/spring.components` 包含 `QualityRepairCommandSupport`、`QualityRepairLinkService`、`QualityRepairTransaction` 和 `QualityRepairLinkEntity`；仅有 class 文件不能保证组件及实体被加载。启动后通过服务发现及真实不合格记录验证发起配置、建单和关联查询，不能以容器健康检查代替联动验收。
 
 保留原迁移边界：业主独立入口、外部系统联动、完整旧接口分支及数据库 20 万条导出负载仍需后续验收。
 

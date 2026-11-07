@@ -29,6 +29,10 @@ class RepairModuleAssemblyTest {
         assertFalse(registry.containsBeanDefinition("repairPropertySpaceController"));
         assertTrue(registry.containsBeanDefinition("repairDirectory"));
         assertTrue(registry.containsBeanDefinition("repairOrderController"));
+        // 联动类存在于 JAR 并不代表能被发现；同时验证组件索引参与的真实扫描结果。
+        assertTrue(registry.containsBeanDefinition("qualityRepairCommandSupport"));
+        assertTrue(registry.containsBeanDefinition("qualityRepairLinkService"));
+        assertTrue(registry.containsBeanDefinition("qualityRepairTransaction"));
         assertFalse(registry.containsBeanDefinition("commandCloudDirectory"));
     }
 
