@@ -16,6 +16,10 @@ public class CarryForwardPlanInput {
     private Long version;
     private String name;
     private List<String> subjectIds;
+
+    /** 空列表沿用历史科目范围；指定时仅结转这些标准产生的账单。 */
+    private List<String> standardIds;
+
     private String periodStart, periodEnd;
     private String frequency, executeDay, executeAt, zone;
     private Boolean enabled = true, includeLateFee = false;

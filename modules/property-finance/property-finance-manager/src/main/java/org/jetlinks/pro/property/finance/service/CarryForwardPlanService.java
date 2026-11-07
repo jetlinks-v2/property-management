@@ -35,6 +35,7 @@ public class CarryForwardPlanService {
     private final ReactiveRepository<CarryForwardSubjectEntity, String> claims;
     private final ReactiveRepository<CarryForwardPlanLogEntity, String> logs;
     private final ReactiveRepository<SubjectEntity, String> subjectRows;
+    private final ReactiveRepository<StandardEntity, String> standards;
 
     /** 只提供本项目已下发科目，不要求配置人员拥有全局科目维护权限。 */
     public Mono<List<SubjectOption>> options(String project) {
@@ -63,6 +64,36 @@ public class CarryForwardPlanService {
                                                                         row.getName(),
                                                                         row.getCode(),
                                                                         row.getEnabled()))
+                                                .collectList());
+    }
+
+    /** 标准选项复用计划查询权限，限定本项目已下发科目，不开放全局标准数据。 */
+    public Mono<List<StandardOption>> standardOptions(String project) {
+        return options(project)
+                .flatMap(
+                        ids ->
+                                ids.isEmpty()
+                                        ? Mono.just(List.of())
+                                        : standards
+                                                .createQuery()
+                                                .where("projectId", project)
+                                                .and("deleted", false)
+                                                .in(
+                                                        "subjectId",
+                                                        ids.stream()
+                                                                .map(SubjectOption::id)
+                                                                .toList())
+                                                .fetch()
+                                                .sort(
+                                                        Comparator.comparing(
+                                                                StandardEntity::getStandardCode))
+                                                .map(
+                                                        row ->
+                                                                new StandardOption(
+                                                                        row.getId(),
+                                                                        row.getSubjectId(),
+                                                                        row.getStandardName(),
+                                                                        row.getStandardCode()))
                                                 .collectList());
     }
 
@@ -115,6 +146,7 @@ public class CarryForwardPlanService {
                                             var input = normalized(submitted);
                                             return lockSubjects(
                                                             project, input.getSubjectIds(), true)
+                                                    .then(lockStandards(project, input))
                                                     .then(
                                                             TenantHolder.currentId()
                                                                     .defaultIfEmpty(""))
@@ -187,6 +219,7 @@ public class CarryForwardPlanService {
         // 与科目下发/撤回采用同序；仅在稳定科目和下发行加锁后锁计划，防止并发偷占或失去下发关系。
         return lockSubjects(project, ids, false)
                 .then(lockSubjects(project, input.getSubjectIds(), true))
+                .then(lockStandards(project, input))
                 .then(row(project, before.getId(), true, false))
                 .doOnNext(locked -> version(locked, input.getVersion()));
     }
@@ -208,6 +241,11 @@ public class CarryForwardPlanService {
                                                                     project,
                                                                     input.getSubjectIds(),
                                                                     enabled)
+                                                            .then(
+                                                                    enabled
+                                                                            ? lockStandards(
+                                                                                    project, input)
+                                                                            : Mono.empty())
                                                             .then(row(project, id, true, false))
                                                             .flatMap(
                                                                     locked ->
@@ -345,6 +383,27 @@ public class CarryForwardPlanService {
                 .then();
     }
 
+    private Mono<Void> lockStandards(String project, CarryForwardPlanInput input) {
+        if (input.getStandardIds() == null || input.getStandardIds().isEmpty()) return Mono.empty();
+        var q = new QueryParamEntity();
+        q.setForUpdate(true);
+        // 科目及下发行已锁定，再按ID锁标准，和收费标准维护保持同序。
+        return Flux.fromIterable(new TreeSet<>(input.getStandardIds()))
+                .concatMap(
+                        id ->
+                                standards
+                                        .createQuery()
+                                        .setParam(q)
+                                        .where("id", id)
+                                        .and("projectId", project)
+                                        .and("deleted", false)
+                                        .in("subjectId", input.getSubjectIds())
+                                        .fetchOne()
+                                        .switchIfEmpty(
+                                                Mono.error(error("standard_not_found", 404))))
+                .then();
+    }
+
     private Mono<ProjectSubjectEntity> lockIssued(String project, String subject) {
         var q = new QueryParamEntity();
         q.setForUpdate(true);
@@ -462,6 +521,8 @@ public class CarryForwardPlanService {
         var copy = JSON.parseObject(JSON.toJSONString(input), CarryForwardPlanInput.class);
         copy.setName(copy.getName().trim());
         copy.setSubjectIds(copy.getSubjectIds().stream().sorted().toList());
+        if (copy.getStandardIds() != null)
+            copy.setStandardIds(copy.getStandardIds().stream().sorted().toList());
         return copy;
     }
 
@@ -491,4 +552,6 @@ public class CarryForwardPlanService {
     public record Detail(CarryForwardPlanEntity plan, CarryForwardPlanInput input) {}
 
     public record SubjectOption(String id, String name, String code, Boolean enabled) {}
+
+    public record StandardOption(String id, String subjectId, String name, String code) {}
 }

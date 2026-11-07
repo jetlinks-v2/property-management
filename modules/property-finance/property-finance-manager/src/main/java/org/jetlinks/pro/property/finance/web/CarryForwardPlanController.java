@@ -27,6 +27,13 @@ public class CarryForwardPlanController {
         return service.options(projectId);
     }
 
+    @GetMapping("/_standards")
+    @ResourceAction(id = "query", name = "查询")
+    public Mono<java.util.List<CarryForwardPlanService.StandardOption>> standards(
+            @PathVariable String projectId) {
+        return service.standardOptions(projectId);
+    }
+
     @PostMapping("/_query")
     @ResourceAction(id = "query", name = "查询")
     public Mono<PagerResult<CarryForwardPlanService.Detail>> query(

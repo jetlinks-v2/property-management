@@ -505,6 +505,7 @@ public class CarryForwardApplyService {
 
     private static void checkBill(CarryForwardPlanInput p, ReceivableEntity row, LocalDate date) {
         if (!p.getSubjectIds().contains(row.getSubjectId())
+                || !CarryForwardRules.includesStandard(p, row.getStandardId())
                 || row.getCalcStartDate().compareTo(p.getPeriodStart()) < 0
                 || row.getCalcEndDate().compareTo(p.getPeriodEnd()) > 0)
             throw error("carry_bill_invalid", 409);

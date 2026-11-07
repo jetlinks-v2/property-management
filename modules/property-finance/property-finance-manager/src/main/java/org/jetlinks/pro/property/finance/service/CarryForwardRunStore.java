@@ -126,6 +126,8 @@ public class CarryForwardRunStore {
                                             .lte("calcEndDate", input.getPeriodEnd())
                                             .lte("createTime", run.getCreateTime())
                                             .gt("arrears", java.math.BigDecimal.ZERO);
+                            if (input.getStandardIds() != null && !input.getStandardIds().isEmpty())
+                                q.in("standardId", input.getStandardIds());
                             if (run.getCursorId() != null) q.gt("id", run.getCursorId());
                             return q.fetch()
                                     .collectList()

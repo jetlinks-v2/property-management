@@ -104,6 +104,34 @@ class CarryForwardPlanPersistenceTest {
     }
 
     @Test
+    void selectedStandardsAreProjectAndSubjectScopedAndSurviveRead() {
+        var i = input();
+        i.setStandardIds(List.of(fixture.standardId));
+        var d = run(service.create(fixture.project, i));
+        assertEquals(
+                i.getStandardIds(),
+                run(service.detail(fixture.project, d.plan().getId())).input().getStandardIds());
+        assertEquals(
+                List.of(fixture.standardId),
+                run(service.standardOptions(fixture.project)).stream()
+                        .map(CarryForwardPlanService.StandardOption::id)
+                        .toList());
+        assertTrue(run(service.standardOptions("other-project")).isEmpty());
+        i.setVersion(d.plan().getVersion());
+        i.setStandardIds(List.of("missing-or-foreign"));
+        reject(service.update(fixture.project, d.plan().getId(), i), 404);
+        standards
+                .createUpdate()
+                .set("subjectId", "other-subject")
+                .where("id", fixture.standardId)
+                .execute()
+                .block(WAIT);
+        i.setStandardIds(List.of(fixture.standardId));
+        reject(service.update(fixture.project, d.plan().getId(), i), 404);
+        assertEquals(1, logs.createQuery().where("planId", d.plan().getId()).count().block(WAIT));
+    }
+
+    @Test
     void createAndReadReturnBusinessConfigurationAndClaimIssuedSubjects() {
         var d = create();
         assertEquals(fixture.project, d.plan().getProjectId());
@@ -392,7 +420,14 @@ class CarryForwardPlanPersistenceTest {
         // 通用持久化fixture隔离了项目命令，拒绝路径改用真实FinanceScope验证实际资产边界。
         var secured =
                 new CarryForwardPlanService(
-                        new FinanceScope(), subjectService, issued, plans, claims, logs, subjects);
+                        new FinanceScope(),
+                        subjectService,
+                        issued,
+                        plans,
+                        claims,
+                        logs,
+                        subjects,
+                        standards);
         StepVerifier.create(secured.create(fixture.project, input())).expectError().verify(WAIT);
         var holder = org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetsHolder.class);
         org.mockito.Mockito.when(

@@ -214,6 +214,19 @@ class CarryForwardRulesTest {
     }
 
     @Test
+    void standardSelectionRejectsDuplicatesAndRetainsLegacyUnfilteredScope() {
+        var p = plan();
+        assertTrue(CarryForwardRules.includesStandard(p, "any"));
+        p.setStandardIds(List.of());
+        assertTrue(CarryForwardRules.includesStandard(p, "any"));
+        p.setStandardIds(List.of("chosen"));
+        assertTrue(CarryForwardRules.includesStandard(p, "chosen"));
+        assertFalse(CarryForwardRules.includesStandard(p, "other"));
+        p.setStandardIds(List.of("chosen", "chosen"));
+        assertThrows(BusinessException.class, () -> CarryForwardRules.validate(p));
+    }
+
+    @Test
     void accountMatchingHonorsAllSelectedCustomersAndScopeWithoutDependingOnHouseLevels() {
         var p = plan();
         var bill = new ReceivableEntity();

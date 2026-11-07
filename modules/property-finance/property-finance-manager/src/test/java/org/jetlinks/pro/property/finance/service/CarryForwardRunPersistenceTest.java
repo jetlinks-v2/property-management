@@ -45,6 +45,40 @@ class CarryForwardRunPersistenceTest extends CarryForwardApplicationPersistenceT
     }
 
     @Test
+    void selectedStandardFiltersScannedBillsAndDirectApplicationWithoutChangingFunds() {
+        var a = topup("150.00");
+        input.setStandardIds(List.of("other-standard"));
+        plans.createUpdate()
+                .set("configJson", JSON.toJSONString(input))
+                .where("id", plan.getId())
+                .execute()
+                .block(WAIT);
+        var result = execute();
+        assertEquals("SUCCEEDED", result.getStatus());
+        assertEquals(0, works.createQuery().where("runId", result.getId()).count().block(WAIT));
+        StepVerifier.create(
+                        service.apply(project, request(a.getId()), DATE)
+                                .contextWrite(fixture.fixture.allowed()))
+                .expectErrorMatches(e -> TaxItemPersistenceTest.status(e, 409))
+                .verify(WAIT);
+        StepVerifier.create(
+                        service.apply(project, request(null), DATE)
+                                .contextWrite(fixture.fixture.allowed()))
+                .expectErrorMatches(e -> TaxItemPersistenceTest.status(e, 409))
+                .verify(WAIT);
+        money("150.00", accounts.findById(a.getId()).block(WAIT).getBalance());
+        money("100.00", currentBill().getArrears());
+        input.setStandardIds(List.of(bill.getStandardId()));
+        plans.createUpdate()
+                .set("configJson", JSON.toJSONString(input))
+                .where("id", plan.getId())
+                .execute()
+                .block(WAIT);
+        money("90.00", run(request(a.getId())).getAmount());
+        money("60.00", accounts.findById(a.getId()).block(WAIT).getBalance());
+    }
+
+    @Test
     void competingInstancesUseOneSlotAndCollectOnlyOnce() {
         var a = topup("150.00");
         var results =

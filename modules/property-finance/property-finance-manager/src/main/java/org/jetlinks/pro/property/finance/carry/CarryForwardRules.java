@@ -35,6 +35,13 @@ public final class CarryForwardRules {
         for (var id : p.getSubjectIds())
             if (id == null || id.isBlank() || id.length() > 64 || !ids.add(id))
                 throw error("carry_plan_invalid", 400);
+        if (p.getStandardIds() != null) {
+            if (p.getStandardIds().size() > 100) throw error("carry_plan_invalid", 400);
+            ids.clear();
+            for (var id : p.getStandardIds())
+                if (id == null || id.isBlank() || id.length() > 64 || !ids.add(id))
+                    throw error("carry_plan_invalid", 400);
+        }
         try {
             if (LocalDate.parse(p.getPeriodEnd()).isBefore(LocalDate.parse(p.getPeriodStart())))
                 throw error("carry_plan_invalid", 400);
@@ -146,6 +153,7 @@ public final class CarryForwardRules {
                 || !Objects.equals(bill.getSpaceId(), account.getSpaceId())
                 || !Objects.equals(bill.getSubjectId(), account.getSubjectId())
                 || !p.getSubjectIds().contains(bill.getSubjectId())
+                || !includesStandard(p, bill.getStandardId())
                 || Boolean.TRUE.equals(bill.getDeleted())
                 || Boolean.TRUE.equals(account.getDeleted())
                 || bill.getCalcStartDate().compareTo(p.getPeriodStart()) < 0
@@ -153,6 +161,12 @@ public final class CarryForwardRules {
                 || !SettingRules.selectedCustomer(bill, account.getCustomerId())) return false;
         var company = SettingRules.standard(bill.getSnapshotJson()).getCompanyId();
         return company == null || company.equals(account.getCompanyId());
+    }
+
+    public static boolean includesStandard(CarryForwardPlanInput p, String standardId) {
+        return p.getStandardIds() == null
+                || p.getStandardIds().isEmpty()
+                || p.getStandardIds().contains(standardId);
     }
 
     private static BigDecimal money(BigDecimal value) {
