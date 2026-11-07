@@ -23,10 +23,9 @@ import static org.jetlinks.pro.property.quality.service.QualityScope.require;imp
     return directory.project(input.getProjectId()).doOnNext(p->{input.setProjectName(p.getName());input.setOrganizationId(p.getId());}).then(configurations.read(input.getTemplateId())).doOnNext(template->{
      require(template.getKind().equals("template")&&template.getStatus()==1&&template.getConfigLevel().equals(input.getTaskLevel()),"invalid_reference");
      require(number(template.getData().getOrDefault("templateType",1))==1,"invalid_reference");
-     if(input.getTaskLevel()==2)require(Objects.equals(template.getProjectId(),input.getProjectId()),"reference_scope");
+     require(Objects.equals(template.getProjectId(),input.getProjectId()),"reference_scope");
      input.setTemplateName(template.getName());input.setTemplateSnapshot(items(template.getData().get("snapshot")));input.setLineWeights(items(template.getData().get("lineWeights")));
-     // 任务统计维度与作业频次来自模板，忽略客户端伪造的维度及显示名称。
-     input.setBusinessTypeId(text(template.getData(),"businessTypeId"));input.setBusinessTypeName(text(template.getData(),"businessTypeName"));
+     // 公司和项目任务都只能使用同项目模板；作业频次来自模板快照。
      if(input.getTaskLevel()==2)input.setInspectionFrequency(number(template.getData().get("inspectionFrequency")));
      require(!input.getTemplateSnapshot().isEmpty(),"template_items");
      var lines=input.getTemplateSnapshot().stream().map(s->text(s,"subjectParentId")).collect(java.util.stream.Collectors.toSet());Set<String> assigned=new HashSet<>();
