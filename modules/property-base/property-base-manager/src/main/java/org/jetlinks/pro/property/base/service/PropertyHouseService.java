@@ -45,7 +45,7 @@ public class PropertyHouseService {
     private final ReactiveRepository<PropertyHouseEntity, String> houses;
     private final ReactiveRepository<PropertyCustomerRelationshipEntity, String> relationships;
 
-    /** 跨项目统计沿用与房屋列表相同的空间权限；不分页，不把非末级节点计为房屋。 */
+    /** 与空间管理列表同口径汇总所有可见层级，包括未完善和非末级资料。 */
     @Transactional(
             readOnly = true,
             isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
@@ -57,7 +57,7 @@ public class PropertyHouseService {
                 || ids.stream().anyMatch(id -> id == null || id.isBlank() || id.length() > 64))
             return Mono.error(error("invalid_query", 400));
         return reactor.core.publisher.Flux.fromIterable(new LinkedHashSet<>(ids))
-                .concatMap(id -> all(id, null, true))
+                .concatMap(id -> all(id, null))
                 .flatMapIterable(rows -> rows)
                 .collectList()
                 .flatMap(
@@ -98,17 +98,10 @@ public class PropertyHouseService {
     }
 
     private Mono<List<HouseView>> all(String projectId, String spaceId) {
-        return all(projectId, spaceId, false);
-    }
-
-    private Mono<List<HouseView>> all(String projectId, String spaceId, boolean leavesOnly) {
         return scope.spaces(projectId, spaceId, CrudAssetPermission.read)
                 .flatMap(
                         nodes -> {
-                            var selected =
-                                    nodes.stream()
-                                            .filter(e -> !leavesOnly || Boolean.TRUE.equals(e.getLeaf()))
-                                            .toList();
+                            var selected = nodes;
                             if (selected.isEmpty()) return Mono.just(List.of());
                             return houses.createQuery()
                                     .in(

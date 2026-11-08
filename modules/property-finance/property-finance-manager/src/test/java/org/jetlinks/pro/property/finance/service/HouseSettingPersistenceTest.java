@@ -488,10 +488,14 @@ class HouseSettingPersistenceTest {
                         .setting();
         assertEquals(future.getVersion() + 2, edited.getVersion());
         conflict(updateApproved(project, future.getId(), replacement, DATE), 409);
-        settings.delete(project, future.getId(), edited.getVersion())
+        conflict(settings.delete(project, future.getId(), edited.getVersion()), 409);
+        assertFalse(rows.findById(future.getId()).block(WAIT).getDeleted());
+        var pending = settings.create(project, input("draft", "2024-05-01", null), DATE)
+                .contextWrite(allowed()).block(WAIT).setting();
+        settings.delete(project, pending.getId(), pending.getVersion())
                 .contextWrite(allowed())
                 .block(WAIT);
-        assertTrue(rows.findById(future.getId()).block(WAIT).getDeleted());
+        assertTrue(rows.findById(pending.getId()).block(WAIT).getDeleted());
     }
 
     @Test
@@ -560,6 +564,41 @@ class HouseSettingPersistenceTest {
         collision.setVersion(another.getVersion());
         conflict(nextVersionApproved(project, another.getId(), collision, DATE), 409);
         assertNull(rows.findById(another.getId()).block(WAIT).getEffectiveEndDate());
+    }
+
+    @Test
+    void payerReplacementStartsNextMonthAfterApprovalAndKeepsExistingBillsUnchanged() {
+        var original = createApproved(project, input("room", "2024-01-01", null), DATE)
+                .contextWrite(allowed()).block(WAIT).setting();
+        var history = bills.createQuery().where("settingId", original.getId())
+                .fetch().collectList().block(WAIT);
+        var newCustomer = new PropertyHouseCustomer("new-link", "new-customer", "new-user",
+                "person", "新业主", "13000000000", "owner", 1L, 0L, 0L);
+        when(archive.context(project, "room", true))
+                .thenReturn(Mono.just(new PropertyHouseContext(context("room").house(), List.of(newCustomer))));
+        var input = input("room", DATE.plusMonths(1).withDayOfMonth(1).toString(), null);
+        input.setCustomerRelationshipIds(List.of("new-link"));
+        input.setVersion(original.getVersion());
+        var pending = settings.nextVersion(project, original.getId(), input, DATE)
+                .contextWrite(allowed()).block(WAIT);
+        assertEquals("PENDING", pending.setting().getReviewState());
+        assertEquals("ACTIVE", rows.findById(original.getId()).block(WAIT).getStatus());
+        assertEquals(0, bills.createQuery().where("settingId", pending.setting().getId()).count().block(WAIT));
+        var approved = approveSetting(project, pending, DATE).contextWrite(allowed()).block(WAIT).setting();
+        generation.scheduled(project, approved.getId(), LocalDate.of(2024, 3, 15), BillingTaskKind.ALL).block(WAIT);
+        var march = bills.createQuery().where("settingId", approved.getId()).fetchOne().block(WAIT);
+        assertEquals("2024-03-01", march.getCalcStartDate());
+        assertEquals("new-customer", march.getCustomerId());
+        assertEquals("new-link", march.getCustomerRelationshipId());
+        assertEquals("APPROVED", march.getReviewState());
+        assertEquals("2024-02-29", rows.findById(original.getId()).block(WAIT).getEffectiveEndDate());
+        for (var old : history) {
+            var unchanged = bills.findById(old.getId()).block(WAIT);
+            assertEquals(old.getVersion(), unchanged.getVersion());
+            assertEquals(old.getSnapshotJson(), unchanged.getSnapshotJson());
+            assertEquals(old.getCustomerId(), unchanged.getCustomerId());
+            assertEquals(old.getActualReceivableAmount(), unchanged.getActualReceivableAmount());
+        }
     }
 
     @Test

@@ -6,7 +6,7 @@ import org.jetlinks.pro.property.base.entity.PropertyDictionaryItemEntity;
 import java.math.BigDecimal;
 import java.util.*;
 
-/** 只汇总已通过档案权限过滤的末级空间；不把面积缺失当作房屋不存在。 */
+/** 汇总已通过档案权限过滤的任意层级空间；不把面积缺失当作房屋不存在。 */
 final class HouseSummaryRules {
     private HouseSummaryRules() {}
 

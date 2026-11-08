@@ -420,6 +420,10 @@ public class HouseSettingService {
                                                                     old.getSpaceId(),
                                                                     CrudAssetPermission.delete)
                                                             .then(requireUnbilled(old))
+                                                            // 已批准配置也是计费依据，未到出账日也不能删除。
+                                                            .then(Mono.defer(() -> "APPROVED".equals(old.getReviewState())
+                                                                    ? Mono.error(error("setting_approved_delete", 409))
+                                                                    : Mono.<Void>empty()))
                                                             .then(
                                                                     audit(
                                                                                     settings

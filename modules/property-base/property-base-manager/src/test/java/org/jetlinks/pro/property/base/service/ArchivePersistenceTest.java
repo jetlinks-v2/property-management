@@ -149,19 +149,29 @@ class ArchivePersistenceTest {
     }
 
     @Test
-    void overviewCountsOnlyAuthorizedTrueLeavesAndRejectsMixedProjectScope() {
+    void overviewMatchesAllVisibleLevelsAndRejectsMixedProjectScope() {
         houseService
                 .save("project", "single", write("single", 0L, "123.45"))
                 .contextWrite(all())
                 .block(WAIT);
+        houseService.save("project", "middle", write("middle", 0L, "30.00"))
+                .contextWrite(all()).block(WAIT);
         var command = new QueryPropertyHouseSummaryCommand();
         command.setProjectIds(List.of("project", "project"));
         var result =
                 financeHouseCommands.queryHouseSummary(command).contextWrite(all()).block(WAIT);
-        assertEquals(2, result.houseCount());
-        assertEquals(1, result.incompleteCount());
-        assertEquals("123.45", result.billingArea());
-        assertEquals(2, result.states().stream().mapToLong(s -> s.count()).sum());
+        assertEquals(4, result.houseCount());
+        assertEquals(2, result.incompleteCount());
+        assertEquals("153.45", result.billingArea());
+        assertEquals(4, result.states().stream().mapToLong(s -> s.count()).sum());
+        var list = houseService.query("project", null, new QueryParamEntity()).contextWrite(all()).block(WAIT);
+        assertEquals(list.getTotal(), result.houseCount());
+        assertEquals(list.getData().stream().filter(row -> !row.getCompleted()).count(), result.incompleteCount());
+        houseService.delete("project", "middle", 1L).contextWrite(all()).block(WAIT);
+        var deleted = financeHouseCommands.queryHouseSummary(command).contextWrite(all()).block(WAIT);
+        assertEquals(4, deleted.houseCount());
+        assertEquals(3, deleted.incompleteCount());
+        assertEquals("123.45", deleted.billingArea());
         var limited =
                 financeHouseCommands
                         .queryHouseSummary(command)
