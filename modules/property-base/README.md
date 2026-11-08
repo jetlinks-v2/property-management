@@ -18,7 +18,7 @@
 
 `propertyService:dictionary` 的 `QueryPropertyDictionaryItemsCommand` 按 `typeCode` 返回启用分类下的启用选项。房屋类型使用已有 `house-type` 字典，不另建或重复初始化。
 
-组织标注为 `project` 后，可以通过 `PUT /property/organization/{id}/project-seal?version=...` 上传 multipart `file`；同路径 GET 私有读取、DELETE 带版本移除。写入需要组织 save 权限，读取需要 read 权限；仅接受真实 PNG/JPEG，最大 2MB、4096×4096 像素。改为其他组织类型前必须移除章，版本冲突拒绝覆盖。图片存于公共文件服务，组织仅保存文件引用。
+组织标注为 `project` 后，可以通过 `PUT /property/organization/{id}/project-seal?version=...` 上传 multipart `file`；同路径 GET 私有读取、DELETE 带版本移除。上传和移除需要 `property-organization:seal` 动作及组织资产 save 权限，读取需要 query 动作及组织资产 read 权限；仅接受真实 PNG/JPEG，最大 2MB、4096×4096 像素。改为其他组织类型前必须移除章，版本冲突拒绝覆盖。图片存于公共文件服务，组织仅保存文件引用。
 
 基础服务须配置 `property.files.server-id`，或环境变量 `PROPERTY_FILES_SERVER_ID`，指向现有公共文件节点；未配置时明确拒绝上传，不回退本机文件。装修通过组织命令服务的 `GetPropertyProjectSealCommand` 按项目读取，保留当前认证和资产上下文，不跨库、不接受客户端章 URL。
 
@@ -82,22 +82,17 @@ return CommandSupportManagerProviders
 
 ## 项目章
 
-现有 `PUT /property/organization/{id}/seal` 文件引用维护接口继续保留，
-使用独立 `seal` 动作和组织资产写权限。装修通过公开
-`GetPropertyProjectSealCommand` 读取当前有权项目的实际章内容，
-不跨库或接收任意文件 URL。`/{id}/project-seal` 的上传、读取和移除
-复用组织资产权限；上传按 PNG/JPEG 实际解码、2MB 和 4096×4096
-限制校验，文件传输使用显式公共节点，失败不回退本机存储。
-两种维护入口共享组织版本与文件引用，换章不删除历史章文件。
+项目章只在基础数据管理的组织架构中维护：`property-base-ui/views/charging/OrganizationType/ProjectSeal.vue` 位于关联空间之后，仅项目类型显示，支持预览、替换、确认移除，不要求先关联空间。装修仅通过公开 `GetPropertyProjectSealCommand` 读取当前有权项目的真实章内容，不另外提供维护入口、不跨库、不接受客户端章 URL。
 
+前端由 `api/organization.ts` 和 `hooks/useProjectSeal.ts` 调用 `PUT /{id}/project-seal?version=...`，一次请求完成基础服务的图片校验、公共文件上传和组织引用保存；移除调用同路径 DELETE。上传和移除统一使用已有 `seal` 动作，与类型标注 `save` 独立；同时保留 organization 资产写权限。限制统一为 PNG/JPEG、2MB、4096×4096 像素，版本冲突或结果不确定时刷新，不自动重试。
 
-物业基础管理的组织配置中，仅项目类型显示项目章，位于关联空间之后。每个项目可选维护一张 PNG/JPG 图片，大小不超过 5MB；支持预览、替换和确认删除，操作后自动保存。非项目不能维护，项目不需要先关联空间才能上传。
+`PropertyProjectSealStorage` 复用现有公共文件命令，并通过 `property.files.server-id` 显式选定节点；不需要向 SaaS 平台装配物业适配器，不修改平台代码、菜单、订阅或授权数据。未配置或节点不支持时明确失败，不回退本机。前后端更新后仍须具备既有项目章按钮权限才能实际维护，不能把构建通过当作授权或文件节点联调通过。
 
-1. 重启基础服务，由 EasyORM 为 `pm_organization` 自动补充可空的 `project_seal_file_id` 字段，无需重新同步或初始化数据。
-2. 发布公共前端 `property-base-ui`，重新初始化该模块菜单，给维护人员授予组织配置下的“维护项目章”按钮权限。接口动作是 `property-organization:seal`，与修改组织类型的 `save` 独立，同时校验 organization 资产写权限；上传沿用平台文件服务。
-3. `PUT /property/organization/{id}/seal` 接收 `{"fileId":"平台文件ID","version":当前组织版本}`；清除需显式提交 `fileId:null`。返回最新组织详情与版本，版本冲突返回 409，不自动重试。后端检查组织为项目、文件读权限和平台文件元数据（PNG/JPG、有效大小）。图片链接通过平台文件解析器获取，不存储本机地址。
+兼容保留 `PUT /{id}/seal` 引用接口（显式 `fileId`、`version`；`fileId:null` 清除）。它仍要求文件资产 read 权限并依赖基础服务本地 FileManager 的可信元数据，原 5MB 元数据限制不变；不能用它绑定仅存在于其他服务数据库中的文件。维护页面不再走这个分步链路，也不以放松校验或跨库读取来兼容外部文件 ID。业务读取的真实图片仍受 2MB 限制。
 
-项目章保存在物业组织镜像的自有字段，SaaS 同步不覆盖。组织树 HTTP 与公开 `QueryPropertyOrganizationTreeCommand` 返回文件 ID，命令仅对项目输出该字段；其他业务通过 core 命令读取，不直接依赖 manager 或查表。更换和删除仅更改文件引用，不物理删除历史文件。本功能不包含单据盖章，未来出具单据时应由单据模块保存当时的章文件引用。
+项目章保存在物业组织镜像自有字段，SaaS 同步不覆盖。组织树 HTTP 与公开 `QueryPropertyOrganizationTreeCommand` 返回文件 ID，命令仅对项目输出该字段；其他业务通过 core 命令读取，不直接依赖 manager 或查表。更换和移除仅改引用，不删除历史章文件；上传成功但组织保存失败时仅尝试回收本次新上传文件。出具单据的业务模块负责保存当时的章内容或引用快照。
+
+验证：前端 `tests/project-seal.test.mjs`；后端 `PropertyOrganizationControllerTest` 检查专用动作，`ProjectSealPersistenceTest` 验证真实组织持久化、图片校验、资产权限、版本冲突及替换/移除生命周期。
 
 ## 用户镜像与物业身份
 

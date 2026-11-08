@@ -70,6 +70,38 @@ class ProjectSealPersistenceTest {
             .expectErrorMatches(e->e.getMessage().contains("seal_invalid")).verify();
         verifyNoInteractions(files);
     }
+    @Test void replacementAndRemovalPreserveHistoricalFilesAndStaleVersionDoesNotUpload() throws Exception {
+        when(files.save(anyString(),any())).thenReturn(Mono.just("original"),Mono.just("replacement"));
+        var original=seals.upload("project",0,file(png(8,8))).contextWrite(access(true)).block();
+        assertEquals("original",original.getProjectSealFileId());
+        var replaced=seals.upload("project",1,file(png(10,10))).contextWrite(access(true)).block();
+        assertEquals("replacement",replaced.getProjectSealFileId());assertEquals(2L,replaced.getVersion());
+        StepVerifier.create(seals.upload("project",1,file(png(12,12))).contextWrite(access(true)))
+            .expectErrorMatches(e->e.getMessage().contains("version_conflict")).verify();
+        StepVerifier.create(seals.remove("project",1).contextWrite(access(true)))
+            .expectErrorMatches(e->e.getMessage().contains("version_conflict")).verify();
+        assertEquals("replacement",organizations.findById("project").block().getProjectSealFileId());
+        var removed=seals.remove("project",2).contextWrite(access(true)).block();
+        assertNull(removed.getProjectSealFileId());assertNull(removed.getProjectSealMediaType());assertEquals(3L,removed.getVersion());
+        verify(files,times(2)).save(anyString(),any());verify(files,never()).delete(anyString());
+    }
+    @Test void concurrentVersionChangeReclaimsOnlyNewUploadAndPreservesCurrentSeal() throws Exception {
+        when(files.save(anyString(),any())).thenAnswer(invocation ->
+            orgs.updateSeal("project",0,"current","image/png").thenReturn("new-unbound"));
+        when(files.delete("new-unbound")).thenReturn(Mono.empty());
+        StepVerifier.create(seals.upload("project",0,file(png(8,8))).contextWrite(access(true)))
+            .expectErrorMatches(e->e.getMessage().contains("version_conflict")).verify();
+        var current=organizations.findById("project").block();
+        assertEquals("current",current.getProjectSealFileId());assertEquals(1L,current.getVersion());
+        verify(files).delete("new-unbound");verify(files,never()).delete("current");
+    }
+    @Test void removeRequiresAssetWriteAndOversizedMultipartNeverReachesStorage() {
+        StepVerifier.create(seals.remove("project",0).contextWrite(access(false)))
+            .expectError(AccessDenyException.class).verify();
+        StepVerifier.create(seals.upload("project",0,file(new byte[PropertyProjectSealService.MAX_BYTES+1])).contextWrite(access(true)))
+            .expectErrorMatches(e->e.getMessage().contains("seal_invalid")).verify();
+        verifyNoInteractions(files);
+    }
     private static byte[] png(int width,int height) throws Exception {
         var out=new java.io.ByteArrayOutputStream();javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(width,height,2),"png",out);return out.toByteArray();
     }

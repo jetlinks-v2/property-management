@@ -12,6 +12,26 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class PropertyOrganizationControllerTest {
     @Test
+    void multipartUploadAndRemovalRequireSealActionWhileReadRequiresQuery() throws Exception {
+        for (String name : List.of("uploadSeal", "removeSeal", "readSeal")) {
+            Class<?>[] signature = switch (name) {
+                case "uploadSeal" -> new Class<?>[] {
+                        String.class, long.class, org.springframework.http.codec.multipart.FilePart.class};
+                case "removeSeal" -> new Class<?>[] {String.class, long.class};
+                default -> new Class<?>[] {String.class};
+            };
+            String action = name.equals("readSeal") ? "query" : "seal";
+            var definition = DefaultBasicAuthorizeDefinition.from(PropertyOrganizationController.class,
+                    PropertyOrganizationController.class.getMethod(name, signature));
+            assertTrue(definition.getResources().hasPermission(new TestAuthentication("operator")
+                    .addPermission("property-organization", action)));
+            assertFalse(definition.getResources().hasPermission(new TestAuthentication("type-only")
+                    .addPermission("property-organization", "save")));
+            assertFalse(definition.getResources().hasPermission(new TestAuthentication("ungranted")));
+        }
+    }
+
+    @Test
     void sealRequiresDedicatedActionAndExplicitFileAndVersion() throws Exception {
         var method = PropertyProjectSealController.class.getMethod("updateSeal", String.class,
                 PropertyProjectSealController.SealUpdate.class);

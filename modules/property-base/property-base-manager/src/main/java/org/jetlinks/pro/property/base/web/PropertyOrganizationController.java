@@ -34,7 +34,8 @@ public class PropertyOrganizationController {
     private final org.jetlinks.pro.property.base.service.PropertyProjectSealService seals;
 
     @PutMapping(value = "/{id}/project-seal", consumes = "multipart/form-data")
-    @ResourceAction(id = "save", name = "维护项目章")
+    // 与既有项目章按钮及引用接口保持同一动作；类型标注 save 不自动授予维护章权限。
+    @ResourceAction(id = "seal", name = "维护项目章")
     @Operation(summary = "仅项目组织可上传PNG或JPEG章图片")
     public Mono<PropertyOrganizationEntity> uploadSeal(@PathVariable String id, @RequestParam long version,
             @RequestPart("file") org.springframework.http.codec.multipart.FilePart file) {
@@ -42,7 +43,7 @@ public class PropertyOrganizationController {
     }
 
     @DeleteMapping("/{id}/project-seal")
-    @ResourceAction(id = "save", name = "维护项目章")
+    @ResourceAction(id = "seal", name = "维护项目章")
     public Mono<PropertyOrganizationEntity> removeSeal(@PathVariable String id, @RequestParam long version) {
         return seals.remove(id, version);
     }
