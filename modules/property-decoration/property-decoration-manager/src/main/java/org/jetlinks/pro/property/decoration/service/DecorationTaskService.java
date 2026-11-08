@@ -149,7 +149,12 @@ public class DecorationTaskService {
         return tasks.createQuery().where("decorationId", row.getId()).and("round", row.getAcceptanceRound()).and("kind", kind).fetch()
             .take(31).collectList().doOnNext(current -> {
                 require(!current.isEmpty() && current.size() <= 30, "invalid_state");
-                if (current.stream().allMatch(t -> "passed".equals(t.getStatus()))) row.setStatus(row.getAcceptanceType() == 1 ? "pending_second_acceptance" : "acceptance_passed");
+                // 本轮仍有人待反馈时不公布结论，避免提前重提使其待办停留在旧轮次。
+                if (current.stream().anyMatch(t -> "pending".equals(t.getStatus()))) return;
+                if (current.stream().allMatch(t -> "passed".equals(t.getStatus()))) {
+                    row.setStatus(row.getAcceptanceType() == 1 ? "pending_second_acceptance" : "acceptance_passed");
+                    if (row.getAcceptanceType() == 1) row.getDetails().setFirstAcceptancePassedTime(System.currentTimeMillis());
+                }
                 else if (current.stream().anyMatch(t -> "failed".equals(t.getStatus()))) row.setStatus(row.getAcceptanceType() == 1 ? "first_acceptance_failed" : "second_acceptance_failed");
             }).then();
     }

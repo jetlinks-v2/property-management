@@ -24,6 +24,15 @@ public final class DecorationRules {
         }
         items.sort(order);
     }
+    /** HTTP校验之外保持同一规则，服务内部入口不能持久化不合法的联系方式。 */
+    public static void applicationContacts(org.jetlinks.pro.property.decoration.model.DecorationRequests.Create input) {
+        var phone = org.jetlinks.pro.property.decoration.model.DecorationRequests.PHONE_FORMAT;
+        var identity = org.jetlinks.pro.property.decoration.model.DecorationRequests.IDENTITY_FORMAT;
+        require(input.getContactPhone() != null && input.getContactPhone().matches(phone), "invalid_owner_phone");
+        require(input.getManagerPhone() != null && input.getManagerPhone().matches(phone), "invalid_manager_phone");
+        require(input.getOwnerCertificate() != null && input.getOwnerCertificate().matches(identity), "invalid_owner_identity");
+        require(input.getManagerCertificate() != null && input.getManagerCertificate().matches(identity), "invalid_manager_identity");
+    }
     public static void active(DecorationApplicationEntity row) { require(row.getActualEndTime() == null, "ended"); }
     public static void editable(DecorationApplicationEntity row) {
         active(row); require(row.getPaymentStatus() == 0 && row.getPermit() == null, "payment_locked");

@@ -81,7 +81,7 @@ public class DecorationConfigurationService {
     }
     static void validate(DecorationRequests.Config input) {
         var content = input.getContent(); require(content.getMaterials().size() <= 200 && content.getChecks().size() <= 200, "too_many");
-        require(java.util.Set.of("agreement", "materials", "checks", "access", "validity").contains(input.getKind()), "invalid_configuration");
+        require(java.util.Set.of("agreement", "materials", "checks", "validity").contains(input.getKind()), "invalid_configuration");
         require(input.getHouseType() != null && input.getDecorationType() != null && input.getScene() != null, "invalid_configuration");
         if (Set.of("agreement", "materials", "checks").contains(input.getKind())) require(!input.getHouseType().isBlank(), "invalid_configuration");
         if (Set.of("materials", "checks").contains(input.getKind())) require(Set.of("first", "second").contains(input.getDecorationType()), "invalid_configuration");
@@ -95,7 +95,14 @@ public class DecorationConfigurationService {
                 && (agreement.getSecondRefund() == null || agreement.getSecondRefund().signum() >= 0)
                 && agreement.getFees().values().stream().allMatch(v -> v != null && v.signum() >= 0), "invalid_amount");
         }
-        if ("access".equals(input.getKind())) require(!content.getEligibleNatures().isEmpty(), "owner_mapping_required");
+        if ("agreement".equals(input.getKind())) {
+            var agreement = content.getAgreement();
+            var first = agreement.getFirstRefund() == null ? java.math.BigDecimal.ZERO : agreement.getFirstRefund();
+            var second = agreement.getSecondRefund() == null ? java.math.BigDecimal.ZERO : agreement.getSecondRefund();
+            require(first.add(second).compareTo(agreement.getDeposit()) <= 0 && first.scale() <= 2 && second.scale() <= 2, "invalid_refund_amount");
+            var total = agreement.getRefundAmount();
+            require(total == null || total.signum() >= 0 && total.compareTo(agreement.getDeposit()) <= 0 && total.scale() <= 2, "invalid_refund_amount");
+        }
         if ("validity".equals(input.getKind())) require(content.getValidityMonths() != null && content.getValidityMonths() > 0 && content.getValidityMonths() <= 120, "invalid_configuration");
         require(content.getMaterials().stream().map(DecorationModels.MaterialDefinition::getId).distinct().count() == content.getMaterials().size(), "invalid_configuration");
         for (var item : content.getMaterials()) require(item.getId() != null && item.getName() != null && Set.of("material","drawing").contains(item.getKind()) && Set.of("upload","sign").contains(item.getSource()), "invalid_configuration");

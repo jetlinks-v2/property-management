@@ -24,6 +24,16 @@ public class DecorationDirectoryController {
     private final DecorationConfigurationService configurations;
     private final DecorationFinanceService finance;
     private final DecorationRoleService roles;
+    private final org.springframework.beans.factory.ObjectProvider<org.jetlinks.pro.property.decoration.model.DecorationChargeItemGateway> chargeItems;
+    @PostMapping("/charge-items/{projectId}/_query") @ResourceAction(id="manage",name="查询收费科目")
+    public Mono<PagerResult<org.jetlinks.pro.property.decoration.model.DecorationChargeItemGateway.ChargeItem>> chargeItems(@PathVariable String projectId, @RequestBody QueryParamEntity input) {
+        return scope.current().then(scope.employee()).then(scope.project(projectId)).flatMap(project -> {
+            var gateway=chargeItems.getIfAvailable();
+            if(gateway==null)return Mono.error(DecorationRules.error("charge_directory_unavailable",503));
+            var query=input.clone();query.setPaging(true);query.setPageSize(Math.max(1,Math.min(100,query.getPageSize())));query.setPageIndex(Math.max(0,query.getPageIndex()));
+            return gateway.query(projectId,query).switchIfEmpty(Mono.error(DecorationRules.error("charge_directory_unavailable",503)));
+        });
+    }
     @GetMapping("/projects") @QueryAction
     public Flux<PropertyOrganizationInfo> projects() { return scope.current().thenMany(scope.tree()); }
     @GetMapping("/households/{projectId}") @ResourceAction(id="manage",name="管理端查询房屋关联")

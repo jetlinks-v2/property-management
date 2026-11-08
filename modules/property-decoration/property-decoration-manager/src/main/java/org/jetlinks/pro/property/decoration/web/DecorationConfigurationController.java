@@ -17,7 +17,7 @@ import org.jetlinks.pro.property.decoration.model.DecorationConfigurationImports
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Flux;
 
-/** 协议、资料、检查项、有效期和办理关系映射；维度不可通过编辑迁移。 */
+/** 协议、资料、检查项和有效期；维度不可通过编辑迁移。 */
 @RestController @Authorize @RequiredArgsConstructor @Validated
 @RequestMapping("/decoration/configurations") @Resource(id="decoration-configuration",name="装修基础配置")
 public class DecorationConfigurationController {

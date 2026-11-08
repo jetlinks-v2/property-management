@@ -77,6 +77,7 @@ public class DecorationApplicationService {
             .orderBy(org.hswebframework.ezorm.rdb.operator.dml.query.SortOrder.asc("version")).fetch());
     }
     public Mono<DecorationApplicationEntity> create(DecorationRequests.Create input, boolean mine) {
+        applicationContacts(input);
         require(input.getStartTime() <= input.getCompletionTime(), "invalid_dates");
         return scope.current().flatMap(ctx -> (mine ? Mono.empty() : scope.employee().then())
             .then(scope.household(input.getProjectId(), input.getSpaceId(), input.getCustomerId(), mine))
@@ -102,14 +103,12 @@ public class DecorationApplicationService {
                 && old.getSource().equals(mine ? "h5_owner" : "pc_admin"), "request_conflict");
             return Mono.just(old);
         }).switchIfEmpty(Mono.defer(() -> Mono.zip(
-            configurations.match(ctx, input.getProjectId(), "access", "", "", ""),
             configurations.match(ctx, input.getProjectId(), "agreement", home.houseType(), "", ""),
             configurations.match(ctx, input.getProjectId(), "materials", home.houseType(), input.getDecorationType(), ""),
             scope.project(input.getProjectId()))
             .flatMap(tuple -> {
-                require(tuple.getT1().getContent().getEligibleNatures().contains(home.nature()), "household_mismatch");
                 var row = new DecorationApplicationEntity(); row.setId(id); row.setApplicationId(ctx.applicationId()); row.setTenantId(ctx.tenantId());
-                row.setProjectId(input.getProjectId()); row.setProjectName(tuple.getT4().getName()); row.setSpaceId(home.spaceId()); row.setSpaceName(home.spaceName());
+                row.setProjectId(input.getProjectId()); row.setProjectName(tuple.getT3().getName()); row.setSpaceId(home.spaceId()); row.setSpaceName(home.spaceName());
                 row.setCustomerId(home.customerId()); row.setOwnerUserId(home.userId()); row.setOwnerName(home.customerName()); row.setContactPhone(input.getContactPhone()); row.setRelationshipId(home.relationshipId());
                 row.setCreatorId(ctx.userId()); row.setCreatorName(ctx.userName()); row.setSource(mine ? "h5_owner" : "pc_admin"); row.setRequestDigest(digest);
                 row.setNumber("ZX-" + DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneId.of("Asia/Shanghai")).format(Instant.now()) + "-" + id.substring(0,8).toUpperCase(java.util.Locale.ROOT));
@@ -122,8 +121,9 @@ public class DecorationApplicationService {
                 details.setManagerPhone(input.getManagerPhone()); details.setManagerCertificate(input.getManagerCertificate()); details.setConstructionType(input.getConstructionType());
                 details.setDecorationType(input.getDecorationType()); details.setHouseType(home.houseType()); details.setStartTime(input.getStartTime()); details.setCompletionTime(input.getCompletionTime());
                 details.setNoticesAccepted(input.isNoticesAccepted()); details.setSelfInspectionStatus(input.getSelfInspectionStatus()); details.setSelfInspectionRemark(input.getSelfInspectionRemark()); details.setSelfInspectionFiles(input.getSelfInspectionFiles()); details.setSignatureFiles(input.getSignatureFiles());
-                details.setAgreement(tuple.getT2().getContent().getAgreement());
-                details.setMaterials(materials(tuple.getT3().getContent().getMaterials(), input.getMaterials())); row.setDetails(details);
+                details.setAgreement(tuple.getT1().getContent().getAgreement());
+                details.setSignedDocuments(DecorationDocuments.freeze(input, home, details.getAgreement(), ctx));
+                details.setMaterials(materials(tuple.getT2().getContent().getMaterials(), input.getMaterials())); row.setDetails(details);
                 var ids = new ArrayList<>(files(row));
                 return attachments.validate(ids, row.getProjectId(), null, ctx, false).then(repository.insert(row))
                     .then(attachments.consume(ids, id, ctx)).then(selfInspections.capture(row))
@@ -179,6 +179,7 @@ public class DecorationApplicationService {
     public static List<String> files(DecorationApplicationEntity row) {
         var files = new ArrayList<>(row.getDetails().getSelfInspectionFiles()); files.addAll(row.getDetails().getSignatureFiles());
         row.getDetails().getMaterials().forEach(m -> { files.addAll(m.getFileIds()); if (m.getAnnotatedFileId() != null) files.add(m.getAnnotatedFileId()); });
+        row.getDetails().getSignedDocuments().forEach(d -> {files.add(d.getSignatureFileId());files.add(d.getDocumentFileId());});
         return files;
     }
     public static String identity(String seed) { return UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8)).toString(); }

@@ -24,7 +24,8 @@ public class DecorationRoleService {
         return scope.current().flatMap(ctx -> {
             var query = request.clone(); query.setTotal(null); query.setPaging(true);
             query.setPageIndex(Math.max(0, query.getPageIndex())); query.setPageSize(Math.min(200, Math.max(1, query.getPageSize())));
-            query.toNestQuery(q -> q.and("applicationId", ctx.applicationId()));
+            // 禁用角色不能成为新的巡检/复核指派对象；与应用范围一起置于外部 OR 条件之外。
+            query.toNestQuery(q -> q.and("applicationId", ctx.applicationId()).and("state", "enabled"));
             var command = QueryPagerCommand.of(RoleInfo.class); command.withQueryParam(query);
             return execute(command).map(page -> {
                 var rows = ((java.util.List<?>) page.getData()).stream().map(value -> project(value, ctx.applicationId())).toList();

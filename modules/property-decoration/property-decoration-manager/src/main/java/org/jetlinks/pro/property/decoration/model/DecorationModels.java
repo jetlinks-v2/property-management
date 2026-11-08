@@ -28,7 +28,14 @@ public final class DecorationModels {
         private Long reviewTime;
         private String remark;
         private String annotatedFileId;
+        private String annotationSourceFileId;
+        private List<ImageMark> annotations = new ArrayList<>();
     }
+    public record ImageMark(@jakarta.validation.constraints.DecimalMin("0") @jakarta.validation.constraints.DecimalMax("1") double x,
+        @jakarta.validation.constraints.DecimalMin("0") @jakarta.validation.constraints.DecimalMax("1") double y,
+        @jakarta.validation.constraints.DecimalMin("0.005") @jakarta.validation.constraints.DecimalMax("1") double width,
+        @jakarta.validation.constraints.DecimalMin("0.005") @jakarta.validation.constraints.DecimalMax("1") double height,
+        @jakarta.validation.constraints.Size(max=200) String text) {}
     @Getter @Setter public static class CheckItem {
         private String id;
         private String category;
@@ -59,6 +66,9 @@ public final class DecorationModels {
         private String chargeItemId;
         private String chargeItemName;
         private BigDecimal deposit;
+        /** 二次验收通过后一次性退款总额；未配置时退还实收保证金。 */
+        private BigDecimal refundAmount;
+        /** 历史配置只读兼容字段，不再开放分期办理。 */
         private BigDecimal firstRefund;
         private BigDecimal secondRefund;
         private java.util.Map<String, BigDecimal> fees = new java.util.LinkedHashMap<>();
@@ -93,6 +103,26 @@ public final class DecorationModels {
         private List<String> signatureFiles = new ArrayList<>();
         private List<Material> materials = new ArrayList<>();
         private Agreement agreement;
+        private List<SignedDocument> signedDocuments = new ArrayList<>();
+        private Long firstAcceptancePassedTime;
+        private List<RefundStage> refunds = new ArrayList<>();
+    }
+    @Getter @Setter public static class SignedDocument {
+        private String kind;
+        private String title;
+        private String content;
+        private String signatureFileId;
+        private String documentFileId;
+        private String signedBy;
+        private String signedName;
+        private Long signedTime;
+    }
+    /** 分期收据保留在申请快照中；总额字段始终为累计退款，不覆盖首次凭据。 */
+    @Getter @Setter public static class RefundStage {
+        private String stage;
+        private BigDecimal amount;
+        private String reference;
+        private Long settledTime;
     }
     @Getter @Setter public static class Permit {
         private String number;

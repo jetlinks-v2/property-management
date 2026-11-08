@@ -11,17 +11,20 @@ import java.util.List;
 /** 外部请求不接受持久化状态、业务快照或认证身份；只包含对应动作的可编辑字段。 */
 public final class DecorationRequests {
     private DecorationRequests() {}
+    /** 沿用原系统联系电话和15/18位身份证格式；这里只校验格式，不据此确认本人身份。 */
+    public static final String PHONE_FORMAT = "(?:1[3-9]\\d{9}|\\d{8}|0\\d{2,3}-?\\d{7,8})";
+    public static final String IDENTITY_FORMAT = "(?:\\d{15}|\\d{17}[\\dXx])";
     @Getter @Setter public static class Create {
         @NotBlank @Size(max=64) private String requestId;
         @NotBlank @Size(max=64) private String projectId;
         @NotBlank @Size(max=64) private String spaceId;
         @NotBlank @Size(max=64) private String customerId;
-        @NotBlank @Size(max=64) private String contactPhone;
+        @NotBlank @Pattern(regexp=PHONE_FORMAT,message="{error.decoration.invalid_owner_phone}") @Size(max=64) private String contactPhone;
         @NotBlank @Size(max=128) private String constructionUnit;
         @NotBlank @Size(max=128) private String constructionManager;
-        @NotBlank @Size(max=64) private String managerPhone;
-        @Size(max=128) private String ownerCertificate;
-        @Size(max=128) private String managerCertificate;
+        @NotBlank @Pattern(regexp=PHONE_FORMAT,message="{error.decoration.invalid_manager_phone}") @Size(max=64) private String managerPhone;
+        @NotBlank @Pattern(regexp=IDENTITY_FORMAT,message="{error.decoration.invalid_owner_identity}") @Size(max=18) private String ownerCertificate;
+        @NotBlank @Pattern(regexp=IDENTITY_FORMAT,message="{error.decoration.invalid_manager_identity}") @Size(max=18) private String managerCertificate;
         @Min(1) @Max(2) private int constructionType;
         @NotBlank @Size(max=64) private String decorationType;
         @NotNull private Long startTime;
@@ -31,7 +34,14 @@ public final class DecorationRequests {
         @Min(0) @Max(1) private int selfInspectionStatus;
         @Size(max=20) private List<String> selfInspectionFiles = new ArrayList<>();
         @Size(max=20) private List<String> signatureFiles = new ArrayList<>();
+        @Valid @Size(min=4,max=4) private List<SignedDocument> signedDocuments = new ArrayList<>();
         @Valid @Size(max=200) private List<MaterialUpload> materials = new ArrayList<>();
+    }
+    @Getter @Setter public static class SignedDocument {
+        @NotBlank private String kind;
+        @NotBlank @Size(max=40000) private String content;
+        @NotBlank @Size(max=64) private String signatureFileId;
+        @NotBlank @Size(max=64) private String documentFileId;
     }
     @Getter @Setter public static class MaterialUpload {
         @NotBlank @Size(max=64) private String itemId;
@@ -50,6 +60,8 @@ public final class DecorationRequests {
         @NotBlank private String itemId;
         @Min(1) @Max(2) private int result;
         private String annotatedFileId;
+        private String annotationSourceFileId;
+        @Valid @Size(max=50) private List<DecorationModels.ImageMark> annotations = new ArrayList<>();
         @DecimalMin("0.01") @DecimalMax("9999999999.99") @Digits(integer=10,fraction=2) private BigDecimal amount;
     }
     @Getter @Setter public static class Resubmit extends Action {
@@ -100,7 +112,7 @@ public final class DecorationRequests {
     @Getter @Setter public static class Config {
         private String id;
         @NotBlank private String projectId;
-        @Pattern(regexp="agreement|materials|checks|access|validity") @NotNull private String kind;
+        @Pattern(regexp="agreement|materials|checks|validity") @NotNull private String kind;
         @NotBlank @Size(max=128) private String name;
         @Size(max=64) private String houseType = "";
         @Size(max=64) private String decorationType = "";

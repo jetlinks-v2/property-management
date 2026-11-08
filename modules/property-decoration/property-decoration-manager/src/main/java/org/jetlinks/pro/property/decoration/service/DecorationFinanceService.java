@@ -9,6 +9,8 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import java.util.Objects;
+import java.math.BigDecimal;
+import org.jetlinks.pro.property.decoration.model.DecorationModels;
 import java.util.Map;
 import static org.jetlinks.pro.property.decoration.service.DecorationRules.*;
 
@@ -28,24 +30,28 @@ public class DecorationFinanceService {
     public Mono<DecorationApplicationEntity> process(String id, DecorationRequests.Finance input, boolean refund, boolean mine) {
         return applications.mutate(id, refund ? "refund" : "payment", input, mine, (row, ctx) -> {
             active(row);
-            if (refund) {
-                require("acceptance_passed".equals(row.getStatus()) && row.getPaymentStatus() == 2 && row.getRefundStatus() != 2, "refund_not_allowed");
-            } else {
+            RefundPlan plan = refund ? refundPlan(row) : null;
+            if (!refund) {
                 require("pending_payment".equals(row.getStatus()) && row.getDepositReviewStatus() == 1, "review_required");
                 amount(row.getApprovedDeposit());
             }
             boolean offline = "pc_admin".equals(row.getSource());
             require(!offline || !mine && input.getReference() != null && !input.getReference().isBlank(), "finance_reference_required");
+            // 零金额末期只结束流程，不伪造外部退款凭据。
+            if (refund && plan.amount().signum() == 0) {
+                finishRefund(row, plan, null, System.currentTimeMillis());
+                return Mono.empty();
+            }
             var gateway = gateways.getIfAvailable();
             if (gateway == null) return Mono.error(error("finance_unavailable", 503));
-            var request = new DecorationFinanceGateway.Request(DecorationApplicationService.identity(id + (refund ? ":refund" : ":payment")), id,
+            var request = new DecorationFinanceGateway.Request(DecorationApplicationService.identity(id + (refund ? ":refund:" + plan.stage() : ":payment")), id,
                 ctx.applicationId(), ctx.tenantId(), row.getProjectId(), row.getSpaceId(), row.getOwnerUserId(), row.getDetails().getAgreement().getChargeItemId(),
-                refund ? row.getPaidAmount() : row.getApprovedDeposit(), input.getReference(), offline);
+                refund ? plan.amount() : row.getApprovedDeposit(), input.getReference(), offline);
             return (refund ? gateway.refund(request) : gateway.payment(request)).switchIfEmpty(Mono.error(error("finance_unavailable", 503)))
-                .flatMap(result -> apply(row, request, result, refund));
+                .flatMap(result -> apply(row, request, result, refund, plan));
         });
     }
-    private Mono<Void> apply(DecorationApplicationEntity row, DecorationFinanceGateway.Request request, DecorationFinanceGateway.Result result, boolean refund) {
+    private Mono<Void> apply(DecorationApplicationEntity row, DecorationFinanceGateway.Request request, DecorationFinanceGateway.Result result, boolean refund, RefundPlan plan) {
         require(Objects.equals(result.decorationId(), request.decorationId()) && Objects.equals(result.applicationId(), request.applicationId())
             && Objects.equals(result.tenantId(), request.tenantId()) && Objects.equals(result.projectId(), request.projectId())
             && Objects.equals(result.spaceId(), request.spaceId()) && Objects.equals(result.ownerUserId(), request.ownerUserId())
@@ -65,11 +71,40 @@ public class DecorationFinanceService {
         receipt.setDecorationId(row.getId()); receipt.setDirection(refund ? "refund" : "payment"); receipt.setProvider(result.provider()); receipt.setReference(result.reference()); receipt.setCreateTime(System.currentTimeMillis());
         return receipts.insert(receipt).doOnSuccess(ignore -> {
             if (refund) {
-                row.setRefundStatus(2); row.setRefundReference(result.reference()); row.setRefundedAmount(result.amount()); row.setRefundTime(result.settledTime());
-                row.setActualEndTime(result.settledTime()); row.setActiveHouseKey(null); row.setStatus("finished");
+                finishRefund(row, plan, result.reference(), result.settledTime());
             } else {
                 row.setPaymentStatus(2); row.setPaymentReference(result.reference()); row.setPaidAmount(result.amount()); row.setPaidTime(result.settledTime()); row.setStatus("pending_permit");
             }
         }).then();
     }
+    record RefundPlan(String stage, BigDecimal amount, boolean last) {}
+    /** 二验通过后按冻结协议一次性结算；历史分期配置合并总额，并扣除已核验退款。 */
+    static RefundPlan refundPlan(DecorationApplicationEntity row) {
+        require(row.getPaymentStatus() == 2 && row.getRefundStatus() != 2, "refund_not_allowed");
+        require("acceptance_passed".equals(row.getStatus()), "refund_not_allowed");
+        var agreement = row.getDetails().getAgreement();
+        BigDecimal total = agreement.getRefundAmount();
+        if (total == null) {
+            total = agreement.getFirstRefund() == null && agreement.getSecondRefund() == null
+                ? row.getPaidAmount()
+                : (agreement.getFirstRefund() == null ? BigDecimal.ZERO : agreement.getFirstRefund())
+                    .add(agreement.getSecondRefund() == null ? BigDecimal.ZERO : agreement.getSecondRefund());
+        }
+        BigDecimal refunded = row.getRefundedAmount() == null ? BigDecimal.ZERO : row.getRefundedAmount();
+        require(total.signum() >= 0 && total.compareTo(row.getPaidAmount()) <= 0 && refunded.signum() >= 0 && refunded.compareTo(total) <= 0, "invalid_refund_amount");
+        return new RefundPlan("single", total.subtract(refunded), true);
+    }
+    private static void finishRefund(DecorationApplicationEntity row, RefundPlan plan, String reference, long time) {
+        BigDecimal refunded = row.getRefundedAmount() == null ? BigDecimal.ZERO : row.getRefundedAmount();
+        require(refunded.add(plan.amount()).compareTo(row.getPaidAmount()) <= 0, "invalid_refund_amount");
+        var stage = new DecorationModels.RefundStage();
+        stage.setStage(plan.stage()); stage.setAmount(plan.amount()); stage.setReference(reference); stage.setSettledTime(time);
+        row.getDetails().getRefunds().add(stage);
+        row.setRefundedAmount(refunded.add(plan.amount())); row.setRefundReference(reference); row.setRefundTime(time);
+        row.setRefundStatus(plan.last() ? 2 : 0);
+        if (plan.last()) {
+            row.setActualEndTime(time); row.setActiveHouseKey(null); row.setStatus("finished");
+        }
+    }
+
 }

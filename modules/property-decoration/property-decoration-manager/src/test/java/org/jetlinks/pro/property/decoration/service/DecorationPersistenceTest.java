@@ -89,24 +89,40 @@ class DecorationPersistenceTest {
                 ?Mono.just(new PropertyHouseholdInfo("project","house","一栋101","residential","customer","owner","业主","13800000000","relationship","owner"))
                 :Mono.error(DecorationRules.error("household_mismatch",403)));
         });
-        for(String kind:List.of("access","agreement","materials","checks")){
+        for(String kind:List.of("agreement","materials","checks")){
             var input=config(kind);configurations.save(input).contextWrite(auth("admin")).block(WAIT);
         }
     }
     @Test void createIdempotencyHouseOccupancyAndEndAreAtomic(){
-        var input=create("same");var row=applications.create(input,false).contextWrite(auth("admin")).block(WAIT);
-        assertEquals(row.getId(),applications.create(input,false).contextWrite(auth("admin")).block(WAIT).getId());
+        var input=create("same");var row=createSigned(input,false).contextWrite(auth("admin")).block(WAIT);
+        assertEquals(row.getId(),createSigned(input,false).contextWrite(auth("admin")).block(WAIT).getId());
         assertEquals(1,histories.createQuery().count().block(WAIT));
-        input.setConstructionUnit("变更内容");assertCode(applications.create(input,false),"request_conflict","admin");
-        assertCode(applications.create(create("other"),false),"house_occupied","admin");
+        input.setConstructionUnit("变更内容");assertCode(createSigned(input,false),"request_conflict","admin");
+        assertCode(createSigned(create("other"),false),"house_occupied","admin");
         var action=action(row);action.setRemark("施工取消");row=reviews.end(row.getId(),action).contextWrite(auth("admin")).block(WAIT);
         assertNull(rows.findById(row.getId()).block(WAIT).getActiveHouseKey());
         assertEquals(0,row.getRefundStatus());
         assertCode(reviews.end(row.getId(),action(row)),"ended","admin");
-        assertNotNull(applications.create(create("new"),false).contextWrite(auth("admin")).block(WAIT));
+        assertNotNull(createSigned(create("new"),false).contextWrite(auth("admin")).block(WAIT));
+    }
+    @Test void invalidContactsAreRejectedBeforeCreatingAnApplication(){
+        var input=create("invalid-contact");input.setContactPhone("123");
+        var invalidOwnerPhone=assertThrows(org.hswebframework.web.exception.BusinessException.class,()->applications.create(input,false));
+        assertEquals("error.decoration.invalid_owner_phone",invalidOwnerPhone.getMessage());
+        input.setContactPhone("010-12345678");input.setManagerPhone("+8613900000000");
+        assertEquals("error.decoration.invalid_manager_phone",assertThrows(org.hswebframework.web.exception.BusinessException.class,()->applications.create(input,false)).getMessage());
+        input.setManagerPhone("13900000000");input.setOwnerCertificate("bad");
+        assertEquals("error.decoration.invalid_owner_identity",assertThrows(org.hswebframework.web.exception.BusinessException.class,()->applications.create(input,false)).getMessage());
+        input.setOwnerCertificate("11010519491231002x");input.setManagerCertificate("");
+        assertEquals("error.decoration.invalid_manager_identity",assertThrows(org.hswebframework.web.exception.BusinessException.class,()->applications.create(input,false)).getMessage());
+        assertEquals(0,rows.createQuery().count().block(WAIT));
+        input.setManagerCertificate("130503670401001");
+        var row=createSigned(input,false).contextWrite(auth("admin")).block(WAIT);
+        assertEquals("010-12345678",row.getContactPhone());
+        assertEquals("130503670401001",row.getDetails().getManagerCertificate());
     }
     @Test void actualEndTimeClosesAndReleasesHouseWithIdempotencyAndVersionControl(){
-        var row=applications.create(create("actual-end"),false).contextWrite(auth("admin")).block(WAIT);
+        var row=createSigned(create("actual-end"),false).contextWrite(auth("admin")).block(WAIT);
         var input=new DecorationRequests.ChangeActualEndTime();input.setRequestId("set-actual-end");input.setVersion(row.getVersion());
         long start=row.getStartTime(),planned=row.getCompletionTime();input.setActualEndTime(start-1);
         assertCode(reviews.changeActualEndTime(row.getId(),input),"invalid_dates","admin");
@@ -120,7 +136,7 @@ class DecorationPersistenceTest {
         assertEquals(2,histories.createQuery().count().block(WAIT));
         input.setActualEndTime(start+2000);assertCode(reviews.changeActualEndTime(row.getId(),input),"request_conflict","admin");
         input.setRequestId("stale");assertCode(reviews.changeActualEndTime(row.getId(),input),"version_conflict","admin");
-        var next=applications.create(create("same-house-again"),false).contextWrite(auth("admin")).block(WAIT);
+        var next=createSigned(create("same-house-again"),false).contextWrite(auth("admin")).block(WAIT);
         input.setVersion(row.getVersion());input.setRequestId("correct-ended-time");
         var corrected=reviews.changeActualEndTime(row.getId(),input).contextWrite(auth("admin")).block(WAIT);
         assertEquals(start+2000,corrected.getActualEndTime());assertEquals("finished",corrected.getStatus());
@@ -280,8 +296,8 @@ class DecorationPersistenceTest {
         input.setReviewRoleId("review");input.setInspectionRoles(List.of(new DecorationModels.InspectionRole("patrol-a",null,2),new DecorationModels.InspectionRole("patrol-b",null,3)));return input;
     }
     @Test void concurrentCreateAndConcurrentActionsNeverDuplicateHistory(){
-        var results=Flux.merge(applications.create(create("one"),false).map(r->true).onErrorReturn(false),
-            applications.create(create("two"),false).map(r->true).onErrorReturn(false)).collectList().contextWrite(auth("admin")).block(WAIT);
+        var results=Flux.merge(createSigned(create("one"),false).map(r->true).onErrorReturn(false),
+            createSigned(create("two"),false).map(r->true).onErrorReturn(false)).collectList().contextWrite(auth("admin")).block(WAIT);
         assertEquals(1,results.stream().filter(Boolean::booleanValue).count());assertEquals(1,rows.createQuery().count().block(WAIT));
         var row=rows.createQuery().fetchOne().block(WAIT);var a=action(row);a.setRemark("结束");
         var both=Flux.merge(reviews.end(row.getId(),a),reviews.end(row.getId(),a)).collectList().contextWrite(auth("admin")).block(WAIT);
@@ -289,12 +305,12 @@ class DecorationPersistenceTest {
     }
     @Test void concurrentSameCreateRequestResolvesToOneCommittedResult(){
         var input=create("same-concurrent");
-        var results=Flux.merge(applications.create(input,false), applications.create(input,false)).collectList().contextWrite(auth("admin")).block(WAIT);
+        var results=Flux.merge(createSigned(input,false), createSigned(input,false)).collectList().contextWrite(auth("admin")).block(WAIT);
         assertEquals(2,results.size());assertEquals(results.get(0).getId(),results.get(1).getId());
         assertEquals(1,rows.createQuery().count().block(WAIT));assertEquals(1,histories.createQuery().count().block(WAIT));
     }
     @Test void scopesConstrainOrFiltersDetailsStatisticsExportAndOwner(){
-        var row=applications.create(create("one"),false).contextWrite(auth("admin")).block(WAIT);
+        var row=createSigned(create("one"),false).contextWrite(auth("admin")).block(WAIT);
         var foreign=cloneRow(row);foreign.setId("foreign");foreign.setApplicationId("another-app");foreign.setActiveHouseKey("foreign");rows.insert(foreign).block(WAIT);
         var denied=cloneRow(row);denied.setId("denied");denied.setProjectId("denied");denied.setActiveHouseKey("denied");rows.insert(denied).block(WAIT);
         var q=QueryParamEntity.newQuery().where("id","foreign").or("id",row.getId()).getParam();
@@ -304,10 +320,10 @@ class DecorationPersistenceTest {
         assertEquals(1,applications.export(new QueryParamEntity()).contextWrite(auth("admin")).block(WAIT).size());
         assertCode(applications.read(row.getId(),true),"not_found","other-owner");
         assertNotNull(applications.read(row.getId(),true).contextWrite(auth("owner")).block(WAIT));
-        assertCode(applications.create(create("forged"),true),"household_mismatch","other-owner");
+        assertCode(createSigned(create("forged"),true),"household_mismatch","other-owner");
     }
     @Test void depositRequiresExplicitReviewAndFinanceBlocksWithoutAdapter(){
-        var row=applications.create(create("one"),false).contextWrite(auth("admin")).block(WAIT);
+        var row=createSigned(create("one"),false).contextWrite(auth("admin")).block(WAIT);
         assertEquals("reviewing",row.getStatus());
         var review=new DecorationRequests.Review();review.setRequestId("deposit");review.setVersion(row.getVersion());review.setItemId("deposit");review.setResult(1);review.setAmount(new BigDecimal("1000"));
         row=reviews.review(row.getId(),review).contextWrite(auth("admin")).block(WAIT);assertEquals("pending_payment",row.getStatus());
@@ -341,7 +357,7 @@ class DecorationPersistenceTest {
         clearInvocations(projectSeals);assertCode(documents.prepare(foreign.getId()),"not_found","admin");verifyNoInteractions(projectSeals);
     }
     @Test void permitDocumentCannotBypassReviewOrPayment(){
-        var row=applications.create(create("no-paid-document"),false).contextWrite(auth("admin")).block(WAIT);
+        var row=createSigned(create("no-paid-document"),false).contextWrite(auth("admin")).block(WAIT);
         assertCode(documents.prepare(row.getId()),"payment_required","admin");verifyNoInteractions(projectSeals);
     }
     @Test void permitStatusAndPrintTimeFilterBeforePagingWithinTheAuthorizedScope(){
@@ -382,12 +398,18 @@ class DecorationPersistenceTest {
         var material=new DecorationModels.MaterialDefinition();material.setId("drawing");material.setName("施工图");material.setKind("drawing");material.setSource("upload");material.setRequired(true);
         var config=config("materials");config.setVersion(1);config.getContent().setMaterials(new ArrayList<>(List.of(material)));configurations.save(config).contextWrite(auth("admin")).block(WAIT);
         file("original","admin","project",null);var input=create("one");var upload=new DecorationRequests.MaterialUpload();upload.setItemId("drawing");upload.setFileIds(List.of("original"));input.setMaterials(List.of(upload));
-        var row=applications.create(input,false).contextWrite(auth("admin")).block(WAIT);
-        var review=new DecorationRequests.Review();review.setRequestId("reject");review.setVersion(row.getVersion());review.setItemId("drawing");review.setResult(2);review.setRemark("图纸不清晰");row=reviews.review(row.getId(),review).contextWrite(auth("admin")).block(WAIT);
+        var row=createSigned(input,false).contextWrite(auth("admin")).block(WAIT);
+        file("marked","admin","project",row.getId());
+        var review=new DecorationRequests.Review();review.setRequestId("reject");review.setVersion(row.getVersion());review.setItemId("drawing");review.setResult(2);review.setRemark("图纸不清晰");review.setAnnotatedFileId("marked");review.setAnnotationSourceFileId("original");review.setAnnotations(List.of(new DecorationModels.ImageMark(.1,.1,.5,.4,"补充尺寸")));row=reviews.review(row.getId(),review).contextWrite(auth("admin")).block(WAIT);
         file("new-file","admin","project",row.getId());upload.setFileIds(List.of("new-file"));var again=new DecorationRequests.Resubmit();again.setRequestId("resubmit");again.setVersion(row.getVersion());again.setMaterials(List.of(upload));
         row=reviews.resubmit(row.getId(),again,false).contextWrite(auth("admin")).block(WAIT);assertEquals(0,row.getDetails().getMaterials().get(0).getReviewStatus());
         assertEquals("original",applications.history(row.getId(),false).contextWrite(auth("admin")).blockFirst(WAIT).getSnapshot().getDetails().getMaterials().get(0).getFileIds().get(0));
         assertEquals(3,histories.createQuery().count().block(WAIT));
+        var replacement=row.getDetails().getMaterials().get(0);assertNull(replacement.getAnnotatedFileId());assertNull(replacement.getAnnotationSourceFileId());assertTrue(replacement.getAnnotations().isEmpty());
+        assertTrue(applications.history(row.getId(),false).contextWrite(auth("admin")).collectList().block(WAIT).stream()
+            .anyMatch(h->"original".equals(h.getSnapshot().getDetails().getMaterials().get(0).getAnnotationSourceFileId())));
+        review.setRequestId("approve-new-file");review.setVersion(row.getVersion());review.setResult(1);review.setRemark("");review.setAnnotatedFileId(null);review.setAnnotationSourceFileId(null);review.setAnnotations(List.of());
+        assertEquals(1,reviews.review(row.getId(),review).contextWrite(auth("admin")).block(WAIT).getDetails().getMaterials().get(0).getReviewStatus());
     }
     @Test void attachmentsCannotCrossProjectAccountOrApplication(){
         file("private","other","project",null);file("foreign","admin","denied",null);file("ok","admin","project",null);
@@ -404,6 +426,18 @@ class DecorationPersistenceTest {
         var wrong=feedback(row,"two");assertCode(workflow.acceptanceFeedback(row.getId(),wrong),"not_assignee","admin");
         row=workflow.acceptanceFeedback(row.getId(),wrong).contextWrite(auth("other")).block(WAIT);assertEquals("pending_second_acceptance",row.getStatus());
         assertCode(workflow.acceptanceFeedback(row.getId(),feedback(row,"old")),"invalid_state","admin");
+    }
+    @Test void aFailedFeedbackWaitsForAllAssigneesBeforeAllowingAnotherRound(){
+        var row=ready();row.setAcceptanceType(1);row.setAcceptanceRound(1);row.setStatus("first_acceptance_in_progress");rows.save(row).block(WAIT);
+        task(row,"first-person",1,"firstAcceptance","admin","pending");task(row,"second-person",1,"firstAcceptance","other","pending");
+        var failure=feedback(row,"first-person");failure.setPassed(false);
+        row=workflow.acceptanceFeedback(row.getId(),failure).contextWrite(auth("admin")).block(WAIT);
+        assertEquals("first_acceptance_in_progress",row.getStatus());
+        var retry=new DecorationRequests.AcceptanceRequest();retry.setRequestId("premature-retry");retry.setVersion(row.getVersion());retry.setType(1);retry.setAcceptanceDate(1900000000000L);
+        assertCode(workflow.requestAcceptance(row.getId(),retry,true),"invalid_state","owner");
+        row=workflow.acceptanceFeedback(row.getId(),feedback(row,"second-person")).contextWrite(auth("other")).block(WAIT);
+        assertEquals("first_acceptance_failed",row.getStatus());assertEquals(1,row.getAcceptanceRound());
+        assertEquals(0,tasks.createQuery().where("round",1).and("status","pending").count().block(WAIT));
     }
     @Test void acceptanceRequestMetadataSurvivesAssignmentAndSubsequentRounds(){
         var row=ready();
@@ -541,7 +575,7 @@ class DecorationPersistenceTest {
         assertCode(workflow.resendRectification(row.getId(),rectify(row,"old-rectification")),"invalid_state","admin");
     }
     @Test void externalFinanceReceiptValidatesDirectionAndPreventsReuse(){
-        var row=applications.create(create("finance"),false).contextWrite(auth("admin")).block(WAIT);
+        var row=createSigned(create("finance"),false).contextWrite(auth("admin")).block(WAIT);
         var review=new DecorationRequests.Review();review.setRequestId("review");review.setVersion(row.getVersion());review.setItemId("deposit");review.setResult(1);review.setAmount(new BigDecimal("1000"));
         row=reviews.review(row.getId(),review).contextWrite(auth("admin")).block(WAIT);
         var gateway=mock(DecorationFinanceGateway.class);var beans=new org.springframework.beans.factory.support.DefaultListableBeanFactory();beans.registerSingleton("finance",gateway);
@@ -558,6 +592,59 @@ class DecorationPersistenceTest {
         row=integrated.process(row.getId(),refund,true,false).contextWrite(auth("admin")).block(WAIT);
         assertEquals("finished",row.getStatus());assertEquals(2,row.getRefundStatus());assertNull(row.getActiveHouseKey());assertNotNull(row.getActualEndTime());
     }
+    @Test void singleRefundWaitsForSecondAcceptanceAndSettlesOnce() {
+        var row=createSigned(create("single-refund"),false).contextWrite(auth("admin")).block(WAIT);
+        row.setPaymentStatus(2);row.setPaidAmount(new BigDecimal("1000"));row.setStatus("pending_second_acceptance");
+        row.getDetails().getAgreement().setRefundAmount(new BigDecimal("900"));
+        row.getDetails().setFirstAcceptancePassedTime(System.currentTimeMillis());rows.save(row).block(WAIT);
+        var gateway=mock(DecorationFinanceGateway.class);var beans=new org.springframework.beans.factory.support.DefaultListableBeanFactory();beans.registerSingleton("finance",gateway);
+        var integrated=new DecorationFinanceService(beans.getBeanProvider(DecorationFinanceGateway.class),applications,financeReceipts,beans.getBeanProvider(DecorationNotificationGateway.class));
+        var amounts=new java.util.ArrayList<BigDecimal>();
+        when(gateway.refund(any())).thenAnswer(call->{var request=call.<DecorationFinanceGateway.Request>getArgument(0);amounts.add(request.amount());return Mono.just(financeResult(request,DecorationFinanceGateway.Direction.REFUND,request.reference()));});
+        var refund=new DecorationRequests.Finance();refund.setRequestId("settle-single-refund");refund.setVersion(row.getVersion());refund.setReference("single-receipt");
+        assertCode(integrated.process(row.getId(),refund,true,false),"refund_not_allowed","admin");
+        assertTrue(amounts.isEmpty());assertEquals(0,rows.findById(row.getId()).block(WAIT).getRefundStatus());
+        row.setStatus("acceptance_passed");rows.save(row).block(WAIT);
+        row=integrated.process(row.getId(),refund,true,false).contextWrite(auth("admin")).block(WAIT);
+        assertEquals(List.of(new BigDecimal("900")),amounts);assertEquals(new BigDecimal("900"),row.getRefundedAmount());
+        assertEquals("finished",row.getStatus());assertEquals(2,row.getRefundStatus());assertNotNull(row.getActualEndTime());assertNull(row.getActiveHouseKey());
+        assertEquals(1,row.getDetails().getRefunds().size());assertEquals("single",row.getDetails().getRefunds().get(0).getStage());
+        integrated.process(row.getId(),refund,true,false).contextWrite(auth("admin")).block(WAIT);assertEquals(1,amounts.size());
+    }
+    @Test void depositReviewCannotApproveLessThanFrozenSingleRefundTotal() {
+        var row=createSigned(create("review-single-total"),false).contextWrite(auth("admin")).block(WAIT);
+        row.getDetails().getAgreement().setRefundAmount(new BigDecimal("900"));rows.save(row).block(WAIT);
+        var review=new DecorationRequests.Review();review.setRequestId("approve-single-total");review.setVersion(row.getVersion());review.setItemId("deposit");review.setResult(1);review.setAmount(new BigDecimal("800"));
+        assertCode(reviews.review(row.getId(),review),"invalid_refund_amount","admin");
+        assertEquals(0,rows.findById(row.getId()).block(WAIT).getDepositReviewStatus());
+        review.setAmount(new BigDecimal("900"));
+        row=reviews.review(row.getId(),review).contextWrite(auth("admin")).block(WAIT);
+        assertEquals(new BigDecimal("900"),row.getApprovedDeposit());assertEquals(1,row.getDepositReviewStatus());
+    }
+    @Test void configurationRefundTotalRejectsNegativeExcessAndFractionalCents() {
+        var input=config("agreement");input.setVersion(1);
+        for(String invalid:List.of("-1","1001","0.001")) {
+            input.getContent().getAgreement().setRefundAmount(new BigDecimal(invalid));
+            assertCode(configurations.save(input),"invalid_refund_amount","admin");
+        }
+        input.getContent().getAgreement().setRefundAmount(new BigDecimal("800.50"));
+        var saved=configurations.save(input).contextWrite(auth("admin")).block(WAIT);
+        assertEquals(new BigDecimal("800.50"),saved.getContent().getAgreement().getRefundAmount());
+    }
+    @Test void singleRefundSupportsLegacyTotalAndAlreadySettledAmounts() {
+        var row=new DecorationApplicationEntity();row.setDetails(new DecorationModels.ApplicationDetails());row.getDetails().setAgreement(new DecorationModels.Agreement());row.setPaymentStatus(2);row.setRefundStatus(0);row.setPaidAmount(new BigDecimal("1000"));row.setStatus("acceptance_passed");
+        assertEquals(new BigDecimal("1000"),DecorationFinanceService.refundPlan(row).amount());
+        row.getDetails().getAgreement().setFirstRefund(new BigDecimal("600"));row.getDetails().getAgreement().setSecondRefund(new BigDecimal("400"));
+        assertEquals(new BigDecimal("1000"),DecorationFinanceService.refundPlan(row).amount());
+        row.setRefundedAmount(new BigDecimal("600"));
+        assertEquals(new BigDecimal("400"),DecorationFinanceService.refundPlan(row).amount());
+        row.getDetails().getAgreement().setRefundAmount(new BigDecimal("500"));
+        assertThrows(org.hswebframework.web.exception.BusinessException.class,()->DecorationFinanceService.refundPlan(row));
+        row.getDetails().getAgreement().setRefundAmount(new BigDecimal("1001"));
+        assertThrows(org.hswebframework.web.exception.BusinessException.class,()->DecorationFinanceService.refundPlan(row));
+        row.getDetails().getAgreement().setRefundAmount(new BigDecimal("600"));
+        var plan=DecorationFinanceService.refundPlan(row);assertEquals("single",plan.stage());assertEquals(BigDecimal.ZERO,plan.amount());assertTrue(plan.last());
+    }
     @Test void numberChecksRejectFalsePassAndAllowRecordedFailure(){
         var item=new DecorationModels.CheckItem();item.setId("width");item.setName("宽度");item.setInputType("number");item.setRequired(true);item.setMin(new BigDecimal("10"));item.setMax(new BigDecimal("20"));
         var result=new DecorationModels.CheckResult();result.setItemId("width");result.setValue("25");result.setQualified(true);
@@ -568,7 +655,7 @@ class DecorationPersistenceTest {
         return new DecorationFinanceGateway.Result(request.decorationId(),request.applicationId(),request.tenantId(),request.projectId(),request.spaceId(),request.ownerUserId(),request.chargeItemId(),request.amount(),"provider",reference,direction,request.offline(),DecorationFinanceGateway.Status.SUCCEEDED,System.currentTimeMillis());
     }
     @Test void queryOriginalRequestIsReadOnly(){
-        var input=create("one");var row=applications.create(input,true).contextWrite(auth("owner")).block(WAIT);
+        var input=create("one");var row=createSigned(input,true).contextWrite(auth("owner")).block(WAIT);
         assertEquals(row.getId(),applications.creationResult("one",true).contextWrite(auth("owner")).block(WAIT).getId());
         assertCode(applications.actionResult(row.getId(),"missing",true),"request_not_found","owner");
         assertEquals(1,histories.createQuery().count().block(WAIT));
@@ -576,8 +663,8 @@ class DecorationPersistenceTest {
     @Test void ownerSelfInspectionIsCapturedOnceAndDeletionPreservesApplicationAndFiles(){
         file("self-photo", "owner", "project", null);
         var input=create("owner-self"); input.setSelfInspectionRemark("墙面有问题"); input.setSelfInspectionStatus(1); input.setSelfInspectionFiles(List.of("self-photo"));
-        var application=applications.create(input,true).contextWrite(auth("owner")).block(WAIT);
-        applications.create(input,true).contextWrite(auth("owner")).block(WAIT);
+        var application=createSigned(input,true).contextWrite(auth("owner")).block(WAIT);
+        createSigned(input,true).contextWrite(auth("owner")).block(WAIT);
         assertEquals(1,selfInspectionRows.createQuery().count().block(WAIT));
         var self=selfInspections.query(new QueryParamEntity()).contextWrite(auth("admin")).block(WAIT).getData().get(0);
         assertEquals(application.getId(),self.getDecorationId()); assertEquals("owner",self.getCreatorName());
@@ -590,23 +677,23 @@ class DecorationPersistenceTest {
         assertEquals(List.of("self-photo"),applications.read(application.getId(),false).contextWrite(auth("admin")).block(WAIT).getDetails().getSelfInspectionFiles());
         assertEquals(1,histories.createQuery().count().block(WAIT));
         assertEquals(application.getId(),files.findById("self-photo").block(WAIT).getDecorationId());
-        applications.create(input,true).contextWrite(auth("owner")).block(WAIT);
+        createSigned(input,true).contextWrite(auth("owner")).block(WAIT);
         assertEquals(1,selfInspectionRows.createQuery().count().block(WAIT));
         assertTrue(selfInspectionRows.findById(self.getId()).block(WAIT).getDeleted());
     }
     @Test void pcDoesNotProduceSelfInspectionAndConcurrentOwnerCreationHasNoOrphans(){
-        var pc=applications.create(create("pc"),false).contextWrite(auth("admin")).block(WAIT);
+        var pc=createSigned(create("pc"),false).contextWrite(auth("admin")).block(WAIT);
         assertEquals(0,selfInspectionRows.createQuery().count().block(WAIT));
         var end=action(pc); end.setRemark("取消施工"); reviews.end(pc.getId(),end).contextWrite(auth("admin")).block(WAIT);
-        var results=Flux.merge(applications.create(create("owner-one"),true).map(r->true).onErrorReturn(false),
-            applications.create(create("owner-two"),true).map(r->true).onErrorReturn(false)).collectList().contextWrite(auth("owner")).block(WAIT);
+        var results=Flux.merge(createSigned(create("owner-one"),true).map(r->true).onErrorReturn(false),
+            createSigned(create("owner-two"),true).map(r->true).onErrorReturn(false)).collectList().contextWrite(auth("owner")).block(WAIT);
         assertEquals(1,results.stream().filter(Boolean::booleanValue).count());
         var self=selfInspectionRows.createQuery().fetchOne().block(WAIT);
         assertEquals(1,selfInspectionRows.createQuery().count().block(WAIT));
         assertEquals("h5_owner",rows.findById(self.getDecorationId()).block(WAIT).getSource());
     }
     @Test void selfInspectionPaginationFiltersAndOrQueriesCannotEscapeScope(){
-        var application=applications.create(create("owner"),true).contextWrite(auth("owner")).block(WAIT);
+        var application=createSigned(create("owner"),true).contextWrite(auth("owner")).block(WAIT);
         var original=selfInspectionRows.createQuery().fetchOne().block(WAIT);
         for(int i=1;i<25;i++){
             var row=new ObjectMapper().convertValue(original,DecorationSelfInspectionEntity.class);
@@ -631,7 +718,7 @@ class DecorationPersistenceTest {
         assertEquals(application.getId(),selfInspections.read(original.getId()).contextWrite(auth("admin")).block(WAIT).getDecorationId());
     }
     @Test void overviewUsesDistinctHousesLatestRefundAndNaturalMonthComparison(){
-        var base=applications.create(create("statistics"),false).contextWrite(auth("admin")).block(WAIT);
+        var base=createSigned(create("statistics"),false).contextWrite(auth("admin")).block(WAIT);
         rows.deleteById(base.getId()).block(WAIT);
         long current=java.time.YearMonth.now(java.time.ZoneId.of("Asia/Shanghai")).atDay(1).atStartOfDay(java.time.ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli();
         long previous=java.time.YearMonth.now(java.time.ZoneId.of("Asia/Shanghai")).minusMonths(1).atDay(1).atStartOfDay(java.time.ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli();
@@ -658,7 +745,7 @@ class DecorationPersistenceTest {
         assertEquals(0,none.summary().totalHouseCount());assertEquals(0,none.summary().totalHouseCountRate().signum());assertTrue(none.houseTypePie().isEmpty());
     }
     @Test void overviewLatestTieAndOrFiltersRemainWithinApplicationTenantAndProjects(){
-        var base=applications.create(create("tie"),false).contextWrite(auth("admin")).block(WAIT);rows.deleteById(base.getId()).block(WAIT);
+        var base=createSigned(create("tie"),false).contextWrite(auth("admin")).block(WAIT);rows.deleteById(base.getId()).block(WAIT);
         var old=overviewRow(base,"a-old","house","residential",1,2,2,1,"100");old.setActualEndTime(1L);old.setRefundTime(1L);
         var latest=overviewRow(base,"z-latest","house","residential",1,0,0,0,"0");
         var foreign=overviewRow(base,"zz-foreign","house","residential",2,2,2,1,"900");foreign.setApplicationId("foreign");
@@ -672,7 +759,7 @@ class DecorationPersistenceTest {
         assertEquals(0,report.summary().totalHouseCountRate().signum());
     }
     @Test void overviewMonthRangesAreHalfOpenAndRatesMayBeNegative(){
-        var base=applications.create(create("month-ranges"),false).contextWrite(auth("admin")).block(WAIT);rows.deleteById(base.getId()).block(WAIT);
+        var base=createSigned(create("month-ranges"),false).contextWrite(auth("admin")).block(WAIT);rows.deleteById(base.getId()).block(WAIT);
         var zone=java.time.ZoneId.of("Asia/Shanghai");var month=java.time.YearMonth.now(zone);
         long current=month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli(),previous=month.minusMonths(1).atDay(1).atStartOfDay(zone).toInstant().toEpochMilli(),next=month.plusMonths(1).atDay(1).atStartOfDay(zone).toInstant().toEpochMilli();
         rows.insert(Flux.fromIterable(List.of(
@@ -687,7 +774,7 @@ class DecorationPersistenceTest {
         assertEquals(0,new BigDecimal("-50").compareTo(summary.inDecorationHouseCountRate()));assertEquals(0,summary.paidDepositAmountRate().signum());
     }
     @Test void overviewAggregatesTenThousandSnapshotsWithoutLoadingTheApplicationPage(){
-        var base=applications.create(create("scale"),false).contextWrite(auth("admin")).block(WAIT);rows.deleteById(base.getId()).block(WAIT);
+        var base=createSigned(create("scale"),false).contextWrite(auth("admin")).block(WAIT);rows.deleteById(base.getId()).block(WAIT);
         var snapshots=java.util.stream.IntStream.range(0,10000).mapToObj(i->overviewRow(base,"scale-"+i,"house-"+i,"residential",1L+i,0,0,1,"0")).toList();
         rows.insert(Flux.fromIterable(snapshots)).block(Duration.ofSeconds(60));
         long start=System.nanoTime();var report=overview.query(new QueryParamEntity()).contextWrite(auth("admin")).block(WAIT);
@@ -704,14 +791,57 @@ class DecorationPersistenceTest {
         var definition=new DecorationModels.MaterialDefinition();definition.setId(kind);definition.setKind(kind);definition.setRequired(true);definition.setEnabled(true);
         var material=new DecorationModels.Material();material.setDefinition(definition);material.setFileIds(List.of("photo"));material.setReviewStatus(status);return material;
     }
-    private DecorationApplicationEntity ready(){var row=applications.create(create(UUID.randomUUID().toString()),false).contextWrite(auth("admin")).block(WAIT);row.setPaymentStatus(2);row.setPaidAmount(new BigDecimal("1000"));row.setDepositReviewStatus(1);var permit=new DecorationModels.Permit();permit.setPrintTime(System.currentTimeMillis());row.setPermit(permit);row.setStatus("permit_issued");rows.save(row).block(WAIT);return row;}
+    private DecorationApplicationEntity ready(){var row=createSigned(create(UUID.randomUUID().toString()),false).contextWrite(auth("admin")).block(WAIT);row.setPaymentStatus(2);row.setPaidAmount(new BigDecimal("1000"));row.setDepositReviewStatus(1);var permit=new DecorationModels.Permit();permit.setPrintTime(System.currentTimeMillis());row.setPermit(permit);row.setStatus("permit_issued");rows.save(row).block(WAIT);return row;}
     private void task(DecorationApplicationEntity row,String id,int round,String kind,String assignee,String status){var t=new DecorationTaskEntity();t.setId(id);t.setApplicationId("app");t.setTenantId("tenant");t.setProjectId("project");t.setDecorationId(row.getId());t.setRound(round);t.setKind(kind);t.setAssigneeId(assignee);t.setStatus(status);t.setVersion(1L);t.setCreateTime(System.currentTimeMillis());t.setModifyTime(t.getCreateTime());t.setDetails(new DecorationModels.TaskDetails());tasks.insert(t).block(WAIT);}
     private DecorationRequests.Feedback feedback(DecorationApplicationEntity row,String task){var f=new DecorationRequests.Feedback();f.setRequestId(UUID.randomUUID().toString());f.setVersion(row.getVersion());f.setTaskId(task);f.setPassed(true);return f;}
     private DecorationRequests.Rectification rectify(DecorationApplicationEntity row,String task){var f=new DecorationRequests.Rectification();f.setRequestId(UUID.randomUUID().toString());f.setVersion(row.getVersion());f.setTaskId(task);return f;}
     private void file(String id,String creator,String project,String app){var f=new DecorationAttachmentEntity();f.setId(id);f.setFileId(id);f.setApplicationId("app");f.setTenantId("tenant");f.setProjectId(project);f.setCreatorId(creator);f.setPurpose("draft");f.setDecorationId(app);f.setCreateTime(System.currentTimeMillis());files.insert(f).block(WAIT);}
     private DecorationRequests.Action action(DecorationApplicationEntity row){var action=new DecorationRequests.Action();action.setRequestId(UUID.randomUUID().toString());action.setVersion(row.getVersion());return action;}
-    private DecorationRequests.Create create(String key){var c=new DecorationRequests.Create();c.setRequestId(key);c.setProjectId("project");c.setSpaceId("house");c.setCustomerId("customer");c.setContactPhone("13800000000");c.setConstructionUnit("施工单位");c.setConstructionManager("负责人");c.setManagerPhone("13900000000");c.setConstructionType(1);c.setDecorationType("first");c.setStartTime(System.currentTimeMillis());c.setCompletionTime(c.getStartTime()+86400000);c.setNoticesAccepted(true);return c;}
-    private DecorationRequests.Config config(String kind){var c=new DecorationRequests.Config();c.setProjectId("project");c.setKind(kind);c.setName(kind);c.setHouseType(Set.of("agreement","materials","checks").contains(kind)?"residential":"");c.setDecorationType(Set.of("materials","checks").contains(kind)?"first":"");c.setScene("checks".equals(kind)?"daily":"");var content=new DecorationModels.Configuration();content.setEligibleNatures(List.of("owner"));var agreement=new DecorationModels.Agreement();agreement.setTitle("装修协议");agreement.setContent("装修须知");agreement.setChargeItemId("deposit");agreement.setChargeItemName("装修保证金");agreement.setDeposit(new BigDecimal("1000"));content.setAgreement(agreement);c.setContent(content);return c;}
+    /** 其他流程测试使用真实签署请求结构，附件也经过相同的归属校验和消费事务。 */
+    private Mono<DecorationApplicationEntity> createSigned(DecorationRequests.Create input, boolean mine) {
+        return Authentication.currentReactive().flatMap(auth -> {
+            var home=new PropertyHouseholdInfo("project","house","一栋101","residential","customer","owner","业主","13800000000","relationship","owner");
+            var documents=new java.util.ArrayList<DecorationRequests.SignedDocument>();
+            for (String kind:DecorationDocuments.TITLES.keySet()) {
+                var document=new DecorationRequests.SignedDocument();document.setKind(kind);
+                document.setContent(DecorationDocuments.content(kind,input,home,config("agreement").getContent().getAgreement()));
+                String prefix=DecorationApplicationService.identity(input.getRequestId()+":"+auth.getUser().getId()+":"+kind);
+                document.setSignatureFileId(prefix+":sign");document.setDocumentFileId(prefix+":document");documents.add(document);
+            }
+            input.setSignedDocuments(documents);
+            return applications.create(input,mine);
+        });
+    }
+    @Test void reviewAnnotationsKeepSourceAndMarksAndRejectForeignSource() {
+        var config=config("materials");config.setVersion(1L);
+        var definition=new DecorationModels.MaterialDefinition();definition.setId("drawing");definition.setName("装修图纸");definition.setKind("drawing");definition.setSource("upload");definition.setEnabled(true);definition.setRequired(true);
+        config.getContent().setMaterials(new java.util.ArrayList<>(List.of(definition)));configurations.save(config).contextWrite(auth("admin")).block(WAIT);
+        file("original-image","owner","project",null);file("annotated-image","admin","project",null);
+        var input=create("annotation");var upload=new DecorationRequests.MaterialUpload();upload.setItemId("drawing");upload.setFileIds(List.of("original-image"));input.setMaterials(List.of(upload));
+        var row=createSigned(input,true).contextWrite(auth("owner")).block(WAIT);
+        var review=new DecorationRequests.Review();review.setRequestId("annotation-review");review.setVersion(row.getVersion());review.setItemId("drawing");review.setResult(2);review.setRemark("按框选位置补充");review.setAnnotatedFileId("annotated-image");review.setAnnotationSourceFileId("foreign-source");review.setAnnotations(List.of(new DecorationModels.ImageMark(.1,.1,.5,.4,"墙面")));
+        assertCode(reviews.review(row.getId(),review),"invalid_annotations","admin");
+        review.setAnnotationSourceFileId("original-image");row=reviews.review(row.getId(),review).contextWrite(auth("admin")).block(WAIT);
+        var material=row.getDetails().getMaterials().get(0);assertEquals("original-image",material.getAnnotationSourceFileId());assertEquals("墙面",material.getAnnotations().get(0).text());assertEquals("annotated-image",material.getAnnotatedFileId());
+        var ownerView=applications.read(row.getId(),true).contextWrite(auth("owner")).block(WAIT);assertEquals("annotated-image",ownerView.getDetails().getMaterials().get(0).getAnnotatedFileId());
+        review.setRequestId("invalid-region");review.setVersion(row.getVersion());review.setAnnotations(List.of(new DecorationModels.ImageMark(.9,.1,.5,.4,"越界")));
+        assertCode(reviews.review(row.getId(),review),"invalid_annotations","admin");
+    }
+    @Test void documentsAreRequiredAndChangedContentCannotReuseSignatures() {
+        var input=create("unsigned");assertCode(applications.create(input,true),"signed_documents_required","owner");
+        var row=createSigned(input,true).contextWrite(auth("owner")).block(WAIT);
+        assertEquals(4,row.getDetails().getSignedDocuments().size());
+        assertEquals("owner",row.getDetails().getSignedDocuments().get(0).getSignedBy());
+        input.setRequestId("edited-signed");input.setConstructionUnit("签署后修改");
+        assertCode(applications.create(input,true),"invalid_signed_document","owner");
+    }
+    private DecorationRequests.Create create(String key){var c=new DecorationRequests.Create();c.setRequestId(key);c.setProjectId("project");c.setSpaceId("house");c.setCustomerId("customer");c.setContactPhone("13800000000");c.setConstructionUnit("施工单位");c.setConstructionManager("负责人");c.setManagerPhone("13900000000");c.setOwnerCertificate("11010519491231002X");c.setManagerCertificate("11010519491231002X");c.setConstructionType(1);c.setDecorationType("first");c.setStartTime(System.currentTimeMillis());c.setCompletionTime(c.getStartTime()+86400000);c.setNoticesAccepted(true);
+        for(String creator:List.of("owner","admin"))for(String kind:DecorationDocuments.TITLES.keySet()){
+            String prefix=DecorationApplicationService.identity(key+":"+creator+":"+kind);
+            for(String id:List.of(prefix+":sign",prefix+":document"))if(files.findById(id).block(WAIT)==null)file(id,creator,"project",null);
+        }
+        return c;}
+    private DecorationRequests.Config config(String kind){var c=new DecorationRequests.Config();c.setProjectId("project");c.setKind(kind);c.setName(kind);c.setHouseType(Set.of("agreement","materials","checks").contains(kind)?"residential":"");c.setDecorationType(Set.of("materials","checks").contains(kind)?"first":"");c.setScene("checks".equals(kind)?"daily":"");var content=new DecorationModels.Configuration();var agreement=new DecorationModels.Agreement();agreement.setTitle("装修协议");agreement.setContent("装修须知");agreement.setChargeItemId("deposit");agreement.setChargeItemName("装修保证金");agreement.setDeposit(new BigDecimal("1000"));content.setAgreement(agreement);c.setContent(content);return c;}
     private PropertyOrganizationInfo project(String id){var p=new PropertyOrganizationInfo();p.setId(id);p.setName("项目");return p;}
     private DecorationApplicationEntity cloneRow(DecorationApplicationEntity row){return new ObjectMapper().convertValue(row,DecorationApplicationEntity.class);}
     private static reactor.util.context.Context auth(String id,String... roles){var user=new SimpleUser();user.setId(id);user.setName(id);var authentication=new SimpleAuthentication();authentication.setUser(user);authentication.setDimensions(Arrays.stream(roles).map(role->(org.hswebframework.web.authorization.Dimension) org.hswebframework.web.authorization.simple.SimpleDimension.of(role,role,new org.hswebframework.web.authorization.DimensionType(){public String getId(){return "role";}public String getName(){return "角色";}},Map.of())).collect(java.util.stream.Collectors.toList()));return reactor.util.context.Context.of(Authentication.class,authentication);}

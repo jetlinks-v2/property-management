@@ -20,10 +20,25 @@ public class DecorationReviewService {
             editable(row); require(input.getResult() == 1 || input.getResult() == 2, "invalid_review");
             if (input.getResult() == 2) require(input.getRemark() != null && !input.getRemark().isBlank(), "remark_required");
             if ("deposit".equals(input.getItemId())) {
-                amount(input.getAmount()); row.setDepositReviewStatus(input.getResult()); row.setApprovedDeposit(input.getAmount());
+                amount(input.getAmount());
+                var agreement = row.getDetails().getAgreement();
+                var first = agreement.getFirstRefund() == null ? java.math.BigDecimal.ZERO : agreement.getFirstRefund();
+                var second = agreement.getSecondRefund() == null ? java.math.BigDecimal.ZERO : agreement.getSecondRefund();
+                var refundTotal = agreement.getRefundAmount() == null ? first.add(second) : agreement.getRefundAmount();
+                require(refundTotal.compareTo(input.getAmount()) <= 0, "invalid_refund_amount");
+                row.setDepositReviewStatus(input.getResult()); row.setApprovedDeposit(input.getAmount());
                 row.setDepositReviewerId(ctx.userId()); row.setDepositReviewerName(ctx.userName()); row.setDepositReviewTime(System.currentTimeMillis()); row.setDepositReviewRemark(input.getRemark());
             } else {
                 var material = row.getDetails().getMaterials().stream().filter(m -> m.getDefinition().getId().equals(input.getItemId())).findFirst().orElseThrow(() -> error("invalid_materials", 400));
+                require(input.getAnnotations().size() <= 50 && input.getAnnotations().stream().allMatch(m ->
+                    Double.isFinite(m.x()) && Double.isFinite(m.y()) && Double.isFinite(m.width()) && Double.isFinite(m.height())
+                    && m.x() >= 0 && m.y() >= 0 && m.width() >= 0.005 && m.height() >= 0.005
+                    && m.x() + m.width() <= 1.000001 && m.y() + m.height() <= 1.000001
+                    && m.text() != null && m.text().length() <= 200), "invalid_annotations");
+                if (!input.getAnnotations().isEmpty() || input.getAnnotationSourceFileId() != null) {
+                    require(input.getAnnotatedFileId() != null && material.getFileIds().contains(input.getAnnotationSourceFileId()), "invalid_annotations");
+                }
+                material.setAnnotationSourceFileId(input.getAnnotationSourceFileId());material.setAnnotations(input.getAnnotations());
                 material.setReviewStatus(input.getResult()); material.setReviewerId(ctx.userId()); material.setReviewerName(ctx.userName()); material.setReviewTime(System.currentTimeMillis()); material.setRemark(input.getRemark()); material.setAnnotatedFileId(input.getAnnotatedFileId());
             }
             row.setStatus(reviewedStatus(row));
@@ -41,6 +56,8 @@ public class DecorationReviewService {
                 var material = row.getDetails().getMaterials().stream().filter(m -> m.getDefinition().getId().equals(upload.getItemId())).findFirst().orElseThrow(() -> error("invalid_materials", 400));
                 require(material.getReviewStatus() == 2 && !upload.getFileIds().isEmpty(), "rejected_material_required");
                 material.setFileIds(upload.getFileIds()); material.setReviewStatus(0); material.setReviewerId(null); material.setReviewerName(null); material.setReviewTime(null); material.setRemark(null); material.setAnnotatedFileId(null); ids.addAll(upload.getFileIds());
+                // 批注属于旧图版本；历史快照保留，不能带入替换后的新图审核。
+                material.setAnnotationSourceFileId(null); material.setAnnotations(List.of());
             }
             row.setStatus(reviewedStatus(row));
             return attachments.validate(ids, row.getProjectId(), row.getId(), ctx, false).then(attachments.consume(ids, row.getId(), ctx));
