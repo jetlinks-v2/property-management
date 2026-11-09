@@ -204,6 +204,7 @@ public final class HandoverPersistenceFixture {
         HandoverFiles files() {
             var files = mock(HandoverFiles.class);
             when(files.validate(any())).thenReturn(Mono.empty());
+            when(files.validateLedger(any())).thenReturn(Mono.empty());
             return files;
         }
 

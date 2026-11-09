@@ -46,15 +46,34 @@ public class HandoverConfigurationService {
     /** 信息维护跨项目分页，先从公共目录取得调用者可读项目，再在查验库内分页。 */
     public <E extends HandoverEntity> Mono<PagerResult<E>> queryInformation(
             GenericReactiveCrudService<E, String> repository, HandoverQuery input) {
-        if (HandoverRules.hasText(input.getProjectId())) return query(repository, input, "name");
+        return authorizedQuery(input, "name").flatMap(repository::queryPager);
+    }
+
+    /** 列表与导出共用项目授权条件，必须在数据库分页前应用；空授权范围匹配零行。 */
+    public Mono<org.hswebframework.web.api.crud.entity.QueryParamEntity> authorizedQuery(
+            HandoverQuery input, String keywordField) {
+        if (HandoverRules.hasText(input.getProjectId()))
+            return scope.current().flatMap(c -> scope.query(input.parameter(keywordField), c, input.getProjectId()));
         return scope.current().flatMap(context -> directory.projects()
                 .map(org -> org.getId()).distinct().collectList().flatMap(projectIds -> {
-                    var query = scope.mandatory(input.parameter("name"), context, null);
+                    var query = scope.mandatory(input.parameter(keywordField), context, null);
                     // 空授权范围必须匹配零行，不能省略项目条件而退化为应用内全量查询。
                     if (projectIds.isEmpty()) query.toQuery().isNull("projectId").notNull("projectId");
                     else query.toQuery().in("projectId", projectIds);
-                    return repository.queryPager(query);
+                    return Mono.just(query);
                 }));
+    }
+
+    public Mono<PagerResult<HandoverLedgerEntity>> queryLedger(HandoverQuery input) {
+        return authorizedQuery(input, "description").flatMap(ledgers::queryPager)
+                .flatMap(page -> Flux.fromIterable(page.getData()).concatMap(row -> {
+                    if (!HandoverRules.hasText(row.getCategoryId())) return Mono.just(row);
+                    return categories.findById(row.getCategoryId())
+                        .filter(c -> Objects.equals(c.getTenantId(), row.getTenantId())
+                                && Objects.equals(c.getApplicationId(), row.getApplicationId())
+                                && Objects.equals(c.getProjectId(), row.getProjectId()) && !Boolean.TRUE.equals(c.getDeleted()))
+                        .doOnNext(c -> row.setCategoryName(c.getName())).thenReturn(row);
+                }).then(Mono.just(page)));
     }
 
     public <E extends HandoverEntity> Mono<E> read(
@@ -153,19 +172,20 @@ public class HandoverConfigurationService {
                                                                     "organization_duplicate"))
                                             .then());
         } else if (row instanceof HandoverLedgerEntity ledger) {
-            HandoverRules.require(HandoverRules.hasText(ledger.getDescription()), "description_required");
+            HandoverRules.require(HandoverRules.hasText(ledger.getDescription()) && ledger.getDescription().length() <= 500, "ledger_description_invalid");
+            HandoverRules.require(HandoverRules.hasText(ledger.getLocation()) && ledger.getLocation().length() <= 200, "ledger_location_invalid");
+            HandoverRules.require(HandoverRules.hasText(ledger.getCategoryId()), "category_required");
+            HandoverRules.require(HandoverRules.hasText(ledger.getOrganizationId()), "organization_required");
+            HandoverRules.require(ledger.getInspectionTime() == null || ledger.getInspectionTime() >= 0, "date_invalid");
             // 旧台账没有独立标题；兼容既有非空列，界面和导入均以问题描述为主体。
             if (!HandoverRules.hasText(ledger.getTitle()))
                 ledger.setTitle(ledger.getDescription().substring(0, Math.min(256, ledger.getDescription().length())));
             if (HandoverRules.hasText(ledger.getOrganizationId()))
                 check = check.then(responsibility(row.getProjectId(), ledger.getOrganizationId())
                         .doOnNext(unit -> ledger.setOrganizationName(unit.getName())).then());
-            if (HandoverRules.hasText(ledger.getEntryUserId()))
-                check = check.then(directory.user(ledger.getEntryUserId())
-                        .doOnNext(user -> ledger.setEntryUserName(user.getName())).then());
             check =
                     check.then(category(row.getProjectId(), ledger.getCategoryId()))
-                            .then(files.validate(ledger.getFiles()));
+                            .then(files.validateLedger(ledger.getFiles()));
         } else if (row instanceof HandoverEquipmentEntity entry) {
             HandoverRules.require(HandoverRules.hasText(entry.getName()), "name_required");
             HandoverRules.require(entry.getQuantity() == null || entry.getQuantity().signum() >= 0, "quantity_invalid");
@@ -340,9 +360,9 @@ public class HandoverConfigurationService {
                                 categoryKey(input, c);
                                 if (input instanceof HandoverLedgerEntity ledger) {
                                     ledger.setEntryTime(input.getCreateTime());
-                                    if (!HandoverRules.hasText(ledger.getEntryUserId())) {
-                                        ledger.setEntryUserId(c.userId()); ledger.setEntryUserName(c.userName());
-                                    }
+                                    // 上传身份只信任认证上下文，客户端及导入均不能冒用其他人。
+                                    ledger.setEntryUserId(c.userId()); ledger.setEntryUserName(c.userName());
+                                    if (ledger.getInspectionTime() == null) ledger.setInspectionTime(input.getCreateTime());
                                     ledger.setSupplementUserId(null); ledger.setSupplementUserName(null); ledger.setSupplementTime(null);
                                 }
                                 if (input instanceof HandoverItemEntity item)
@@ -381,6 +401,9 @@ public class HandoverConfigurationService {
                                                 }
                                                 if (old instanceof HandoverLedgerEntity before && input instanceof HandoverLedgerEntity after) {
                                                     after.setEntryTime(before.getEntryTime());
+                                                    after.setEntryUserId(before.getEntryUserId());
+                                                    after.setEntryUserName(before.getEntryUserName());
+                                                    after.setInspectionTime(before.getInspectionTime());
                                                     after.setSupplementUserId(before.getSupplementUserId());
                                                     after.setSupplementUserName(before.getSupplementUserName());
                                                     after.setSupplementTime(before.getSupplementTime());
@@ -418,7 +441,7 @@ public class HandoverConfigurationService {
         return directory.employee().then(read(ledgers, id)).flatMap(row -> {
             HandoverRules.conflict(Objects.equals(row.getVersion(), input.getVersion()));
             HandoverRules.require(row.getFiles() == null || row.getFiles().isEmpty(), "ledger_photos_present");
-            return scope.project(row.getProjectId(), CrudAssetPermission.save).then(files.validate(input.getPhotos()))
+            return scope.project(row.getProjectId(), CrudAssetPermission.save).then(files.validateLedger(input.getPhotos()))
                     .then(scope.current()).flatMap(context -> {
                         long now = System.currentTimeMillis();
                         return ledgers.createUpdate().set("files", input.getPhotos())

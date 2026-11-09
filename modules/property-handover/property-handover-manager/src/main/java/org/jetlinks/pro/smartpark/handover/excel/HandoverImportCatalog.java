@@ -30,6 +30,29 @@ public class HandoverImportCatalog {
     private final HandoverResponsibilityRepository organizations;
     private final HandoverItemRepository items;
 
+    /** 仅加载表内实际用到的项目目录；项目名称重名不自动取第一条。 */
+    public record LedgerCatalog(
+            List<org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo> projects,
+            Map<String, Catalog> catalogs, HandoverContext context) {
+        public Map<String, List<String>> options() {
+            return Map.of("projectName", projects.stream().map(p -> p.getName()).distinct().toList());
+        }
+    }
+
+    public Mono<LedgerCatalog> ledger(List<HandoverWorkbook.ImportRow> rows) {
+        return directory.employee().then(scope.current()).flatMap(context -> directory.projects()
+                .collectList().flatMap(projects -> {
+                    var names = rows == null ? java.util.Set.<String>of() : rows.stream()
+                            .map(row -> row.values().get("projectName")).collect(java.util.stream.Collectors.toSet());
+                    return Flux.fromIterable(projects).filter(p -> names.contains(p.getName()))
+                            .concatMap(p -> scope.project(p.getId(), CrudAssetPermission.read)
+                                    .then(Mono.zip(read(categories, context, p.getId()), read(organizations, context, p.getId())))
+                                    .map(pair -> Map.entry(p.getId(), new Catalog(pair.getT1(), pair.getT2(), List.of(), List.of()))))
+                            .collectMap(Map.Entry::getKey, Map.Entry::getValue)
+                            .map(catalogs -> new LedgerCatalog(projects, catalogs, context));
+                }));
+    }
+
     public record Catalog(
             List<HandoverCategoryEntity> categories,
             List<HandoverResponsibilityEntity> organizations,

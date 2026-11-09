@@ -25,6 +25,17 @@ import java.util.Set;
 public class HandoverFiles {
     private final FileManager files;
 
+    /** 前介问题图片限制独立于资料附件，读取平台文件元数据，不信任客户端大小。 */
+    public Mono<Void> validateLedger(List<FileRef> references) {
+        var refs = references == null ? List.<FileRef>of() : references;
+        HandoverRules.require(refs.size() <= 9, "ledger_photos_invalid");
+        return validate(refs).thenMany(Flux.fromIterable(refs)
+                .concatMap(ref -> files.getFile(ref.getFileId())
+                        .doOnNext(file -> HandoverRules.require(file.getLength() <= 2 * 1024 * 1024
+                                && file.getName() != null && file.getName().toLowerCase(java.util.Locale.ROOT).matches(".*\\.(jpg|jpeg|png)$"), "ledger_photos_invalid"))))
+                .then();
+    }
+
     public Mono<Void> validate(List<FileRef> references) {
         List<FileRef> refs = references == null ? List.of() : references;
         HandoverRules.require(refs.size() <= 100, "file_limit");

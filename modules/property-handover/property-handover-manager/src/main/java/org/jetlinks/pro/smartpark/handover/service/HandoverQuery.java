@@ -12,6 +12,7 @@ import java.util.List;
 @Setter
 public class HandoverQuery {
     private String projectId;
+    private String kind;
     private Boolean enabled;
     private String operator;
     private Long modifyTimeFrom;

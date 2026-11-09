@@ -28,7 +28,7 @@ public class HandoverExcelController {
     @GetMapping("/{kind}/template")
     public Mono<Void> template(
             @PathVariable String kind,
-            @RequestParam String projectId,
+            @RequestParam(required = false) String projectId,
             @RequestParam(required = false) String source,
             @RequestParam(required = false) String stage,
             ServerHttpResponse response) {
@@ -39,7 +39,7 @@ public class HandoverExcelController {
         response.getHeaders()
                 .setContentDisposition(
                         ContentDisposition.attachment()
-                                .filename("承接查验-" + kind + "-导入模板.xlsx", StandardCharsets.UTF_8)
+                                .filename("ledger".equals(kind) ? "前介台账问题导入模板.xlsx" : "承接查验-" + kind + "-导入模板.xlsx", StandardCharsets.UTF_8)
                                 .build());
         return response.writeWith(service.template(kind, projectId, source, stage));
     }
@@ -47,7 +47,7 @@ public class HandoverExcelController {
     @PostMapping(path = "/{kind}/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Mono<Map<String, Long>> importFile(
             @PathVariable String kind,
-            @RequestParam String projectId,
+            @RequestParam(required = false) String projectId,
             @RequestParam(required = false) String source,
             @RequestParam(required = false) String stage,
             @RequestPart("file") FilePart file) {
