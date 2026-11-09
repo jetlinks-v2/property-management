@@ -34,7 +34,7 @@ GET `/property/space/_tree?projectId=...&customerBound=true` 仅返回当前有�
 
 | 命令 | 输入 / 输出 | 权限与空结果 |
 | --- | --- | --- |
-| `QueryPropertyEmployeePageCommand` | `query: QueryParamEntity` → `PagerResult<PropertyEmployeeInfo>`；每页1–200 | 认证及 user 资产范围（认证服务公开命令按 AssetsHolder 查询原 user 资产，再与基础有效员工相交）；先过滤未删除、启用、employee=true，再分页。应用成员关系由消费方在认证服务中解析并以 ID 相交，不能把认证库的 in-dimension 条件发送到基础库 |
+| `QueryPropertyEmployeePageCommand` | `query: QueryParamEntity` → `PagerResult<PropertyEmployeeInfo>`；每页1–200 | 认证及 user 资产范围（基础服务通过平台 AssetsHolder 批量校验原 user 资产，再与基础有效员工相交）；先过滤未删除、启用、employee=true，再分页。应用成员关系由消费方在认证服务中解析并以 ID 相交，不能把认证库的 in-dimension 条件发送到基础库 |
 | `GetCurrentPropertyEmployeeCommand` | 无输入 → 本人 `PropertyEmployeeInfo` | 从可信认证身份读取，不要求用户维护菜单或目录授权；非员工、停用或已删除返回空；匿名和服务错误传播 |
 
 DTO 仅含 id、name、telephone、直接 organizationIds；员工 ID 与 SaaS user ID 一致，不包含密码、客户资料或内部审计字段。query 通过 AbstractCommand 属性序列化；调用方不能把空结果当有效执行身份，也不能降级为任意 SaaS 用户。员工与客户双身份按 employee 状态判断，纯客户不进入巡更岗位候选。
@@ -98,7 +98,7 @@ return CommandSupportManagerProviders
 
 用户管理实现位于 manager 的 `service/*User*`、`entity/PropertyUser*`、`entity/UserSyncStateEntity`、`web/PropertyUserController`，设计以相邻 `../../../设计文档/用户管理设计.md` 为准。SaaS 账号资料只读，物业身份可以同时为客户、员工，也可清空；身份不等于 SaaS 角色或房屋关系。客户身份保留原 `owner` 编码及数据库列，房屋关系中的“业主”性质含义不变。
 
-`/property/user` 提供 `_query`、`_counts`、`{id}`、`_identities`、`{id}/identities`、`_sync`、`_sync/status`，资源 `property-user`，动作 `query/save/sync`。分页及计数先通过认证服务 `authService:user-directory` 标准 `QueryListCommand<UserInfo>`（200 ID/批）解析原 `user/read` 的 AssetsHolder 授权 ID，再与 `pm_user` 筛选取交集；不在镜像库执行依赖 Cloud `s_user` 的权限 SQL；该只读命令不要求系统用户管理动作；认证服务负责人员资产条件，保留调用者认证、租户和应用 Scope，故障明确传播。详情与标注分别校验 read/save。标注提交完整集合和 version，冲突拒绝覆盖；没有通用账号保存或删除接口。
+`/property/user` 提供 `_query`、`_counts`、`{id}`、`_identities`、`{id}/identities`、`_sync`、`_sync/status`，资源 `property-user`，动作 `query/save/sync`。分页及计数先通过平台 `AssetsHolder.filterAssets`（200 ID/批）校验原 `user/read` 资产授权，再与 `pm_user` 筛选取交集；不依赖额外的认证目录命令，不在镜像库执行依赖 Cloud `s_user` 的权限 SQL；保留调用者认证、租户和应用 Scope，权限故障明确传播。详情与标注分别校验 read/save。标注提交完整集合和 version，冲突拒绝覆盖；没有通用账号保存或删除接口。
 
 全量同步通过 `authService:user` 显式 SDK 命令执行，分页暂存、校验和缺失 ID 复核后统一事务落库，保留本地身份、版本和标注审计；异常空来源、分页变化、重复 ID 或复核失败均不提交。SaaS 删除仅逻辑删除，同 ID 恢复保留身份。
 
@@ -114,7 +114,7 @@ return CommandSupportManagerProviders
 
 报修通过 `propertyService:directory` 消费本模块公开的 `QueryPropertyProjectsCommand`、`QueryPropertyUsersCommand` 和 `QueryPropertySpacesCommand`，只返回当前租户及资产权限交集内的项目、用户身份和绑定空间。消费方仅依赖 `property-base-core`；参数通过命令容器传递，项目范围和员工筛选跨 RPC 保持一致。空目录正常返回，缺少身份、权限或服务异常明确拒绝，不触发同步或查询旧报修目录。
 
-用户目录也支持仅选择 `business_application` Scope 的应用入口，不强制额外选择租户。认证服务通过 `AssetsHolder` 校验应用 Scope 及原用户资产权限，基础模块不在空的本地资产绑定表解析人员组织范围；同时选择租户时继续取租户交集，无租户和应用范围时拒绝。收银员姓名查询沿用该命令，不额外要求用户管理菜单权限。
+用户目录也支持仅选择 `business_application` Scope 的应用入口，不强制额外选择租户。基础服务通过平台 `AssetsHolder` 校验应用 Scope 及原用户资产权限，不将认证库的人员组织权限条件拼入本地镜像查询；同时选择租户时继续取租户交集，无租户和应用范围时拒绝。收银员姓名查询沿用该命令，不额外要求用户管理菜单权限。
 
 项目目录在基础服务查询 `pm_organization`，使用 AssetsHolder 批量资产过滤并与可信租户取交集；不能把依赖 Cloud 的 `s_organization` 的资产条件拼进基础镜像库或报修库。消费方将命令返回的授权项目 ID 与业务查询在分页前取交集；空目录对应空业务结果，命令失败向上传播。
 
