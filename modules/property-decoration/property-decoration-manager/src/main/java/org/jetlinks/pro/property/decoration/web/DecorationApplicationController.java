@@ -73,6 +73,9 @@ public class DecorationApplicationController {
     public Mono<DecorationApplicationEntity> permit(@PathVariable String id, @Valid @RequestBody DecorationRequests.IssuePermit input) { return permits.issue(id, input); }
     @PostMapping("/{id}/permit/print") @ResourceAction(id="print",name="打印备案证明")
     public Mono<DecorationApplicationEntity> print(@PathVariable String id, @Valid @RequestBody DecorationRequests.PrintPermit input) { return permits.print(id, input); }
+    /** 与打印共用现有按钮权限，不修改租户或平台授权定义。 */
+    @PostMapping("/{id}/permit/collect") @ResourceAction(id="print",name="打印备案证明")
+    public Mono<DecorationApplicationEntity> collect(@PathVariable String id, @Valid @RequestBody DecorationRequests.CollectPermit input) { return permits.collect(id, input); }
     /** 含私有项目章，仅允许打印权限，并禁止浏览器或中间代理缓存。 */
     @GetMapping("/{id}/permit/document") @ResourceAction(id="print",name="打印备案证明")
     public Mono<org.springframework.http.ResponseEntity<ResponseMessage<DecorationPermitDocumentService.Document>>> document(@PathVariable String id) {

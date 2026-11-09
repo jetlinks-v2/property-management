@@ -52,9 +52,15 @@ public final class DecorationRequests {
         @NotNull @Min(1) private Long version;
         @Size(max=2000) private String remark;
     }
-    /** 预览加载成功后携带服务端章摘要，防止加载期间换章却登记领取。 */
+    /** 完整证件先保存为私有图片，打印登记绑定图片回执及预览时的章摘要。 */
     @Getter @Setter public static class PrintPermit extends Action {
         @NotBlank @Pattern(regexp="[a-f0-9]{64}") private String sealDigest;
+        @NotBlank @Size(max=64) private String snapshotFileId;
+    }
+    /** 领取人可为业主或代领人；操作员身份只从认证上下文取得。 */
+    @Getter @Setter public static class CollectPermit extends Action {
+        @NotBlank @Size(max=128) private String collectedBy;
+        @NotNull @Min(1) private Long collectedTime;
     }
     @Getter @Setter public static class Review extends Action {
         @NotBlank private String itemId;

@@ -33,12 +33,14 @@ public class DecorationAttachmentService {
     public record Receipt(String id, String name, long size, String contentType) {}
 
     public Mono<Receipt> upload(String projectId, String decorationId, String purpose, FilePart part) {
-        require(Set.of("draft", "template").contains(purpose), "invalid_attachment");
+        require(Set.of("draft", "template", "permit").contains(purpose), "invalid_attachment");
         String name = java.nio.file.Paths.get(part.filename()).getFileName().toString();
         String extension = name.substring(name.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
         require(EXTENSIONS.contains(extension) && name.length() <= 512, "invalid_attachment");
+        if ("permit".equals(purpose)) require(decorationId != null && "png".equals(extension), "invalid_attachment");
         return scope.current().flatMap(ctx -> scope.project(projectId)
             .then("template".equals(purpose) ? scope.employee().then(Mono.fromRunnable(() -> require(ctx.authentication().hasPermission("decoration-configuration", "save"), "forbidden"))) : Mono.empty())
+            .then("permit".equals(purpose) ? scope.employee().then(Mono.fromRunnable(() -> require(ctx.authentication().hasPermission("decoration-application", "print"), "forbidden"))) : Mono.empty())
             .then(decorationId == null ? Mono.empty() : application(decorationId, ctx).doOnNext(a -> require(a.getProjectId().equals(projectId), "invalid_attachment")).then())
             .then(Mono.defer(() -> save(ctx, projectId, decorationId, purpose, name, extension, part))));
     }
@@ -49,6 +51,16 @@ public class DecorationAttachmentService {
             if (bytes[0] > MAX_BYTES) { DataBufferUtils.release(buffer); sink.error(error("attachment_too_large", 413)); }
             else sink.next(buffer);
         }).doOnDiscard(DataBuffer.class, DataBufferUtils::release);
+        if ("permit".equals(purpose)) {
+            // 专用图片先限量聚合并验证实际PNG，在非事件线程读取尺寸，避免只凭扩展名归档。
+            content = DataBufferUtils.join(content, (int) MAX_BYTES).publishOn(reactor.core.scheduler.Schedulers.boundedElastic())
+                .flatMapMany(buffer -> {
+                    byte[] image = new byte[buffer.readableByteCount()];
+                    try { buffer.read(image); } finally { DataBufferUtils.release(buffer); }
+                    validatePermitImage(image);
+                    return Flux.just(org.springframework.core.io.buffer.DefaultDataBufferFactory.sharedInstance.wrap(image));
+                });
+        }
         // 不使用 publicAccess；文件内容始终通过本服务的有权回执读取。
         return files.save("decoration-" + IDGenerator.MD5.generate() + "." + extension, content).flatMap(file -> {
             var row = new DecorationAttachmentEntity(); row.setId(IDGenerator.MD5.generate()); row.setFileId(file);
@@ -59,6 +71,28 @@ public class DecorationAttachmentService {
             return receipts.insert(row).thenReturn(new Receipt(row.getId(), name, bytes[0], row.getContentType()))
                 .onErrorResume(e -> files.delete(file).then(Mono.error(e)));
         });
+    }
+    static void validatePermitImage(byte[] image) {
+        require(image.length > 8 && image[0] == (byte) 0x89 && image[1] == 0x50 && image[2] == 0x4e && image[3] == 0x47
+            && image[4] == 13 && image[5] == 10 && image[6] == 26 && image[7] == 10, "invalid_attachment");
+        try (var input = javax.imageio.ImageIO.createImageInputStream(new java.io.ByteArrayInputStream(image))) {
+            var readers = javax.imageio.ImageIO.getImageReaders(input);
+            require(readers.hasNext(), "invalid_attachment");
+            var reader = readers.next();
+            try {
+                reader.setInput(input);
+                require(reader.getWidth(0) > 0 && reader.getHeight(0) > 0 && reader.getWidth(0) <= 4096 && reader.getHeight(0) <= 4096, "invalid_attachment");
+                require(reader.read(0) != null, "invalid_attachment");
+            } finally { reader.dispose(); }
+        } catch (java.io.IOException failure) { throw error("invalid_attachment", 400); }
+    }
+    /** 打印图片必须是当前操作者为本申请上传的专用回执，不接受资料图片或外部URL。 */
+    Mono<Void> validatePermitSnapshot(String id, org.jetlinks.pro.property.decoration.entity.DecorationApplicationEntity application, DecorationScope.Context ctx) {
+        return receipts.findById(id).filter(row -> row.getApplicationId().equals(ctx.applicationId())
+            && row.getTenantId().equals(ctx.tenantId()) && row.getProjectId().equals(application.getProjectId())
+            && application.getId().equals(row.getDecorationId()) && row.getCreatorId().equals(ctx.userId())
+            && "permit".equals(row.getPurpose()) && "image/png".equals(row.getContentType()) && row.getSize() > 0)
+            .switchIfEmpty(Mono.error(error("invalid_attachment", 403))).then();
     }
     public Mono<Void> validate(List<String> ids, String project, String application, DecorationScope.Context ctx, boolean templates) {
         require(ids.size() <= 5000, "too_many");

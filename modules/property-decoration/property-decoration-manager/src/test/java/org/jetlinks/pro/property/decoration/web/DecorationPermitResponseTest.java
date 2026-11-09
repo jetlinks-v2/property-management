@@ -14,7 +14,7 @@ class DecorationPermitResponseTest {
         var documents = mock(DecorationPermitDocumentService.class);
         var row = new DecorationApplicationEntity();
         row.setId("permit-test");
-        var document = new DecorationPermitDocumentService.Document(row, "data:image/png;base64,test", "digest");
+        var document = new DecorationPermitDocumentService.Document(row, "data:image/png;base64,test", "digest", null);
         when(documents.prepare("permit-test")).thenReturn(Mono.just(document));
         var controller = new DecorationApplicationController(null, null, null, null, null, null, documents);
 

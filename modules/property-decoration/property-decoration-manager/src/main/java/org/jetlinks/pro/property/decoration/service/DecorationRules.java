@@ -33,6 +33,11 @@ public final class DecorationRules {
         require(input.getOwnerCertificate() != null && input.getOwnerCertificate().matches(identity), "invalid_owner_identity");
         require(input.getManagerCertificate() != null && input.getManagerCertificate().matches(identity), "invalid_manager_identity");
     }
+    /** 已发布旧数据仅有printTime，沿用原流程资格但不补造领取人或领取时间。 */
+    public static boolean permitReceived(DecorationModels.Permit permit) {
+        return permit != null && (permit.getCollectedTime() != null
+            || permit.getPrintTime() != null && permit.getPrints().isEmpty());
+    }
     public static void active(DecorationApplicationEntity row) { require(row.getActualEndTime() == null, "ended"); }
     public static void editable(DecorationApplicationEntity row) {
         active(row); require(row.getPaymentStatus() == 0 && row.getPermit() == null, "payment_locked");

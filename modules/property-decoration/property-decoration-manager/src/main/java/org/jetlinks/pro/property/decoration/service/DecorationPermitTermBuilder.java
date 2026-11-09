@@ -63,8 +63,10 @@ public class DecorationPermitTermBuilder extends AbstractTermFragmentBuilder imp
     }
 
     private SqlFragments state(String name, RDBColumnMetadata column, String state, long now) {
-        if ("pending".equals(state)) return json(name, column, "printTime", "isnull", 1);
-        var printed = json(name, column, "printTime", "notnull", 1);
+        // 旧已发证记录没有prints，保留原筛选口径；新打印必须有独立领取记录。
+        var legacy = combine("and", json(name, column, "printTime", "notnull", 1), json(name, column, "prints[0]", "isnull", 1));
+        var printed = combine("or", json(name, column, "collectedTime", "notnull", 1), legacy);
+        if ("pending".equals(state)) return new BatchSqlFragments().addSql("not (").addFragments(printed).addSql(")");
         var end = json(name, column, "endTime", "lt", now);
         if ("expired".equals(state)) return combine("and", printed, end);
         var valid = combine("or", json(name, column, "endTime", "isnull", 1), json(name, column, "endTime", "gte", now));

@@ -25,6 +25,12 @@ class DecorationPermitDocumentTest {
     private void error(Mono<?> source,String code) {
         StepVerifier.create(source).expectErrorMatches(error->error.getMessage().contains("error.decoration."+code)).verify();
     }
+    @Test void snapshotUploadValidatesActualPngContent() throws Exception {
+        var bytes=new java.io.ByteArrayOutputStream();javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(2240,1480,java.awt.image.BufferedImage.TYPE_INT_ARGB),"png",bytes);
+        assertDoesNotThrow(()->DecorationAttachmentService.validatePermitImage(bytes.toByteArray()));
+        assertThrows(org.hswebframework.web.exception.BusinessException.class,()->DecorationAttachmentService.validatePermitImage("pretend.png".getBytes()));
+        assertThrows(org.hswebframework.web.exception.BusinessException.class,()->DecorationAttachmentService.validatePermitImage(java.util.Arrays.copyOf(bytes.toByteArray(),12)));
+    }
     @Test void missingAdapterOrMissingProjectSealNeverProducesAnUnsignedDocument() {
         error(service(null).resolve(paid(),context),"project_seal_unavailable");
         error(service(request->Mono.empty()).resolve(paid(),context),"project_seal_required");

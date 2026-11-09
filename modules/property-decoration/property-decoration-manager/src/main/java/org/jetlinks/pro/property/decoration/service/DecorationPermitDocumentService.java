@@ -22,17 +22,27 @@ public class DecorationPermitDocumentService {
     private final DecorationScope scope;
     private final ObjectProvider<DecorationProjectSealGateway> seals;
 
-    public record Document(DecorationApplicationEntity application, String sealDataUrl, String sealDigest) {}
+    public record Document(DecorationApplicationEntity application, String sealDataUrl, String sealDigest, String snapshotFileId) {}
+
+    /** 已打印且有效期未变时复用原图，不因主档换章而重新生成历史证件。 */
+    static org.jetlinks.pro.property.decoration.model.DecorationModels.PermitPrint currentPrint(DecorationApplicationEntity row) {
+        var permit = row.getPermit();
+        if (permit == null || permit.getPrints().isEmpty()) return null;
+        var latest = permit.getPrints().get(permit.getPrints().size() - 1);
+        return Objects.equals(latest.endTime(), permit.getEndTime()) ? latest : null;
+    }
 
     public Mono<Document> prepare(String id) {
         return applications.read(id, false).flatMap(row -> scope.current().flatMap(ctx -> scope.employee()
             .then(resolve(row, ctx))));
     }
 
-    /** 已完成聚合范围/行锁校验的打印动作复用此方法，缺章不能留下领取状态或轨迹。 */
+    /** 已完成聚合范围/行锁校验的打印动作复用此方法，缺章不能留下打印轨迹。 */
     Mono<Document> resolve(DecorationApplicationEntity row, DecorationScope.Context ctx) {
         paid(row);
         require(row.getPermit() != null, "permit_required");
+        var printed = currentPrint(row);
+        if (printed != null) return Mono.just(new Document(row, null, printed.sealDigest(), printed.snapshotFileId()));
         return Mono.defer(() -> {
             var gateway = seals.getIfAvailable();
             if (gateway == null) return Mono.error(error("project_seal_unavailable", 503));
@@ -52,7 +62,7 @@ public class DecorationPermitDocumentService {
                 validateImage(image);
                 try {
                     String digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(image));
-                    return new Document(row, "data:" + seal.mediaType() + ";base64," + Base64.getEncoder().encodeToString(image), digest);
+                    return new Document(row, "data:" + seal.mediaType() + ";base64," + Base64.getEncoder().encodeToString(image), digest, null);
                 } catch (java.security.NoSuchAlgorithmException impossible) {
                     throw new IllegalStateException(impossible);
                 }

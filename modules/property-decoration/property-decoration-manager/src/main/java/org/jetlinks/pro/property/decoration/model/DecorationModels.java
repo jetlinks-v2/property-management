@@ -135,11 +135,26 @@ public final class DecorationModels {
         private Long endTime;
         private int validityMonths;
         private Long printTime;
+        /** 每次打印保留原始私有图片，延期及项目章变更不覆盖历史。 */
+        private List<PermitPrint> prints = new ArrayList<>();
+        private Long legacyPrintTime;
+        private List<PermitCollection> collections = new ArrayList<>();
+        private Long collectedTime;
+        private String collectedBy;
+        private String collectionOperatorId;
+        private String collectionOperatorName;
+        private String collectionSnapshotFileId;
         private String approverId;
         private String approverName;
         private String approverPhone;
         private List<Extension> extensions = new ArrayList<>();
     }
+    /** 打印登记只表示提交打印任务，不表示纸张已输出或已领取。 */
+    public record PermitPrint(String snapshotFileId, String sealDigest, Long endTime,
+        String operatorId, String operatorName, long time) {}
+    /** 每次领证绑定该有效期的图片，延期后仍可追溯旧领取记录。 */
+    public record PermitCollection(String snapshotFileId, Long endTime, String collectedBy, long collectedTime,
+        String operatorId, String operatorName) {}
     @Getter @Setter public static class Worker {
         private String name;
         private String certificate;

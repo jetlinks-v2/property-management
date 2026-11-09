@@ -349,12 +349,52 @@ class DecorationPersistenceTest {
         assertTrue(document.sealDataUrl().startsWith("data:image/png;base64,"));assertEquals(row.getId(),document.application().getId());
         assertCode(permits.print(row.getId(),input),"project_seal_changed","admin");
         assertNull(rows.findById(row.getId()).block(WAIT).getPermit().getPrintTime());
-        input.setSealDigest(document.sealDigest());var printed=permits.print(row.getId(),input).contextWrite(auth("admin")).block(WAIT);
-        assertEquals("permit_issued",printed.getStatus());assertNotNull(printed.getPermit().getPrintTime());assertEquals(version+1,printed.getVersion().longValue());
+        input.setSealDigest(document.sealDigest());
+        input.setSnapshotFileId("missing-permit-image");assertCode(permits.print(row.getId(),input),"invalid_attachment","admin");
+        snapshot("first-print", row, "admin");input.setSnapshotFileId("first-print");var printed=permits.print(row.getId(),input).contextWrite(auth("admin")).block(WAIT);
+        assertEquals("pending_permit",printed.getStatus());assertNotNull(printed.getPermit().getPrintTime());
+        assertNull(printed.getPermit().getCollectedTime());assertFalse(DecorationRules.permitReceived(printed.getPermit()));
+        assertEquals("first-print",printed.getPermit().getPrints().get(0).snapshotFileId());
+        assertEquals("admin",printed.getPermit().getPrints().get(0).operatorId());assertEquals(version+1,printed.getVersion().longValue());
         assertEquals(printed.getVersion(),permits.print(row.getId(),input).contextWrite(auth("admin")).block(WAIT).getVersion());
         assertEquals(logs+1,histories.createQuery().count().block(WAIT).longValue());
         var foreign=cloneRow(printed);foreign.setId("foreign-document");foreign.setActiveHouseKey("foreign-document");foreign.setApplicationId("foreign");rows.insert(foreign).block(WAIT);
         clearInvocations(projectSeals);assertCode(documents.prepare(foreign.getId()),"not_found","admin");verifyNoInteractions(projectSeals);
+    }
+    @Test void collectionExtensionAndReprintingPreserveFrozenImagesAndIndependentReceipts() throws Exception {
+        var row=ready();row.getPermit().setPrintTime(null);row.getPermit().setStartTime(System.currentTimeMillis()-86400000L);
+        row.getPermit().setEndTime(System.currentTimeMillis()+86400000L);row.setStatus("pending_permit");rows.save(row).block(WAIT);
+        var encoded=new java.io.ByteArrayOutputStream();javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(2,2,java.awt.image.BufferedImage.TYPE_INT_ARGB),"png",encoded);
+        when(projectSeals.read(new DecorationProjectSealGateway.Request("app","tenant","project")))
+            .thenReturn(Mono.just(new DecorationProjectSealGateway.Seal("app","tenant","project","image/png",encoded.toByteArray())));
+        var doc=documents.prepare(row.getId()).contextWrite(auth("admin")).block(WAIT);
+        snapshot("v1",row,"admin");var print=new DecorationRequests.PrintPermit();print.setRequestId("print-v1");print.setVersion(row.getVersion());print.setSealDigest(doc.sealDigest());print.setSnapshotFileId("v1");
+        row=permits.print(row.getId(),print).contextWrite(auth("admin")).block(WAIT);
+        var collect=new DecorationRequests.CollectPermit();collect.setRequestId("collect-v1");collect.setVersion(row.getVersion());collect.setCollectedBy("业主代领人");collect.setCollectedTime(System.currentTimeMillis());
+        row=permits.collect(row.getId(),collect).contextWrite(auth("admin")).block(WAIT);
+        assertEquals("permit_issued",row.getStatus());assertTrue(DecorationRules.permitReceived(row.getPermit()));
+        assertEquals("业主代领人",row.getPermit().getCollectedBy());assertEquals("admin",row.getPermit().getCollectionOperatorId());
+        assertEquals(row.getVersion(),permits.collect(row.getId(),collect).contextWrite(auth("admin")).block(WAIT).getVersion());
+        clearInvocations(projectSeals);
+        // 公共项目章变化/停机不能改变已经打印的图片，重复打印增加记录而不改变领取人。
+        doc=documents.prepare(row.getId()).contextWrite(auth("admin")).block(WAIT);assertEquals("v1",doc.snapshotFileId());assertNull(doc.sealDataUrl());verifyNoInteractions(projectSeals);
+        print.setRequestId("reprint-v1");print.setVersion(row.getVersion());row=permits.print(row.getId(),print).contextWrite(auth("admin")).block(WAIT);
+        assertEquals(2,row.getPermit().getPrints().size());assertEquals("业主代领人",row.getPermit().getCollectedBy());verifyNoInteractions(projectSeals);
+        long oldEnd=row.getPermit().getEndTime();var extend=new DecorationRequests.ExtendPermit();extend.setRequestId("extend-v2");extend.setVersion(row.getVersion());extend.setMonths(1);
+        row=permits.extend(row.getId(),extend).contextWrite(auth("admin")).block(WAIT);
+        assertEquals("pending_permit",row.getStatus());assertNull(row.getPermit().getCollectedTime());assertNull(row.getPermit().getPrintTime());assertFalse(DecorationRules.permitReceived(row.getPermit()));
+        assertEquals(1,row.getPermit().getCollections().size());assertEquals(oldEnd,row.getPermit().getCollections().get(0).endTime());
+        collect.setRequestId("too-early-v2");collect.setVersion(row.getVersion());assertCode(permits.collect(row.getId(),collect),"permit_snapshot_required","admin");
+        doc=documents.prepare(row.getId()).contextWrite(auth("admin")).block(WAIT);assertNull(doc.snapshotFileId());assertNotNull(doc.sealDataUrl());
+        snapshot("foreign-owner-image",row,"owner");print.setRequestId("print-v2");print.setVersion(row.getVersion());print.setSnapshotFileId("foreign-owner-image");assertCode(permits.print(row.getId(),print),"invalid_attachment","admin");
+        snapshot("v2",row,"admin");print.setSnapshotFileId("v2");row=permits.print(row.getId(),print).contextWrite(auth("admin")).block(WAIT);
+        collect.setRequestId("collect-v2");collect.setVersion(row.getVersion());collect.setCollectedTime(System.currentTimeMillis());collect.setCollectedBy("业主本人");row=permits.collect(row.getId(),collect).contextWrite(auth("admin")).block(WAIT);
+        var saved=rows.findById(row.getId()).block(WAIT).getPermit();assertEquals(3,saved.getPrints().size());assertEquals(2,saved.getCollections().size());
+        assertEquals("v1",saved.getCollections().get(0).snapshotFileId());assertEquals("v2",saved.getCollections().get(1).snapshotFileId());assertTrue(saved.getEndTime()>oldEnd);
+    }
+    private void snapshot(String id, DecorationApplicationEntity application, String creator) {
+        var row=new DecorationAttachmentEntity();row.setId(id);row.setFileId(id);row.setApplicationId("app");row.setTenantId("tenant");row.setProjectId(application.getProjectId());
+        row.setCreatorId(creator);row.setPurpose("permit");row.setDecorationId(application.getId());row.setContentType("image/png");row.setSize(1024L);row.setCreateTime(System.currentTimeMillis());files.insert(row).block(WAIT);
     }
     @Test void permitDocumentCannotBypassReviewOrPayment(){
         var row=createSigned(create("no-paid-document"),false).contextWrite(auth("admin")).block(WAIT);

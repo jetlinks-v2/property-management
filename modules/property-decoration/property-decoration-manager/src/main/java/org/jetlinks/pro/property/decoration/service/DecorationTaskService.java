@@ -95,7 +95,7 @@ public class DecorationTaskService {
     }
     public Mono<DecorationApplicationEntity> requestAcceptance(String id, DecorationRequests.AcceptanceRequest input, boolean mine) {
         return applications.mutate(id, "requestAcceptance", input, mine, (row, ctx) -> {
-            active(row); require(row.getPermit() != null && row.getPermit().getPrintTime() != null, "permit_required");
+            active(row); require(permitReceived(row.getPermit()), "permit_required");
             require(input.getType() == 1 || input.getType() == 2, "invalid_state");
             String prefix = input.getType() == 1 ? "first" : "second";
             boolean retry = (prefix + "_acceptance_failed").equals(row.getStatus());
