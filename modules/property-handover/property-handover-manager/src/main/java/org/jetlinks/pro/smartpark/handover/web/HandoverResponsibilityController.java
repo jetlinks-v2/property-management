@@ -22,7 +22,7 @@ public class HandoverResponsibilityController {
     @GetMapping("/_query")
     @QueryAction
     public Mono<PagerResult<HandoverResponsibilityEntity>> query(HandoverQuery input) {
-        return service.query(repository, input, "name");
+        return service.queryInformation(repository, input);
     }
 
     @GetMapping("/{id}")

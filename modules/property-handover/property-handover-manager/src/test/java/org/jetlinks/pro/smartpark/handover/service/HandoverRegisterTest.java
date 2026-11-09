@@ -12,6 +12,9 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import java.util.List;
 import java.util.Set;
+import reactor.core.publisher.Flux;
+import org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo;
+import static org.mockito.Mockito.*;
 
 @SpringBootTest(classes=HandoverPersistenceFixture.Config.class, webEnvironment=SpringBootTest.WebEnvironment.NONE)
 class HandoverRegisterTest {
@@ -22,6 +25,7 @@ class HandoverRegisterTest {
  @Autowired HandoverLedgerRepository ledgers;
  @Autowired HandoverEquipmentRepository equipment;
  @Autowired HandoverResponsibilityRepository units;
+ @Autowired HandoverCategoryRepository categories;
  @BeforeEach void setup() {
   ledgers.createDelete().where("tenantId","tenant").execute().block(WAIT);
   units.createDelete().where("tenantId","tenant").execute().block(WAIT);
@@ -33,6 +37,44 @@ class HandoverRegisterTest {
   var ledger=new HandoverLedgerEntity();ledger.setProjectId("project");ledger.setDescription("车库顶面渗水");
   var saved=service.save(ledgers,ledger).contextWrite(access("tester",Set.of("project"))).block(WAIT);
   assertEquals("tester",saved.getEntryUserId());assertNotNull(saved.getEntryTime());assertNotNull(saved.getId());assertEquals("车库顶面渗水",saved.getDescription());
+ }
+
+ @Test void informationPagesUseAuthorizedProjectsBeforePagingAndKeepEmptyScopeEmpty() {
+  categories.createDelete().where("tenantId", "tenant").execute().block(WAIT);
+  int sequence = 0;
+  for (String projectId : List.of("project", "other", "project")) {
+   var category = new HandoverCategoryEntity(); category.setProjectId(projectId); category.setName("渗漏" + sequence++);
+   service.save(categories, category).contextWrite(access("tester", Set.of(projectId))).block(WAIT);
+  }
+  var allowed = new PropertyOrganizationInfo(); allowed.setId("project"); allowed.setName("5G园区");
+  when(directory.projects()).thenReturn(Flux.just(allowed));
+  var query = new HandoverQuery(); query.setPageSize(1);
+  var page = service.queryInformation(categories, query).contextWrite(access("tester", Set.of("project"))).block(WAIT);
+  assertEquals(2, page.getTotal()); assertEquals(1, page.getData().size()); assertEquals("project", page.getData().get(0).getProjectId());
+  String firstId = page.getData().get(0).getId();
+  var unitPage = service.queryInformation(units, query).contextWrite(access("tester", Set.of("project"))).block(WAIT);
+  assertEquals(1, unitPage.getTotal()); assertEquals("external-a", unitPage.getData().get(0).getOrganizationId());
+  query.setPageIndex(1);
+  page = service.queryInformation(categories, query).contextWrite(access("tester", Set.of("project"))).block(WAIT);
+  assertEquals(2, page.getTotal()); assertEquals(1, page.getData().size());
+  assertEquals("project", page.getData().get(0).getProjectId()); assertNotEquals(firstId, page.getData().get(0).getId());
+  query.setPageIndex(0); when(directory.projects()).thenReturn(Flux.empty());
+  assertEquals(0, service.queryInformation(categories, query).contextWrite(access("tester", Set.of())).block(WAIT).getTotal());
+  assertEquals(0, service.queryInformation(units, query).contextWrite(access("tester", Set.of())).block(WAIT).getTotal());
+  query.setProjectId("other");
+  assertThrows(org.hswebframework.web.authorization.exception.AccessDenyException.class,
+    () -> service.queryInformation(categories, query).contextWrite(access("tester", Set.of("project"))).block(WAIT));
+ }
+
+ @Test void responsibilityOnlyNeedsProjectAndOrganizationAndRejectsDuplicates() {
+  var row = new HandoverResponsibilityEntity(); row.setProjectId("project"); row.setOrganizationId("external-b");
+  row.setName("客户端伪造名称");
+  var saved = service.save(units, row).contextWrite(access("tester", Set.of("project"))).block(WAIT);
+  assertEquals("external-b", saved.getName()); assertNotNull(saved.getId());
+  var duplicate = new HandoverResponsibilityEntity(); duplicate.setProjectId("project"); duplicate.setOrganizationId("external-b");
+  assertThrows(BusinessException.class, () -> service.save(units, duplicate).contextWrite(access("tester", Set.of("project"))).block(WAIT));
+  var invalid = new HandoverResponsibilityEntity(); invalid.setProjectId("project"); invalid.setOrganizationId("foreign");
+  assertThrows(BusinessException.class, () -> service.save(units, invalid).contextWrite(access("tester", Set.of("project"))).block(WAIT));
  }
 
  @Test void supplementalPhotosPersistRealActorAndRejectReplayOrUnauthorizedUnit() {

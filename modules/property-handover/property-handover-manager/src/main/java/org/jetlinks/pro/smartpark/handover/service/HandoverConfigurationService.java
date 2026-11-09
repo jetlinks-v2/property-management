@@ -43,6 +43,20 @@ public class HandoverConfigurationService {
                 .flatMap(repository::queryPager);
     }
 
+    /** 信息维护跨项目分页，先从公共目录取得调用者可读项目，再在查验库内分页。 */
+    public <E extends HandoverEntity> Mono<PagerResult<E>> queryInformation(
+            GenericReactiveCrudService<E, String> repository, HandoverQuery input) {
+        if (HandoverRules.hasText(input.getProjectId())) return query(repository, input, "name");
+        return scope.current().flatMap(context -> directory.projects()
+                .map(org -> org.getId()).distinct().collectList().flatMap(projectIds -> {
+                    var query = scope.mandatory(input.parameter("name"), context, null);
+                    // 空授权范围必须匹配零行，不能省略项目条件而退化为应用内全量查询。
+                    if (projectIds.isEmpty()) query.toQuery().isNull("projectId").notNull("projectId");
+                    else query.toQuery().in("projectId", projectIds);
+                    return repository.queryPager(query);
+                }));
+    }
+
     public <E extends HandoverEntity> Mono<E> read(
             GenericReactiveCrudService<E, String> repository, String id) {
         return scope.current()
