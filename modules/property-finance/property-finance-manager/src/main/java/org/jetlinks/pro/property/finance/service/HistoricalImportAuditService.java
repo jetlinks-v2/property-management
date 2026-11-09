@@ -259,6 +259,10 @@ public class HistoricalImportAuditService {
             return Mono.error(error("historical_review_invalid", 409));
         Mono<Void> publish = Mono.empty();
         if (approve) {
+            if (bill.getBillNo() == null || bill.getBillNo().isBlank())
+                bill.setBillNo(
+                        org.jetlinks.pro.property.finance.payment.FinanceDocumentNumbers.next(
+                                "YS"));
             bill.setReviewState("APPROVED");
             bill.setReviewedOn(LocalDate.now().toString());
             bill.setReviewedBy(auth.getUser().getId());

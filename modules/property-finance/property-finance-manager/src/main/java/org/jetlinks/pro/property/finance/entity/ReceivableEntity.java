@@ -28,6 +28,10 @@ import javax.persistence.*;
             @Index(name = "idx_pm_fin_recv_source", columnList = "sourceReceivableId,deleted")
         })
 public class ReceivableEntity extends FinanceEntity {
+    /** 对外业务单号；不用于替换账务关联和幂等主键。 */
+    @Column(length = 40, unique = true)
+    private String billNo;
+
     /** 系统任务只能恢复落账时冻结的租户，不能从定时器调用者继承身份。 */
     @JsonIgnore
     @Column(length = 64)
@@ -92,6 +96,7 @@ public class ReceivableEntity extends FinanceEntity {
     private String accountPeriod;
 
     @Column(length = 100)
+    @JsonIgnore
     private String contractCode;
 
     @Column(length = 1000)

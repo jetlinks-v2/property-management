@@ -470,6 +470,7 @@ public class InvoiceCompanyService {
     }
 
     static void init(FinanceEntity entity, Authentication auth) {
+        org.jetlinks.pro.property.finance.payment.FinanceDocumentNumbers.assign(entity);
         entity.setVersion(0L);
         entity.setDeleted(false);
         entity.setCreateTime(System.currentTimeMillis());

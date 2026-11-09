@@ -262,7 +262,25 @@ public class ReceivableSplitService {
                 .flatMap(SubjectService::changed)
                 .thenMany(
                         Flux.fromIterable(prepared.children())
-                                .concatMap(child -> bills.insert(child)))
+                                .concatMap(
+                                        child ->
+                                                bills.insert(child)
+                                                        .then(
+                                                                Mono.defer(
+                                                                        () -> {
+                                                                            var initial =
+                                                                                    HistoricalReceivableService
+                                                                                            .log(
+                                                                                                    child,
+                                                                                                    auth);
+                                                                            initial.setOperation(
+                                                                                    "SPLIT_GENERATE");
+                                                                            initial.setReason(
+                                                                                    input.reason()
+                                                                                            .trim());
+                                                                            return logs.insert(
+                                                                                    initial);
+                                                                        }))))
                 .then(logs.insert(log))
                 .thenReturn(
                         prepared.children().stream()

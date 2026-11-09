@@ -204,7 +204,6 @@ public class HistoricalImportEditService {
             String customerName,
             String subjectName,
             String standardName,
-            String contractCode,
             String calcStartDate,
             String calcEndDate,
             String accountPeriod,
@@ -227,11 +226,11 @@ public class HistoricalImportEditService {
             var actual = money(actualReceivableAmount, row, "实际应收");
             if (original.subtract(reduction).compareTo(actual) != 0)
                 throw HistoricalWorkbook.rowError(row, "实际应收", "historical_amount_mismatch");
-            if (text(contractCode).length() > 100 || text(remark).length() > 1000)
-                throw HistoricalWorkbook.rowError(row, "合同编号/备注", "historical_text_limit");
+            if (text(remark).length() > 1000)
+                throw HistoricalWorkbook.rowError(row, "备注", "historical_text_limit");
             return new HistoricalWorkbook.Line(
                     row,
-                    text(contractCode),
+                    "",
                     required(fullName, row, "房屋完整路径"),
                     required(customerName, row, "客户名称"),
                     required(subjectName, row, "收费科目"),

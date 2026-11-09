@@ -42,6 +42,21 @@ class ReceivedReportPersistenceTest {
     @Autowired org.hswebframework.ezorm.rdb.operator.DatabaseOperator overviewDatabase;
 
     @Test
+    void independentFeeDatesAndCalendarDimensionsKeepCashConserved() {
+        var a = payment("100", "1", "room", "2024-02-01T12:00:00");
+        var b = payment("30", "1", "room", "2024-02-02T12:00:00");
+        lines.createUpdate().set("calcStartDate", "2023-01-01").set("calcEndDate", "2023-12-31").where("id", a.getId()).execute().block(WAIT);
+        var i = input(); i.setGroupBy("DAY");
+        assertEquals(2, query(i).page().getTotal());
+        i.setGroupBy("MONTH");
+        assertEquals(1, query(i).page().getTotal());
+        i.setCalcStartDate("2023-01-01"); i.setCalcEndDate("2023-12-31");
+        assertEquals("100.00", query(i).summary().netAmount());
+        i.setGroupBy("HANDOVER");
+        assertEquals("100.00", query(i).page().getData().get(0).amounts().netAmount());
+    }
+
+    @Test
     void overviewCashUsesOwnRefundDateExcludesOffsetsAndKeepsCurrentBalances() {
         var p = payment("100", "1", "room", "2024-02-01T12:00:00");
         refund(p, "20", "CASH", "2024-03-02T12:00:00");
@@ -343,7 +358,9 @@ class ReceivedReportPersistenceTest {
                         .findFirst()
                         .orElseThrow();
         assertEquals("YS-1", row.receivableId());
-        assertEquals("RECEIVABLE-" + normal.getPaymentId(), row.sourceNo());
+        assertEquals(
+                payments.findById(normal.getPaymentId()).block(WAIT).getBillNo(), row.sourceNo());
+        assertTrue(row.sourceNo().startsWith("SS"));
         var i = input();
         i.setPaymentNo(row.sourceNo());
         assertEquals(1, query(i).page().getTotal());

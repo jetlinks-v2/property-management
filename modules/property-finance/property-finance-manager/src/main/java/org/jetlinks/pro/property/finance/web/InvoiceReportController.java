@@ -23,6 +23,15 @@ public class InvoiceReportController {
     private final InvoiceLedgerService ledger;
     private final InvoiceReportExportService exports;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<FinanceExportJobs> jobs;
+    @PostMapping("/_exports/{format}") @ResourceAction(id="export",name="导出")
+    public Mono<org.jetlinks.pro.property.finance.entity.FinanceExportTaskEntity> createExport(@RequestBody InvoiceReportInput input,@PathVariable String format){return jobs.getObject().create("invoices",input,format);}
+    @GetMapping("/_exports/{id}") @ResourceAction(id="export",name="导出")
+    public Mono<org.jetlinks.pro.property.finance.entity.FinanceExportTaskEntity> exportStatus(@PathVariable String id){return jobs.getObject().status("invoices",id);}
+    @GetMapping("/_exports/{id}/_download") @ResourceAction(id="export",name="导出")
+    public Mono<org.springframework.core.io.Resource> downloadExport(@PathVariable String id){return jobs.getObject().download("invoices",id);}
+
     @PostMapping("/ledger/_query")
     @ResourceAction(id = "query", name = "查询")
     public Mono<InvoiceLedgerResult> ledger(@RequestBody InvoiceLedgerInput input) {

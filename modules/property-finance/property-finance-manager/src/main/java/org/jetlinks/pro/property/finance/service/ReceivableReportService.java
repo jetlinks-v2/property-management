@@ -27,11 +27,13 @@ import java.util.*;
 public class ReceivableReportService {
     public static final int EXPORT_LIMIT = 10000;
     private static final String[] COLUMNS = {
+        "billNo",
         "id",
         "projectId",
         "spaceId",
         "fullName",
         "customerName",
+        "customerId",
         "subjectId",
         "subjectName",
         "calcStartDate",
@@ -86,92 +88,13 @@ public class ReceivableReportService {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Mono<org.jetlinks.pro.property.finance.overview.OverviewResult.Receivables> overview(
             ReceivableReportInput input) {
-        return prepare(input)
-                .flatMap(
-                        p ->
-                                select("select " + SUMS + " from " + p.source(), p.parameters())
-                                        .single()
-                                        .flatMap(
-                                                summary ->
-                                                        select(
-                                                                        "select \"subjectId\","
-                                                                            + " \"subjectName\", "
-                                                                                + SUMS
-                                                                                + " from "
-                                                                                + p.source()
-                                                                                + " group by"
-                                                                                + " \"subjectId\","
-                                                                                + " \"subjectName\""
-                                                                                + " order by"
-                                                                                + " \"subjectName\","
-                                                                                + " \"subjectId\"",
-                                                                        p.parameters())
-                                                                .map(
-                                                                        row ->
-                                                                                new org.jetlinks.pro
-                                                                                        .property
-                                                                                        .finance
-                                                                                        .overview
-                                                                                        .OverviewResult
-                                                                                        .Subject(
-                                                                                        text(
-                                                                                                row,
-                                                                                                "subjectId"),
-                                                                                        text(
-                                                                                                row,
-                                                                                                "subjectName"),
-                                                                                        ReceivableReportAmounts
-                                                                                                .of(
-                                                                                                        row)))
-                                                                .collectList()
-                                                                .flatMap(
-                                                                        subjects ->
-                                                                                overviewAges(p)
-                                                                                        .flatMap(
-                                                                                                ages ->
-                                                                                                        select(
-                                                                                                                        "select"
-                                                                                                                            + " count(*)"
-                                                                                                                            + " as total"
-                                                                                                                            + " from"
-                                                                                                                            + " (select"
-                                                                                                                            + " \"projectId\","
-                                                                                                                            + " \"spaceId\""
-                                                                                                                            + " from"
-                                                                                                                            + " "
-                                                                                                                                + p
-                                                                                                                                        .source()
-                                                                                                                                + " where"
-                                                                                                                                + " ("
-                                                                                                                                + OVERDUE
-                                                                                                                                + ") > 0"
-                                                                                                                                + " group"
-                                                                                                                                + " by \"projectId\","
-                                                                                                                                + " \"spaceId\")"
-                                                                                                                                + " overdue_houses",
-                                                                                                                        p
-                                                                                                                                .parameters())
-                                                                                                                .single()
-                                                                                                                .map(
-                                                                                                                        count ->
-                                                                                                                                new org
-                                                                                                                                        .jetlinks
-                                                                                                                                        .pro
-                                                                                                                                        .property
-                                                                                                                                        .finance
-                                                                                                                                        .overview
-                                                                                                                                        .OverviewResult
-                                                                                                                                        .Receivables(
-                                                                                                                                        ReceivableReportAmounts
-                                                                                                                                                .of(
-                                                                                                                                                        summary),
-                                                                                                                                        subjects,
-                                                                                                                                        ages,
-                                                                                                                                        ((Number)
-                                                                                                                                                        count
-                                                                                                                                                                .get(
-                                                                                                                                                                        "total"))
-                                                                                                                                                .longValue()))))));
+        return prepare(input).flatMap(p ->
+            select("select " + SUMS + " from " + p.source(), p.parameters()).single().flatMap(summary ->
+                select("select \"subjectId\",\"subjectName\"," + SUMS + " from " + p.source() + " group by \"subjectId\",\"subjectName\" order by \"subjectName\",\"subjectId\"",p.parameters())
+                    .map(row -> new org.jetlinks.pro.property.finance.overview.OverviewResult.Subject(text(row,"subjectId"),text(row,"subjectName"),ReceivableReportAmounts.of(row)))
+                    .collectList().flatMap(subjects -> overviewAges(p).flatMap(ages ->
+                        select("select count(distinct (\"projectId\",\"spaceId\")) as total, count(distinct case when ("+OUTSTANDING+")>0 then (\"projectId\",\"spaceId\") end) as owing, count(distinct case when ("+OVERDUE+")>0 then (\"projectId\",\"spaceId\") end) as overdue from "+p.source(),p.parameters()).single()
+                        .map(count -> new org.jetlinks.pro.property.finance.overview.OverviewResult.Receivables(ReceivableReportAmounts.of(summary),subjects,ages,((Number)count.get("overdue")).longValue(),((Number)count.get("total")).longValue(),((Number)count.get("owing")).longValue()))))));
     }
 
     private Mono<List<org.jetlinks.pro.property.finance.overview.OverviewResult.AgeBucket>>
@@ -359,6 +282,10 @@ public class ReceivableReportService {
                         .or()
                         .is("split", false)
                         .end();
+        if (!input.getCustomerIds().isEmpty()) terms.in("customerId", input.getCustomerIds());
+        if (input.getCalcStartDate() != null) terms.gte("calcEndDate", input.getCalcStartDate());
+        if (input.getCalcEndDate() != null) terms.lte("calcStartDate", input.getCalcEndDate());
+        if (!input.getMonths().isEmpty()) q.getTerms().add(org.hswebframework.ezorm.core.param.SqlTerm.of("substring(\"receivableDate\" from 1 for 7) in (" + String.join(",", Collections.nCopies(input.getMonths().size(), "?")) + ")", input.getMonths().toArray()));
         if (!input.getSpaceIds().isEmpty()) terms.in("spaceId", input.getSpaceIds());
         if (!input.getSubjectIds().isEmpty()) terms.in("subjectId", input.getSubjectIds());
         if (input.getReceivableDateStart() != null)
@@ -372,7 +299,7 @@ public class ReceivableReportService {
         if (input.getFullName() != null && !input.getFullName().isBlank())
             terms.like("fullName", "%" + input.getFullName().trim() + "%");
         if (input.getReceivableNo() != null && !input.getReceivableNo().isBlank())
-            terms.like("id", "%" + input.getReceivableNo().trim() + "%");
+            terms.like("billNo", "%" + input.getReceivableNo().trim() + "%");
         // 权限先进入来源SQL，所有汇总、count、分组与导出均不可见无权房屋。
         return FinanceSpaceQuery.inject(q, bills, CrudAssetPermission.read);
     }
@@ -475,7 +402,7 @@ public class ReceivableReportService {
             String cols = groupColumns(group);
             select =
                     "select "
-                            + cols
+                            + ("MONTH".equals(group) ? cols + " as \"receivableDate\"" : cols)
                             + ", "
                             + SUMS
                             + " from "
@@ -489,7 +416,13 @@ public class ReceivableReportService {
     }
 
     private static String groupColumns(String group) {
-        return "PROJECT".equals(group) ? "\"projectId\"" : "\"subjectId\", \"subjectName\"";
+        return switch (group) {
+            case "PROJECT" -> "\"projectId\"";
+            case "SPACE" -> "\"projectId\", \"spaceId\", \"fullName\"";
+            case "CUSTOMER" -> "\"projectId\", \"customerId\", \"customerName\"";
+            case "MONTH" -> "substring(\"receivableDate\" from 1 for 7)";
+            default -> "\"subjectId\", \"subjectName\"";
+        };
     }
 
     private Flux<Map<String, Object>> select(String sql, Object[] parameters) {
@@ -503,6 +436,7 @@ public class ReceivableReportService {
         String project = text(row, "projectId");
         return new ReceivableReportRow(
                 text(row, "id"),
+                text(row, "billNo"),
                 project,
                 names.get(project),
                 text(row, "spaceId"),
@@ -519,7 +453,7 @@ public class ReceivableReportService {
                 text(row, "remark"),
                 ((Number) row.get("bills")).longValue(),
                 ReceivableReportAmounts.of(row),
-                overdueDays(row));
+                overdueDays(row), text(row, "customerId"));
     }
 
     private static long overdueDays(Map<String, Object> row) {

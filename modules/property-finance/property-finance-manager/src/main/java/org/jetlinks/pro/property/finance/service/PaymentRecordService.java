@@ -95,6 +95,8 @@ public class PaymentRecordService {
                                                                                                             return new View(
                                                                                                                     line,
                                                                                                                     payment
+                                                                                                                            .getBillNo(),
+                                                                                                                    payment
                                                                                                                             .getPaidAt(),
                                                                                                                     payment
                                                                                                                             .getPayerName(),
@@ -115,6 +117,7 @@ public class PaymentRecordService {
 
     public record View(
             PaymentAllocationEntity line,
+            String billNo,
             String paidAt,
             String payerName,
             String companyName,

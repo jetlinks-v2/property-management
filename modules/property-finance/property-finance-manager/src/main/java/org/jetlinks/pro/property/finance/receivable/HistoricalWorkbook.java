@@ -26,8 +26,8 @@ public final class HistoricalWorkbook {
             org.jetlinks.pro.property.finance.payment.FinanceExcelRows.LIMIT;
     public static final List<String> HEADERS =
             List.of(
-                    "合同编号", "房屋完整路径", "客户名称", "收费科目", "收费标准", "计费开始日期", "计费结束日期", "应收账期", "应收日期",
-                    "原应收", "减免金额", "实际应收", "备注");
+                    "房屋完整路径", "客户名称", "收费科目", "收费标准", "计费开始日期", "计费结束日期", "应收账期", "应收日期", "原应收",
+                    "减免金额", "实际应收", "备注");
 
     public record Line(
             int row,
@@ -62,46 +62,46 @@ public final class HistoricalWorkbook {
                 var values = new ArrayList<String>();
                 for (int c = 0; c < HEADERS.size(); c++) values.add(text(row, c, formatter, i + 1));
                 if (values.stream().allMatch(String::isBlank)) continue;
-                for (int c = 1; c <= 11; c++)
+                for (int c = 0; c <= 10; c++)
                     if (values.get(c).isBlank())
                         throw rowError(i + 1, HEADERS.get(c), "historical_required");
-                var start = date(row, 5, values.get(5), i + 1);
-                var end = date(row, 6, values.get(6), i + 1);
-                var due = date(row, 8, values.get(8), i + 1);
+                var start = date(row, 4, values.get(4), i + 1);
+                var end = date(row, 5, values.get(5), i + 1);
+                var due = date(row, 7, values.get(7), i + 1);
                 if (start.isAfter(end))
-                    throw rowError(i + 1, HEADERS.get(6), "historical_dates_invalid");
-                var period = values.get(7);
-                var periodCell = row.getCell(7);
+                    throw rowError(i + 1, HEADERS.get(5), "historical_dates_invalid");
+                var period = values.get(6);
+                var periodCell = row.getCell(6);
                 if (periodCell != null
                         && periodCell.getCellType() == CellType.NUMERIC
                         && DateUtil.isCellDateFormatted(periodCell))
                     period = YearMonth.from(periodCell.getLocalDateTimeCellValue()).toString();
                 if (!period.matches("[0-9]{4}-(0[1-9]|1[0-2])"))
-                    throw rowError(i + 1, HEADERS.get(7), "historical_period_invalid");
-                var original = money(values.get(9), i + 1, 9);
-                var reduction = money(values.get(10), i + 1, 10);
-                var actual = money(values.get(11), i + 1, 11);
+                    throw rowError(i + 1, HEADERS.get(6), "historical_period_invalid");
+                var original = money(values.get(8), i + 1, 8);
+                var reduction = money(values.get(9), i + 1, 9);
+                var actual = money(values.get(10), i + 1, 10);
                 if (original.subtract(reduction).compareTo(actual) != 0)
-                    throw rowError(i + 1, HEADERS.get(11), "historical_amount_mismatch");
-                if (values.get(0).length() > 100 || values.get(12).length() > 1000)
-                    throw rowError(i + 1, "合同编号/备注", "historical_text_limit");
+                    throw rowError(i + 1, HEADERS.get(10), "historical_amount_mismatch");
+                if (values.get(11).length() > 1000)
+                    throw rowError(i + 1, "备注", "historical_text_limit");
                 if (!identities.add(
                         List.of(
+                                values.get(0),
                                 values.get(1),
                                 values.get(2),
                                 values.get(3),
-                                values.get(4),
                                 start.toString(),
                                 end.toString())))
                     throw rowError(i + 1, "房屋/客户/科目/标准/日期", "historical_duplicate_file");
                 result.add(
                         new Line(
                                 i + 1,
+                                "",
                                 values.get(0),
                                 values.get(1),
                                 values.get(2),
                                 values.get(3),
-                                values.get(4),
                                 start,
                                 end,
                                 period,
@@ -109,7 +109,7 @@ public final class HistoricalWorkbook {
                                 original,
                                 reduction,
                                 actual,
-                                values.get(12)));
+                                values.get(11)));
             }
             if (result.isEmpty()) throw rowError(2, "文件", "historical_file_empty");
             return result;
@@ -122,45 +122,44 @@ public final class HistoricalWorkbook {
         var v = new ArrayList<String>(row.cells());
         while (v.size() < HEADERS.size()) v.add("");
         if (v.stream().allMatch(String::isBlank)) return null;
-        for (int c = 1; c <= 11; c++)
+        for (int c = 0; c <= 10; c++)
             if (v.get(c).isBlank())
                 throw rowError(row.number(), HEADERS.get(c), "historical_required");
         LocalDate start, end, due;
         try {
-            start = LocalDate.parse(v.get(5));
-            end = LocalDate.parse(v.get(6));
-            due = LocalDate.parse(v.get(8));
+            start = LocalDate.parse(v.get(4));
+            end = LocalDate.parse(v.get(5));
+            due = LocalDate.parse(v.get(7));
         } catch (RuntimeException e) {
             throw rowError(row.number(), "计费开始日期/计费结束日期/应收日期", "historical_date_invalid");
         }
         if (start.isAfter(end))
-            throw rowError(row.number(), HEADERS.get(6), "historical_dates_invalid");
-        if (!v.get(7).matches("[0-9]{4}-(0[1-9]|1[0-2])"))
-            throw rowError(row.number(), HEADERS.get(7), "historical_period_invalid");
-        var original = money(v.get(9), row.number(), 9);
-        var reduction = money(v.get(10), row.number(), 10);
-        var actual = money(v.get(11), row.number(), 11);
+            throw rowError(row.number(), HEADERS.get(5), "historical_dates_invalid");
+        if (!v.get(6).matches("[0-9]{4}-(0[1-9]|1[0-2])"))
+            throw rowError(row.number(), HEADERS.get(6), "historical_period_invalid");
+        var original = money(v.get(8), row.number(), 8);
+        var reduction = money(v.get(9), row.number(), 9);
+        var actual = money(v.get(10), row.number(), 10);
         if (original.subtract(reduction).compareTo(actual) != 0)
-            throw rowError(row.number(), HEADERS.get(11), "historical_amount_mismatch");
-        if (v.get(0).length() > 100 || v.get(12).length() > 1000)
-            throw rowError(row.number(), "合同编号/备注", "historical_text_limit");
-        if (!seen.add(com.alibaba.fastjson.JSON.toJSONString(v.subList(1, 7))))
+            throw rowError(row.number(), HEADERS.get(10), "historical_amount_mismatch");
+        if (v.get(11).length() > 1000) throw rowError(row.number(), "备注", "historical_text_limit");
+        if (!seen.add(com.alibaba.fastjson.JSON.toJSONString(v.subList(0, 6))))
             throw rowError(row.number(), "房屋/客户/科目/标准/日期", "historical_duplicate_file");
         return new Line(
                 row.number(),
+                "",
                 v.get(0),
                 v.get(1),
                 v.get(2),
                 v.get(3),
-                v.get(4),
                 start,
                 end,
-                v.get(7),
+                v.get(6),
                 due,
                 original,
                 reduction,
                 actual,
-                v.get(12));
+                v.get(11));
     }
 
     private static String text(Row row, int col, DataFormatter formatter, int number) {
@@ -232,7 +231,7 @@ public final class HistoricalWorkbook {
                                                             book.createDataFormat().getFormat("@"));
                                                     for (int c = 0; c < HEADERS.size(); c++) {
                                                         data.setColumnWidth(
-                                                                c, (c == 1 ? 55 : 23) * 256);
+                                                                c, (c == 0 ? 55 : 23) * 256);
                                                         data.setDefaultColumnStyle(c, style);
                                                     }
                                                     reference(
@@ -248,7 +247,6 @@ public final class HistoricalWorkbook {
                                                     var example = data.createRow(1);
                                                     var values =
                                                             List.of(
-                                                                    "HT-示例001",
                                                                     "示例园区/1栋/101",
                                                                     "张某",
                                                                     "物业费",
@@ -287,28 +285,28 @@ public final class HistoricalWorkbook {
                                                             data,
                                                             "项目房屋与客户",
                                                             0,
-                                                            1,
+                                                            0,
                                                             houses.size());
                                                     dropdown(
                                                             book,
                                                             data,
                                                             "项目房屋与客户",
                                                             1,
-                                                            2,
+                                                            1,
                                                             houses.size());
                                                     dropdown(
                                                             book,
                                                             data,
                                                             "项目科目与标准",
                                                             0,
-                                                            3,
+                                                            2,
                                                             standards.size());
                                                     dropdown(
                                                             book,
                                                             data,
                                                             "项目科目与标准",
                                                             1,
-                                                            4,
+                                                            3,
                                                             standards.size());
                                                 })))
                 .subscribeOn(Schedulers.boundedElastic());
@@ -343,7 +341,7 @@ public final class HistoricalWorkbook {
         for (int c = 0; c < HEADERS.size(); c++) {
             var cell = row.getCell(c) == null ? row.createCell(c) : row.getCell(c);
             cell.setCellValue(HEADERS.get(c));
-            cell.setCellStyle(c >= 1 && c <= 11 ? required : optional);
+            cell.setCellStyle(c >= 0 && c <= 10 ? required : optional);
         }
     }
 

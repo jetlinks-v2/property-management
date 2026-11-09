@@ -28,6 +28,7 @@ public class TemporaryLedger {
             TemporarySourceService.Prepared source,
             CashierConfiguration.Resolved config,
             Authentication auth) {
+        payment.setBillNo(FinanceDocumentNumbers.next("LS"));
         return payments.insert(payment)
                 .thenMany(
                         Flux.range(0, input.getTenders().size())

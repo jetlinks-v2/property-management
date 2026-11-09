@@ -81,6 +81,7 @@ public class SplitRules {
         var row = new ReceivableEntity();
         BeanUtils.copyProperties(source, row);
         row.setId(null);
+        row.setBillNo(null);
         row.setBillKey(null);
         row.setSourceReceivableId(source.getId());
         row.setCalcStartDate(start.toString());

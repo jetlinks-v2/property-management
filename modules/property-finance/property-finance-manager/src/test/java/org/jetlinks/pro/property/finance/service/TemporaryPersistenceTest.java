@@ -137,6 +137,7 @@ class TemporaryPersistenceTest {
     void mixedReceiptHasNoBillAndKeepsHistoricalSnapshots() {
         var result = collect(input());
         assertEquals("TEMPORARY", result.payment().getSourceType());
+        assertTrue(result.payment().getBillNo().startsWith("LS"));
         assertEquals(new BigDecimal("100.01"), result.payment().getAmount());
         assertEquals(2, result.lines().size());
         assertTrue(result.lines().stream().allMatch(line -> line.getReceivableId() == null));

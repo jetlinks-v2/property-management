@@ -12,9 +12,9 @@ public record ReceivedReportAmounts(
         String otherPeriodAmount,
         String unhandedAmount,
         String pendingAmount,
-        String approvedAmount) {
+        String approvedAmount, String olderYearAmount, String olderMonthAmount, String thisMonthAmount, String futureAmount, String unassignedAmount) {
     public ReceivedReportAmounts(String a, String b, String c, String d, String e) {
-        this(a, b, c, d, e, "0.00", "0.00", "0.00");
+        this(a, b, c, d, e, "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00");
     }
 
     public static ReceivedReportAmounts of(Map<String, Object> row, boolean period) {
@@ -26,7 +26,7 @@ public record ReceivedReportAmounts(
                 period ? money(row, "otherAmount") : null,
                 money(row, "unhanded"),
                 money(row, "pending"),
-                money(row, "approved"));
+                money(row, "approved"), money(row,"olderYearAmount"),money(row,"olderMonthAmount"),money(row,"thisMonthAmount"),money(row,"futureAmount"),money(row,"unassignedAmount"));
     }
 
     private static String money(Map<String, Object> row, String key) {

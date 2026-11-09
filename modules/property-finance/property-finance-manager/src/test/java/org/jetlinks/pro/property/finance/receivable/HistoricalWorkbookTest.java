@@ -17,7 +17,6 @@ class HistoricalWorkbookTest {
                 header.createCell(i).setCellValue(HistoricalWorkbook.HEADERS.get(i));
             var row = sheet.createRow(3);
             String[] values = {
-                "HT-1",
                 "园区/1栋/101",
                 "龚超",
                 "物业费",
@@ -43,6 +42,17 @@ class HistoricalWorkbookTest {
         assertEquals(4, row.row());
         assertEquals("100.00", row.actual().toPlainString());
         assertEquals("2024-02", row.accountPeriod());
+        try (var book = new XSSFWorkbook(new java.io.ByteArrayInputStream(workbook("100.00")))) {
+            var cells = new java.util.ArrayList<String>();
+            for (int c = 0; c < HistoricalWorkbook.HEADERS.size(); c++)
+                cells.add(book.getSheetAt(0).getRow(3).getCell(c).getStringCellValue());
+            assertEquals(
+                    row,
+                    HistoricalWorkbook.decode(
+                            new org.jetlinks.pro.property.finance.payment.FinanceExcelRows.Row(
+                                    4, cells),
+                            new java.util.HashSet<>()));
+        }
     }
 
     @Test
@@ -75,26 +85,23 @@ class HistoricalWorkbookTest {
                 org.apache.poi.ss.usermodel.WorkbookFactory.create(
                         new java.io.ByteArrayInputStream(bytes))) {
             var data = book.getSheetAt(0);
-            assertEquals("合同编号", data.getRow(0).getCell(0).getStringCellValue());
-            assertEquals("房屋完整路径", data.getRow(0).getCell(1).getStringCellValue());
+            assertEquals("房屋完整路径", data.getRow(0).getCell(0).getStringCellValue());
             assertEquals(4, data.getDataValidations().size());
-            for (int c = 1; c <= 11; c++)
+            for (int c = 0; c <= 10; c++)
                 assertEquals(
                         org.apache.poi.ss.usermodel.IndexedColors.RED.getIndex(),
                         book.getFontAt(data.getRow(0).getCell(c).getCellStyle().getFontIndex())
                                 .getColor());
-            var example = book.getSheet("填写示例");
+            var example = data;
             assertNotNull(example);
             assertEquals(1, example.getLastRowNum());
-            assertEquals("张某", example.getRow(1).getCell(2).getStringCellValue());
-            assertNull(data.getRow(1));
+            assertEquals("张某", example.getRow(1).getCell(1).getStringCellValue());
+            assertEquals(12, data.getRow(0).getLastCellNum());
             assertEquals(
                     "5G园区/1栋/101",
                     book.getSheet("项目房屋与客户").getRow(1).getCell(0).getStringCellValue());
             assertEquals("龚超", book.getSheet("项目房屋与客户").getRow(1).getCell(1).getStringCellValue());
-            assertThrows(
-                    org.hswebframework.web.exception.BusinessException.class,
-                    () -> HistoricalWorkbook.parse(bytes));
+            assertEquals("张某", HistoricalWorkbook.parse(bytes).get(0).customerName());
         }
     }
 
@@ -113,7 +120,7 @@ class HistoricalWorkbookTest {
                             () -> HistoricalWorkbook.parse(out.toByteArray()));
             assertEquals(5, duplicate.getArgs()[0]);
             sheet.removeRow(row);
-            sheet.getRow(3).getCell(11).setCellFormula("100+0");
+            sheet.getRow(3).getCell(10).setCellFormula("100+0");
             out.reset();
             book.write(out);
             var formula =

@@ -18,11 +18,11 @@ public final class ReceivableWorkbook {
                 var output = new ByteArrayOutputStream()) {
             var sheet = book.createSheet("应收款");
             String[] titles = {
-                "合同编号", "收费周期", "项目名称", "房产简称", "收费对象", "收费科目", "收费标准", "计费开始日期", "计费结束日期", "合同应收",
+                "应收单号", "收费周期", "项目名称", "房产简称", "收费对象", "收费科目", "收费标准", "计费开始日期", "计费结束日期", "合同应收",
                 "截至今日应计", "实际应收", "收入（不含税）", "销项税额", "调整金额", "考核金额", "临时增派", "欠费金额", "已收金额", "缴款时间",
                 "回款周期（天）", "逾期周期（天）", "账期状态", "回款状态", "支付状态", "单价", "面积/用量", "应计滞纳金", "滞纳金减免",
                 "最终滞纳金", "费用减免", "应收账期", "应收日期", "被拆分", "是否删除", "是否锁定", "是否冻结", "账单来源", "任务名称",
-                "创建时间", "备注", "审核状态", "计算截至日", "账单编号"
+                "创建时间", "备注", "审核状态", "计算截至日"
             };
             var header = sheet.createRow(0);
             var style = book.createCellStyle();
@@ -38,7 +38,7 @@ public final class ReceivableWorkbook {
             int index = 1;
             for (var row : rows) {
                 Object[] values = {
-                    row.getContractCode(),
+                    row.getBillNo(),
                     text(row.getPeriodStart()) + " 至 " + text(row.getPeriodEnd()),
                     row.getProjectName(),
                     row.getFullName(),
@@ -86,8 +86,7 @@ public final class ReceivableWorkbook {
                                     .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
                     row.getRemark(),
                     review(row.getReviewState()),
-                    row.getCalculatedAsOfDate(),
-                    row.getId()
+                    row.getCalculatedAsOfDate()
                 };
                 var target = sheet.createRow(index++);
                 for (int i = 0; i < values.length; i++)
