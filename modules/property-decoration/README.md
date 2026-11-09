@@ -34,7 +34,7 @@ mvn -pl :property-decoration-service -am verify
 
 退款仅在二次验收通过后一次性结算。金额取申请冻结协议的 `refundAmount`，未配置时退还实收保证金；配置不得为负、超过保证金或超过两位小数。旧协议的 `firstRefund`、`secondRefund` 只合并为总额，不再开放首验退款；历史已核验退款从总额扣除，不能重复退。零金额仍需显式结算，不伪造外部交易回执。退款成功才释放房屋占用并自动结束，PC/H5使用同一资格规则。
 
-本机联调可显式设置 `decoration.integrations.simulated.enabled=true`（环境变量 `DECORATION_INTEGRATIONS_SIMULATED_ENABLED=true`）启用模拟支付、退款及消息提供方，默认关闭。仍使用原业务接口、权限、状态机及收退款核验；模拟回执持久化于装修库的 `pd_simulation_receipt`，同请求重试返回原结果，同键不同内容拒绝。回执提供方标记为 `SIMULATED_DECORATION`，能力接口返回 `simulated=true`，PC/H5 详情展示模拟提示；不产生真实资金交易或消息发送。该配置仅用于明确授权的测试实例，不代表真实财务接入完成。
+本机联调可显式设置 `decoration.integrations.simulated.enabled=true`（环境变量 `DECORATION_INTEGRATIONS_SIMULATED_ENABLED=true`）启用模拟支付、退款及消息提供方，默认关闭。PC/H5 显示“模拟缴费”“模拟退款”按钮，调用管理端或本人端 `/{id}/simulation/payment`、`/{id}/simulation/refund`，由服务端生成模拟单据。独立测试接口仅接受模拟提供方，关闭模拟或配置真实提供方时返回503；复用原缴费/退款动作权限、本人关系、状态机、金额核验及动作幂等，不要求测试者手工编造财务单号。真实线下核验接口仍要求物业员工及真实单据。模拟回执持久化于装修库的 `pd_simulation_receipt`，同请求重试返回原结果，同键不同内容拒绝。回执提供方标记为 `SIMULATED_DECORATION`，能力接口返回 `simulated=true`，PC/H5 详情展示模拟提示；不产生真实资金交易或消息发送。该配置仅用于明确授权的测试实例，不代表真实财务接入完成。
 
 同一模拟开关也启用 `SimulatedDecorationChargeItemGateway`，为原收费科目选择接口提供“装修保证金（模拟）”和“装修服务费（模拟）”，支持名称包含搜索及分页，不创建或修改收费主档。正式收费目录提供方存在时优先使用正式提供方；关闭模拟开关且没有正式提供方时，仍明确返回503。项目、员工及应用权限继续由原目录入口校验，不提供假角色或绕过授权。
 

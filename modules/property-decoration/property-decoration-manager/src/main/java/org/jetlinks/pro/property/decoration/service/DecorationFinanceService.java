@@ -2,6 +2,7 @@ package org.jetlinks.pro.property.decoration.service;
 
 import lombok.RequiredArgsConstructor;
 import org.jetlinks.pro.property.decoration.model.DecorationFinanceGateway;
+import org.jetlinks.pro.property.decoration.integration.SimulatedDecorationGateway;
 import org.jetlinks.pro.property.decoration.model.DecorationRequests;
 import org.jetlinks.pro.property.decoration.entity.DecorationApplicationEntity;
 import org.jetlinks.pro.property.decoration.entity.DecorationFinanceReceiptEntity;
@@ -14,7 +15,7 @@ import org.jetlinks.pro.property.decoration.model.DecorationModels;
 import java.util.Map;
 import static org.jetlinks.pro.property.decoration.service.DecorationRules.*;
 
-/** 外部资金结果的唯一核验方；无适配器明确503，不能用本地按钮造收退款成功。 */
+/** 统一核验真实或显式启用的模拟提供方回执；无提供方明确503，不直接改写资金成功状态。 */
 @Service
 @RequiredArgsConstructor
 public class DecorationFinanceService {
@@ -25,10 +26,25 @@ public class DecorationFinanceService {
     public Map<String, Boolean> capabilities() {
         boolean configured = gateways.getIfAvailable() != null;
         return Map.of("payment", configured, "refund", configured, "pushNotification", notifications.getIfAvailable() != null,
-            "simulated", gateways.getIfAvailable() instanceof org.jetlinks.pro.property.decoration.integration.SimulatedDecorationGateway);
+            "simulated", gateways.getIfAvailable() instanceof SimulatedDecorationGateway);
     }
     public Mono<DecorationApplicationEntity> process(String id, DecorationRequests.Finance input, boolean refund, boolean mine) {
-        return applications.mutate(id, refund ? "refund" : "payment", input, mine, (row, ctx) -> {
+        return process(id, input, refund, mine, false);
+    }
+    /** 测试按钮的独立入口：只接受模拟提供方，仍校验本人/项目、状态、金额与幂等回执。 */
+    public Mono<DecorationApplicationEntity> simulate(String id, DecorationRequests.Action input, boolean refund, boolean mine) {
+        return Mono.defer(() -> {
+            if (!(gateways.getIfAvailable() instanceof SimulatedDecorationGateway)) {
+                return Mono.error(error("simulation_unavailable", 503));
+            }
+            var finance = new DecorationRequests.Finance();
+            finance.setRequestId(input.getRequestId()); finance.setVersion(input.getVersion()); finance.setRemark(input.getRemark());
+            return process(id, finance, refund, mine, true);
+        });
+    }
+    private Mono<DecorationApplicationEntity> process(String id, DecorationRequests.Finance input, boolean refund, boolean mine, boolean simulated) {
+        String action = (simulated ? "simulation/" : "") + (refund ? "refund" : "payment");
+        return applications.mutate(id, action, input, mine, (row, ctx) -> {
             active(row);
             RefundPlan plan = refund ? refundPlan(row) : null;
             if (!refund) {
@@ -36,7 +52,10 @@ public class DecorationFinanceService {
                 amount(row.getApprovedDeposit());
             }
             boolean offline = "pc_admin".equals(row.getSource());
-            require(!offline || !mine && input.getReference() != null && !input.getReference().isBlank(), "finance_reference_required");
+            // 模拟单据由服务端生成，客户端不能借测试入口提交真实单据；真实线下核验规则保持不变。
+            String reference = simulated ? "SIM-" + (refund ? "REFUND-" : "PAYMENT-")
+                + DecorationApplicationService.identity(id + (refund ? ":" + plan.stage() : "")) : input.getReference();
+            require(simulated || !offline || !mine && reference != null && !reference.isBlank(), "finance_reference_required");
             // 零金额末期只结束流程，不伪造外部退款凭据。
             if (refund && plan.amount().signum() == 0) {
                 finishRefund(row, plan, null, System.currentTimeMillis());
@@ -46,7 +65,7 @@ public class DecorationFinanceService {
             if (gateway == null) return Mono.error(error("finance_unavailable", 503));
             var request = new DecorationFinanceGateway.Request(DecorationApplicationService.identity(id + (refund ? ":refund:" + plan.stage() : ":payment")), id,
                 ctx.applicationId(), ctx.tenantId(), row.getProjectId(), row.getSpaceId(), row.getOwnerUserId(), row.getDetails().getAgreement().getChargeItemId(),
-                refund ? plan.amount() : row.getApprovedDeposit(), input.getReference(), offline);
+                refund ? plan.amount() : row.getApprovedDeposit(), reference, offline);
             return (refund ? gateway.refund(request) : gateway.payment(request)).switchIfEmpty(Mono.error(error("finance_unavailable", 503)))
                 .flatMap(result -> apply(row, request, result, refund, plan));
         });
