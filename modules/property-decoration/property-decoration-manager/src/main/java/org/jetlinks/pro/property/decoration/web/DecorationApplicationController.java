@@ -80,4 +80,9 @@ public class DecorationApplicationController {
     }
     @PostMapping("/{id}/permit/extend") @ResourceAction(id="extend",name="延期备案")
     public Mono<DecorationApplicationEntity> extend(@PathVariable String id, @Valid @RequestBody DecorationRequests.ExtendPermit input) { return permits.extend(id, input); }
+    /** 独立虚拟资金接口复用原资金动作权限；未启用模拟提供方时返回503。 */
+    @PostMapping("/{id}/simulation/payment") @ResourceAction(id="payment",name="模拟缴费")
+    public Mono<DecorationApplicationEntity> simulatePayment(@PathVariable String id, @Valid @RequestBody DecorationRequests.Action input) { return finance.simulate(id, input, false, false); }
+    @PostMapping("/{id}/simulation/refund") @ResourceAction(id="refund",name="模拟退款")
+    public Mono<DecorationApplicationEntity> simulateRefund(@PathVariable String id, @Valid @RequestBody DecorationRequests.Action input) { return finance.simulate(id, input, true, false); }
 }

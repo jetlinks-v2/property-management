@@ -592,6 +592,39 @@ class DecorationPersistenceTest {
         row=integrated.process(row.getId(),refund,true,false).contextWrite(auth("admin")).block(WAIT);
         assertEquals("finished",row.getStatus());assertEquals(2,row.getRefundStatus());assertNull(row.getActiveHouseKey());assertNotNull(row.getActualEndTime());
     }
+    @Test void virtualFinanceButtonsRequireSimulationAndPreserveOwnerStateAndReplayChecks() {
+        var row=createSigned(create("virtual-buttons"),false).contextWrite(auth("admin")).block(WAIT);
+        var input=new DecorationRequests.Action();input.setRequestId("virtual-pay");input.setVersion(row.getVersion());
+        assertCode(finance.simulate(row.getId(),input,false,true),"simulation_unavailable","owner");
+        var beans=new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        var real=mock(DecorationFinanceGateway.class);beans.registerSingleton("real",real);
+        var realOnly=new DecorationFinanceService(beans.getBeanProvider(DecorationFinanceGateway.class),applications,financeReceipts,beans.getBeanProvider(DecorationNotificationGateway.class));
+        assertCode(realOnly.simulate(row.getId(),input,false,true),"simulation_unavailable","owner");verifyNoInteractions(real);
+        var simulated=mock(org.jetlinks.pro.property.decoration.integration.SimulatedDecorationGateway.class);
+        beans=new org.springframework.beans.factory.support.DefaultListableBeanFactory();beans.registerSingleton("simulated",simulated);
+        var virtual=new DecorationFinanceService(beans.getBeanProvider(DecorationFinanceGateway.class),applications,financeReceipts,beans.getBeanProvider(DecorationNotificationGateway.class));
+        assertCode(virtual.simulate(row.getId(),input,false,true),"review_required","owner");
+        row.setDepositReviewStatus(1);row.setApprovedDeposit(new BigDecimal("1000"));row.setStatus("pending_payment");rows.save(row).block(WAIT);
+        assertCode(virtual.simulate(row.getId(),input,false,true),"not_found","other");
+        when(simulated.payment(any())).thenAnswer(call->{var request=call.<DecorationFinanceGateway.Request>getArgument(0);
+            assertTrue(request.offline());assertTrue(request.reference().startsWith("SIM-PAYMENT-"));
+            return Mono.just(financeResult(request,DecorationFinanceGateway.Direction.PAYMENT,request.reference()));});
+        row=virtual.simulate(row.getId(),input,false,true).contextWrite(auth("owner")).block(WAIT);
+        assertEquals("pending_permit",row.getStatus());assertEquals(2,row.getPaymentStatus());
+        var replay=virtual.simulate(row.getId(),input,false,true).contextWrite(auth("owner")).block(WAIT);
+        assertEquals(row.getVersion(),replay.getVersion());verify(simulated,times(1)).payment(any());
+        var refund=new DecorationRequests.Action();refund.setRequestId("virtual-refund");refund.setVersion(row.getVersion());
+        assertCode(virtual.simulate(row.getId(),refund,true,true),"refund_not_allowed","owner");
+        row.setStatus("acceptance_passed");rows.save(row).block(WAIT);
+        when(simulated.refund(any())).thenAnswer(call->{var request=call.<DecorationFinanceGateway.Request>getArgument(0);
+            assertTrue(request.reference().startsWith("SIM-REFUND-"));
+            return Mono.just(financeResult(request,DecorationFinanceGateway.Direction.REFUND,request.reference()));});
+        row=virtual.simulate(row.getId(),refund,true,true).contextWrite(auth("owner")).block(WAIT);
+        assertEquals("finished",row.getStatus());assertEquals(0,new BigDecimal("1000").compareTo(row.getRefundedAmount()));
+        assertEquals(1,row.getDetails().getRefunds().size());assertEquals("single",row.getDetails().getRefunds().get(0).getStage());
+        virtual.simulate(row.getId(),refund,true,true).contextWrite(auth("owner")).block(WAIT);
+        verify(simulated,times(1)).refund(any());assertEquals(2,financeReceipts.createQuery().count().block(WAIT));
+    }
     @Test void singleRefundWaitsForSecondAcceptanceAndSettlesOnce() {
         var row=createSigned(create("single-refund"),false).contextWrite(auth("admin")).block(WAIT);
         row.setPaymentStatus(2);row.setPaidAmount(new BigDecimal("1000"));row.setStatus("pending_second_acceptance");
