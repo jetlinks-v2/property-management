@@ -5,6 +5,7 @@ import jakarta.validation.Valid;
 import org.hswebframework.web.authorization.annotation.*;
 import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.api.crud.entity.PagerResult;
+import org.hswebframework.web.crud.web.ResponseMessage;
 import org.jetlinks.pro.property.decoration.entity.*;
 import org.jetlinks.pro.property.decoration.model.DecorationRequests;
 import org.jetlinks.pro.property.decoration.service.*;
@@ -74,9 +75,10 @@ public class DecorationApplicationController {
     public Mono<DecorationApplicationEntity> print(@PathVariable String id, @Valid @RequestBody DecorationRequests.PrintPermit input) { return permits.print(id, input); }
     /** 含私有项目章，仅允许打印权限，并禁止浏览器或中间代理缓存。 */
     @GetMapping("/{id}/permit/document") @ResourceAction(id="print",name="打印备案证明")
-    public Mono<org.springframework.http.ResponseEntity<DecorationPermitDocumentService.Document>> document(@PathVariable String id) {
+    public Mono<org.springframework.http.ResponseEntity<ResponseMessage<DecorationPermitDocumentService.Document>>> document(@PathVariable String id) {
         return documents.prepare(id).map(document -> org.springframework.http.ResponseEntity.ok()
-            .header("Cache-Control", "private, no-store").body(document));
+            // ResponseEntity 不经过统一响应包装；显式保持 PC/H5 transport 需要的 status/result 契约。
+            .header("Cache-Control", "private, no-store").body(ResponseMessage.ok(document)));
     }
     @PostMapping("/{id}/permit/extend") @ResourceAction(id="extend",name="延期备案")
     public Mono<DecorationApplicationEntity> extend(@PathVariable String id, @Valid @RequestBody DecorationRequests.ExtendPermit input) { return permits.extend(id, input); }
