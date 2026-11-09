@@ -33,6 +33,8 @@ public class HandoverExcelService {
 
     public Flux<DataBuffer> template(String kind, String projectId, String source, String stage) {
         HandoverExcelSchema.validateSelector(kind, source, stage);
+        if ("ledger".equals(kind)) return HandoverExcelPermission.assertImport(kind)
+                .then(catalog.ledger(null)).flatMapMany(options -> HandoverWorkbook.template(kind, stage, options.options()));
         return HandoverExcelPermission.assertImport(kind)
                 .then(catalog.load(projectId, source, kind))
                 .flatMapMany(
@@ -44,6 +46,11 @@ public class HandoverExcelService {
         HandoverExcelSchema.validateSelector(kind, source, stage);
         if (!file.filename().toLowerCase(java.util.Locale.ROOT).endsWith(".xlsx"))
             return Mono.error(HandoverWorkbook.invalid(1, "文件", "请上传.xlsx文件"));
+        if ("ledger".equals(kind)) return HandoverExcelPermission.assertImport(kind).then(read(file))
+                .flatMap(bytes -> Mono.fromCallable(() -> HandoverWorkbook.read(bytes, kind)).subscribeOn(Schedulers.boundedElastic()))
+                .flatMap(rows -> catalog.ledger(rows).flatMap(options -> Mono.fromCallable(() -> prepareLedger(rows, options))
+                        .subscribeOn(Schedulers.boundedElastic())))
+                .flatMap(this::preflight).flatMap(this::stageAndWrite).as(MonoTracer.create("handover.excel.ledger.import"));
         return HandoverExcelPermission.assertImport(kind)
                 .then(catalog.load(projectId, source, kind))
                 .flatMap(
@@ -66,6 +73,17 @@ public class HandoverExcelService {
                                         .flatMap(this::preflight)
                                         .flatMap(this::stageAndWrite))
                 .as(MonoTracer.create("handover.excel.import"));
+    }
+
+    private List<HandoverImportMapper.Prepared> prepareLedger(List<HandoverWorkbook.ImportRow> rows, HandoverImportCatalog.LedgerCatalog options) {
+        var prepared = new ArrayList<HandoverImportMapper.Prepared>();
+        var errors = new ArrayList<HandoverImportException.RowError>();
+        for (var row : rows) {
+            try { prepared.add(HandoverImportMapper.ledger(row, options)); }
+            catch (HandoverImportException error) { errors.addAll(error.getErrors()); }
+        }
+        if (!errors.isEmpty()) throw new HandoverImportException(errors);
+        return prepared;
     }
 
     private Mono<byte[]> read(FilePart file) {

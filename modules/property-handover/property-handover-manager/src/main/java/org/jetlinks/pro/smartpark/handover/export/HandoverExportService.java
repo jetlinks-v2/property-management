@@ -94,8 +94,7 @@ public class HandoverExportService {
                                                                                     IDGenerator.MD5
                                                                                             .generate());
                                                                             task.setProjectId(
-                                                                                    request
-                                                                                            .getProjectId());
+                                                                                    Objects.toString(request.getProjectId(), "")); // 空字符串仅表示跨项目台账任务，不是资产授权值。
                                                                             task.setKind(
                                                                                     request
                                                                                             .getKind());
@@ -127,6 +126,13 @@ public class HandoverExportService {
     }
 
     public Mono<PagerResult<HandoverExportEntity>> query(HandoverQuery input) {
+        if ("ledger".equals(input.getKind()) && !HandoverRules.hasText(input.getProjectId())) {
+            return scope.current().flatMap(c -> authorization.execute(c, () -> {
+                var query = taskQuery(c, null, input.getPageIndex(), input.getPageSize());
+                query.toQuery().and("kind", "ledger");
+                return tasks.queryPager(query);
+            }));
+        }
         return scope.current()
                 .flatMap(
                         c ->
@@ -174,11 +180,13 @@ public class HandoverExportService {
                                                         authorization.execute(
                                                                 c,
                                                                 () ->
-                                                                        scope.project(
+                                                                        ("ledger".equals(task.getKind()) && !HandoverRules.hasText(task.getProjectId())
+                                                                                ? rows.selector(task.getRequest(), 0, null).then()
+                                                                                : scope.project(
                                                                                         task
                                                                                                 .getProjectId(),
                                                                                         CrudAssetPermission
-                                                                                                .read)
+                                                                                                .read))
                                                                                 .thenReturn(
                                                                                         task))));
     }

@@ -77,6 +77,19 @@ class HandoverExportPersistenceTest {
     }
 
     @Test
+    void crossProjectLedgerTaskPersistsAndHistoryIsLimitedToCreatorAndBusinessKind() {
+        var input = new ExportRequest(); input.setKind("ledger");
+        when(rows.selector(any(), anyInt(), any())).thenReturn(Mono.just(new org.hswebframework.web.api.crud.entity.QueryParamEntity()));
+        var task = service.create(input).contextWrite(HandoverPersistenceFixture.access("creator", Set.of())).block(WAIT);
+        assertEquals("", task.getProjectId()); assertNotNull(task.getId());
+        assertEquals(task.getId(), service.visible(task.getId()).contextWrite(HandoverPersistenceFixture.access("creator", Set.of())).block(WAIT).getId());
+        var query = new HandoverQuery(); query.setKind("ledger");
+        assertEquals(1, service.query(query).contextWrite(HandoverPersistenceFixture.access("creator", Set.of())).block(WAIT).getTotal());
+        assertEquals(0, service.query(query).contextWrite(HandoverPersistenceFixture.access("other", Set.of())).block(WAIT).getTotal());
+        assertThrows(AccessDenyException.class, () -> service.visible(task.getId()).contextWrite(HandoverPersistenceFixture.access("other", Set.of())).block(WAIT));
+    }
+
+    @Test
     void databaseCompareAndSetAllowsOnlyOneConcurrentWorkerAndRestartReclaimsExpiredLease() {
         insert("concurrent");
         var a = tasks.findById("concurrent").block(WAIT);

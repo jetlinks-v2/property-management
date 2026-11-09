@@ -20,6 +20,18 @@ public final class HandoverImportMapper {
 
     private HandoverImportMapper() {}
 
+    public static Prepared ledger(HandoverWorkbook.ImportRow row, HandoverImportCatalog.LedgerCatalog catalog) {
+        String project = resolveRequired(row.values().get("projectName"), catalog.projects(),
+                p -> p.getName(), p -> p.getId(), row.row(), "项目名称");
+        String actor = row.values().getOrDefault("entryUserName", "");
+        if (!actor.isBlank() && !actor.equals(catalog.context().userName()))
+            throw HandoverWorkbook.invalid(row.row(), "发起人", "只能填写当前登录人，留空自动使用当前登录人");
+        if (row.images().size() > 9 || row.images().stream().anyMatch(image -> image.bytes().length > 2 * 1024 * 1024
+                || !Set.of("jpg", "jpeg", "png").contains(image.extension())))
+            throw HandoverWorkbook.invalid(row.row(), "问题图片", "最多9张jpg/jpeg/png图片，单张不超过2MB");
+        return map("ledger", project, null, null, row, catalog.catalogs().get(project));
+    }
+
     public static Prepared map(
             String kind,
             String projectId,
@@ -39,7 +51,7 @@ public final class HandoverImportMapper {
                                 catalog::categoryLabel,
                                 HandoverCategoryEntity::getId,
                                 input.row(),
-                                "资料分类");
+                                "ledger".equals(kind) ? "问题分类" : "资料分类");
         Map<String, String> properties = new LinkedHashMap<>();
         row.forEach(
                 (key, value) -> {
@@ -76,24 +88,18 @@ public final class HandoverImportMapper {
                 entity.setOrganizationId(
                         resolve(
                                 row.get("organizationName"),
-                                catalog.organizations(),
+                                catalog.organizations().stream().filter(unit -> Boolean.TRUE.equals(unit.getEnabled())).toList(),
                                 HandoverResponsibilityEntity::getName,
                                 HandoverResponsibilityEntity::getOrganizationId,
                                 input.row(),
                                 "责任单位"));
-                entity.setEntryUserId(
-                        resolve(
-                                row.get("entryUserName"),
-                                catalog.users(),
-                                PropertyEmployeeInfo::name,
-                                PropertyEmployeeInfo::id,
-                                input.row(),
-                                "录入人"));
                 entity.setLocation(row.get("location"));
                 entity.setDescription(row.get("description"));
-                entity.setProposedSolution(row.get("proposedSolution"));
-                entity.setRectificationOpinion(row.get("rectificationOpinion"));
-                entity.setRemark(row.get("remark"));
+                entity.setInspectionTime(date(row.get("inspectionTime"), input.row(), "检查时间"));
+                if (entity.getLocation() != null && entity.getLocation().length() > 200)
+                    throw HandoverWorkbook.invalid(input.row(), "问题位置", "不能超过200字");
+                if (entity.getDescription() != null && entity.getDescription().length() > 500)
+                    throw HandoverWorkbook.invalid(input.row(), "问题描述", "不能超过500字");
                 value = entity;
             }
             case "equipment" -> {

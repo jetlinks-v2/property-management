@@ -42,6 +42,8 @@ public class HandoverExportRows {
                     "inspectionTimeTo");
     private final ObjectMapper mapper;
     private final HandoverScope scope;
+    private final HandoverConfigurationService configuration;
+    private final HandoverDirectory directory;
     private final HandoverProblemService problems;
     private final HandoverProblemRepository problemRepository;
     private final HandoverCategoryRepository categories;
@@ -55,7 +57,7 @@ public class HandoverExportRows {
 
     public void validate(ExportRequest input) {
         HandoverExcelSchema.columns(input.getKind());
-        HandoverRules.require(HandoverRules.hasText(input.getProjectId()), "project_required");
+        HandoverRules.require("ledger".equals(input.getKind()) || HandoverRules.hasText(input.getProjectId()), "project_required");
         HandoverRules.require(
                 input.getFilters() == null || FILTERS.containsAll(input.getFilters().keySet()),
                 "export_filter_invalid");
@@ -91,6 +93,7 @@ public class HandoverExportRows {
     Mono<QueryParamEntity> selector(ExportRequest input, int page, List<String> ids) {
         HandoverQuery q = query(input, page, ids);
         if ("problem".equals(input.getKind())) return problems.selector(q);
+        if ("ledger".equals(input.getKind())) return configuration.authorizedQuery(q, "description");
         return scope.current()
                 .flatMap(
                         c ->
@@ -115,7 +118,7 @@ public class HandoverExportRows {
     }
 
     static String keyword(String kind) {
-        return Set.of("category", "equipment", "item").contains(kind) ? "name" : "title";
+        return "ledger".equals(kind) ? "description" : Set.of("category", "equipment", "item").contains(kind) ? "name" : "title";
     }
 
     public Mono<List<HandoverEntity>> page(ExportRequest input, int page) {
@@ -126,7 +129,15 @@ public class HandoverExportRows {
                                         .createQuery()
                                         .setParam(q)
                                         .fetch()
-                                        .collectList());
+                                        .collectList())
+                .flatMap(data -> {
+                    if (!"ledger".equals(input.getKind())) return Mono.just(data);
+                    // 每页仅请求一次公共项目目录，避免逐行发起跨服务命令。
+                    return directory.projects().collectMap(p -> p.getId(), p -> p.getName()).map(projects -> {
+                        data.forEach(row -> ((HandoverLedgerEntity) row).setProjectName(projects.get(row.getProjectId())));
+                        return data;
+                    });
+                });
     }
 
     public Mono<Void> verify(ExportRequest input, List<String> ids) {
@@ -186,16 +197,18 @@ public class HandoverExportRows {
                         new com.fasterxml.jackson.core.type.TypeReference<
                                 LinkedHashMap<String, Object>>() {});
         Mono<?> related = Mono.empty();
+        if (row instanceof HandoverLedgerEntity ledger && ledger.getProjectName() == null)
+            related = directory.project(row.getProjectId()).doOnNext(p -> value.put("projectName", p.getName()));
         String category = Objects.toString(value.get("categoryId"), "");
         if (!category.isEmpty() && !(row instanceof HandoverEquipmentEntity))
-            related =
+            related = related.then(
                     row instanceof HandoverRecordEntity
                             ? materialCategories
                                     .findById(category)
-                                    .doOnNext(c -> value.put("categoryName", c.getName()))
+                                    .doOnNext(c -> value.put("categoryName", c.getName())).then()
                             : categories
                                     .findById(category)
-                                    .doOnNext(c -> value.put("categoryName", c.getName()));
+                                    .doOnNext(c -> value.put("categoryName", c.getName())).then());
         if (row instanceof HandoverRecordEntity record && record.getProperties() != null)
             value.put("receiverName", record.getProperties().getOrDefault("receiverName", ""));
         String parent = Objects.toString(value.get("parentId"), "");

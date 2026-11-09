@@ -112,15 +112,14 @@ public final class HandoverExcelSchema {
                             c("description", "说明", false, ""));
             case "ledger" ->
                     List.of(
-                            c("categoryName", "问题分类", false, ""),
-                            c("organizationName", "责任单位", false, ""),
-                            c("entryUserName", "录入人", false, ""),
-                            c("location", "位置", false, "1栋大堂"),
+                            c("projectName", "项目名称", true, "请填写有权限的项目全称"),
+                            c("categoryName", "问题分类", true, "请填写项目已配置的问题分类"),
                             c("description", "问题描述", true, "请填写现场实际情况"),
-                            c("proposedSolution", "建议方案", false, ""),
-                            c("rectificationOpinion", "整改意见", false, ""),
-                            c("remark", "备注", false, ""),
-                            c("photos", "问题图片", false, ""));
+                            c("organizationName", "责任单位", true, "请填写项目已配置的责任单位"),
+                            c("location", "问题位置", true, "1栋大堂"),
+                            c("photos", "问题图片", false, ""),
+                            c("inspectionTime", "检查时间", false, "2026-11-09 09:00:00"),
+                            c("entryUserName", "发起人", false, ""));
             case "equipment" -> EQUIPMENT;
             case "record" ->
                     List.of(

@@ -22,7 +22,7 @@ public class HandoverLedgerController {
     @GetMapping("/_query")
     @QueryAction
     public Mono<PagerResult<HandoverLedgerEntity>> query(HandoverQuery input) {
-        return service.query(repository, input, "title");
+        return service.queryLedger(input);
     }
 
     @GetMapping("/{id}")
