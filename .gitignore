@@ -7,5 +7,5 @@ data/
 **/src/main/resources/application-default.yml
 .codegraph/
 .cursor/
-
+.playwright-cli
 .agent-runtime/
