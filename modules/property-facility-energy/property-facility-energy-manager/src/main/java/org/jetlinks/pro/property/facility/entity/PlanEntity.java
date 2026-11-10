@@ -35,6 +35,16 @@ public class PlanEntity extends FacilityEntity {
   @Column(length = 256)
   private String standardId;
 
+  @Column(length = 256)
+  private String cycleId;
+
+  @Column(length = 256)
+  private String cycleName;
+  @Column(length = 256)
+  private String standardName;
+  @Column(length = 128)
+  private String reviewerName;
+
   @Column
   @JsonCodec
   @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)

@@ -27,7 +27,7 @@ public final class FacilityRules {
         "invalid_standard"
       );
       require(
-        Set.of("number", "text", "boolean", "choice").contains(i.getKind()),
+        i.getKind() != null && Set.of("number", "text", "boolean", "choice").contains(i.getKind()),
         "invalid_standard"
       );
       if (
@@ -38,10 +38,13 @@ public final class FacilityRules {
         i.getMinimum().compareTo(i.getMaximum()) <= 0,
         "invalid_standard"
       );
-      if ("choice".equals(i.getKind())) require(
-        i.getOptions() != null && !i.getOptions().isEmpty(),
-        "invalid_standard"
-      );
+      if ("choice".equals(i.getKind())) {
+        require(i.getOptions() != null && !i.getOptions().isEmpty(), "invalid_standard");
+        var options = new HashSet<String>();
+        for (var option : i.getOptions()) require(
+          option != null && !option.isBlank() && options.add(option.trim()), "invalid_standard"
+        );
+      }
     }
   }
 

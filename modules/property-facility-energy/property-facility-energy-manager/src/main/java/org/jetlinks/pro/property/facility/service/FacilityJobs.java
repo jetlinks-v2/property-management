@@ -71,6 +71,7 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
             .createQuery()
             .where("enabled", true)
             .and("deleted", false)
+            .notNull("cycleId")
             .lte("nextRunTime", now)
             .fetch()
             .take(100)

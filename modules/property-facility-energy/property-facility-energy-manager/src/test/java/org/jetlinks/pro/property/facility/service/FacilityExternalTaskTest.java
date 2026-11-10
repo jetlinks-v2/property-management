@@ -15,7 +15,7 @@ import reactor.test.StepVerifier;
 
 class FacilityExternalTaskTest {
     private final AssetBindManager bindings = mock(AssetBindManager.class);
-    private final FacilityPlans plans = new FacilityPlans(null, null, null, null, null, null, null, null, bindings);
+    private final FacilityPlans plans = new FacilityPlans(null, null, null, null, null, null, null, null, null, bindings);
 
     @Test
     void sharesOnlyTheValidatedDoubleTaskAndPropagatesBindingDenial() {

@@ -18,6 +18,7 @@ import reactor.core.publisher.*;
 public class FacilityPlans {
 
   private final PlanStore plans;
+  private final FacilityCycles cycles;
   private final TaskStore tasks;
   private final StandardStore standards;
   private final GroupStore groups;
@@ -41,78 +42,50 @@ public class FacilityPlans {
     require(
       input.getName() != null &&
         !input.getName().isBlank() &&
+        input.getKind() != null &&
         Set.of("inspection", "maintenance").contains(input.getKind()) &&
+        input.getMode() != null &&
         Set.of("single", "double").contains(input.getMode()),
       "invalid_plan"
     );
-    require(
-      input.getStartTime() != null &&
-        input.getEndTime() != null &&
-        input.getEndTime() >= input.getStartTime() &&
-        input.getDeadlineHours() != null &&
-        input.getDeadlineHours() > 0 &&
-        input.getDeadlineHours() <= 8760,
-      "invalid_plan"
-    );
-    FacilityRules.next(
-      input.getStartTime(),
-      input.getIntervalValue(),
-      input.getIntervalUnit()
-    );
+    require(input.getGroupIds() != null && !input.getGroupIds().isEmpty(), "groups_required");
+    input.setDeviceIds(List.of());
+    require(input.getStartTime() != null && input.getEndTime() != null &&
+      input.getStartTime() >= 0 && input.getEndTime() > input.getStartTime() && input.getEndTime() - input.getStartTime() <= 3660L * 86400000, "invalid_plan");
+    require(input.getCycleId() != null && !input.getCycleId().isBlank(), "cycle_required");
     require(
       input.getReviewerId() != null && !input.getReviewerId().isBlank(),
       "reviewer_required"
     );
-    if ("double".equals(input.getMode())) require(
-      input.getFollowUserId() != null &&
-        input.getExternalOrganizationId() != null &&
-        !input.getExternalOrganizationId().isBlank(),
-      "invalid_plan"
+    boolean external = "double".equals(input.getMode());
+    if (external) require(
+      input.getExternalOrganizationId() != null && !input.getExternalOrganizationId().isBlank(),
+      "external_organization_required"
     );
+    // Plans create unassigned tasks; the responsible person handles internal follow-up and review.
+    input.setAssigneeId(null);
+    input.setFollowUserId(external ? input.getReviewerId() : null);
+    if (!external) input.setExternalOrganizationId(null);
     Mono<Void> refs = directory
       .project(input.getProjectId())
-      .then(
-        records.assertProject(input.getProjectId(), CrudAssetPermission.save)
-      )
-      .then(directory.employee(input.getReviewerId()))
+      .doOnNext(project -> input.setProjectName(project.getName()))
+      .then(records.assertProject(input.getProjectId(), CrudAssetPermission.save))
+      .thenMany(Flux.defer(() -> directory.projectEmployees(input.getProjectId())))
+      .filter(person -> input.getReviewerId().equals(person.id())).next()
+      .switchIfEmpty(Mono.error(new org.hswebframework.web.exception.BusinessException("error.facility.reviewer_required")))
+      .doOnNext(person -> input.setReviewerName(person.name()))
       .then();
-    if (
-      input.getAssigneeId() != null && !input.getAssigneeId().isBlank()
-    ) refs = refs.then(directory.employee(input.getAssigneeId()).then());
-    if (
-      input.getExternalOrganizationId() != null && !input.getExternalOrganizationId().isBlank()
-    ) refs = refs.then(directory.externalOrganization(input.getExternalOrganizationId()));
-    if ("double".equals(input.getMode())) {
-      require(
-        !Objects.equals(input.getAssigneeId(), input.getFollowUserId()),
-        "external_role_mismatch"
-      );
-      refs = refs
-        .then(
-          directory.employeeRole(
-            input.getFollowUserId(),
-            input.getExternalOrganizationId(),
-            false
-          )
-        )
-        .then(
-          directory.employeeRole(
-            input.getReviewerId(),
-            input.getExternalOrganizationId(),
-            false
-          )
-        );
-      if (
-        input.getAssigneeId() != null && !input.getAssigneeId().isBlank()
-      ) refs = refs.then(
-        directory.employeeRole(
-          input.getAssigneeId(),
-          input.getExternalOrganizationId(),
-          true
-        )
-      );
-    }
-    return refs
+    if (external) refs = refs
+      .then(directory.externalOrganization(input.getExternalOrganizationId()))
+      .then(directory.employeeRole(input.getReviewerId(), input.getExternalOrganizationId(), false));
+    return refs.then(Mono.defer(() -> cycles.reference(input.getCycleId()))).doOnNext(cycle -> {
+      require(Boolean.TRUE.equals(cycle.getEnabled()) && input.getProjectId().equals(cycle.getProjectId()) &&
+        input.getKind().equals(cycle.getKind()), "invalid_cycle");
+      FacilityCycleRules.validate(cycle);
+      input.setCycleName(cycle.getName());
+      var slot = FacilityCycleRules.next(cycle, System.currentTimeMillis(), input.getStartTime(), input.getEndTime());
+      input.setNextRunTime(slot == null ? Long.MAX_VALUE : slot.start());
+    })
       .then(
         records.read(
           standards,
@@ -121,14 +94,15 @@ public class FacilityPlans {
           CrudAssetPermission.read
         )
       )
-      .doOnNext(s ->
+      .doOnNext(s -> {
+        input.setStandardName(s.getName());
         require(
           input.getProjectId().equals(s.getProjectId()) &&
             input.getKind().equals(s.getKind()) &&
             Boolean.TRUE.equals(s.getEnabled()),
           "invalid_standard"
-        )
-      )
+        );
+      })
       .then(resolveDevices(input))
       .then(scope.current())
       .flatMap(c -> {
@@ -153,8 +127,15 @@ public class FacilityPlans {
           row.setProjectId(input.getProjectId());
           row.setOrganizationId(input.getProjectId());
           row.setName(input.getName());
+          row.setProjectName(input.getProjectName());
+          row.setCycleName(input.getCycleName());
+          row.setStandardName(input.getStandardName());
+          row.setReviewerName(input.getReviewerName());
           row.setKind(input.getKind());
+          boolean changedCycle = !Objects.equals(row.getCycleId(), input.getCycleId()) ||
+            !Objects.equals(row.getStartTime(), input.getStartTime()) || !Objects.equals(row.getEndTime(), input.getEndTime());
           row.setStandardId(input.getStandardId());
+          row.setCycleId(input.getCycleId());
           row.setDeviceIds(input.getDeviceIds());
           row.setGroupIds(input.getGroupIds());
           row.setAssigneeId(input.getAssigneeId());
@@ -167,8 +148,9 @@ public class FacilityPlans {
           row.setStartTime(input.getStartTime());
           row.setEndTime(input.getEndTime());
           row.setDeadlineHours(input.getDeadlineHours());
+          boolean resuming = !Boolean.TRUE.equals(row.getEnabled());
           row.setEnabled(input.getEnabled());
-          if (create) row.setNextRunTime(input.getStartTime());
+          if (create || changedCycle || resuming) row.setNextRunTime(input.getNextRunTime());
           return create
             ? records.insert(plans, row, FacilityAssetType.facilityPlan)
             : records.update(
@@ -188,7 +170,7 @@ public class FacilityPlans {
 
   private Mono<List<DeviceEntity>> resolveDevices(PlanEntity plan) {
     require(
-      plan.getDeviceIds().size() + plan.getGroupIds().size() <= 1000,
+      plan.getGroupIds() != null && !plan.getGroupIds().isEmpty() && plan.getGroupIds().size() <= 1000,
       "too_many"
     );
     return Flux.fromIterable(plan.getGroupIds())
@@ -202,12 +184,11 @@ public class FacilityPlans {
       )
       .doOnNext(g ->
         require(
-          plan.getProjectId().equals(g.getProjectId()),
+          plan.getProjectId().equals(g.getProjectId()) && g.getDeviceIds() != null && !g.getDeviceIds().isEmpty(),
           "project_mismatch"
         )
       )
       .flatMapIterable(GroupEntity::getDeviceIds)
-      .mergeWith(Flux.fromIterable(plan.getDeviceIds()))
       .distinct()
       .take(1001)
       .collectList()
@@ -236,26 +217,41 @@ public class FacilityPlans {
 
   @Transactional
   public Mono<List<TaskEntity>> generate(String id, boolean temporary) {
-    return records
-      .read(plans, id, FacilityAssetType.facilityPlan, CrudAssetPermission.save)
+    return records.read(plans, id, FacilityAssetType.facilityPlan, CrudAssetPermission.save)
       .flatMap(plan -> {
-        long scheduled = generationTime(plan, temporary, System.currentTimeMillis());
-        return records
-          .read(
-            standards,
-            plan.getStandardId(),
-            FacilityAssetType.facilityStandard,
-            CrudAssetPermission.read
-          )
-          .doOnNext(standard -> require(
-            Boolean.TRUE.equals(standard.getEnabled()) &&
-              plan.getProjectId().equals(standard.getProjectId()) &&
-              plan.getKind().equals(standard.getKind()),
-            "invalid_standard"
-          ))
-          .flatMap(standard ->
-            resolveDevices(plan)
-              .flatMapMany(Flux::fromIterable)
+        require(Boolean.TRUE.equals(plan.getEnabled()), "plan_disabled");
+        return cycles.reference(plan.getCycleId()).flatMap(cycle -> {
+          require(plan.getProjectId().equals(cycle.getProjectId()) && plan.getKind().equals(cycle.getKind()), "invalid_cycle");
+          long now = System.currentTimeMillis();
+          long requested = generationTime(plan, temporary, now);
+          var slot = Boolean.TRUE.equals(cycle.getEnabled())
+            ? FacilityCycleRules.next(cycle, requested, plan.getStartTime(), plan.getEndTime()) : null;
+          if (temporary) {
+            require(now >= plan.getStartTime() && now < plan.getEndTime() && slot != null, "plan_finished");
+            slot = new FacilityCycleRules.Slot(now, Math.min(now + slot.end() - slot.start(), plan.getEndTime()));
+          }
+          if (slot == null || slot.start() > now) {
+            plan.setNextRunTime(slot == null ? Long.MAX_VALUE : slot.start());
+            return records.update(plans, plan, plan.getVersion()).thenReturn(List.<TaskEntity>of());
+          }
+          var executionSlot = slot;
+          return records.read(standards, plan.getStandardId(), FacilityAssetType.facilityStandard, CrudAssetPermission.read)
+            .doOnNext(standard -> require(Boolean.TRUE.equals(standard.getEnabled()) &&
+              plan.getProjectId().equals(standard.getProjectId()) && plan.getKind().equals(standard.getKind()), "invalid_standard"))
+            .flatMap(standard -> createTasks(plan, standard, executionSlot))
+            .flatMap(generated -> {
+              if (temporary) return Mono.just(generated);
+              var next = FacilityCycleRules.next(cycle, executionSlot.start() + 1, plan.getStartTime(), plan.getEndTime());
+              plan.setNextRunTime(next == null ? Long.MAX_VALUE : next.start());
+              return records.update(plans, plan, plan.getVersion()).thenReturn(generated);
+            });
+        });
+      });
+  }
+
+  private Mono<List<TaskEntity>> createTasks(PlanEntity plan, StandardEntity standard, FacilityCycleRules.Slot slot) {
+    long scheduled = slot.start();
+    return resolveDevices(plan).flatMapMany(Flux::fromIterable)
               .concatMap(device ->
                 scope.current().flatMap(c -> {
                   var task = FacilityScope.initialize(new TaskEntity(), c);
@@ -301,7 +297,7 @@ public class FacilityPlans {
                   );
                   task.setScheduledTime(scheduled);
                   task.setDeadline(
-                    scheduled + plan.getDeadlineHours() * 3600000L
+                    slot.end()
                   );
                   task.setState(
                     plan.getAssigneeId() == null ||
@@ -321,24 +317,7 @@ public class FacilityPlans {
                     .flatMap(this::bindExternalTask);
                 })
               )
-              .collectList()
-          )
-          .flatMap(generated -> {
-            if (temporary) return Mono.just(generated);
-            long v = plan.getVersion();
-            plan.setNextRunTime(
-              FacilityRules.next(
-                scheduled,
-                plan.getIntervalValue(),
-                plan.getIntervalUnit()
-              )
-            );
-            if (plan.getNextRunTime() > plan.getEndTime()) plan.setEnabled(
-              false
-            );
-            return records.update(plans, plan, v).thenReturn(generated);
-          });
-      });
+      .collectList();
   }
 
   /** 临时任务不推进周期，但仍须处于计划有效期；到期判断由服务端再次校验，防止列表过期。 */
@@ -348,7 +327,7 @@ public class FacilityPlans {
       plan.getNextRunTime() != null, "invalid_plan");
     require(now >= plan.getStartTime(), "plan_not_started");
     long scheduled = temporary ? now : plan.getNextRunTime();
-    require(scheduled <= plan.getEndTime(), "plan_finished");
+    require(scheduled < plan.getEndTime(), "plan_finished");
     require(scheduled <= now, "plan_not_due");
     return scheduled;
   }

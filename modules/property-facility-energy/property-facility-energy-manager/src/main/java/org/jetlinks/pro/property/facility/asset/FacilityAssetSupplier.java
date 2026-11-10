@@ -16,6 +16,7 @@ public class FacilityAssetSupplier implements AssetSupplier {
   private final GroupStore group;
   private final StandardStore standard;
   private final PlanStore plan;
+  private final CycleStore cycle;
   private final TaskStore task;
   private final FaultStore fault;
   private final MappingStore mapping;
@@ -28,6 +29,8 @@ public class FacilityAssetSupplier implements AssetSupplier {
 
   public Flux<? extends Asset> getAssets(AssetType type, Collection<?> ids) {
     if (ids.isEmpty()) return Flux.empty();
+    if (type.isSameType("facilityCycle")) return cycle.createQuery().in("id", ids).fetch()
+      .map(r -> new DefaultAsset(r.getId(), r.getName(), type).withEntity(r));
     if (type.isSameType("facilityDevice")) return device
       .createQuery()
       .in("id", ids)
