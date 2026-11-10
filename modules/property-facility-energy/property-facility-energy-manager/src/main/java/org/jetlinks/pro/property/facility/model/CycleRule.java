@@ -7,5 +7,10 @@ import java.util.Map;
 public record CycleRule(Map<Integer, List<Window>> weekly, Map<String, List<Window>> dates) {
   /** 相等起止表示24小时；frequencyUnit/cooldownUnit仅保留用户录入单位。 */
   public record Window(int startMinute, int endMinute, int intervalMinutes, int requiredCount,
-                       int cooldownMinutes, String frequencyUnit, String cooldownUnit) {}
+                       int cooldownMinutes, String frequencyUnit, String cooldownUnit,
+                       Double warningMinutes, String warningUnit) {
+    public Window(int start, int end, int interval, int count, int cooldown, String frequencyUnit, String cooldownUnit) {
+      this(start, end, interval, count, cooldown, frequencyUnit, cooldownUnit, null, null);
+    }
+  }
 }

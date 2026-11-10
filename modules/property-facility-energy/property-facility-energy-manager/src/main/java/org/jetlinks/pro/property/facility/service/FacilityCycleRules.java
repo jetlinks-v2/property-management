@@ -10,7 +10,15 @@ import org.jetlinks.pro.property.facility.model.CycleRule;
 public final class FacilityCycleRules {
   private FacilityCycleRules() {}
   private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
-  public record Slot(long start, long end) {}
+  public record Slot(long start, long end, Long warningTime) {
+    public Slot(long start, long end) { this(start, end, null); }
+  }
+  /** 历史规则可继续生单；新增、编辑必须显式填写预警，不替用户设置时间。 */
+  public static void requireWarnings(CycleEntity cycle) {
+    validate(cycle);
+    java.util.stream.Stream.concat(cycle.getRule().weekly().values().stream(), cycle.getRule().dates().values().stream())
+      .flatMap(List::stream).forEach(w -> require(w.warningMinutes() != null, "warning_required"));
+  }
 
   public static void validate(CycleEntity cycle) {
     var rule = cycle.getRule();
@@ -41,6 +49,12 @@ public final class FacilityCycleRules {
         w.intervalMinutes() <= 144000 && w.requiredCount() > 0 && w.requiredCount() <= 100 &&
         w.cooldownMinutes() > 0 && w.cooldownMinutes() <= 144000 &&
         validUnit(w.intervalMinutes(), w.frequencyUnit()) && validUnit(w.cooldownMinutes(), w.cooldownUnit()), "invalid_cycle");
+      if (w.warningMinutes() != null) {
+        require(w.warningUnit() == null || Set.of("1", "2", "3").contains(w.warningUnit()), "warning_range");
+        double duration = (double) w.intervalMinutes() / w.requiredCount();
+        require(Double.isFinite(w.warningMinutes()) && w.warningMinutes() >= duration / 2 &&
+          w.warningMinutes() < duration, "warning_range");
+      }
       // Separate work orders need enough room inside each frequency period, not just across the whole day.
       require(w.requiredCount() == 1 || (long) w.cooldownMinutes() * w.requiredCount() <= w.intervalMinutes(), "cycle_capacity");
       int count = (end(w) - w.startMinute()) / w.intervalMinutes() * w.requiredCount();
@@ -92,7 +106,11 @@ public final class FacilityCycleRules {
           long base = midnight + w.startMinute() * 60000L + p * period;
           long start = base + period * n / w.requiredCount();
           long finish = Math.min(base + period * (n + 1) / w.requiredCount(), endTime);
-          if (start >= lower && start < finish && (best == null || start < best.start())) best = new Slot(start, finish);
+          if (start >= lower && start < finish && (best == null || start < best.start())) {
+            Long warning = w.warningMinutes() == null ? null : start + Math.round(w.warningMinutes() * 60000);
+            // 有效期截断的末次任务仍须在结束前提醒；不把过期预警当成正常提醒。
+            best = new Slot(start, finish, warning != null && warning < finish ? warning : null);
+          }
         }
       }
       if (best != null) return best;

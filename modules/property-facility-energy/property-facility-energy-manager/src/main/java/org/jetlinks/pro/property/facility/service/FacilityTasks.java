@@ -24,6 +24,7 @@ public class FacilityTasks {
   private final FacilityScope scope;
   private final FacilityRecords records;
   private final FacilityDirectory directory;
+  private final FacilityTaskExecutions executions;
 
   public Mono<TaskEntity> read(String id) {
     return records.read(
@@ -36,7 +37,7 @@ public class FacilityTasks {
 
   public Mono<PagerResult<TaskEntity>> query(QueryParamEntity q, boolean mine) {
     return scope.current().flatMap(c -> {
-      var request = q.clone();
+      var request = q.clone().toNestQuery().isNull("parentTaskId").getParam();
       includeLegacyReview(request.getTerms());
       if (mine) request = request
         .toNestQuery()
@@ -89,7 +90,16 @@ public class FacilityTasks {
   }
 
   public Mono<Boolean> canClaim(String id) {
-    return read(id).flatMap(directory::canClaim);
+    return read(id).flatMap(task -> task.getParentTaskId() == null ? directory.canClaim(task) : Mono.just(false));
+  }
+
+  public Mono<List<TaskEntity>> devices(String id, String groupId, String deviceId) {
+    return executions.devices(id, groupId, deviceId);
+  }
+
+  /** 扫码目录可查询设备明细，但不改变任务列表、工单池和统计的整项粒度。 */
+  public Mono<PagerResult<TaskEntity>> related(QueryParamEntity query) {
+    return scope.query(query, FacilityAssetType.facilityTask, "id").flatMap(tasks::queryPager);
   }
 
   @Transactional
@@ -100,6 +110,7 @@ public class FacilityTasks {
   ) {
     return records
       .read(tasks, id, FacilityAssetType.facilityTask, CrudAssetPermission.save)
+      .flatMap(task -> executions.before(task, action).thenReturn(task))
       .flatMap(task ->
         scope.current().flatMap(c ->
           directory.employee(c.userId()).then(
@@ -136,6 +147,7 @@ public class FacilityTasks {
                   require("open".equals(from), "invalid_state");
                   task.setAssigneeId(c.userId());
                   task.setState("claimed");
+                  task.setAssigneeName(c.userName());
                 }
                 case "transfer" -> {
                   require(
@@ -149,10 +161,12 @@ public class FacilityTasks {
                       !command.getUserId().isBlank(),
                     "employee_required"
                   );
-                  additional = directory.taskAssignee(task, command.getUserId());
+                  additional = directory.taskAssignee(task, command.getUserId()).then(directory.employeeInfo(command.getUserId())
+                    .doOnNext(person -> task.setAssigneeName(person.name())).then());
                   require(!Objects.equals(command.getUserId(), task.getAssigneeId()), "same_assignee");
                   task.setAssigneeId(command.getUserId());
                   task.setState("claimed");
+                  if (FacilityTaskExecutions.aggregate(task)) task.setSubmittedDeviceCount(0);
                   task.setResults(List.of());
                   task.setFollowResults(List.of());
                   task.setReviewComment(null);
@@ -204,6 +218,7 @@ public class FacilityTasks {
                     "not_reviewer"
                   );
                   task.setState("rectify");
+                  if (FacilityTaskExecutions.aggregate(task)) task.setSubmittedDeviceCount(0);
                   task.setSubmissionId(null);
                   task.setFollowSubmissionId(null);
                   task.setReviewComment(command.getComment());
@@ -269,7 +284,7 @@ public class FacilityTasks {
                       List.of()
                     )
                     .then(fault ? createFault(saved, c) : Mono.empty())
-                    .thenReturn(saved)
+                    .then(executions.after(saved, action))
                 );
             })
           )

@@ -14,6 +14,7 @@ import org.hswebframework.web.exception.BusinessException;
 import org.jetlinks.pro.property.base.user.PropertyUserInfo;
 import org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo;
 import org.jetlinks.pro.property.facility.entity.*;
+import org.jetlinks.pro.property.facility.asset.FacilityAssetType;
 import org.jetlinks.pro.property.facility.model.*;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -102,6 +103,7 @@ class FacilityPersistenceTest {
     when(notifier.enqueue(any(), any(), any())).thenReturn(Mono.empty());
     when(notifier.enqueueTarget(any(), any(), any())).thenReturn(Mono.empty());
     when(directory.taskAssignee(any(), anyString())).thenReturn(Mono.empty());
+    when(directory.employeeInfo(anyString())).thenReturn(Mono.empty());
     when(scope.current()).thenReturn(
       Mono.deferContextual(c -> Mono.just(c.get(FacilityContext.class)))
     );
@@ -1743,7 +1745,7 @@ class FacilityPersistenceTest {
     cycle.setId("cycle-" + suffix); cycle.setName("水泵巡检周期"); cycle.setProjectId("p"); cycle.setOrganizationId("p");
     cycle.setKind("inspection"); cycle.setEnabled(true);
     var weekly = new java.util.HashMap<Integer, List<CycleRule.Window>>();
-    for (int day = 1; day <= 7; day++) weekly.put(day, List.of(new CycleRule.Window(0, 0, 1, 1, 1, "1", "1")));
+    for (int day = 1; day <= 7; day++) weekly.put(day, List.of(new CycleRule.Window(0, 0, 1, 1, 1, "1", "1", 0.5d, "1")));
     cycle.setRule(new CycleRule(weekly, Map.of()));
     cycleStore.insert(cycle).block();
     var standard = FacilityScope.initialize(new StandardEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
@@ -1763,7 +1765,7 @@ class FacilityPersistenceTest {
     return plan;
   }
 
-  @Test void cycleGeneratesOneWorkOrderPerDeviceAndExecutionWithStableSnapshots() {
+  @Test void cycleGeneratesWholeTaskAndDeviceSnapshotsWithStableIds() {
     var plan = cyclicPlan("once");
     // Even an old double configuration can only generate unassigned project work orders now.
     plan.setMode("double"); plan.setAssigneeId("old-contractor");
@@ -1775,6 +1777,13 @@ class FacilityPersistenceTest {
     assertEquals(plan.getNextRunTime(), task.getScheduledTime());
     assertEquals(plan.getNextRunTime() + 60000, task.getDeadline());
     assertEquals("open", task.getState());
+    assertEquals(1, task.getDeviceCount());
+    assertEquals(0, task.getSubmittedDeviceCount());
+    var child = store.createQuery().where("parentTaskId", task.getId()).fetchOne().block();
+    assertEquals("pump-once", child.getDeviceId());
+    assertEquals(List.of("room-once"), child.getGroupIds());
+    assertEquals("open", child.getState());
+    assertNull(child.getAssigneeId());
     assertNull(task.getAssigneeId());
     assertNull(task.getMode()); assertNull(task.getFollowUserId()); assertNull(task.getExternalOrganizationId());
     assertEquals("水泵压力正常", task.getStandardSnapshot().get(0).getName());
@@ -1782,8 +1791,81 @@ class FacilityPersistenceTest {
     // Replay the same slot as after a retry; the stable ID reuses the committed work order.
     planStore.createUpdate().set("nextRunTime", plan.getNextRunTime()).where("id", plan.getId()).execute().block();
     assertEquals(task.getId(), as("staff", planManager.generate(plan.getId())).block().get(0).getId());
-    assertEquals(1, store.createQuery().where("planId", plan.getId()).count().block());
+    assertEquals(2, store.createQuery().where("planId", plan.getId()).count().block());
     assertEquals(0L, cycleStore.findById(plan.getCycleId()).block().getVersion());
+  }
+
+  @Test void wholeTaskClaimsAndReviewsAllDevicesButEachDeviceSubmitsIndependently() {
+    var plan = cyclicPlan("whole");
+    var second = devices.findById("pump-whole").block();
+    second.setId("pump-whole-2"); second.setCloudDeviceId("cloud-whole-2"); second.setName("二号水泵");
+    devices.insert(second).block();
+    var group = groupStore.findById("room-whole").block();
+    group.setDeviceIds(List.of("pump-whole", second.getId())); groupStore.save(group).block();
+    var anotherGroup = FacilityScope.initialize(new GroupEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
+    anotherGroup.setId("room-whole-2"); anotherGroup.setProjectId("p"); anotherGroup.setDeviceIds(List.of(second.getId()));
+    groupStore.insert(anotherGroup).block();
+    plan.setGroupIds(List.of(group.getId(), anotherGroup.getId())); planStore.save(plan).block();
+    var parent = as("staff", planManager.generate(plan.getId())).block().get(0);
+    assertEquals(2, parent.getDeviceCount());
+    var children = as("worker", manager.devices(parent.getId(), null, null)).block();
+    assertEquals(2, children.size());
+    assertEquals(1, as("worker", manager.devices(parent.getId(), anotherGroup.getId(), null)).block().size());
+    var list = as("worker", manager.query(QueryParamEntity.newQuery().is("planId", plan.getId()).getParam(), false)).block();
+    assertEquals(List.of(parent.getId()), list.getData().stream().map(TaskEntity::getId).toList());
+    var claimed = as("worker", manager.action(parent.getId(), "claim", command(0))).block();
+    for (var child : as("worker", manager.devices(parent.getId(), null, null)).block()) {
+      assertEquals("worker", child.getAssigneeId()); assertEquals("worker", child.getAssigneeName());
+      assertEquals("claimed", child.getState()); assertEquals(1L, child.getVersion());
+      StepVerifier.create(as("worker", manager.action(child.getId(), "claim", command(1))))
+        .expectError(BusinessException.class).verify();
+    }
+    StepVerifier.create(as("worker", manager.action(parent.getId(), "submit", submit(claimed.getVersion(), "invalid-parent"))))
+      .expectError(BusinessException.class).verify();
+    var check = new CheckResult(); check.setItemId("pressure"); check.setValue("符合"); check.setAttachments(List.of());
+    for (int i = 0; i < children.size(); i++) {
+      var cmd = command(1); cmd.setSubmissionId("whole-device-" + i); cmd.setResults(List.of(check));
+      as("worker", manager.action(children.get(i).getId(), "submit", cmd)).block();
+      var progress = store.findById(parent.getId()).block();
+      assertEquals(i + 1, progress.getSubmittedDeviceCount());
+      assertEquals(i == 0 ? "executing" : "review", progress.getState());
+      // Exact replay neither increments the device version nor changes whole-task progress/version.
+      as("worker", manager.action(children.get(i).getId(), "submit", cmd)).block();
+      assertEquals(progress.getVersion(), store.findById(parent.getId()).block().getVersion());
+    }
+    var reject = command(store.findById(parent.getId()).block().getVersion()); reject.setComment("重拍现场照片");
+    as("reviewer", manager.action(parent.getId(), "reject", reject)).block();
+    assertEquals(0, store.findById(parent.getId()).block().getSubmittedDeviceCount());
+    for (var child : as("worker", manager.devices(parent.getId(), null, null)).block()) {
+      assertEquals("rectify", child.getState()); assertNull(child.getSubmissionId());
+      assertEquals("重拍现场照片", child.getReviewComment()); assertEquals(1, child.getResults().size());
+      var cmd = command(child.getVersion()); cmd.setResults(List.of(check)); cmd.setSubmissionId("redo-" + child.getId());
+      as("worker", manager.action(child.getId(), "submit", cmd)).block();
+    }
+    var ready = store.findById(parent.getId()).block();
+    assertEquals("review", ready.getState());
+    as("reviewer", manager.action(parent.getId(), "approve", command(ready.getVersion()))).block();
+    for (var child : as("worker", manager.devices(parent.getId(), null, null)).block()) {
+      assertEquals("completed", child.getState()); assertNotNull(child.getCompletedTime());
+    }
+  }
+
+  @Test void wholeTaskTransferClearsAllDeviceResultsAndClosingRejectsLateSubmissions() {
+    var plan = cyclicPlan("whole-transfer");
+    var parent = as("staff", planManager.generate(plan.getId())).block().get(0);
+    as("worker", manager.action(parent.getId(), "claim", command(0))).block();
+    var child = as("worker", manager.devices(parent.getId(), null, null)).block().get(0);
+    as("worker", manager.action(child.getId(), "start", command(child.getVersion()))).block();
+    var transfer = command(store.findById(parent.getId()).block().getVersion()); transfer.setUserId("next");
+    as("dispatcher", manager.action(parent.getId(), "transfer", transfer)).block();
+    child = store.findById(child.getId()).block();
+    assertEquals("next", child.getAssigneeId()); assertEquals("claimed", child.getState());
+    assertTrue(child.getResults().isEmpty()); assertNull(child.getSubmissionId());
+    var closed = as("dispatcher", manager.action(parent.getId(), "close", command(store.findById(parent.getId()).block().getVersion()))).block();
+    assertEquals("closed", store.findById(child.getId()).block().getState());
+    StepVerifier.create(as("next", manager.action(child.getId(), "submit", submit(child.getVersion(), "late"))))
+      .expectError(BusinessException.class).verify();
+    assertEquals("closed", store.findById(closed.getId()).block().getState());
   }
 
   @Test void cycleEditsStopAndResumeOnlyWithinConfigurationDatesWithoutRewritingTasks() {
@@ -1803,7 +1885,7 @@ class FacilityPersistenceTest {
     as("staff", cycleManager.save(cycle)).block();
     var resumed = planStore.findById(plan.getId()).block();
     assertTrue(resumed.getNextRunTime() >= futureStart && resumed.getNextRunTime() < resumed.getEndTime());
-    assertEquals(1, store.createQuery().where("planId", plan.getId()).count().block());
+    assertEquals(2, store.createQuery().where("planId", plan.getId()).count().block());
     assertEquals(generated.getScheduledTime(), store.findById(generated.getId()).block().getScheduledTime());
     assertEquals(generated.getDeadline(), store.findById(generated.getId()).block().getDeadline());
   }
@@ -1823,7 +1905,7 @@ class FacilityPersistenceTest {
     var outcomes = Flux.merge(as("staff", planManager.generate(plan.getId())).materialize(),
       as("staff", planManager.generate(plan.getId())).materialize()).collectList().block();
     assertTrue(outcomes.stream().anyMatch(reactor.core.publisher.Signal::isOnNext));
-    assertEquals(1, store.createQuery().where("planId", plan.getId()).count().block());
+    assertEquals(2, store.createQuery().where("planId", plan.getId()).count().block());
     assertEquals(plan.getNextRunTime() + 60000, planStore.findById(plan.getId()).block().getNextRunTime());
   }
 
@@ -1838,6 +1920,38 @@ class FacilityPersistenceTest {
     assertEquals(0, store.createQuery().where("planId", plan.getId()).count().block());
   }
 
+  @Autowired FacilityInbox inbox;
+  @Autowired NotificationStore inboxStore;
+
+  @Test void taskInboxPersistsDeduplicatesPagesAndMarksOnlyThisUserRead() {
+    when(scope.query(any(), eq(FacilityAssetType.facilityTask), eq("taskId"))).thenAnswer(call -> {
+      QueryParamEntity query = call.getArgument(0);
+      return scope.current().map(context -> FacilityScope.applicationQuery(query, context));
+    });
+    var task = task("single"); task.setId("inbox-root"); task.setDeviceCount(3);
+    task.setScheduledTime(1000L); task.setDeadline(61000L); task.setProjectId("inbox-project");
+    var writer = new FacilityTaskMessages(store, inboxStore, null, null, null);
+    writer.store(task,"new","inbox-worker").block(); writer.store(task,"new","inbox-worker").block();
+    Mono.when(writer.store(task,"new","inbox-race"), writer.store(task,"new","inbox-race")).block();
+    assertEquals(1,inboxStore.createQuery().where("userId","inbox-race").count().block());
+    writer.store(task,"warning","inbox-worker").block(); writer.store(task,"overdue","inbox-other").block();
+    var otherApp = FacilityTaskMessages.message(task,"new","inbox-worker");
+    otherApp.setId("inbox-other-app"); otherApp.setApplicationId("another-app"); inboxStore.insert(otherApp).block();
+    assertEquals(2,as("inbox-worker",inbox.unread("inbox-project")).block());
+    var query = QueryParamEntity.newQuery().where("projectId","inbox-project").getParam();
+    query.setPageSize(1);
+    var page=as("inbox-worker",inbox.page(query)).block();
+    assertEquals(2,page.getTotal()); assertEquals(1,page.getData().size());
+    assertEquals(3,page.getData().get(0).getDeviceCount());
+    String otherId=FacilityTaskMessages.message(task,"overdue","inbox-other").getId();
+    as("inbox-worker",inbox.read(otherId,null)).block();
+    assertNull(inboxStore.findById(otherId).block().getReadTime());
+    as("inbox-worker",inbox.read(null,"inbox-project")).block();
+    assertEquals(0,as("inbox-worker",inbox.unread("inbox-project")).block());
+    assertEquals(1,as("inbox-other",inbox.unread("inbox-project")).block());
+    assertNull(inboxStore.findById("inbox-other-app").block().getReadTime());
+  }
+
   @SpringBootConfiguration
   @EnableTransactionManagement(proxyTargetClass = true)
   @EnableEasyormRepository("org.jetlinks.pro.property.facility.entity")
@@ -1850,11 +1964,13 @@ class FacilityPersistenceTest {
     FacilityQueries.class,
     FacilityRecords.class,
     FacilityTasks.class,
+    FacilityTaskExecutions.class,
     BindingStore.class,
     DeviceStore.class,
     MappingStore.class,
     ReadingStore.class,
     NotificationStore.class,
+    FacilityInbox.class,
     AlertStore.class,
     FacilityOwner.class,
     FacilityAlertWriter.class,

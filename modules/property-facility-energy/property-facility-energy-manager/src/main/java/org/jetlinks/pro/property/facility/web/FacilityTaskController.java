@@ -42,6 +42,12 @@ public class FacilityTaskController {
     return tasks.reviews(query, status);
   }
 
+  @PostMapping("/related/_query")
+  @QueryAction
+  public Mono<PagerResult<TaskEntity>> related(@RequestBody QueryParamEntity query) {
+    return tasks.related(query);
+  }
+
   @GetMapping("/{id}")
   @QueryAction
   public Mono<TaskEntity> read(@PathVariable String id) {
@@ -52,6 +58,13 @@ public class FacilityTaskController {
   @ResourceAction(id = "dispatch", name = "派单与转单")
   public Flux<org.jetlinks.pro.property.base.user.PropertyEmployeeInfo> assignees(@PathVariable String id) {
     return tasks.assignees(id);
+  }
+
+  @GetMapping("/{id}/devices")
+  @QueryAction
+  public Mono<List<TaskEntity>> devices(@PathVariable String id,
+    @RequestParam(required = false) String groupId, @RequestParam(required = false) String deviceId) {
+    return tasks.devices(id, groupId, deviceId);
   }
 
   @GetMapping("/{id}/claimable")
@@ -114,7 +127,9 @@ public class FacilityTaskController {
           "invalid_state"
         );
         return task;
-      })
+      }).flatMap(checked -> FacilityTaskExecutions.aggregate(checked)
+        ? tasks.devices(checked.getId(), null, null).map(rows -> { checked.setDeviceTasks(rows); return checked; })
+        : Mono.just(checked))
     );
   }
 

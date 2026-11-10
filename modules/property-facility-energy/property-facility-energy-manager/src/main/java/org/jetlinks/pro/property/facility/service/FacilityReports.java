@@ -45,6 +45,7 @@ public class FacilityReports {
       )
       .when("deviceId".equals(field), q -> q.notNull("deviceId"))
       .when("targetId".equals(field), q -> q.notNull("targetId"))
+      .when(type == FacilityAssetType.facilityTask, q -> q.isNull("parentTaskId"))
       .noPaging()
       .getParam();
     return scope

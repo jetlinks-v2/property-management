@@ -21,7 +21,12 @@ public class FacilityExecution {
   private final AssetScopeResolverManager resolver;
 
   public <T> Mono<T> asOwner(FacilityEntity row, Supplier<Mono<T>> work) {
-    return ReactiveAuthenticationHolder.get(row.getCreatorId())
+    return asUser(row, row.getCreatorId(), work);
+  }
+
+  /** 消息接收资格以接收人当前应用、资产权限核验，不能借用创建人的授权。 */
+  public <T> Mono<T> asUser(FacilityEntity row, String userId, Supplier<Mono<T>> work) {
+    return ReactiveAuthenticationHolder.get(userId)
       // Revoke background work even if an old scope grant can still be resolved.
       .filter(auth ->
         FacilityScope.hasApplicationMembership(auth, row.getApplicationId())

@@ -36,19 +36,38 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
   private final FacilityTelemetry telemetry;
   private final FacilityAlerts alerts;
   private final FacilityNotifications notifications;
+  private final FacilityTaskMessages taskMessages;
   private final ClusterPluginScheduler scheduler = new ClusterPluginScheduler(
     "property-facility-energy"
   );
-  private final AtomicBoolean polling = new AtomicBoolean();
+  private final AtomicBoolean polling = new AtomicBoolean(), planning = new AtomicBoolean();
   private final AtomicLong failures = new AtomicLong(),
     synced = new AtomicLong(),
     collected = new AtomicLong();
   private volatile boolean running;
   private volatile long completed;
-  private Disposable task;
+  private Disposable task, planTask, messageTask;
   private ObjectName objectName;
 
   public Mono<Void> poll() {
+    return Mono.when(pollPlans(), pollBackground(), taskMessages.poll());
+  }
+
+  /** 周期生单不等待能源历史补采；独立互斥，慢采集期间仍按时检查到期计划。 */
+  public Mono<Void> pollPlans() {
+    return Mono.defer(() -> {
+      if (!planning.compareAndSet(false, true)) return Mono.empty();
+      return plans.createQuery()
+        .where("enabled", true).and("deleted", false).notNull("cycleId")
+        .lte("nextRunTime", System.currentTimeMillis()).fetch().take(100)
+        .concatMap(row -> execution.asOwner(row, () -> planManager.generate(row.getId()))
+          .onErrorResume(e -> failure("plan", row.getId(), e)))
+        .then().doFinally(s -> planning.set(false))
+        .as(MonoTracer.create("/property/facility-energy/jobs/plans"));
+    });
+  }
+
+  private Mono<Void> pollBackground() {
     return Mono.defer(() -> {
       if (!polling.compareAndSet(false, true)) return Mono.empty();
       long now = System.currentTimeMillis();
@@ -65,21 +84,6 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
             .asOwner(row, () -> sync.run(row))
             .doOnNext(v -> synced.incrementAndGet())
             .onErrorResume(e -> failure("sync", row.getId(), e))
-        )
-        .thenMany(
-          plans
-            .createQuery()
-            .where("enabled", true)
-            .and("deleted", false)
-            .notNull("cycleId")
-            .lte("nextRunTime", now)
-            .fetch()
-            .take(100)
-        )
-        .concatMap(row ->
-          execution
-            .asOwner(row, () -> planManager.generate(row.getId()))
-            .onErrorResume(e -> failure("plan", row.getId(), e))
         )
         .thenMany(
           mappings
@@ -135,10 +139,14 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
     if (running) return;
     task = scheduler.interval(
       "facility-jobs",
-      Mono.defer(this::poll),
+      Mono.defer(this::pollBackground),
       Duration.ofSeconds(30),
       true
     );
+    planTask = scheduler.interval(
+      "facility-plan-jobs", Mono.defer(this::pollPlans), Duration.ofSeconds(30), true
+    );
+    messageTask = scheduler.interval("facility-task-messages", Mono.defer(taskMessages::poll), Duration.ofSeconds(15), true);
     running = true;
     try {
       objectName = new ObjectName(
@@ -156,6 +164,8 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
   public synchronized void stop() {
     running = false;
     if (task != null) task.dispose();
+    if (planTask != null) planTask.dispose();
+    if (messageTask != null) messageTask.dispose();
     telemetry.stop();
     if (objectName != null) try {
       ManagementFactory.getPlatformMBeanServer().unregisterMBean(objectName);
@@ -170,7 +180,7 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
   }
 
   public boolean isPolling() {
-    return polling.get();
+    return polling.get() || planning.get();
   }
 
   public long getLastCompletedTime() {

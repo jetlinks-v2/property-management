@@ -229,62 +229,38 @@ public class FacilityPlans {
   }
 
   private Mono<List<TaskEntity>> createTasks(PlanEntity plan, StandardEntity standard, FacilityCycleRules.Slot slot) {
-    long scheduled = slot.start();
-    return resolveDevices(plan).flatMapMany(Flux::fromIterable)
-              .concatMap(device ->
-                scope.current().flatMap(c -> {
-                  var task = FacilityScope.initialize(new TaskEntity(), c);
-                  FacilityScope.inherit(task, plan);
-                  task.setId(
-                    FacilityRecords.stableId(
-                      plan.getTenantId(),
-                      plan.getApplicationId(),
-                      plan.getId(),
-                      Long.toString(scheduled),
-                      device.getId()
-                    )
-                  );
-                  task.setName(plan.getName());
-                  task.setPlanId(plan.getId());
-                  task.setKind(plan.getKind());
-                  task.setDeviceId(device.getId());
-                  task.setDeviceName(device.getName());
-                  task.setStandardId(standard.getId());
-                  task.setStandardSnapshot(standard.getCheckItems());
-                  task.setInstructionSnapshot(standard.getInstruction());
-                  task.setInstructionAttachments(standard.getAttachments());
-                  task.setDeviceSnapshot(
-                    new LinkedHashMap<>(
-                      Map.of(
-                        "cloudDeviceId",
-                        device.getCloudDeviceId(),
-                        "name",
-                        Objects.toString(device.getName(), ""),
-                        "location",
-                        Objects.toString(device.getLocation(), ""),
-                        "specification",
-                        Objects.toString(device.getSpecification(), "")
-                      )
-                    )
-                  );
-                  task.setReviewerId(plan.getReviewerId());
-                  task.setScheduledTime(scheduled);
-                  task.setDeadline(
-                    slot.end()
-                  );
-                  task.setState("open");
-                  return tasks
-                    .findById(task.getId())
-                    .switchIfEmpty(
-                      records.insert(
-                        tasks,
-                        task,
-                        FacilityAssetType.facilityTask
-                      )
-                    );
-                })
-              )
-      .collectList();
+    return resolveDevices(plan).flatMap(resolved -> scope.current().flatMap(context -> {
+      var parent = taskSnapshot(plan, standard, slot, context);
+      parent.setId(FacilityRecords.stableId(plan.getTenantId(), plan.getApplicationId(), plan.getId(), Long.toString(slot.start()), "execution"));
+      parent.setDeviceId("__execution__"); parent.setDeviceName(resolved.size() + "台设备");
+      parent.setDeviceCount(resolved.size()); parent.setSubmittedDeviceCount(0); parent.setGroupIds(plan.getGroupIds().stream().distinct().toList());
+      // The task and all device rows commit with the generation cursor; no partial task enters the pool.
+      return tasks.findById(parent.getId()).switchIfEmpty(records.insert(tasks, parent, FacilityAssetType.facilityTask))
+        .flatMap(saved -> Flux.fromIterable(parent.getGroupIds()).concatMap(groupId -> records.read(groups, groupId,
+          FacilityAssetType.facilityGroup, CrudAssetPermission.read)).collectList().flatMap(groupRows ->
+          Flux.fromIterable(resolved).concatMap(device -> {
+            var task = taskSnapshot(plan, standard, slot, context);
+            task.setId(FacilityRecords.stableId(plan.getTenantId(), plan.getApplicationId(), plan.getId(), Long.toString(slot.start()), device.getId()));
+            task.setParentTaskId(saved.getId()); task.setDeviceId(device.getId()); task.setDeviceName(device.getName());
+            task.setGroupIds(groupRows.stream().filter(g -> g.getDeviceIds().contains(device.getId())).map(GroupEntity::getId).toList());
+            task.setDeviceSnapshot(new LinkedHashMap<>(Map.of("cloudDeviceId", Objects.toString(device.getCloudDeviceId(), ""),
+              "name", Objects.toString(device.getName(), ""), "location", Objects.toString(device.getLocation(), ""),
+              "specification", Objects.toString(device.getSpecification(), ""))));
+            return tasks.findById(task.getId()).doOnNext(existing -> require(saved.getId().equals(existing.getParentTaskId()), "conflict"))
+              .switchIfEmpty(records.insert(tasks, task, FacilityAssetType.facilityTask));
+          }).then(Mono.just(List.of(saved)))));
+    }));
+  }
+
+  private TaskEntity taskSnapshot(PlanEntity plan, StandardEntity standard, FacilityCycleRules.Slot slot, FacilityContext context) {
+    var task = FacilityScope.initialize(new TaskEntity(), context);
+    FacilityScope.inherit(task, plan);
+    task.setName(plan.getName()); task.setPlanId(plan.getId()); task.setKind(plan.getKind());
+    task.setStandardId(standard.getId()); task.setStandardSnapshot(standard.getCheckItems());
+    task.setInstructionSnapshot(standard.getInstruction()); task.setInstructionAttachments(standard.getAttachments());
+    task.setReviewerId(plan.getReviewerId()); task.setReviewerName(plan.getReviewerName());
+    task.setScheduledTime(slot.start()); task.setDeadline(slot.end()); task.setWarningTime(slot.warningTime()); task.setState("open");
+    return task;
   }
 
   /** 仅按到期游标生成，逾期时恢复有效期内已到期的时隙，不新增周期外任务。 */

@@ -43,7 +43,7 @@ public class FacilityCycles {
   public Mono<CycleEntity> save(CycleEntity input) {
     require(input.getName() != null && !input.getName().isBlank() && input.getKind() != null &&
       Set.of("inspection", "maintenance").contains(input.getKind()), "invalid_cycle");
-    FacilityCycleRules.validate(input);
+    FacilityCycleRules.requireWarnings(input);
     return directory.project(input.getProjectId()).doOnNext(project -> input.setProjectName(project.getName()))
       .then(records.assertProject(input.getProjectId(), CrudAssetPermission.save))
       .then(scope.current())

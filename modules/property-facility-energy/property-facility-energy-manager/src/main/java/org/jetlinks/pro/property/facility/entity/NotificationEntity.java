@@ -17,16 +17,33 @@ import org.jetlinks.pro.property.facility.model.*;
 @EnableEntityEvent
 @Table(
   name = "fe_notification",
-  indexes = @Index(
+  indexes = { @Index(
     name = "idx_fe_notification_scope",
     columnList = "tenantId,applicationId,eventId,recipientKey,channel,sequence",
     unique = true
-  )
+  ), @Index(name = "idx_fe_notification_inbox", columnList = "tenantId,applicationId,userId,channel,readTime,createTime") }
 )
 public class NotificationEntity extends FacilityEntity {
 
   @Column(length = 256)
   private String eventId;
+
+  @Column(length = 64)
+  private String taskId;
+  @Column(length = 32)
+  private String messageType;
+  @Column(length = 256)
+  private String taskName;
+  @Column(length = 32)
+  private String taskKind;
+  @Column
+  private Integer deviceCount;
+  @Column
+  private Integer submittedDeviceCount;
+  @Column
+  private Long scheduledTime;
+  @Column
+  private Long deadline;
 
   @Column(length = 256)
   private String deviceId;
