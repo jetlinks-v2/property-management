@@ -79,13 +79,15 @@ public class FacilityPlans {
     if (
       input.getAssigneeId() != null && !input.getAssigneeId().isBlank()
     ) refs = refs.then(directory.employee(input.getAssigneeId()).then());
+    if (
+      input.getExternalOrganizationId() != null && !input.getExternalOrganizationId().isBlank()
+    ) refs = refs.then(directory.externalOrganization(input.getExternalOrganizationId()));
     if ("double".equals(input.getMode())) {
       require(
         !Objects.equals(input.getAssigneeId(), input.getFollowUserId()),
         "external_role_mismatch"
       );
       refs = refs
-        .then(directory.externalOrganization(input.getExternalOrganizationId()))
         .then(
           directory.employeeRole(
             input.getFollowUserId(),

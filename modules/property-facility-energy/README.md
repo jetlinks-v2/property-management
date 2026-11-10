@@ -9,3 +9,5 @@
 ### 组织权限查询
 
 设施资产沿用 `AssetsHolder` 的 `org-include-children` 策略。认证服务已经展开有权访问的下级组织；设施服务通过 `FacilityOrganizationAccessSupport` 将这些维度交给标准维度条件构建器，不使用本地 `s_dimension_closure` 优化。组织层级由共享档案和 Cloud 持有，设施库不复制该表数据。这个扩展只改变设施资产的查询生成方式，保留既有组织、创建人、租户及应用权限。其他资产继续使用框架原策略。
+
+`GET /property/facility-energy/context/organizations` 返回外协组织树，只保留调用者有权查看且标注为 `external` 的单位及其上级路径；上级仅用于展示，只有外协单位可选。组织类型不向下继承，保存外协计划及校验人员归属时重新核对当前组织类型；人员归属仍按完整授权目录中的外协分支判断。

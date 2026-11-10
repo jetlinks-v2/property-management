@@ -38,7 +38,7 @@ public class FacilityContextController {
   @GetMapping("/organizations")
   @QueryAction
   public Flux<org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo> organizations() {
-    return directory.organizations();
+    return directory.externalOrganizationTree();
   }
 
   @GetMapping("/employees")
