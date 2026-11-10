@@ -135,296 +135,9 @@
       "url": "/facility/inspection",
       "owner": "app",
       "sortIndex": 3,
-      "permissions": [
-        {
-          "permission": "facility-task",
-          "actions": [
-            "query"
-          ]
-        },
-        {
-          "permission": "facility-standard",
-          "actions": [
-            "query"
-          ]
-        },
-        {
-          "permission": "facility-cycle",
-          "actions": [
-            "query"
-          ]
-        },
-        {
-          "permission": "facility-group",
-          "actions": [
-            "query"
-          ]
-        },
-        {
-          "permission": "facility-device",
-          "actions": [
-            "query"
-          ]
-        },
-        {
-          "permission": "facility-plan",
-          "actions": [
-            "query"
-          ]
-        }
-      ],
-      "buttons": [
-        {
-          "id": "execute",
-          "name": "接单与执行",
-          "permissions": [
-            {
-              "permission": "facility-task",
-              "actions": [
-                "save"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true
-        },
-        {
-          "id": "dispatch",
-          "name": "分派与撤回",
-          "permissions": [
-            {
-              "permission": "facility-task",
-              "actions": [
-                "dispatch"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true
-        },
-        {
-          "id": "review",
-          "name": "审核与整改",
-          "permissions": [
-            {
-              "permission": "facility-task",
-              "actions": [
-                "review"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true
-        },
-        {
-          "id": "generate",
-          "name": "生成任务",
-          "permissions": [
-            {
-              "permission": "facility-task",
-              "actions": [
-                "generate"
-              ]
-            },
-            {
-              "permission": "facility-plan",
-              "actions": [
-                "save"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true
-        },
-        {
-          "id": "standard-save",
-          "name": "新增／编辑作业标准",
-          "permissions": [
-            {
-              "permission": "facility-standard",
-              "actions": [
-                "save"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true,
-          "i18nMessages": {
-            "zh_CN": "新增／编辑作业标准",
-            "zh": "新增／编辑作业标准",
-            "en_US": "Create / edit work standards",
-            "en": "Create / edit work standards"
-          }
-        },
-        {
-          "id": "standard-delete",
-          "name": "删除作业标准",
-          "permissions": [
-            {
-              "permission": "facility-standard",
-              "actions": [
-                "delete"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true,
-          "i18nMessages": {
-            "zh_CN": "删除作业标准",
-            "zh": "删除作业标准",
-            "en_US": "Delete work standards",
-            "en": "Delete work standards"
-          }
-        },
-        {
-          "id": "cycle-save",
-          "name": "新增／编辑周期计划",
-          "permissions": [
-            {
-              "permission": "facility-cycle",
-              "actions": [
-                "save"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true,
-          "i18nMessages": {
-            "zh_CN": "新增／编辑周期计划",
-            "zh": "新增／编辑周期计划",
-            "en_US": "Create / edit cycle plans",
-            "en": "Create / edit cycle plans"
-          }
-        },
-        {
-          "id": "cycle-delete",
-          "name": "删除周期计划",
-          "permissions": [
-            {
-              "permission": "facility-cycle",
-              "actions": [
-                "delete"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true,
-          "i18nMessages": {
-            "zh_CN": "删除周期计划",
-            "zh": "删除周期计划",
-            "en_US": "Delete cycle plans",
-            "en": "Delete cycle plans"
-          }
-        },
-        {
-          "id": "plan-save",
-          "name": "新增／编辑任务配置",
-          "permissions": [
-            {
-              "permission": "facility-plan",
-              "actions": [
-                "save"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true,
-          "i18nMessages": {
-            "zh_CN": "新增／编辑任务配置",
-            "zh": "新增／编辑任务配置",
-            "en_US": "Create / edit task configurations",
-            "en": "Create / edit task configurations"
-          }
-        },
-        {
-          "id": "plan-delete",
-          "name": "删除任务配置",
-          "permissions": [
-            {
-              "permission": "facility-plan",
-              "actions": [
-                "delete"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true,
-          "i18nMessages": {
-            "zh_CN": "删除任务配置",
-            "zh": "删除任务配置",
-            "en_US": "Delete task configurations",
-            "en": "Delete task configurations"
-          }
-        },
-        {
-          "id": "group-save",
-          "name": "新增／编辑设备组",
-          "permissions": [
-            {
-              "permission": "facility-group",
-              "actions": [
-                "save"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true,
-          "i18nMessages": {
-            "zh_CN": "新增／编辑设备组",
-            "zh": "新增／编辑设备组",
-            "en_US": "Create / edit device groups",
-            "en": "Create / edit device groups"
-          }
-        },
-        {
-          "id": "group-delete",
-          "name": "删除设备组",
-          "permissions": [
-            {
-              "permission": "facility-group",
-              "actions": [
-                "delete"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true,
-          "i18nMessages": {
-            "zh_CN": "删除设备组",
-            "zh": "删除设备组",
-            "en_US": "Delete device groups",
-            "en": "Delete device groups"
-          }
-        },
-        {
-          "id": "group-qr",
-          "name": "查看设备组二维码",
-          "permissions": [
-            {
-              "permission": "facility-group",
-              "actions": [
-                "query"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true,
-          "i18nMessages": {
-            "zh_CN": "查看设备组二维码",
-            "zh": "查看设备组二维码",
-            "en_US": "View device group QR code",
-            "en": "View device group QR code"
-          }
-        }
-      ],
-      "assetTypes": [
-        "facilityTask",
-        "facilityStandard",
-        "facilityPlan",
-        "facilityGroup",
-        "facilityDevice",
-        "facilityCycle"
-      ],
+      "permissions": [],
+      "buttons": [],
+      "assetTypes": [],
       "parentId": "-1",
       "status": 1,
       "runtime": true,
@@ -433,10 +146,7 @@
       "icon": "CheckSquareOutlined",
       "options": {
         "show": true,
-        "appName": "facility-energy-ui",
-        "meta": {
-          "componentCode": "facility/Inspection"
-        }
+        "appName": "facility-energy-ui"
       },
       "i18nMessages": {
         "name": {
@@ -448,12 +158,12 @@
       }
     },
     {
-      "id": "facility-Maintenance",
-      "code": "facility/Maintenance",
-      "name": "维保管理",
-      "url": "/facility/maintenance",
+      "id": "facility-Inspection-Tasks",
+      "code": "facility/Inspection/Tasks",
+      "name": "任务",
+      "url": "/facility/inspection/tasks",
       "owner": "app",
-      "sortIndex": 4,
+      "sortIndex": 1,
       "permissions": [
         {
           "permission": "facility-task",
@@ -462,31 +172,7 @@
           ]
         },
         {
-          "permission": "facility-standard",
-          "actions": [
-            "query"
-          ]
-        },
-        {
-          "permission": "facility-cycle",
-          "actions": [
-            "query"
-          ]
-        },
-        {
-          "permission": "facility-group",
-          "actions": [
-            "query"
-          ]
-        },
-        {
           "permission": "facility-device",
-          "actions": [
-            "query"
-          ]
-        },
-        {
-          "permission": "facility-plan",
           "actions": [
             "query"
           ]
@@ -534,7 +220,288 @@
           ],
           "enabled": true,
           "granted": true
+        }
+      ],
+      "assetTypes": [
+        "facilityTask",
+        "facilityFault",
+        "facilityDevice"
+      ],
+      "parentId": "facility-Inspection",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "icon": "CheckSquareOutlined",
+      "options": {
+        "show": true,
+        "meta": {
+          "componentCode": "facility/Inspection/Tasks"
         },
+        "appName": "facility-energy-ui"
+      },
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "任务",
+          "zh": "任务",
+          "en_US": "Tasks",
+          "en": "Tasks"
+        }
+      }
+    },
+    {
+      "id": "facility-Inspection-Standards",
+      "code": "facility/Inspection/Standards",
+      "name": "作业标准",
+      "url": "/facility/inspection/standards",
+      "owner": "app",
+      "sortIndex": 2,
+      "permissions": [
+        {
+          "permission": "facility-standard",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "save",
+          "name": "新增／编辑作业标准",
+          "permissions": [
+            {
+              "permission": "facility-standard",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "新增／编辑作业标准",
+            "zh": "新增／编辑作业标准",
+            "en_US": "Create / edit work standards",
+            "en": "Create / edit work standards"
+          }
+        },
+        {
+          "id": "delete",
+          "name": "删除作业标准",
+          "permissions": [
+            {
+              "permission": "facility-standard",
+              "actions": [
+                "delete"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "删除作业标准",
+            "zh": "删除作业标准",
+            "en_US": "Delete work standards",
+            "en": "Delete work standards"
+          }
+        },
+        {
+          "id": "toggle",
+          "name": "启用／禁用",
+          "permissions": [
+            {
+              "permission": "facility-standard",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "启用／禁用",
+            "zh": "启用／禁用",
+            "en_US": "Enable / disable",
+            "en": "Enable / disable"
+          }
+        }
+      ],
+      "assetTypes": [
+        "facilityStandard"
+      ],
+      "parentId": "facility-Inspection",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "icon": "CheckSquareOutlined",
+      "options": {
+        "show": true,
+        "meta": {
+          "componentCode": "facility/Inspection/Standards"
+        },
+        "appName": "facility-energy-ui"
+      },
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "作业标准",
+          "zh": "作业标准",
+          "en_US": "Work standards",
+          "en": "Work standards"
+        }
+      }
+    },
+    {
+      "id": "facility-Inspection-Cycles",
+      "code": "facility/Inspection/Cycles",
+      "name": "周期计划",
+      "url": "/facility/inspection/cycles",
+      "owner": "app",
+      "sortIndex": 3,
+      "permissions": [
+        {
+          "permission": "facility-cycle",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "save",
+          "name": "新增／编辑周期计划",
+          "permissions": [
+            {
+              "permission": "facility-cycle",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "新增／编辑周期计划",
+            "zh": "新增／编辑周期计划",
+            "en_US": "Create / edit cycle plans",
+            "en": "Create / edit cycle plans"
+          }
+        },
+        {
+          "id": "delete",
+          "name": "删除周期计划",
+          "permissions": [
+            {
+              "permission": "facility-cycle",
+              "actions": [
+                "delete"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "删除周期计划",
+            "zh": "删除周期计划",
+            "en_US": "Delete cycle plans",
+            "en": "Delete cycle plans"
+          }
+        },
+        {
+          "id": "toggle",
+          "name": "启用／禁用",
+          "permissions": [
+            {
+              "permission": "facility-cycle",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "启用／禁用",
+            "zh": "启用／禁用",
+            "en_US": "Enable / disable",
+            "en": "Enable / disable"
+          }
+        }
+      ],
+      "assetTypes": [
+        "facilityCycle"
+      ],
+      "parentId": "facility-Inspection",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "icon": "CheckSquareOutlined",
+      "options": {
+        "show": true,
+        "meta": {
+          "componentCode": "facility/Inspection/Cycles"
+        },
+        "appName": "facility-energy-ui"
+      },
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "周期计划",
+          "zh": "周期计划",
+          "en_US": "Cycle plans",
+          "en": "Cycle plans"
+        }
+      }
+    },
+    {
+      "id": "facility-Inspection-Plans",
+      "code": "facility/Inspection/Plans",
+      "name": "任务配置",
+      "url": "/facility/inspection/plans",
+      "owner": "app",
+      "sortIndex": 4,
+      "permissions": [
+        {
+          "permission": "facility-plan",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-cycle",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-standard",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-group",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
         {
           "id": "generate",
           "name": "生成任务",
@@ -556,87 +523,7 @@
           "granted": true
         },
         {
-          "id": "standard-save",
-          "name": "新增／编辑作业标准",
-          "permissions": [
-            {
-              "permission": "facility-standard",
-              "actions": [
-                "save"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true,
-          "i18nMessages": {
-            "zh_CN": "新增／编辑作业标准",
-            "zh": "新增／编辑作业标准",
-            "en_US": "Create / edit work standards",
-            "en": "Create / edit work standards"
-          }
-        },
-        {
-          "id": "standard-delete",
-          "name": "删除作业标准",
-          "permissions": [
-            {
-              "permission": "facility-standard",
-              "actions": [
-                "delete"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true,
-          "i18nMessages": {
-            "zh_CN": "删除作业标准",
-            "zh": "删除作业标准",
-            "en_US": "Delete work standards",
-            "en": "Delete work standards"
-          }
-        },
-        {
-          "id": "cycle-save",
-          "name": "新增／编辑周期计划",
-          "permissions": [
-            {
-              "permission": "facility-cycle",
-              "actions": [
-                "save"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true,
-          "i18nMessages": {
-            "zh_CN": "新增／编辑周期计划",
-            "zh": "新增／编辑周期计划",
-            "en_US": "Create / edit cycle plans",
-            "en": "Create / edit cycle plans"
-          }
-        },
-        {
-          "id": "cycle-delete",
-          "name": "删除周期计划",
-          "permissions": [
-            {
-              "permission": "facility-cycle",
-              "actions": [
-                "delete"
-              ]
-            }
-          ],
-          "enabled": true,
-          "granted": true,
-          "i18nMessages": {
-            "zh_CN": "删除周期计划",
-            "zh": "删除周期计划",
-            "en_US": "Delete cycle plans",
-            "en": "Delete cycle plans"
-          }
-        },
-        {
-          "id": "plan-save",
+          "id": "save",
           "name": "新增／编辑任务配置",
           "permissions": [
             {
@@ -656,7 +543,7 @@
           }
         },
         {
-          "id": "plan-delete",
+          "id": "delete",
           "name": "删除任务配置",
           "permissions": [
             {
@@ -676,7 +563,79 @@
           }
         },
         {
-          "id": "group-save",
+          "id": "toggle",
+          "name": "启用／禁用",
+          "permissions": [
+            {
+              "permission": "facility-plan",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "启用／禁用",
+            "zh": "启用／禁用",
+            "en_US": "Enable / disable",
+            "en": "Enable / disable"
+          }
+        }
+      ],
+      "assetTypes": [
+        "facilityPlan",
+        "facilityCycle",
+        "facilityStandard",
+        "facilityGroup",
+        "facilityDevice",
+        "facilityTask"
+      ],
+      "parentId": "facility-Inspection",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "icon": "CheckSquareOutlined",
+      "options": {
+        "show": true,
+        "meta": {
+          "componentCode": "facility/Inspection/Plans"
+        },
+        "appName": "facility-energy-ui"
+      },
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "任务配置",
+          "zh": "任务配置",
+          "en_US": "Task configurations",
+          "en": "Task configurations"
+        }
+      }
+    },
+    {
+      "id": "facility-Inspection-Groups",
+      "code": "facility/Inspection/Groups",
+      "name": "设备组",
+      "url": "/facility/inspection/groups",
+      "owner": "app",
+      "sortIndex": 5,
+      "permissions": [
+        {
+          "permission": "facility-group",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "save",
           "name": "新增／编辑设备组",
           "permissions": [
             {
@@ -696,7 +655,7 @@
           }
         },
         {
-          "id": "group-delete",
+          "id": "delete",
           "name": "删除设备组",
           "permissions": [
             {
@@ -716,7 +675,7 @@
           }
         },
         {
-          "id": "group-qr",
+          "id": "qr",
           "name": "查看设备组二维码",
           "permissions": [
             {
@@ -737,13 +696,40 @@
         }
       ],
       "assetTypes": [
-        "facilityTask",
-        "facilityStandard",
-        "facilityPlan",
         "facilityGroup",
-        "facilityDevice",
-        "facilityCycle"
+        "facilityDevice"
       ],
+      "parentId": "facility-Inspection",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "icon": "CheckSquareOutlined",
+      "options": {
+        "show": true,
+        "meta": {
+          "componentCode": "facility/Inspection/Groups"
+        },
+        "appName": "facility-energy-ui"
+      },
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "设备组",
+          "zh": "设备组",
+          "en_US": "Device groups",
+          "en": "Device groups"
+        }
+      }
+    },
+    {
+      "id": "facility-Maintenance",
+      "code": "facility/Maintenance",
+      "name": "维保管理",
+      "url": "/facility/maintenance",
+      "owner": "app",
+      "sortIndex": 4,
+      "permissions": [],
+      "buttons": [],
+      "assetTypes": [],
       "parentId": "-1",
       "status": 1,
       "runtime": true,
@@ -752,10 +738,7 @@
       "icon": "ScheduleOutlined",
       "options": {
         "show": true,
-        "appName": "facility-energy-ui",
-        "meta": {
-          "componentCode": "facility/Maintenance"
-        }
+        "appName": "facility-energy-ui"
       },
       "i18nMessages": {
         "name": {
@@ -763,6 +746,569 @@
           "zh": "维保管理",
           "en_US": "Maintenance",
           "zh_CN": "维保管理"
+        }
+      }
+    },
+    {
+      "id": "facility-Maintenance-Tasks",
+      "code": "facility/Maintenance/Tasks",
+      "name": "任务",
+      "url": "/facility/maintenance/tasks",
+      "owner": "app",
+      "sortIndex": 1,
+      "permissions": [
+        {
+          "permission": "facility-task",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "execute",
+          "name": "接单与执行",
+          "permissions": [
+            {
+              "permission": "facility-task",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        },
+        {
+          "id": "dispatch",
+          "name": "分派与撤回",
+          "permissions": [
+            {
+              "permission": "facility-task",
+              "actions": [
+                "dispatch"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        },
+        {
+          "id": "review",
+          "name": "审核与整改",
+          "permissions": [
+            {
+              "permission": "facility-task",
+              "actions": [
+                "review"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        }
+      ],
+      "assetTypes": [
+        "facilityTask",
+        "facilityFault",
+        "facilityDevice"
+      ],
+      "parentId": "facility-Maintenance",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "icon": "ScheduleOutlined",
+      "options": {
+        "show": true,
+        "meta": {
+          "componentCode": "facility/Maintenance/Tasks"
+        },
+        "appName": "facility-energy-ui"
+      },
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "任务",
+          "zh": "任务",
+          "en_US": "Tasks",
+          "en": "Tasks"
+        }
+      }
+    },
+    {
+      "id": "facility-Maintenance-Standards",
+      "code": "facility/Maintenance/Standards",
+      "name": "作业标准",
+      "url": "/facility/maintenance/standards",
+      "owner": "app",
+      "sortIndex": 2,
+      "permissions": [
+        {
+          "permission": "facility-standard",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "save",
+          "name": "新增／编辑作业标准",
+          "permissions": [
+            {
+              "permission": "facility-standard",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "新增／编辑作业标准",
+            "zh": "新增／编辑作业标准",
+            "en_US": "Create / edit work standards",
+            "en": "Create / edit work standards"
+          }
+        },
+        {
+          "id": "delete",
+          "name": "删除作业标准",
+          "permissions": [
+            {
+              "permission": "facility-standard",
+              "actions": [
+                "delete"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "删除作业标准",
+            "zh": "删除作业标准",
+            "en_US": "Delete work standards",
+            "en": "Delete work standards"
+          }
+        },
+        {
+          "id": "toggle",
+          "name": "启用／禁用",
+          "permissions": [
+            {
+              "permission": "facility-standard",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "启用／禁用",
+            "zh": "启用／禁用",
+            "en_US": "Enable / disable",
+            "en": "Enable / disable"
+          }
+        }
+      ],
+      "assetTypes": [
+        "facilityStandard"
+      ],
+      "parentId": "facility-Maintenance",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "icon": "ScheduleOutlined",
+      "options": {
+        "show": true,
+        "meta": {
+          "componentCode": "facility/Maintenance/Standards"
+        },
+        "appName": "facility-energy-ui"
+      },
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "作业标准",
+          "zh": "作业标准",
+          "en_US": "Work standards",
+          "en": "Work standards"
+        }
+      }
+    },
+    {
+      "id": "facility-Maintenance-Cycles",
+      "code": "facility/Maintenance/Cycles",
+      "name": "周期计划",
+      "url": "/facility/maintenance/cycles",
+      "owner": "app",
+      "sortIndex": 3,
+      "permissions": [
+        {
+          "permission": "facility-cycle",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "save",
+          "name": "新增／编辑周期计划",
+          "permissions": [
+            {
+              "permission": "facility-cycle",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "新增／编辑周期计划",
+            "zh": "新增／编辑周期计划",
+            "en_US": "Create / edit cycle plans",
+            "en": "Create / edit cycle plans"
+          }
+        },
+        {
+          "id": "delete",
+          "name": "删除周期计划",
+          "permissions": [
+            {
+              "permission": "facility-cycle",
+              "actions": [
+                "delete"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "删除周期计划",
+            "zh": "删除周期计划",
+            "en_US": "Delete cycle plans",
+            "en": "Delete cycle plans"
+          }
+        },
+        {
+          "id": "toggle",
+          "name": "启用／禁用",
+          "permissions": [
+            {
+              "permission": "facility-cycle",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "启用／禁用",
+            "zh": "启用／禁用",
+            "en_US": "Enable / disable",
+            "en": "Enable / disable"
+          }
+        }
+      ],
+      "assetTypes": [
+        "facilityCycle"
+      ],
+      "parentId": "facility-Maintenance",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "icon": "ScheduleOutlined",
+      "options": {
+        "show": true,
+        "meta": {
+          "componentCode": "facility/Maintenance/Cycles"
+        },
+        "appName": "facility-energy-ui"
+      },
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "周期计划",
+          "zh": "周期计划",
+          "en_US": "Cycle plans",
+          "en": "Cycle plans"
+        }
+      }
+    },
+    {
+      "id": "facility-Maintenance-Plans",
+      "code": "facility/Maintenance/Plans",
+      "name": "任务配置",
+      "url": "/facility/maintenance/plans",
+      "owner": "app",
+      "sortIndex": 4,
+      "permissions": [
+        {
+          "permission": "facility-plan",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-cycle",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-standard",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-group",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "generate",
+          "name": "生成任务",
+          "permissions": [
+            {
+              "permission": "facility-task",
+              "actions": [
+                "generate"
+              ]
+            },
+            {
+              "permission": "facility-plan",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true
+        },
+        {
+          "id": "save",
+          "name": "新增／编辑任务配置",
+          "permissions": [
+            {
+              "permission": "facility-plan",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "新增／编辑任务配置",
+            "zh": "新增／编辑任务配置",
+            "en_US": "Create / edit task configurations",
+            "en": "Create / edit task configurations"
+          }
+        },
+        {
+          "id": "delete",
+          "name": "删除任务配置",
+          "permissions": [
+            {
+              "permission": "facility-plan",
+              "actions": [
+                "delete"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "删除任务配置",
+            "zh": "删除任务配置",
+            "en_US": "Delete task configurations",
+            "en": "Delete task configurations"
+          }
+        },
+        {
+          "id": "toggle",
+          "name": "启用／禁用",
+          "permissions": [
+            {
+              "permission": "facility-plan",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "启用／禁用",
+            "zh": "启用／禁用",
+            "en_US": "Enable / disable",
+            "en": "Enable / disable"
+          }
+        }
+      ],
+      "assetTypes": [
+        "facilityPlan",
+        "facilityCycle",
+        "facilityStandard",
+        "facilityGroup",
+        "facilityDevice",
+        "facilityTask"
+      ],
+      "parentId": "facility-Maintenance",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "icon": "ScheduleOutlined",
+      "options": {
+        "show": true,
+        "meta": {
+          "componentCode": "facility/Maintenance/Plans"
+        },
+        "appName": "facility-energy-ui"
+      },
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "任务配置",
+          "zh": "任务配置",
+          "en_US": "Task configurations",
+          "en": "Task configurations"
+        }
+      }
+    },
+    {
+      "id": "facility-Maintenance-Groups",
+      "code": "facility/Maintenance/Groups",
+      "name": "设备组",
+      "url": "/facility/maintenance/groups",
+      "owner": "app",
+      "sortIndex": 5,
+      "permissions": [
+        {
+          "permission": "facility-group",
+          "actions": [
+            "query"
+          ]
+        },
+        {
+          "permission": "facility-device",
+          "actions": [
+            "query"
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "id": "save",
+          "name": "新增／编辑设备组",
+          "permissions": [
+            {
+              "permission": "facility-group",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "新增／编辑设备组",
+            "zh": "新增／编辑设备组",
+            "en_US": "Create / edit device groups",
+            "en": "Create / edit device groups"
+          }
+        },
+        {
+          "id": "delete",
+          "name": "删除设备组",
+          "permissions": [
+            {
+              "permission": "facility-group",
+              "actions": [
+                "delete"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "删除设备组",
+            "zh": "删除设备组",
+            "en_US": "Delete device groups",
+            "en": "Delete device groups"
+          }
+        },
+        {
+          "id": "qr",
+          "name": "查看设备组二维码",
+          "permissions": [
+            {
+              "permission": "facility-group",
+              "actions": [
+                "query"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "查看设备组二维码",
+            "zh": "查看设备组二维码",
+            "en_US": "View device group QR code",
+            "en": "View device group QR code"
+          }
+        }
+      ],
+      "assetTypes": [
+        "facilityGroup",
+        "facilityDevice"
+      ],
+      "parentId": "facility-Maintenance",
+      "status": 1,
+      "runtime": true,
+      "accessSupport": "support",
+      "icon": "ScheduleOutlined",
+      "options": {
+        "show": true,
+        "meta": {
+          "componentCode": "facility/Maintenance/Groups"
+        },
+        "appName": "facility-energy-ui"
+      },
+      "i18nMessages": {
+        "name": {
+          "zh_CN": "设备组",
+          "zh": "设备组",
+          "en_US": "Device groups",
+          "en": "Device groups"
         }
       }
     },
@@ -870,6 +1416,26 @@
           ],
           "enabled": true,
           "granted": true
+        },
+        {
+          "id": "toggle",
+          "name": "启用／禁用",
+          "permissions": [
+            {
+              "permission": "facility-mapping",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "启用／禁用",
+            "zh": "启用／禁用",
+            "en_US": "Enable / disable",
+            "en": "Enable / disable"
+          }
         }
       ],
       "assetTypes": [
@@ -967,6 +1533,26 @@
           ],
           "enabled": true,
           "granted": true
+        },
+        {
+          "id": "toggle",
+          "name": "启用／禁用",
+          "permissions": [
+            {
+              "permission": "facility-rule",
+              "actions": [
+                "save"
+              ]
+            }
+          ],
+          "enabled": true,
+          "granted": true,
+          "i18nMessages": {
+            "zh_CN": "启用／禁用",
+            "zh": "启用／禁用",
+            "en_US": "Enable / disable",
+            "en": "Enable / disable"
+          }
         }
       ],
       "assetTypes": [
