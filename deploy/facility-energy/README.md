@@ -42,7 +42,7 @@ docker compose -f deploy/facility-energy/compose.yml --profile web up -d --build
 ./deploy/start-service.sh facility-energy /absolute/path/application-local.yml
 ```
 
-生产网关应将 `/property/facility-energy/**` 转发至本服务，共享 `/property/**` 其余路径转发至基础服务，并保留认证、租户和应用资产范围。文件上传和下载复用 Cloud `/file/**`。H5 的 `/api` 代理须经过同一网关，不能直接绕过身份链路。
+生产网关应将 `/property/facility-energy/**` 转发至本服务，共享 `/property/**` 其余路径转发至基础服务，并保留认证、租户和应用资产范围。服务内置 `route/property-facility-energy.json`，以 `order: -20` 优先于基础服务 `order: -10` 的兜底路由，同时发布受认证保护的接口文档路由。文件上传和下载复用 Cloud `/file/**`。H5 的 `/api` 代理须经过同一网关，不能直接绕过身份链路。
 
 ### Cloud 内嵌生产包
 
