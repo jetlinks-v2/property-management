@@ -37,13 +37,12 @@ public class FacilityTasks {
   public Mono<PagerResult<TaskEntity>> query(QueryParamEntity q, boolean mine) {
     return scope.current().flatMap(c -> {
       var request = q.clone();
+      includeLegacyReview(request.getTerms());
       if (mine) request = request
         .toNestQuery()
         .nest(n ->
           n
             .is("assigneeId", c.userId())
-            .or()
-            .is("followUserId", c.userId())
             .or()
             .is("reviewerId", c.userId())
         )
@@ -52,6 +51,45 @@ public class FacilityTasks {
         .query(request, FacilityAssetType.facilityTask, "id")
         .flatMap(tasks::queryPager);
     });
+  }
+
+  /** Previously submitted external orders now enter the same responsible-person review queue. */
+  private void includeLegacyReview(List<org.hswebframework.ezorm.core.param.Term> terms) {
+    for (var term : terms) {
+      if ("state".equals(term.getColumn()) && "review".equals(term.getValue()) &&
+          (term.getTermType() == null || "eq".equals(term.getTermType()))) {
+        term.setTermType("in"); term.setValue(List.of("review", "external-submitted"));
+      }
+      if (term.getTerms() != null) includeLegacyReview(term.getTerms());
+    }
+  }
+
+  public Mono<PagerResult<TaskEntity>> query(QueryParamEntity q, boolean mine, boolean pool) {
+    return pool ? directory.claimPool(q).flatMap(scoped -> query(scoped, mine)) : query(q, mine);
+  }
+
+  /** Review queue is a participant filter intersected with the existing task AssetsHolder scope, before paging. */
+  public Mono<PagerResult<TaskEntity>> reviews(QueryParamEntity query, String status) {
+    var states = switch (status) {
+      case "pending" -> List.of("review", "external-submitted");
+      case "approved" -> List.of("completed");
+      case "rejected" -> List.of("rectify");
+      case "all" -> List.of("review", "external-submitted", "completed", "rectify");
+      default -> List.<String>of();
+    };
+    require(!states.isEmpty(), "invalid_state");
+    return scope.current().flatMap(c -> query(query.clone().toNestQuery()
+      .and("reviewerId", c.userId()).in("state", states).getParam(), false));
+  }
+
+  public Flux<org.jetlinks.pro.property.base.user.PropertyEmployeeInfo> assignees(String id) {
+    return records.read(tasks, id, FacilityAssetType.facilityTask, CrudAssetPermission.save)
+      .doOnNext(task -> require(Set.of("open", "claimed", "executing", "rectify").contains(task.getState()), "invalid_state"))
+      .flatMapMany(directory::taskAssignees);
+  }
+
+  public Mono<Boolean> canClaim(String id) {
+    return read(id).flatMap(directory::canClaim);
   }
 
   @Transactional
@@ -66,8 +104,7 @@ public class FacilityTasks {
         scope.current().flatMap(c ->
           directory.employee(c.userId()).then(
             Mono.defer(() -> {
-              boolean follow = "follow".equals(action),
-                submit = "submit".equals(action) || follow;
+              boolean submit = "submit".equals(action);
               // Replayed offline submissions are accepted only for the original actor and the same idempotency key.
               if (
                 submit &&
@@ -75,16 +112,17 @@ public class FacilityTasks {
                 command
                   .getSubmissionId()
                   .equals(
-                    follow
-                      ? task.getFollowSubmissionId()
-                      : task.getSubmissionId()
+                    task.getSubmissionId()
                   ) &&
                 c
                   .userId()
                   .equals(
-                    follow ? task.getFollowUserId() : task.getAssigneeId()
+                    task.getAssigneeId()
                   )
-              ) return Mono.just(task);
+              ) {
+                require(!Set.of("closed", "cancelled").contains(task.getState()), "invalid_state");
+                return directory.taskAssignee(task, c.userId()).thenReturn(task);
+              }
               require(
                 Objects.equals(command.getVersion(), task.getVersion()),
                 "conflict"
@@ -111,10 +149,15 @@ public class FacilityTasks {
                       !command.getUserId().isBlank(),
                     "employee_required"
                   );
-                  additional = directory.employee(command.getUserId()).then();
+                  additional = directory.taskAssignee(task, command.getUserId());
+                  require(!Objects.equals(command.getUserId(), task.getAssigneeId()), "same_assignee");
                   task.setAssigneeId(command.getUserId());
                   task.setState("claimed");
+                  task.setResults(List.of());
+                  task.setFollowResults(List.of());
+                  task.setReviewComment(null);
                   task.setSubmissionId(null);
+                  task.setFollowSubmissionId(null);
                 }
                 case "start" -> {
                   require(
@@ -141,35 +184,11 @@ public class FacilityTasks {
                   );
                   task.setResults(command.getResults());
                   task.setSubmissionId(command.getSubmissionId());
-                  task.setState(
-                    "double".equals(task.getMode())
-                      ? "external-submitted"
-                      : "review"
-                  );
-                }
-                case "follow" -> {
-                  require(
-                    "double".equals(task.getMode()) &&
-                      "external-submitted".equals(from) &&
-                      c.userId().equals(task.getFollowUserId()),
-                    "not_assignee"
-                  );
-                  require(
-                    command.getSubmissionId() != null &&
-                      !command.getSubmissionId().isBlank(),
-                    "submission_required"
-                  );
-                  abnormal = FacilityRules.results(
-                    task.getStandardSnapshot(),
-                    command.getResults()
-                  );
-                  task.setFollowResults(command.getResults());
-                  task.setFollowSubmissionId(command.getSubmissionId());
                   task.setState("review");
                 }
                 case "approve" -> {
                   require(
-                    "review".equals(from) &&
+                    Set.of("review", "external-submitted").contains(from) &&
                       c.userId().equals(task.getReviewerId()),
                     "not_reviewer"
                   );
@@ -178,7 +197,7 @@ public class FacilityTasks {
                 }
                 case "reject" -> {
                   require(
-                    "review".equals(from) &&
+                    Set.of("review", "external-submitted").contains(from) &&
                       c.userId().equals(task.getReviewerId()) &&
                       command.getComment() != null &&
                       !command.getComment().isBlank(),
@@ -189,9 +208,14 @@ public class FacilityTasks {
                   task.setFollowSubmissionId(null);
                   task.setReviewComment(command.getComment());
                 }
+                case "close" -> {
+                  require(!Set.of("completed", "cancelled", "closed").contains(from), "invalid_state");
+                  task.setState("closed");
+                  task.setCompletedTime(System.currentTimeMillis());
+                }
                 case "cancel" -> {
                   require(
-                    !Set.of("completed", "cancelled").contains(from),
+                    !Set.of("completed", "cancelled", "closed").contains(from),
                     "invalid_state"
                   );
                   task.setState("cancelled");
@@ -209,33 +233,9 @@ public class FacilityTasks {
                     .toList(), task.getProjectId()
                 )
               );
-              if ("double".equals(task.getMode())) {
-                if (
-                  Set.of("claim", "start", "submit").contains(action)
-                ) additional = additional.then(
-                  directory.employeeRole(
-                    c.userId(),
-                    task.getExternalOrganizationId(),
-                    true
-                  )
-                );
-                if ("transfer".equals(action)) additional = additional.then(
-                  directory.employeeRole(
-                    command.getUserId(),
-                    task.getExternalOrganizationId(),
-                    true
-                  )
-                );
-                if (
-                  Set.of("follow", "approve", "reject").contains(action)
-                ) additional = additional.then(
-                  directory.employeeRole(
-                    c.userId(),
-                    task.getExternalOrganizationId(),
-                    false
-                  )
-                );
-              }
+              if (Set.of("claim", "start", "submit").contains(action)) additional = additional.then(
+                directory.taskAssignee(task, c.userId())
+              );
               return additional
                 .then(
                   records.update(
@@ -244,12 +244,15 @@ public class FacilityTasks {
                     v,
                     java.util.stream.Stream.of(
                       "submissionId",
-                      "followSubmissionId"
+                      "followSubmissionId",
+                      "reviewComment"
                     )
                       .filter(field ->
-                        "submissionId".equals(field)
-                          ? task.getSubmissionId() == null
-                          : task.getFollowSubmissionId() == null
+                        switch (field) {
+                          case "submissionId" -> task.getSubmissionId() == null;
+                          case "followSubmissionId" -> task.getFollowSubmissionId() == null;
+                          default -> task.getReviewComment() == null;
+                        }
                       )
                       .toArray(String[]::new)
                   )

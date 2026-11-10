@@ -87,8 +87,9 @@ public class FacilityDevices {
           row.setFloor(input.getFloor());
           row.setRemark(input.getRemark());
           row.setAttachments(input.getAttachments());
-          row.setInspectionEnabled(input.getInspectionEnabled());
-          row.setMaintenanceEnabled(input.getMaintenanceEnabled());
+          // Preserve legacy one-sided enablement; future saves keep both columns in sync.
+          row.setInspectionEnabled(workEnabled(input));
+          row.setMaintenanceEnabled(workEnabled(input));
           row.setEnergyEnabled(input.getEnergyEnabled());
           return records
             .update(
@@ -281,6 +282,11 @@ public class FacilityDevices {
         })
         .collectList()
     );
+  }
+
+  /** One business switch backed by the original columns, including older one-sided records. */
+  public static boolean workEnabled(DeviceEntity device) {
+    return Boolean.TRUE.equals(device.getInspectionEnabled()) || Boolean.TRUE.equals(device.getMaintenanceEnabled());
   }
 
   public static void requireActive(DeviceEntity device) {

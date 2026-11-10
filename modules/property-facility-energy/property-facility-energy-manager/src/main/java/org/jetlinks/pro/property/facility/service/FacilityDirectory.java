@@ -18,6 +18,8 @@ import org.jetlinks.pro.assets.scope.AssetScopeResolverManager;
 import org.jetlinks.pro.authorize.BusinessApplicationDimension;
 import org.jetlinks.pro.command.CommandSupportManagerProviders;
 import org.jetlinks.pro.property.base.command.QueryPropertyProjectsCommand;
+import org.jetlinks.pro.property.base.command.GetCurrentPropertyEmployeeCommand;
+import org.jetlinks.pro.property.facility.entity.TaskEntity;
 import org.jetlinks.pro.property.base.command.QueryPropertyEmployeePageCommand;
 import org.jetlinks.pro.property.base.command.QueryPropertySpacesCommand;
 import org.jetlinks.pro.property.base.command.QueryPropertyUsersCommand;
@@ -62,17 +64,17 @@ public class FacilityDirectory {
   /** 项目本身即基础组织；业务成员筛选与基础命令的 user 资产权限取交集，不扩大组织范围。 */
   public Flux<PropertyEmployeeInfo> projectEmployees(String projectId) {
     return project(projectId).thenMany(
-      projectEmployeePage(projectId, 0)
+      organizationEmployeePage(List.of(projectId), 0)
         .expand(page -> (long) (page.getPageIndex() + 1) * 200 < page.getTotal()
-          ? projectEmployeePage(projectId, page.getPageIndex() + 1) : Mono.empty())
+          ? organizationEmployeePage(List.of(projectId), page.getPageIndex() + 1) : Mono.empty())
         .concatMapIterable(PagerResult::getData)
     );
   }
 
-  private Mono<PagerResult<PropertyEmployeeInfo>> projectEmployeePage(String projectId, int pageIndex) {
+  private Mono<PagerResult<PropertyEmployeeInfo>> organizationEmployeePage(List<String> organizationIds, int pageIndex) {
     return Mono.defer(() -> {
       var query = QueryParamEntity.newQuery()
-        .where("id", "property-user-org", Map.of("orgId$in", List.of(projectId)))
+        .where("id", "property-user-org", Map.of("orgId$in", organizationIds))
         .orderByAsc("id").getParam();
       query.setPageIndex(pageIndex);
       query.setPageSize(200);
@@ -100,9 +102,9 @@ public class FacilityDirectory {
         // An employee executing their own task needs their effective identity,
         // not permission to browse the shared user directory.
         return CommandSupportManagerProviders.getCommandSupport(
-            org.jetlinks.pro.property.base.command.GetCurrentPropertyEmployeeCommand.SERVICE_ID)
+            GetCurrentPropertyEmployeeCommand.SERVICE_ID)
           .flatMap(s -> s.execute(
-            new org.jetlinks.pro.property.base.command.GetCurrentPropertyEmployeeCommand()))
+            new GetCurrentPropertyEmployeeCommand()))
           .map(employee -> {
             var info = new PropertyUserInfo();
             info.setId(employee.id());
@@ -176,83 +178,55 @@ public class FacilityDirectory {
       .then();
   }
 
-  /** Recheck live employee membership when assigning and executing an external work order. */
-  public Mono<Void> employeeRole(
-    String userId,
-    String externalOrganizationId,
-    boolean external
-  ) {
-    var command =
-      new org.jetlinks.pro.property.base.command.QueryPropertyEmployeePageCommand();
-    command.setQuery(
-      org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
-        .where("id", userId)
-        .getParam()
-    );
-    var branch = organizations()
-      .filter(org -> Objects.equals(externalOrganizationId, org.getId()) && org.getOrganizationType() == OrganizationType.external)
-      .next()
-      .switchIfEmpty(
-        Mono.error(
-          new BusinessException(
-            "error.facility.external_organization_required",
-            400
-          )
-        )
-      )
-      .flatMapMany(org ->
-        Flux.just(org).expand(child ->
-          Flux.fromIterable(
-            child.getChildren() == null ? List.of() : child.getChildren()
-          )
-        )
-      )
-      .map(PropertyOrganizationInfo::getId)
-      .collectList();
-    return employee(userId)
-      .then(
-        Mono.zip(
-          branch,
-          Authentication.currentReactive().flatMap(auth ->
-            CommandSupportManagerProviders.getCommandSupport(command.SERVICE_ID)
-            .switchIfEmpty(
-              Mono.error(
-                new BusinessException(
-                  "error.facility.directory_unavailable",
-                  503
-                )
-              )
-            )
-            .flatMap(s -> {
-              // Executing one's own order needs current employee identity, not user-directory permission.
-              // Assignment of another employee still uses the authorized directory query.
-              if (userId.equals(auth.getUser().getId())) return s.execute(
-                new org.jetlinks.pro.property.base.command.GetCurrentPropertyEmployeeCommand()
-              );
-              return s.execute(command)
-                .flatMapMany(page -> Flux.fromIterable(page.getData()))
-                .filter(e -> userId.equals(e.id()))
-                .next();
-            })
-          )
-            .switchIfEmpty(
-              Mono.error(
-                new BusinessException("error.facility.employee_required", 400)
-              )
-            )
-        )
-      )
-      .doOnNext(data -> {
-        boolean member =
-          data.getT2().organizationIds() != null &&
-          data
-            .getT2()
-            .organizationIds()
-            .stream()
-            .anyMatch(data.getT1()::contains);
-        FacilityScope.require(member == external, "external_role_mismatch");
-      })
+  private static boolean belongs(PropertyEmployeeInfo employee, List<String> organizations) {
+    return employee.organizationIds() != null && employee.organizationIds().stream().anyMatch(organizations::contains);
+  }
+
+  /** Self-service claims use effective employee identity; assigning another person uses the authorized directory. */
+  Mono<PropertyEmployeeInfo> employeeInfo(String userId) {
+    return Authentication.currentReactive().flatMap(auth -> CommandSupportManagerProviders
+      .getCommandSupport(QueryPropertyEmployeePageCommand.SERVICE_ID)
+      .switchIfEmpty(Mono.error(new BusinessException("error.facility.directory_unavailable", 503)))
+      .flatMap(s -> {
+      if (userId.equals(auth.getUser().getId())) return s.execute(
+        new GetCurrentPropertyEmployeeCommand());
+      var command = new QueryPropertyEmployeePageCommand();
+      command.setQuery(QueryParamEntity.newQuery().where("id", userId).getParam());
+      return s.execute(command).flatMapMany(page -> Flux.fromIterable(page.getData()))
+        .filter(person -> userId.equals(person.id())).next();
+    }));
+  }
+
+  /** Business participant rules supplement task asset permissions; broad read/save access does not confer claim eligibility. */
+  public Mono<Void> taskAssignee(TaskEntity task, String userId) {
+    return employee(userId).then(employeeInfo(userId)
+      .switchIfEmpty(Mono.error(new BusinessException("error.facility.employee_required", 400))))
+      .doOnNext(person -> FacilityScope.require(
+        task.getProjectId() != null && belongs(person, List.of(task.getProjectId())), "project_employee_required"))
       .then();
+  }
+
+  public Flux<PropertyEmployeeInfo> taskAssignees(TaskEntity task) {
+    return projectEmployees(task.getProjectId());
+  }
+
+  public Mono<Boolean> canClaim(TaskEntity task) {
+    if (!"open".equals(task.getState())) return Mono.just(false);
+    return Authentication.currentReactive().flatMap(auth -> employeeInfo(auth.getUser().getId()))
+      .map(person -> task.getProjectId() != null && belongs(person, List.of(task.getProjectId())))
+      .defaultIfEmpty(false);
+  }
+
+  /** Eligibility is applied before pagination and remains intersected with task AssetsHolder permissions. */
+  public Mono<QueryParamEntity> claimPool(QueryParamEntity query) {
+    return Authentication.currentReactive().flatMap(auth -> employeeInfo(auth.getUser().getId()))
+      .map(person -> {
+        var ids = person.organizationIds();
+        // An unassigned employee has no eligible projects; never drop an empty membership condition.
+        return query.clone().toNestQuery().and("state", "open")
+          .in("projectId", ids == null || ids.isEmpty() ? List.of("") : ids).getParam();
+      })
+      .switchIfEmpty(Mono.fromSupplier(() -> query.clone().toNestQuery().and("id", "").getParam()));
   }
 
   public Flux<PropertySpaceInfo> spaces(String projectId) {

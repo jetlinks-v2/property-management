@@ -21,7 +21,6 @@ import reactor.core.publisher.*;
 public class FacilityTaskController {
 
   private final FacilityTasks tasks;
-  private final FacilityPlans plans;
   private final FacilityScope scope;
   private final FacilityQueries queries;
   private final ProcessStore processes;
@@ -30,9 +29,17 @@ public class FacilityTaskController {
   @QueryAction
   public Mono<PagerResult<TaskEntity>> query(
     @RequestBody QueryParamEntity q,
-    @RequestParam(defaultValue = "false") boolean mine
+    @RequestParam(defaultValue = "false") boolean mine,
+    @RequestParam(defaultValue = "false") boolean pool
   ) {
-    return tasks.query(q, mine);
+    return tasks.query(q, mine, pool);
+  }
+
+  @PostMapping("/review/_query")
+  @ResourceAction(id = "review", name = "任务审批")
+  public Mono<PagerResult<TaskEntity>> reviews(@RequestBody QueryParamEntity query,
+    @RequestParam(defaultValue = "pending") String status) {
+    return tasks.reviews(query, status);
   }
 
   @GetMapping("/{id}")
@@ -41,7 +48,19 @@ public class FacilityTaskController {
     return tasks.read(id);
   }
 
-  @PostMapping("/{id}/{action:claim|start|submit|follow}")
+  @GetMapping("/{id}/assignees")
+  @ResourceAction(id = "dispatch", name = "派单与转单")
+  public Flux<org.jetlinks.pro.property.base.user.PropertyEmployeeInfo> assignees(@PathVariable String id) {
+    return tasks.assignees(id);
+  }
+
+  @GetMapping("/{id}/claimable")
+  @QueryAction
+  public Mono<Boolean> canClaim(@PathVariable String id) {
+    return tasks.canClaim(id);
+  }
+
+  @PostMapping("/{id}/{action:claim|start|submit}")
   @SaveAction
   public Mono<TaskEntity> action(
     @PathVariable String id,
@@ -52,7 +71,7 @@ public class FacilityTaskController {
   }
 
   @PostMapping("/{id}/{action:transfer|cancel}")
-  @ResourceAction(id = "dispatch", name = "分派与撤回")
+  @ResourceAction(id = "dispatch", name = "派单与转单")
   public Mono<TaskEntity> dispatch(
     @PathVariable String id,
     @PathVariable String action,
@@ -61,8 +80,14 @@ public class FacilityTaskController {
     return tasks.action(id, action, command);
   }
 
+  @PostMapping("/{id}/close")
+  @ResourceAction(id = "close", name = "关闭任务")
+  public Mono<TaskEntity> close(@PathVariable String id, @Valid @RequestBody TaskCommand command) {
+    return tasks.action(id, "close", command);
+  }
+
   @PostMapping("/{id}/{action:approve|reject}")
-  @ResourceAction(id = "review", name = "完成审核与整改")
+  @ResourceAction(id = "review", name = "任务审批")
   public Mono<TaskEntity> review(
     @PathVariable String id,
     @PathVariable String action,
@@ -71,31 +96,20 @@ public class FacilityTaskController {
     return tasks.action(id, action, command);
   }
 
-  @PostMapping("/generate/{planId}")
-  @ResourceAction(id = "generate", name = "生成任务")
-  public Mono<List<TaskEntity>> generate(
-    @PathVariable String planId,
-    @RequestParam(defaultValue = "false") boolean temporary
-  ) {
-    return plans.generate(planId, temporary);
-  }
-
   @GetMapping("/{id}/offline")
   @QueryAction
   public Mono<TaskEntity> download(@PathVariable String id) {
     return tasks.read(id).flatMap(task ->
       scope.current().map(c -> {
         FacilityScope.require(
-          c.userId().equals(task.getAssigneeId()) ||
-            c.userId().equals(task.getFollowUserId()),
+          c.userId().equals(task.getAssigneeId()),
           "not_assignee"
         );
         FacilityScope.require(
           Set.of(
             "claimed",
             "executing",
-            "rectify",
-            "external-submitted"
+            "rectify"
           ).contains(task.getState()),
           "invalid_state"
         );
@@ -106,13 +120,17 @@ public class FacilityTaskController {
 
   @GetMapping("/{id}/history")
   @QueryAction
-  public Mono<PagerResult<ProcessEntity>> history(@PathVariable String id) {
+  public Mono<PagerResult<ProcessEntity>> history(@PathVariable String id,
+    @RequestParam(defaultValue = "0") int pageIndex) {
+    var query = QueryParamEntity.newQuery().is("targetId", id).orderByDesc("createTime").orderByDesc("id").getParam();
+    query.setPageIndex(Math.max(0, pageIndex));
+    query.setPageSize(20);
     return tasks
       .read(id)
       .then(
         queries.page(
           processes,
-          QueryParamEntity.newQuery().is("targetId", id).getParam(),
+          query,
           FacilityAssetType.facilityTask,
           "targetId"
         )

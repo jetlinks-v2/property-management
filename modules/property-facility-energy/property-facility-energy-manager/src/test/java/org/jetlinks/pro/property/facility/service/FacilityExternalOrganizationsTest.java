@@ -110,40 +110,4 @@ class FacilityExternalOrganizationsTest {
     }
   }
 
-  @Test
-  void doubleWorkOrderRejectsAnOrdinaryOrganizationBeforeSaving() {
-    var records = mock(FacilityRecords.class);
-    var scope = mock(FacilityScope.class);
-    var plans = new FacilityPlans(null, null, null, null, null, scope, records, directory, mock(FacilityDevices.class), null);
-    doReturn(Mono.just(org("project", OrganizationType.project))).when(directory).project("project");
-    doReturn(Mono.just(new PropertyUserInfo())).when(directory).employee(any());
-    doReturn(Flux.just(new org.jetlinks.pro.property.base.user.PropertyEmployeeInfo("reviewer", "项目负责人", null, List.of("project"))))
-      .when(directory).projectEmployees("project");
-    doReturn(Flux.just(org("project", OrganizationType.project))).when(directory).organizations();
-    doReturn(Mono.empty()).when(records).assertProject(any(), any());
-    doReturn(Mono.empty()).when(records).read(any(), any(), any(), any());
-    when(scope.current()).thenReturn(Mono.empty());
-    for (var mode : List.of("double")) {
-      var plan = new PlanEntity();
-      plan.setCycleId("cycle");
-      plan.setGroupIds(List.of("group"));
-      plan.setName("plan");
-      plan.setProjectId("project");
-      plan.setKind("inspection");
-      plan.setMode(mode);
-      plan.setFollowUserId("follower");
-      plan.setReviewerId("reviewer");
-      plan.setExternalOrganizationId("project");
-      plan.setStartTime(1000L);
-      plan.setEndTime(5000L);
-      plan.setIntervalValue(1);
-      plan.setIntervalUnit("day");
-      plan.setDeadlineHours(24);
-      StepVerifier.create(plans.save(plan))
-        .expectErrorMatches(error -> error instanceof BusinessException &&
-          "error.facility.external_organization_required".equals(error.getMessage())).verify();
-    }
-    verify(records, never()).insert(any(), any(), any());
-    verify(records, never()).update(any(), any(), anyLong(), any());
-  }
 }

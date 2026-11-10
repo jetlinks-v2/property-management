@@ -58,4 +58,13 @@ class FacilityCycleRulesTest {
     assertEquals(time("2028-02-29T08:00"), FacilityCycleRules.next(cycle, time("2028-02-28T09:00"), time("2028-02-28T09:00"), time("2029-01-02T00:00")).start());
     assertEquals(time("2029-01-01T08:00"), FacilityCycleRules.next(cycle, time("2028-03-01T00:00"), time("2028-02-28T09:00"), time("2029-01-02T00:00")).start());
   }
+
+  @Test void dateOnlyRuleGeneratesOneSlotAtSpecifiedMinuteWithoutWeeklyRecurrence() {
+    var cycle = cycle(window(480, 540, 60, 1, 60));
+    cycle.setRule(new CycleRule(Map.of(), Map.of("2026-11-10", List.of(window(1095, 1155, 60, 1, 60)))));
+    var slot = next(cycle, time("2026-11-10T00:00"));
+    assertEquals(time("2026-11-10T18:15"), slot.start());
+    assertEquals(time("2026-11-10T19:15"), slot.end());
+    assertNull(next(cycle, slot.start() + 1));
+  }
 }

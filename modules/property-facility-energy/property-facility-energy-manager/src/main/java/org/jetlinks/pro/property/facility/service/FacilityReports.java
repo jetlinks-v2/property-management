@@ -114,7 +114,7 @@ public class FacilityReports {
                 row.getScheduledTime() != null &&
                 row.getScheduledTime() >= dayStart &&
                 row.getScheduledTime() < dayStart + 86400000 &&
-                !"cancelled".equals(row.getState())
+                !Set.of("cancelled", "closed").contains(row.getState())
             )
             .count()
         );
@@ -122,6 +122,8 @@ public class FacilityReports {
         "taskStates",
         counts(work.stream().map(TaskEntity::getState).toList())
       );
+      // Closed work remains visible in state totals but is no longer outstanding work.
+      var effectiveWork = work.stream().filter(row -> !Set.of("cancelled", "closed").contains(row.getState())).toList();
       result.put(
         "overdue",
         work
@@ -129,26 +131,13 @@ public class FacilityReports {
           .filter(
             row ->
               row.getDeadline() < now &&
-              !Set.of("completed", "cancelled").contains(row.getState())
+              !Set.of("completed", "cancelled", "closed").contains(row.getState())
           )
           .count()
       );
       result.put(
         "completionRate",
-        work.isEmpty()
-          ? null
-          : BigDecimal.valueOf(
-              work
-                .stream()
-                .filter(row -> "completed".equals(row.getState()))
-                .count()
-            )
-              .multiply(BigDecimal.valueOf(100))
-              .divide(
-                BigDecimal.valueOf(work.size()),
-                2,
-                java.math.RoundingMode.HALF_UP
-              )
+        percentage(effectiveWork.stream().filter(row -> "completed".equals(row.getState())).count(), effectiveWork.size())
       );
       result.put(
         "faultStates",
@@ -341,7 +330,7 @@ public class FacilityReports {
               kind.equals(row.getKind()) &&
               row.getScheduledTime() >= from &&
               row.getScheduledTime() < to &&
-              !"cancelled".equals(row.getState())
+              !Set.of("cancelled", "closed").contains(row.getState())
           )
           .toList();
         long completed = work

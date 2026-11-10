@@ -78,7 +78,7 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
         )
         .concatMap(row ->
           execution
-            .asOwner(row, () -> planManager.generate(row.getId(), false))
+            .asOwner(row, () -> planManager.generate(row.getId()))
             .onErrorResume(e -> failure("plan", row.getId(), e))
         )
         .thenMany(

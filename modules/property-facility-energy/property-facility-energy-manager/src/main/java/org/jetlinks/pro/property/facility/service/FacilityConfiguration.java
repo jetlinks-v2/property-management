@@ -91,12 +91,13 @@ public class FacilityConfiguration {
       .thenMany(
         Flux.fromIterable(input.getDeviceIds())
           .concatMap(devices::read)
-          .doOnNext(d ->
+          .doOnNext(d -> {
             require(
               input.getProjectId().equals(d.getProjectId()),
               "project_mismatch"
-            )
-          )
+            );
+            require(FacilityDevices.workEnabled(d), "device_work_disabled");
+          })
       )
       .then(scope.current())
       .flatMap(c -> {

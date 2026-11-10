@@ -26,7 +26,6 @@ public class FacilityPlans {
   private final FacilityRecords records;
   private final FacilityDirectory directory;
   private final FacilityDevices devices;
-  private final org.jetlinks.pro.assets.AssetBindManager bindings;
 
   public Mono<PlanEntity> read(String id) {
     return records.read(
@@ -43,9 +42,7 @@ public class FacilityPlans {
       input.getName() != null &&
         !input.getName().isBlank() &&
         input.getKind() != null &&
-        Set.of("inspection", "maintenance").contains(input.getKind()) &&
-        input.getMode() != null &&
-        Set.of("single", "double").contains(input.getMode()),
+        Set.of("inspection", "maintenance").contains(input.getKind()),
       "invalid_plan"
     );
     require(input.getGroupIds() != null && !input.getGroupIds().isEmpty(), "groups_required");
@@ -57,15 +54,11 @@ public class FacilityPlans {
       input.getReviewerId() != null && !input.getReviewerId().isBlank(),
       "reviewer_required"
     );
-    boolean external = "double".equals(input.getMode());
-    if (external) require(
-      input.getExternalOrganizationId() != null && !input.getExternalOrganizationId().isBlank(),
-      "external_organization_required"
-    );
-    // Plans create unassigned tasks; the responsible person handles internal follow-up and review.
+    // Legacy mode/contractor fields remain as storage compatibility only; all new tasks enter the project pool.
+    input.setMode(null);
     input.setAssigneeId(null);
-    input.setFollowUserId(external ? input.getReviewerId() : null);
-    if (!external) input.setExternalOrganizationId(null);
+    input.setFollowUserId(null);
+    input.setExternalOrganizationId(null);
     Mono<Void> refs = directory
       .project(input.getProjectId())
       .doOnNext(project -> input.setProjectName(project.getName()))
@@ -75,9 +68,6 @@ public class FacilityPlans {
       .switchIfEmpty(Mono.error(new org.hswebframework.web.exception.BusinessException("error.facility.reviewer_required")))
       .doOnNext(person -> input.setReviewerName(person.name()))
       .then();
-    if (external) refs = refs
-      .then(directory.externalOrganization(input.getExternalOrganizationId()))
-      .then(directory.employeeRole(input.getReviewerId(), input.getExternalOrganizationId(), false));
     return refs.then(Mono.defer(() -> cycles.reference(input.getCycleId()))).doOnNext(cycle -> {
       require(Boolean.TRUE.equals(cycle.getEnabled()) && input.getProjectId().equals(cycle.getProjectId()) &&
         input.getKind().equals(cycle.getKind()), "invalid_cycle");
@@ -161,7 +151,8 @@ public class FacilityPlans {
                   row,
                   "assigneeId",
                   "followUserId",
-                  "externalOrganizationId"
+                  "externalOrganizationId",
+                  "mode"
                 )
               );
         });
@@ -203,33 +194,22 @@ public class FacilityPlans {
           "project_mismatch"
         );
         FacilityDevices.requireActive(d);
-        require(
-          Boolean.TRUE.equals(
-            "inspection".equals(plan.getKind())
-              ? d.getInspectionEnabled()
-              : d.getMaintenanceEnabled()
-          ),
-          "device_unavailable"
-        );
+        require(FacilityDevices.workEnabled(d), "device_work_disabled");
       })
       .collectList();
   }
 
   @Transactional
-  public Mono<List<TaskEntity>> generate(String id, boolean temporary) {
+  public Mono<List<TaskEntity>> generate(String id) {
     return records.read(plans, id, FacilityAssetType.facilityPlan, CrudAssetPermission.save)
       .flatMap(plan -> {
         require(Boolean.TRUE.equals(plan.getEnabled()), "plan_disabled");
         return cycles.reference(plan.getCycleId()).flatMap(cycle -> {
           require(plan.getProjectId().equals(cycle.getProjectId()) && plan.getKind().equals(cycle.getKind()), "invalid_cycle");
           long now = System.currentTimeMillis();
-          long requested = generationTime(plan, temporary, now);
+          long requested = generationTime(plan, now);
           var slot = Boolean.TRUE.equals(cycle.getEnabled())
             ? FacilityCycleRules.next(cycle, requested, plan.getStartTime(), plan.getEndTime()) : null;
-          if (temporary) {
-            require(now >= plan.getStartTime() && now < plan.getEndTime() && slot != null, "plan_finished");
-            slot = new FacilityCycleRules.Slot(now, Math.min(now + slot.end() - slot.start(), plan.getEndTime()));
-          }
           if (slot == null || slot.start() > now) {
             plan.setNextRunTime(slot == null ? Long.MAX_VALUE : slot.start());
             return records.update(plans, plan, plan.getVersion()).thenReturn(List.<TaskEntity>of());
@@ -240,7 +220,6 @@ public class FacilityPlans {
               plan.getProjectId().equals(standard.getProjectId()) && plan.getKind().equals(standard.getKind()), "invalid_standard"))
             .flatMap(standard -> createTasks(plan, standard, executionSlot))
             .flatMap(generated -> {
-              if (temporary) return Mono.just(generated);
               var next = FacilityCycleRules.next(cycle, executionSlot.start() + 1, plan.getStartTime(), plan.getEndTime());
               plan.setNextRunTime(next == null ? Long.MAX_VALUE : next.start());
               return records.update(plans, plan, plan.getVersion()).thenReturn(generated);
@@ -288,23 +267,12 @@ public class FacilityPlans {
                       )
                     )
                   );
-                  task.setMode(plan.getMode());
-                  task.setAssigneeId(plan.getAssigneeId());
-                  task.setFollowUserId(plan.getFollowUserId());
                   task.setReviewerId(plan.getReviewerId());
-                  task.setExternalOrganizationId(
-                    plan.getExternalOrganizationId()
-                  );
                   task.setScheduledTime(scheduled);
                   task.setDeadline(
                     slot.end()
                   );
-                  task.setState(
-                    plan.getAssigneeId() == null ||
-                      plan.getAssigneeId().isBlank()
-                      ? "open"
-                      : "claimed"
-                  );
+                  task.setState("open");
                   return tasks
                     .findById(task.getId())
                     .switchIfEmpty(
@@ -313,36 +281,22 @@ public class FacilityPlans {
                         task,
                         FacilityAssetType.facilityTask
                       )
-                    )
-                    .flatMap(this::bindExternalTask);
+                    );
                 })
               )
       .collectList();
   }
 
-  /** 临时任务不推进周期，但仍须处于计划有效期；到期判断由服务端再次校验，防止列表过期。 */
-  static long generationTime(PlanEntity plan, boolean temporary, long now) {
+  /** 仅按到期游标生成，逾期时恢复有效期内已到期的时隙，不新增周期外任务。 */
+  static long generationTime(PlanEntity plan, long now) {
     require(Boolean.TRUE.equals(plan.getEnabled()), "plan_disabled");
     require(plan.getStartTime() != null && plan.getEndTime() != null &&
       plan.getNextRunTime() != null, "invalid_plan");
     require(now >= plan.getStartTime(), "plan_not_started");
-    long scheduled = temporary ? now : plan.getNextRunTime();
+    long scheduled = plan.getNextRunTime();
     require(scheduled < plan.getEndTime(), "plan_finished");
     require(scheduled <= now, "plan_not_due");
     return scheduled;
   }
 
-  /** Share the task snapshot with its validated collaboration organization, never the device or plan. */
-  Mono<TaskEntity> bindExternalTask(TaskEntity task) {
-    if (!"double".equals(task.getMode())) return Mono.just(task);
-    require(task.getExternalOrganizationId() != null && !task.getExternalOrganizationId().isBlank(), "invalid_plan");
-    // Generation already authorizes the source plan. BindManager can bind the configured target;
-    // a caller's tenant holder only auto-binds its own dimension and silently ignores an external org.
-    var request = org.jetlinks.pro.assets.AssetBindRequest.builder()
-      .targetType("org").targetId(task.getExternalOrganizationId())
-      .assetType(FacilityAssetType.facilityTask.getId()).assetIdList(List.of(task.getId()))
-      .permission(List.of(CrudAssetPermission.read.name(), CrudAssetPermission.save.name()))
-      .build();
-    return bindings.bindAssets(Flux.just(request)).thenReturn(task);
-  }
 }

@@ -25,7 +25,7 @@ class FacilityPlanSaveTest {
   private final FacilityDevices devices = mock(FacilityDevices.class);
   private final FacilityScope scope = mock(FacilityScope.class);
   private final FacilityCycles cycles = mock(FacilityCycles.class);
-  private final FacilityPlans plans = new FacilityPlans(store, cycles, null, standards, groups, scope, records, directory, devices, null);
+  private final FacilityPlans plans = new FacilityPlans(store, cycles, null, standards, groups, scope, records, directory, devices);
 
   @BeforeEach
   void setup() {
@@ -34,7 +34,6 @@ class FacilityPlanSaveTest {
       new org.jetlinks.pro.property.base.user.PropertyEmployeeInfo("owner", "项目负责人", null, List.of("project"))));
     when(directory.employee("owner")).thenReturn(Mono.just(new PropertyUserInfo()));
     when(directory.externalOrganization("vendor")).thenReturn(Mono.empty());
-    when(directory.employeeRole("owner", "vendor", false)).thenReturn(Mono.empty());
     when(records.assertProject("project", CrudAssetPermission.save)).thenReturn(Mono.empty());
     when(scope.current()).thenReturn(Mono.just(new FacilityContext("tenant", "app", "creator", "Creator")));
     var cycle = FacilityCycleRulesTest.cycle(FacilityCycleRulesTest.window(0, 1440, 60, 1, 60));
@@ -79,6 +78,18 @@ class FacilityPlanSaveTest {
   }
 
   @Test
+  void eitherLegacyFlagEnablesInspectionButDisabledDevicesCannotGenerate() {
+    var device = new DeviceEntity();
+    device.setProjectId("project"); device.setSyncState("active");
+    device.setMaintenanceEnabled(true);
+    when(devices.read("device")).thenReturn(Mono.just(device));
+    StepVerifier.create(plans.save(plan("single"))).expectNextCount(1).verifyComplete();
+    device.setMaintenanceEnabled(false);
+    StepVerifier.create(plans.save(plan("single"))).expectErrorMatches(error -> error instanceof BusinessException &&
+      error.getMessage().contains("device_work_disabled")).verify();
+  }
+
+  @Test
   void singleClearsHiddenAssignmentsAndContractorAndExpandsGroupOnce() {
     var plan = plan("single");
     plan.setAssigneeId("old-assignee");
@@ -96,24 +107,22 @@ class FacilityPlanSaveTest {
   }
 
   @Test
-  void doubleRequiresContractorButNoPreassignedExecutorOrFollower() {
+  void obsoleteModesAndContractorsAreClearedWithoutChangingProjectReviewer() {
     var plan = plan("double");
     plan.setExternalOrganizationId("vendor");
+    plan.setFollowUserId("old-follower");
     StepVerifier.create(plans.save(plan)).assertNext(saved -> {
-      assertNull(saved.getAssigneeId());
-      assertEquals("owner", saved.getFollowUserId());
+      assertNull(saved.getMode()); assertNull(saved.getFollowUserId());
+      assertNull(saved.getExternalOrganizationId()); assertNull(saved.getAssigneeId());
       assertEquals("owner", saved.getReviewerId());
-      assertEquals("vendor", saved.getExternalOrganizationId());
     }).verifyComplete();
-    verify(directory).externalOrganization("vendor");
-    verify(directory).employeeRole("owner", "vendor", false);
-    var missing = plan("double");
-    assertThrows(BusinessException.class, () -> plans.save(missing));
+    verify(directory, never()).externalOrganization(any());
+    StepVerifier.create(plans.save(plan(null))).expectNextCount(1).verifyComplete();
   }
 
   @Test
-  void missingKindModeOrResponsiblePersonReturnsBusinessValidation() {
-    for (String field : List.of("kind", "mode", "reviewerId")) {
+  void missingKindOrResponsiblePersonReturnsBusinessValidation() {
+    for (String field : List.of("kind", "reviewerId")) {
       var plan = plan("single");
       if (field.equals("kind")) plan.setKind(null);
       if (field.equals("mode")) plan.setMode(null);
@@ -158,11 +167,9 @@ class FacilityPlanSaveTest {
   }
 
   @Test
-  void unauthorizedResponsiblePersonCannotSaveDoublePlan() {
-    when(directory.employeeRole("owner", "vendor", false)).thenReturn(Mono.error(new BusinessException("denied")));
-    var plan = plan("double");
-    plan.setExternalOrganizationId("vendor");
-    StepVerifier.create(plans.save(plan)).expectError(BusinessException.class).verify();
+  void responsiblePersonMustStillBeInTheProjectOrganization() {
+    when(directory.projectEmployees("project")).thenReturn(reactor.core.publisher.Flux.empty());
+    StepVerifier.create(plans.save(plan(null))).expectError(BusinessException.class).verify();
     verify(records, never()).insert(any(), any(), any());
   }
 }

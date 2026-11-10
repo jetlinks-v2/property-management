@@ -1,5 +1,6 @@
 package org.jetlinks.pro.property.facility.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.math.BigDecimal;
 import java.sql.JDBCType;
 import java.util.*;
@@ -56,18 +57,22 @@ public class PlanEntity extends FacilityEntity {
   private List<String> groupIds = new ArrayList<>();
 
   @Column(length = 256)
+  @JsonIgnore
   private String assigneeId;
 
   @Column(length = 256)
+  @JsonIgnore
   private String followUserId;
 
   @Column(length = 256)
+  @JsonIgnore
   private String externalOrganizationId;
 
   @Column(length = 256)
   private String reviewerId;
 
   @Column(length = 256)
+  @JsonIgnore
   private String mode;
 
   @Column(length = 256)

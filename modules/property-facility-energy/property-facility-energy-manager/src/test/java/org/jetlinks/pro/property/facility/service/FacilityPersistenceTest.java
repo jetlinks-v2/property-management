@@ -101,9 +101,7 @@ class FacilityPersistenceTest {
     reset(scope, directory, files, notifier);
     when(notifier.enqueue(any(), any(), any())).thenReturn(Mono.empty());
     when(notifier.enqueueTarget(any(), any(), any())).thenReturn(Mono.empty());
-    when(
-      directory.employeeRole(anyString(), anyString(), anyBoolean())
-    ).thenReturn(Mono.empty());
+    when(directory.taskAssignee(any(), anyString())).thenReturn(Mono.empty());
     when(scope.current()).thenReturn(
       Mono.deferContextual(c -> Mono.just(c.get(FacilityContext.class)))
     );
@@ -312,37 +310,167 @@ class FacilityPersistenceTest {
   }
 
   @Test
-  void doubleTaskRequiresInternalFollowBeforeReview() {
+  void legacyDoubleTaskNowSubmitsDirectlyToResponsiblePersonReview() {
     task("double");
-    as("external", manager.action("test", "claim", command(0))).block();
-    var external = as(
-      "external",
-      manager.action("test", "submit", submit(1, "external-key"))
-    ).block();
-    assertEquals("external-submitted", external.getState());
-    StepVerifier.create(
-      as("reviewer", manager.action("test", "approve", command(2)))
-    )
-      .expectError(BusinessException.class)
-      .verify();
-    StepVerifier.create(
-      as("intruder", manager.action("test", "follow", submit(2, "follow-key")))
-    )
-      .expectError(BusinessException.class)
-      .verify();
-    var follow = as(
-      "follower",
-      manager.action("test", "follow", submit(2, "follow-key"))
-    ).block();
-    assertEquals("review", follow.getState());
-    assertEquals(1, follow.getResults().size());
-    assertEquals(1, follow.getFollowResults().size());
-    assertEquals(
-      "completed",
-      as("reviewer", manager.action("test", "approve", command(3)))
-        .block()
-        .getState()
-    );
+    as("worker", manager.action("test", "claim", command(0))).block();
+    var submitted = as("worker", manager.action("test", "submit", submit(1, "legacy-key"))).block();
+    assertEquals("review", submitted.getState());
+    assertEquals("completed", as("reviewer", manager.action("test", "approve", command(2))).block().getState());
+  }
+
+  @Test
+  void previouslySubmittedExternalTaskCanBeReviewedWithoutFollowUp() {
+    var row = task("double"); row.setState("external-submitted"); store.save(row).block();
+    assertEquals("completed", as("reviewer", manager.action("test", "approve", command(0))).block().getState());
+  }
+
+  @Test
+  void reviewTabsIntersectCurrentResponsiblePersonAndAssetScopeBeforePaging() {
+    var states = List.of("review", "external-submitted", "completed", "rectify", "open", "review", "claimed");
+    var ids = new ArrayList<String>();
+    for (int i = 0; i < states.size(); i++) {
+      var row = FacilityScope.initialize(new TaskEntity(), new FacilityContext("tenant", "app", "admin", "Admin"));
+      row.setId("approval-fixture-" + i); row.setName("approval-fixture"); row.setKind("inspection");
+      row.setState(states.get(i)); row.setReviewerId(i == 5 ? "someone-else" : "approval-reviewer");
+      row.setProjectId("p"); store.save(row).block(); ids.add(row.getId());
+    }
+    try {
+      var query = QueryParamEntity.newQuery().in("id", ids).or("reviewerId", "someone-else")
+        .or("state", "completed").orderByAsc("id").getParam();
+      query.setPageSize(1);
+      var pending = as("approval-reviewer", manager.reviews(query, "pending")).block();
+      assertEquals(2, pending.getTotal());
+      assertEquals("approval-fixture-0", pending.getData().get(0).getId());
+      query.setPageIndex(1);
+      assertEquals("approval-fixture-1", as("approval-reviewer", manager.reviews(query, "pending")).block().getData().get(0).getId());
+      query.setPageIndex(0); query.setPageSize(12);
+      assertEquals(List.of("approval-fixture-2"), as("approval-reviewer", manager.reviews(query, "approved")).block()
+        .getData().stream().map(TaskEntity::getId).toList());
+      assertEquals(List.of("approval-fixture-3"), as("approval-reviewer", manager.reviews(query, "rejected")).block()
+        .getData().stream().map(TaskEntity::getId).toList());
+      assertEquals(4, as("approval-reviewer", manager.reviews(query, "all")).block().getTotal());
+      doAnswer(call -> Mono.just(((QueryParamEntity) call.getArgument(0))
+        .toNestQuery().and("id", "approval-fixture-1").getParam())).when(scope).query(any(), any(), anyString());
+      assertEquals(1, as("approval-reviewer", manager.reviews(query, "all")).block().getTotal());
+      doReturn(Mono.error(new org.hswebframework.web.authorization.exception.AccessDenyException())).when(scope).query(any(), any(), anyString());
+      StepVerifier.create(as("approval-reviewer", manager.reviews(query, "pending")))
+        .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+      assertThrows(BusinessException.class, () -> manager.reviews(query, "unknown"));
+    } finally { store.createDelete().in("id", ids).execute().block(); }
+  }
+
+  @Test
+  void rejectedTaskReturnsToSameAssigneeForCorrectionAndResponsiblePersonCanReviewAgain() {
+    task("single");
+    as("worker", manager.action("test", "claim", command(0))).block();
+    as("worker", manager.action("test", "submit", submit(1, "first"))).block();
+    var reject = command(2); reject.setComment("补充现场照片");
+    StepVerifier.create(as("other", manager.action("test", "reject", reject))).expectError(BusinessException.class).verify();
+    StepVerifier.create(as("reviewer", manager.action("test", "reject", command(2)))).expectError(BusinessException.class).verify();
+    var rejected = as("reviewer", manager.action("test", "reject", reject)).block();
+    assertEquals("rectify", rejected.getState()); assertEquals("worker", rejected.getAssigneeId());
+    assertEquals("补充现场照片", rejected.getReviewComment()); assertEquals(1, rejected.getResults().size());
+    assertNull(store.findById("test").block().getSubmissionId());
+    StepVerifier.create(as("other", manager.action("test", "submit", submit(3, "redo")))).expectError(BusinessException.class).verify();
+    assertEquals("review", as("worker", manager.action("test", "submit", submit(3, "redo"))).block().getState());
+    StepVerifier.create(as("reviewer", manager.action("test", "approve", command(2)))).expectError(BusinessException.class).verify();
+    assertEquals("completed", as("reviewer", manager.action("test", "approve", command(4))).block().getState());
+    assertEquals(5, logs.createQuery().where("targetId", "test").count().block());
+  }
+
+  @Test
+  void closingTaskIsTerminalAndLateOfflineReplayCannotReopenIt() {
+    for (var state : List.of("open", "claimed", "executing", "rectify", "review", "external-submitted")) {
+      store.createDelete().where("id", "test").execute().block();
+      logs.createDelete().where("targetId", "test").execute().block();
+      var row = task("single"); row.setState(state); row.setAssigneeId("worker"); row.setSubmissionId("offline"); store.save(row).block();
+      var closed = as("dispatcher", manager.action("test", "close", command(0))).block();
+      assertEquals("closed", closed.getState()); assertNotNull(closed.getCompletedTime());
+      for (String action : List.of("claim", "start", "submit", "transfer", "approve", "reject", "close", "cancel")) {
+        var cmd = submit(1, "offline"); cmd.setUserId("next"); cmd.setComment("重做");
+        StepVerifier.create(as(action.equals("approve") || action.equals("reject") ? "reviewer" : "worker",
+          manager.action("test", action, cmd))).expectError(BusinessException.class).verify();
+      }
+      assertEquals("closed", store.findById("test").block().getState());
+      assertEquals(1, logs.createQuery().where("targetId", "test").count().block());
+    }
+  }
+
+  @Test
+  void completedOrUnauthorizedTaskCannotBeClosed() {
+    var row = task("single"); row.setState("completed"); store.save(row).block();
+    StepVerifier.create(as("dispatcher", manager.action("test", "close", command(0)))).expectError(BusinessException.class).verify();
+    row.setState("open"); store.save(row).block();
+    when(scope.assertRecord(any(), any(), any(), any()))
+      .thenReturn(Mono.error(new org.hswebframework.web.authorization.exception.AccessDenyException()));
+    StepVerifier.create(as("dispatcher", manager.action("test", "close", command(0))))
+      .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+    assertEquals("open", store.findById("test").block().getState());
+    assertEquals(0, logs.createQuery().where("targetId", "test").count().block());
+  }
+
+  @Test
+  void transferRequiresNewProjectEmployeeAndClearsPreviousExecutionAndReviewDraft() {
+    task("single");
+    as("worker", manager.action("test", "claim", command(0))).block();
+    as("worker", manager.action("test", "submit", submit(1, "first"))).block();
+    var reject = command(2); reject.setComment("需要重做");
+    as("reviewer", manager.action("test", "reject", reject)).block();
+    var transfer = command(3); transfer.setUserId("worker");
+    StepVerifier.create(as("dispatcher", manager.action("test", "transfer", transfer))).expectError(BusinessException.class).verify();
+    transfer.setUserId("next"); as("dispatcher", manager.action("test", "transfer", transfer)).block();
+    var next = store.findById("test").block();
+    assertEquals("next", next.getAssigneeId()); assertEquals("claimed", next.getState());
+    assertTrue(next.getResults().isEmpty()); assertNull(next.getReviewComment()); assertNull(next.getSubmissionId());
+    StepVerifier.create(as("worker", manager.action("test", "submit", submit(4, "first")))).expectError(BusinessException.class).verify();
+    assertEquals("review", as("next", manager.action("test", "submit", submit(4, "next-submit"))).block().getState());
+  }
+
+  @Test
+  void projectPoolFiltersBeforePagingAndCallerOrCannotEscapeMembership() {
+    for (int i = 0; i < 5; i++) {
+      var row = FacilityScope.initialize(new TaskEntity(), new FacilityContext("tenant", "app", "creator", "Creator"));
+      row.setId("pool-fixture-" + i); row.setName("pool-fixture"); row.setMode(i == 1 ? "double" : null);
+      row.setProjectId(i == 3 ? "other" : "p"); row.setState(i == 4 ? "completed" : "open");
+      store.save(row).block();
+    }
+    var live = spy(new FacilityDirectory());
+    var user = new org.hswebframework.web.authorization.simple.SimpleUser(); user.setId("worker");
+    var auth = new org.hswebframework.web.authorization.simple.SimpleAuthentication(); auth.setUser(user);
+    doReturn(Mono.just(new org.jetlinks.pro.property.base.user.PropertyEmployeeInfo("worker", "Worker", null, List.of("p"))))
+      .when(live).employeeInfo("worker");
+    when(directory.claimPool(any())).thenAnswer(call -> live.claimPool(call.getArgument(0))
+      .contextWrite(c -> c.put(org.hswebframework.web.authorization.Authentication.class, auth)));
+    var query = QueryParamEntity.newQuery().is("name", "pool-fixture").or().is("projectId", "other").orderByAsc("id").getParam();
+    query.setPageSize(2);
+    var page = as("worker", manager.query(query, false, true)).block();
+    assertEquals(3, page.getTotal()); assertEquals(2, page.getData().size());
+    assertTrue(page.getData().stream().allMatch(t -> "p".equals(t.getProjectId()) && "open".equals(t.getState())));
+    query.setPageIndex(1);
+    assertEquals(1, as("worker", manager.query(query, false, true)).block().getData().size());
+    doReturn(Mono.just(new org.jetlinks.pro.property.base.user.PropertyEmployeeInfo("worker", "Worker", null, List.of())))
+      .when(live).employeeInfo("worker");
+    assertEquals(0, as("worker", manager.query(query, false, true)).block().getTotal());
+    doReturn(Mono.empty()).when(live).employeeInfo("worker");
+    assertEquals(0, as("worker", manager.query(query, false, true)).block().getTotal());
+    store.createDelete().where("name", "pool-fixture").execute().block();
+  }
+
+  @Test
+  void deniedDispatchAndRevokedMembershipNeverWriteOrLog() {
+    task("double");
+    when(directory.taskAssignee(any(), eq("outside"))).thenReturn(Mono.error(new BusinessException("outside project")));
+    var transfer = command(0); transfer.setUserId("outside");
+    StepVerifier.create(as("dispatcher", manager.action("test", "transfer", transfer))).expectError(BusinessException.class).verify();
+    assertEquals("open", store.findById("test").block().getState());
+    assertEquals(0, logs.createQuery().where("targetId", "test").count().block());
+    transfer.setUserId("worker");
+    as("dispatcher", manager.action("test", "transfer", transfer)).block();
+    when(directory.taskAssignee(any(), eq("worker"))).thenReturn(Mono.error(new BusinessException("membership revoked")));
+    StepVerifier.create(as("worker", manager.action("test", "submit", submit(1, "revoked"))))
+      .expectError(BusinessException.class).verify();
+    assertEquals("claimed", store.findById("test").block().getState());
+    assertEquals(1L, store.findById("test").block().getVersion());
   }
 
   @Test
@@ -1001,9 +1129,9 @@ class FacilityPersistenceTest {
   }
 
   @Test
-  void operationRatesExcludeCancelledTasksAndIncludeLateCompletions() {
+  void operationRatesExcludeCancelledAndClosedTasksAndIncludeLateCompletions() {
     var c = new FacilityContext("tenant", "app", "admin", "Admin");
-    for (String state : List.of("completed", "cancelled")) {
+    for (String state : List.of("completed", "cancelled", "closed")) {
       var row = FacilityScope.initialize(new TaskEntity(), c);
       row.setId("rate-" + state);
       row.setProjectId("rate-project");
@@ -1027,6 +1155,10 @@ class FacilityPersistenceTest {
       new java.math.BigDecimal("100.00"),
       inspection.get("completionRate")
     );
+    var overview = as("admin", reportsService.overview("rate-project")).block();
+    assertEquals(3, overview.get("tasks"));
+    assertEquals(0L, overview.get("overdue"));
+    assertEquals(new java.math.BigDecimal("100.00"), overview.get("completionRate"));
   }
 
   @Autowired
@@ -1268,9 +1400,9 @@ class FacilityPersistenceTest {
   }
 
   @Test
-  void externalWorkCannotBeClaimedByAnEmployeeOutsideTheExternalOrganization() {
+  void taskClaimStillRejectsAnEmployeeOutsideTheProjectOrganization() {
     task("double");
-    when(directory.employeeRole("outsider", "external-org", true)).thenReturn(
+    when(directory.taskAssignee(any(), eq("outsider"))).thenReturn(
       Mono.error(new BusinessException("role", 400))
     );
     StepVerifier.create(
@@ -1633,25 +1765,30 @@ class FacilityPersistenceTest {
 
   @Test void cycleGeneratesOneWorkOrderPerDeviceAndExecutionWithStableSnapshots() {
     var plan = cyclicPlan("once");
-    var result = as("staff", planManager.generate(plan.getId(), false)).block();
+    // Even an old double configuration can only generate unassigned project work orders now.
+    plan.setMode("double"); plan.setAssigneeId("old-contractor");
+    plan.setFollowUserId("old-follower"); plan.setExternalOrganizationId("old-vendor");
+    planStore.save(plan).block();
+    var result = as("staff", planManager.generate(plan.getId())).block();
     assertEquals(1, result.size());
     var task = result.get(0);
     assertEquals(plan.getNextRunTime(), task.getScheduledTime());
     assertEquals(plan.getNextRunTime() + 60000, task.getDeadline());
     assertEquals("open", task.getState());
     assertNull(task.getAssigneeId());
+    assertNull(task.getMode()); assertNull(task.getFollowUserId()); assertNull(task.getExternalOrganizationId());
     assertEquals("水泵压力正常", task.getStandardSnapshot().get(0).getName());
     assertEquals(plan.getNextRunTime() + 60000, planStore.findById(plan.getId()).block().getNextRunTime());
     // Replay the same slot as after a retry; the stable ID reuses the committed work order.
     planStore.createUpdate().set("nextRunTime", plan.getNextRunTime()).where("id", plan.getId()).execute().block();
-    assertEquals(task.getId(), as("staff", planManager.generate(plan.getId(), false)).block().get(0).getId());
+    assertEquals(task.getId(), as("staff", planManager.generate(plan.getId())).block().get(0).getId());
     assertEquals(1, store.createQuery().where("planId", plan.getId()).count().block());
     assertEquals(0L, cycleStore.findById(plan.getCycleId()).block().getVersion());
   }
 
   @Test void cycleEditsStopAndResumeOnlyWithinConfigurationDatesWithoutRewritingTasks() {
     var plan = cyclicPlan("edit");
-    var generated = as("staff", planManager.generate(plan.getId(), false)).block().get(0);
+    var generated = as("staff", planManager.generate(plan.getId())).block().get(0);
     var project = new PropertyOrganizationInfo(); project.setId("p"); project.setName("项目");
     when(directory.project("p")).thenReturn(Mono.just(project));
     doReturn(Mono.empty()).when(records).assertProject(eq("p"), any());
@@ -1675,7 +1812,7 @@ class FacilityPersistenceTest {
     var plan = cyclicPlan("rollback");
     doReturn(Mono.error(new BusinessException("cursor-conflict"))).when(records).update(eq(planStore), any(PlanEntity.class), anyLong());
     try {
-      StepVerifier.create(as("staff", planManager.generate(plan.getId(), false))).expectError(BusinessException.class).verify();
+      StepVerifier.create(as("staff", planManager.generate(plan.getId()))).expectError(BusinessException.class).verify();
       assertEquals(0, store.createQuery().where("planId", plan.getId()).count().block());
       assertEquals(plan.getNextRunTime(), planStore.findById(plan.getId()).block().getNextRunTime());
     } finally { doCallRealMethod().when(records).update(eq(planStore), any(PlanEntity.class), anyLong()); }
@@ -1683,8 +1820,8 @@ class FacilityPersistenceTest {
 
   @Test void concurrentGenerationCommitsOnlyOneTaskAndOneCursorStep() {
     var plan = cyclicPlan("concurrent");
-    var outcomes = Flux.merge(as("staff", planManager.generate(plan.getId(), false)).materialize(),
-      as("staff", planManager.generate(plan.getId(), false)).materialize()).collectList().block();
+    var outcomes = Flux.merge(as("staff", planManager.generate(plan.getId())).materialize(),
+      as("staff", planManager.generate(plan.getId())).materialize()).collectList().block();
     assertTrue(outcomes.stream().anyMatch(reactor.core.publisher.Signal::isOnNext));
     assertEquals(1, store.createQuery().where("planId", plan.getId()).count().block());
     assertEquals(plan.getNextRunTime() + 60000, planStore.findById(plan.getId()).block().getNextRunTime());
@@ -1696,7 +1833,7 @@ class FacilityPersistenceTest {
       .expectErrorMatches(e -> e instanceof BusinessException && "error.facility.cycle_in_use".equals(e.getMessage())).verify();
     when(scope.assertRecord(any(CycleEntity.class), eq(org.jetlinks.pro.property.facility.asset.FacilityAssetType.facilityCycle), any(), any()))
       .thenReturn(Mono.error(new org.hswebframework.web.authorization.exception.AccessDenyException()));
-    StepVerifier.create(as("staff", planManager.generate(plan.getId(), false)))
+    StepVerifier.create(as("staff", planManager.generate(plan.getId())))
       .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
     assertEquals(0, store.createQuery().where("planId", plan.getId()).count().block());
   }

@@ -86,13 +86,17 @@ class FacilityDirectoryTest {
     verifyNoInteractions(support);
   }
 
+  private org.jetlinks.pro.property.facility.entity.TaskEntity task() {
+    var task = new org.jetlinks.pro.property.facility.entity.TaskEntity(); task.setProjectId("external"); return task;
+  }
+
   @Test
-  void externalActorUsesCurrentIdentityWithoutDirectoryPermission() {
+  void projectActorUsesCurrentIdentityWithoutDirectoryPermission() {
     prepare("external");
     try (var commands = mockStatic(CommandSupportManagerProviders.class)) {
       commands.when(() -> CommandSupportManagerProviders.getCommandSupport(
         QueryPropertyEmployeePageCommand.SERVICE_ID)).thenReturn(Mono.just(support));
-      StepVerifier.create(directory.employeeRole("contractor", "external", true)
+      StepVerifier.create(directory.taskAssignee(task(), "contractor")
         .contextWrite(context -> context.put(Authentication.class, authentication())))
         .verifyComplete();
       verify(support, never()).execute(any(QueryPropertyEmployeePageCommand.class));
@@ -100,12 +104,12 @@ class FacilityDirectoryTest {
   }
 
   @Test
-  void currentIdentityStillMustBelongToTheExternalOrganization() {
+  void currentIdentityMustBelongToTheTaskProjectOrganization() {
     prepare("internal");
     try (var commands = mockStatic(CommandSupportManagerProviders.class)) {
       commands.when(() -> CommandSupportManagerProviders.getCommandSupport(
         QueryPropertyEmployeePageCommand.SERVICE_ID)).thenReturn(Mono.just(support));
-      StepVerifier.create(directory.employeeRole("contractor", "external", true)
+      StepVerifier.create(directory.taskAssignee(task(), "contractor")
         .contextWrite(context -> context.put(Authentication.class, authentication())))
         .expectError(BusinessException.class).verify();
     }
