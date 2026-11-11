@@ -36,6 +36,42 @@ public class FacilityMeterCharges {
       .flatMap(c -> charges.createQuery().where("tenantId", c.tenantId()).and("applicationId", c.applicationId())
         .and("projectId", project).and("deleted", false).fetch().collectList());
   }
+  /** Facility only selects finance-owned subjects/standards; no client formula, variable or date is accepted. */
+  public record Association(String id, Long version, String projectId, String energyType, String subjectId, String standardId) {}
+
+  @Transactional
+  public Mono<MeterChargeEntity> associate(Association input) {
+    return records.assertProject(input.projectId(), CrudAssetPermission.save).then(standards(input.projectId()))
+      .flatMap(options -> {
+        var standard = options.stream().filter(s -> s.id().equals(input.standardId()) && s.subjectId().equals(input.subjectId()))
+          .findFirst().orElseThrow(() -> new org.hswebframework.web.exception.BusinessException("error.facility.meter_rule_invalid", 400));
+        return rules(input.projectId()).flatMap(current -> {
+          var old = current.stream().filter(r -> Objects.equals(r.getEnergyType(), input.energyType())).findFirst().orElse(null);
+          return save(associationRule(input, standard, old));
+        });
+      });
+  }
+
+  static MeterChargeEntity associationRule(Association input, MeterBillingModels.Standard standard, MeterChargeEntity old) {
+    var variables = standard.variables().stream().filter(v -> !v.system()).toList();
+    require(variables.size() == 1, "meter_standard_usage_invalid");
+    var row = new MeterChargeEntity(); row.setId(input.id()); row.setVersion(input.version());
+    row.setProjectId(input.projectId()); row.setEnergyType(input.energyType()); row.setSubjectId(input.subjectId()); row.setStandardId(input.standardId());
+    row.setUsageVariable(variables.get(0).code()); row.setFixedValues(Map.of()); row.setEnabled(true);
+    String today = LocalDate.now(ZoneId.of("Asia/Shanghai")).toString();
+    // Preserve existing historical coverage; a changed association only affects today or a future standard start.
+    boolean same = old != null && Objects.equals(old.getSubjectId(), input.subjectId()) && Objects.equals(old.getStandardId(), input.standardId()) &&
+      Objects.equals(old.getUsageVariable(), row.getUsageVariable()) && sameValues(old.getFixedValues(), row.getFixedValues());
+    String start = standard.effectiveFrom() == null || standard.effectiveFrom().isBlank() ? today : standard.effectiveFrom();
+    if (old != null && !same) {
+      if (start.compareTo(today) < 0) start = today;
+      if (start.compareTo(old.getEffectiveFrom()) < 0) start = old.getEffectiveFrom();
+    }
+    row.setEffectiveFrom(same ? old.getEffectiveFrom() : start);
+    row.setEffectiveTo(same ? old.getEffectiveTo() : null);
+    return row;
+  }
+
   @Transactional
   public Mono<MeterChargeEntity> save(MeterChargeEntity input) {
     require(Set.of("water", "electricity").contains(Objects.toString(input.getEnergyType(), "")), "allocation_invalid");
@@ -64,12 +100,15 @@ public class FacilityMeterCharges {
           long version = row.getVersion(); row.setId(id);
           // New rule versions cannot silently reinterpret an earlier month already previewed under old rules.
           if (old.isPresent() && ruleChanged(row, input)) {
-            require(!start.isBefore(LocalDate.now(ZoneId.of("Asia/Shanghai"))) && start.toString().compareTo(row.getEffectiveFrom()) > 0,
+            require(!start.isBefore(LocalDate.now(ZoneId.of("Asia/Shanghai"))) && start.toString().compareTo(row.getEffectiveFrom()) >= 0,
               "meter_rule_backdate");
-            require(row.getHistory().size() < 120, "too_many");
-            String through = start.minusDays(1).toString();
-            if (row.getEffectiveTo() != null && row.getEffectiveTo().compareTo(through) < 0) through = row.getEffectiveTo();
-            var history = new ArrayList<>(row.getHistory()); history.add(MeterChargeVersion.of(row, through)); row.setHistory(history);
+            // Same-day corrections cannot affect a completed calendar month and need no empty historical interval.
+            if (start.toString().compareTo(row.getEffectiveFrom()) > 0) {
+              require(row.getHistory().size() < 120, "too_many");
+              String through = start.minusDays(1).toString();
+              if (row.getEffectiveTo() != null && row.getEffectiveTo().compareTo(through) < 0) through = row.getEffectiveTo();
+              var history = new ArrayList<>(row.getHistory()); history.add(MeterChargeVersion.of(row, through)); row.setHistory(history);
+            }
           }
           row.setProjectId(input.getProjectId()); row.setOrganizationId(input.getProjectId());
           row.setEnergyType(input.getEnergyType()); row.setSubjectId(input.getSubjectId()); row.setStandardId(input.getStandardId());

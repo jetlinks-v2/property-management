@@ -85,4 +85,28 @@ class FacilityMeterChargesTest {
     assertEquals("standard",service.evidence("meter","2024-02").block().standardId());
     rule.setHistory(List.of()); assertThrows(RuntimeException.class,()->service.evidence("meter","2024-02").block());
   }
+  @Test void associationUsesFinanceUsageAndDatesWithoutFacilityFormulaInputs() {
+    var input=new FacilityMeterCharges.Association(null,null,"project","water","subject","standard");
+    var standard=new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Standard("standard",0L,"subject","水费","水费标准",
+      "单价 × 用量",BigDecimal.ONE,"2024-01-01","2099-12-31",List.of(
+        new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Variable("STANDARD_PRICE","单价",true),
+        new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Variable("VOLUME","用量",false)));
+    var associated=FacilityMeterCharges.associationRule(input,standard,null);
+    assertEquals("VOLUME",associated.getUsageVariable()); assertEquals(Map.of(),associated.getFixedValues());
+    assertEquals("2024-01-01",associated.getEffectiveFrom()); assertNull(associated.getEffectiveTo());
+    rule.setEffectiveFrom("2024-02-01"); rule.setEnabled(false);
+    associated=FacilityMeterCharges.associationRule(input,standard,rule);
+    assertEquals("2024-02-01",associated.getEffectiveFrom()); assertTrue(associated.getEnabled());
+  }
+  @Test void associationRejectsStandardsWithoutAnUnambiguousUsageVariable() {
+    var input=new FacilityMeterCharges.Association(null,null,"project","water","subject","standard");
+    var price=new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Variable("STANDARD_PRICE","单价",true);
+    var usage=new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Variable("VOLUME","用量",false);
+    var extra=new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Variable("EXTRA","系数",false);
+    for(var variables:List.of(List.of(price),List.of(price,usage,extra))) {
+      var standard=new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Standard("standard",0L,"subject","水费","标准",
+        "公式",BigDecimal.ONE,null,null,variables);
+      assertThrows(RuntimeException.class,()->FacilityMeterCharges.associationRule(input,standard,null));
+    }
+  }
 }

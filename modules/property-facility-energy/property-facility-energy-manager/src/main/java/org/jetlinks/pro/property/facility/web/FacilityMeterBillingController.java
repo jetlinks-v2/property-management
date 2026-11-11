@@ -22,7 +22,7 @@ public class FacilityMeterBillingController {
   @GetMapping("/{projectId}/rules") @QueryAction
   public Mono<List<MeterChargeEntity>> rules(@PathVariable String projectId) { return charges.rules(projectId); }
   @PostMapping("/rules") @SaveAction
-  public Mono<MeterChargeEntity> save(@RequestBody MeterChargeEntity input) { return charges.save(input); }
+  public Mono<MeterChargeEntity> save(@RequestBody FacilityMeterCharges.Association input) { return charges.associate(input); }
   @PostMapping("/preview") @QueryAction
   public Mono<PagerResult<FacilityMeterBilling.Row>> preview(@RequestBody FacilityMeterBilling.Preview input) { return billing.preview(input); }
   @PostMapping("/generate") @ResourceAction(id = "generate", name = "生成应收")

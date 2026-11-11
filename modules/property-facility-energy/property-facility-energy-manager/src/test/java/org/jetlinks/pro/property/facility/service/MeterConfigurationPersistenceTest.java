@@ -64,6 +64,26 @@ class MeterConfigurationPersistenceTest {
     row.setProjectConfirmed(true); row.setMeterType("device"); row.setSyncState("active"); row.setSourceState("online");
     devices.insert(row).block(WAIT); return row;
   }
+  @Test void selectingOnlyFinanceAssociationsSavesAndSameDayCorrectionsDoNotCreateInvalidHistory() {
+    var first=new FacilityMeterCharges.Association(null,null,project,"water","subject","standard");
+    var saved=charges.associate(first).block(WAIT);
+    assertEquals("VOLUME",saved.getUsageVariable()); assertEquals(Map.of(),saved.getFixedValues());
+    assertEquals("2024-01-01",saved.getEffectiveFrom());
+    var current=store.findById(saved.getId()).block(WAIT);
+    doReturn(Mono.just(List.of(new MeterBillingModels.Standard("next",0L,"subject","水费","新标准","单价 × 用量",BigDecimal.TEN,
+      null,null,List.of(new MeterBillingModels.Variable("USAGE","用量",false))),
+      new MeterBillingModels.Standard("final",0L,"subject","水费","最终标准","单价 × 用量",BigDecimal.ONE,
+      null,null,List.of(new MeterBillingModels.Variable("USAGE","用量",false)))))).when(charges).standards(project);
+    saved=charges.associate(new FacilityMeterCharges.Association(current.getId(),current.getVersion(),project,"water","subject","next")).block(WAIT);
+    assertEquals(1,saved.getHistory().size()); assertEquals("standard",saved.getHistory().get(0).standardId());
+    var finalRule=charges.associate(new FacilityMeterCharges.Association(saved.getId(),saved.getVersion(),project,"water","subject","final")).block(WAIT);
+    var loaded=store.findById(finalRule.getId()).block(WAIT);
+    assertEquals("final",loaded.getStandardId()); assertEquals(1,loaded.getHistory().size());
+    assertEquals(LocalDate.now(ZoneId.of("Asia/Shanghai")).toString(),loaded.getEffectiveFrom());
+    var stale=new FacilityMeterCharges.Association(saved.getId(),saved.getVersion(),project,"water","subject","next");
+    StepVerifier.create(charges.associate(stale)).expectError().verify(WAIT);
+    assertEquals("final",store.findById(loaded.getId()).block(WAIT).getStandardId());
+  }
   @Test void aStaleSecondDeviceRollsBackFirstDeviceAndAValidRetryCommitsBoth() {
     var one=device(UUID.randomUUID().toString()); var two=device(UUID.randomUUID().toString());
     var first=new FacilityDevices.Allocation(one.getId(),0L,project,"water",null,false);
