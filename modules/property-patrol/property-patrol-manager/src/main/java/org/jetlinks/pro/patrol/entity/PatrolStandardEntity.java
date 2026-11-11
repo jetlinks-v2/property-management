@@ -58,6 +58,7 @@ public class PatrolStandardEntity extends PatrolRemovableConfigEntity {
             @Digits(integer = 18, fraction = 6) @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal lowerLimit,
             @Digits(integer = 18, fraction = 6) @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal upperLimit,
             @Size(max = 2000) String referenceText,
+            // 保留已部署的请求/快照字段，实际选项异常规则以 options 首项为准。
             @Size(max = 50) List<@NotBlank @Size(max = 128) String> qualifiedOptions,
             boolean photoRequired,
             @Size(max = 64) String exampleFileId) {

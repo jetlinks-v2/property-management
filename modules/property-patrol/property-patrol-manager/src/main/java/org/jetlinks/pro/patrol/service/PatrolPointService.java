@@ -56,6 +56,12 @@ public class PatrolPointService extends GenericReactiveCrudService<PatrolPointEn
     private QueryParamEntity categoryQuery(QueryParamEntity source) {
         var query = source.clone();
         query.setTerms(query.getTerms().stream().map(this::categoryTerm).toList());
+        // 取消最后一个分类后，物理点位及历史仍保留；管理列表、计数和导出只展示仍有分类的点位。
+        // 尚未迁移关系表的旧点位继续使用首次分类，已有停用关系时不能回退旧字段。
+        query.toNestQuery(q -> q.nest()
+                .and("id", PatrolPointCategoryTermBuilder.TERM_TYPE, Map.of("enabled", true))
+                .or("id", PatrolPointCategoryTermBuilder.TERM_TYPE + "$not", Map.of())
+                .end());
         return query;
     }
 

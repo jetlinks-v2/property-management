@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.crud.service.GenericReactiveCrudService;
 import org.hswebframework.web.exception.BusinessException;
+import org.hswebframework.web.i18n.LocaleUtils;
 import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.patrol.asset.PatrolAssetType;
 import org.jetlinks.pro.patrol.entity.PatrolConfigEntity;
@@ -27,7 +28,7 @@ public class PatrolConfigTransferService {
             return AssetsHolder.injectQueryParam(query, type, "id").flatMap(service::queryPager)
                     .flatMap(page -> page.getTotal() > LIMIT
                             ? Mono.error(new BusinessException("error.patrol.config.export_limit"))
-                            : Mono.fromCallable(() -> PatrolConfigWorkbook.write(type, page.getData()))
+                            : LocaleUtils.doInReactive(() -> PatrolConfigWorkbook.write(type, page.getData()))
                                     .subscribeOn(Schedulers.boundedElastic()));
         });
     }

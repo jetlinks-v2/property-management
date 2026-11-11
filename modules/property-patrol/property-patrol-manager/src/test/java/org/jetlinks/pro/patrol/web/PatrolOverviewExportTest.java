@@ -3,6 +3,7 @@ package org.jetlinks.pro.patrol.web;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.jetlinks.pro.patrol.entity.PatrolTaskEntity;
+import org.jetlinks.pro.patrol.entity.PatrolExecutionEntity;
 import org.jetlinks.pro.patrol.service.statistics.PatrolOverview;
 import org.jetlinks.pro.patrol.service.statistics.PatrolOverviewAggregation;
 import org.junit.jupiter.api.Test;
@@ -35,4 +36,35 @@ class PatrolOverviewExportTest {
             assertEquals(1,workbook.getSheet("实际执行人员").getPhysicalNumberOfRows());
         }
     }
+    @Test void daysAndActualPersonnelAreSplitByProjectWithoutDuplicatingTotals() throws Exception {
+        var tasks = new java.util.ArrayList<PatrolTaskEntity>();
+        var executions = new java.util.ArrayList<PatrolExecutionEntity>();
+        for (int i = 1; i <= 2; i++) {
+            var task = new PatrolTaskEntity(); task.setId("t" + i); task.setProjectId("p" + i); task.setProjectName("项目" + i);
+            task.setPointId("point"); task.setPointName("Gate"); task.setBelongDate("2026-11-10");
+            task.setRequiredCount(i); task.setCompletedCount(1); task.setStartTime(1L); task.setEndTime(2L); tasks.add(task);
+            var execution = new PatrolExecutionEntity(); execution.setId("e" + i); execution.setTaskId(task.getId());
+            execution.setProjectId(task.getProjectId()); execution.setPointId("point"); execution.setUserId("same-user");
+            execution.setUserName("同一员工"); execution.setReceiveTime(2L); executions.add(execution);
+        }
+        var range = new PatrolOverview.Range(LocalDate.of(2026,11,10), LocalDate.of(2026,11,10), List.of(), List.of(), null);
+        var result = PatrolOverviewAggregation.aggregate(range, tasks, executions, 3L);
+        assertEquals(2, result.report().people().get(0).executionCount());
+        try (var book = new XSSFWorkbook(new ByteArrayInputStream(PatrolStatisticsExport.writeOverview(result)))) {
+            var days = book.getSheet("每日履行情况");
+            var people = book.getSheet("实际执行人员");
+            assertEquals("所属项目", days.getRow(0).getCell(18).getStringCellValue());
+            assertEquals(3, days.getPhysicalNumberOfRows());
+            assertEquals("项目1", days.getRow(1).getCell(18).getStringCellValue());
+            assertEquals(1, days.getRow(1).getCell(1).getNumericCellValue());
+            assertEquals("项目2", days.getRow(2).getCell(18).getStringCellValue());
+            assertEquals(2, days.getRow(2).getCell(1).getNumericCellValue());
+            assertEquals(3, people.getPhysicalNumberOfRows());
+            assertEquals("项目1", people.getRow(1).getCell(5).getStringCellValue());
+            assertEquals("项目2", people.getRow(2).getCell(5).getStringCellValue());
+            assertEquals(1, people.getRow(1).getCell(1).getNumericCellValue());
+            assertEquals(1, people.getRow(2).getCell(1).getNumericCellValue());
+        }
+    }
+
 }

@@ -55,6 +55,7 @@ class PatrolWorkflowTest {
     PatrolDatabase db;
     PatrolTaskService tasks;
     PatrolExecutionService executions;
+    PatrolRecordExportService recordExport;
     PatrolPlanService plans;
     TestApplicationRoles roles;
     PatrolPointService points;
@@ -79,6 +80,7 @@ class PatrolWorkflowTest {
                 new PatrolExecutionService(
                         db.repository(PatrolExecutionEntity.class, PatrolExecutionEntity::new),
                         new org.hswebframework.web.crud.query.DefaultQueryHelper(db.operator()));
+        recordExport = new PatrolRecordExportService(taskRepository, executions.getRepository());
         plans = new PatrolPlanService(db.repository(PatrolPlanEntity.class, PatrolPlanEntity::new));
         roles = new TestApplicationRoles();
         points =
@@ -417,6 +419,12 @@ class PatrolWorkflowTest {
         service.cancel(List.of("point"), "category2").contextWrite(identity).block();
         assertEquals(List.of(), points.findById("point").block().getCategoryIds());
         assertEquals(0, points.count(filter).block());
+        var all = new org.hswebframework.web.api.crud.entity.QueryParamEntity();
+        assertEquals(1, points.count(all).block());
+        assertEquals(List.of("point2"), points.query(all).map(PatrolPointEntity::getId).collectList().block());
+        assertEquals(1, points.queryPager(all).block().getTotal());
+        // 直接详情仍可解释历史，取消关系不物理删除点位。
+        assertNotNull(points.findById("point").block());
         assertEquals(2, points.createQuery().count().block());
     }
 
@@ -617,8 +625,8 @@ class PatrolWorkflowTest {
         service.cancel(List.of("point"), "category2").contextWrite(identity).block();
         try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new java.io.ByteArrayInputStream(
                 transfer.export(query).contextWrite(identity).block()))) {
-            assertEquals("", book.getSheetAt(0).getRow(1).getCell(2).getStringCellValue());
-            assertEquals("", book.getSheetAt(0).getRow(1).getCell(3).getStringCellValue());
+            // 所有分类均已取消的点位，与列表一致不再导出；历史物理记录保留。
+            assertEquals(0, book.getSheetAt(0).getLastRowNum());
         }
         try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new java.io.ByteArrayInputStream(
                 transfer.export(query, "category").contextWrite(identity).block()))) {
@@ -1029,7 +1037,7 @@ class PatrolWorkflowTest {
         foreign.setId("foreign-group"); foreign.setPlanId("south-plan");
         foreign.setBusinessDate(LocalDate.now().toString()); foreign.setBelongDate(LocalDate.now().toString());
         generationRepository.insert(foreign).block();
-        var controller = new org.jetlinks.pro.patrol.web.PatrolTaskGroupController(new PatrolTaskGroupService(generationRepository, new org.hswebframework.web.crud.query.DefaultQueryHelper(db.operator()), tasks));
+        var controller = new org.jetlinks.pro.patrol.web.PatrolTaskGroupController(new PatrolTaskGroupService(generationRepository, new org.hswebframework.web.crud.query.DefaultQueryHelper(db.operator()), tasks), recordExport, mock(PatrolExportImages.class), new org.jetlinks.pro.patrol.web.PatrolRecordExportJobs());
         var query = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery().orderByAsc("id").getParam();
         query.setPageSize(1); query.setPageIndex(0);
         var page = controller.queryPager(query).contextWrite(identity).block();
@@ -1057,7 +1065,7 @@ class PatrolWorkflowTest {
         generator.generate("plan-b", date).contextWrite(identity).collectList().block();
         var controller = new org.jetlinks.pro.patrol.web.PatrolTaskGroupController(
                 new PatrolTaskGroupService(generationRepository,
-                        new org.hswebframework.web.crud.query.DefaultQueryHelper(db.operator()), tasks));
+                        new org.hswebframework.web.crud.query.DefaultQueryHelper(db.operator()), tasks), recordExport, mock(PatrolExportImages.class), new org.jetlinks.pro.patrol.web.PatrolRecordExportJobs());
         // OR 条件也不能使空封印进入分页；导出复用同一分页查询。
         var query = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
                 .is("planId", "plan").or("planId", "plan-b").getParam();
@@ -1096,7 +1104,7 @@ class PatrolWorkflowTest {
         generator.generate("plan-b", LocalDate.now()).contextWrite(identity).collectList().block();
         var controller = new org.jetlinks.pro.patrol.web.PatrolTaskGroupController(
                 new PatrolTaskGroupService(generationRepository,
-                        new org.hswebframework.web.crud.query.DefaultQueryHelper(db.operator()), tasks));
+                        new org.hswebframework.web.crud.query.DefaultQueryHelper(db.operator()), tasks), recordExport, mock(PatrolExportImages.class), new org.jetlinks.pro.patrol.web.PatrolRecordExportJobs());
         var query = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
                 .is("categoryId", "category").orderByAsc("id").getParam();
         query.setPageSize(1);
@@ -1144,7 +1152,7 @@ class PatrolWorkflowTest {
         }
         var controller = new org.jetlinks.pro.patrol.web.PatrolTaskGroupController(
                 new PatrolTaskGroupService(generationRepository,
-                        new org.hswebframework.web.crud.query.DefaultQueryHelper(db.operator()), tasks));
+                        new org.hswebframework.web.crud.query.DefaultQueryHelper(db.operator()), tasks), recordExport, mock(PatrolExportImages.class), new org.jetlinks.pro.patrol.web.PatrolRecordExportJobs());
         var pending = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
                 .accept("id", "patrol-group-missed", Map.of("status", "pending")).getParam();
         assertEquals(1, controller.queryPager(pending).contextWrite(identity).block().getTotal());
@@ -1169,7 +1177,7 @@ class PatrolWorkflowTest {
             var sheet = workbook.getSheetAt(0);
             assertEquals(5, sheet.getPhysicalNumberOfRows());
             var names = java.util.stream.IntStream.range(1, 5)
-                    .mapToObj(i -> sheet.getRow(i).getCell(0).getStringCellValue()).collect(java.util.stream.Collectors.toSet());
+                    .mapToObj(i -> sheet.getRow(i).getCell(1).getStringCellValue()).collect(java.util.stream.Collectors.toSet());
             assertEquals(Set.of("pending", "approved", "rejected", "withdrawn"), names);
         } catch (java.io.IOException error) {
             throw new AssertionError(error);
@@ -2404,6 +2412,50 @@ class PatrolWorkflowTest {
         category.setExtension("tenantId", "north");
         categories.insert(category).block();
         return category;
+    }
+
+    @Test
+    void categoryCreationAllowsThreeLevelsButRejectsFourth() {
+        db.enableTenantQueries();
+        unusedCategory("depthRoot", "", "app");
+        unusedCategory("depthSecond", "depthRoot", "app");
+        var third = unusedCategory("depthThird", "depthSecond", "app");
+        categoryValidator().validate(third).contextWrite(identity).block();
+        var fourth = unusedCategory("depthFourth", "depthThird", "app");
+        StepVerifier.create(categoryValidator().validate(fourth).contextWrite(identity))
+                .expectErrorMessage("error.patrol.category.depth").verify();
+    }
+
+    @Test
+    void categoryMoveValidatesEntireSubtreeDepth() {
+        db.enableTenantQueries();
+        unusedCategory("depthRoot", "", "app");
+        unusedCategory("depthSecond", "depthRoot", "app");
+        var old = unusedCategory("moving", "", "app");
+        unusedCategory("movingChild", "moving", "app");
+        var moved = categories.findById("moving").block();
+        moved.setParentId("depthSecond");
+        StepVerifier.create(categoryValidator().validate(moved, old).contextWrite(identity))
+                .expectErrorMessage("error.patrol.category.depth").verify();
+        moved.setParentId("depthRoot");
+        categoryValidator().validate(moved, old).contextWrite(identity).block();
+    }
+
+    @Test
+    void categoryLegacyDeepNodeCanEditMetadataAndMoveToValidParent() {
+        db.enableTenantQueries();
+        unusedCategory("depthRoot", "", "app");
+        unusedCategory("depthSecond", "depthRoot", "app");
+        unusedCategory("depthThird", "depthSecond", "app");
+        var old = unusedCategory("depthFourth", "depthThird", "app");
+        var edited = categories.findById(old.getId()).block();
+        edited.setName("Renamed");
+        categoryValidator().validate(edited, old).contextWrite(identity).block();
+        edited.setParentId("depthSecond");
+        categoryValidator().validate(edited, old).contextWrite(identity).block();
+        var fifth = unusedCategory("depthFifth", "depthFourth", "app");
+        StepVerifier.create(categoryValidator().validate(fifth).contextWrite(identity))
+                .expectErrorMessage("error.patrol.category.depth").verify();
     }
 
     @Test

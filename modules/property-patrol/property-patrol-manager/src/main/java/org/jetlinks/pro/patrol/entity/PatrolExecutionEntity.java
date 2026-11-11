@@ -118,7 +118,7 @@ public class PatrolExecutionEntity extends GenericEntity<String> {
     @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)
     private List<ItemResult> itemResults;
 
-    /** 未配置判定规则、未作人工判断和已部署历史记录不得自动视为合格。 */
+    /** 持久化检查标记；not_evaluated 表示未参与自动判断，不在业务页面展示“未判定”。 */
     public enum CheckResult { pass, fail, not_evaluated }
 
     public record ItemResult(String itemId, CheckResult result) {}

@@ -84,11 +84,7 @@ public class PatrolConfigurationValidator {
                                                 .then());
                             }
                             if (entity instanceof PatrolCategoryEntity category)
-                                return checkParents(
-                                        category,
-                                        category.getParentId(),
-                                        new HashSet<>(Set.of(category.getId())),
-                                        current.key());
+                                return validateCategory(category, previous, current.key());
                             if (entity instanceof org.jetlinks.pro.patrol.entity.PatrolWarningEntity warning) {
                                 if (!warning.getTriggerChildCode().startsWith(warning.getTriggerParentCode() + "_"))
                                     return Mono.error(new BusinessException("error.patrol.warning.trigger"));
@@ -200,13 +196,33 @@ public class PatrolConfigurationValidator {
         }
     }
 
+    /** 新建和移动同时约束整棵子树；历史超深节点不改父级时允许修改名称等资料。 */
+    private Mono<Void> validateCategory(PatrolCategoryEntity category, PatrolConfigEntity previous, String key) {
+        boolean moved = !(previous instanceof PatrolCategoryEntity old)
+                || !java.util.Objects.equals(java.util.Objects.requireNonNullElse(old.getParentId(), ""), category.getParentId());
+        var visited = new HashSet<>(Set.of(category.getId()));
+        return checkParents(category, category.getParentId(), visited, key, moved)
+                .then(Mono.defer(() -> moved
+                        ? checkChildDepth(category.getId(), visited.size(), key) : Mono.empty()));
+    }
+
     private Mono<Void> checkParents(
-            PatrolCategoryEntity category, String parent, Set<String> visited, String key) {
+            PatrolCategoryEntity category, String parent, Set<String> visited, String key, boolean limitDepth) {
         if (parent == null || parent.isEmpty()) return Mono.empty();
         if (!visited.add(parent) || visited.size() > 32)
             return Mono.error(new BusinessException("error.patrol.category.cycle"));
+        if (limitDepth && visited.size() > 3)
+            return Mono.error(new BusinessException("error.patrol.category.depth", 400));
         return reference(PatrolAssetType.patrolCategory, parent, categories.findForUpdate(parent), key, category)
-                .flatMap(value -> checkParents(category, value.getParentId(), visited, key));
+                .flatMap(value -> checkParents(category, value.getParentId(), visited, key, limitDepth));
+    }
+
+    /** 引用完整性包含同应用不可见后代；仅校验深度，不把这些节点返回给调用者。 */
+    private Mono<Void> checkChildDepth(String id, int depth, String key) {
+        var children = categories.createQuery().where("parentId", id).and("scopeKey", key).select("id");
+        if (depth >= 3) return children.fetchOne().hasElement().flatMap(found -> found
+                ? Mono.error(new BusinessException("error.patrol.category.depth", 400)) : Mono.empty());
+        return children.fetch().concatMap(child -> checkChildDepth(child.getId(), depth + 1, key)).then();
     }
 
     /** 角色属于当前应用，不与点位项目比较；认证服务执行 role 资产授权。 */

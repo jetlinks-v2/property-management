@@ -66,9 +66,11 @@ class PatrolPointWorkbookTest {
     @Test
     void exportUsesReadableFieldsAndLiteralCells() throws Exception {
         var point = new PatrolPointEntity(); point.setId("p"); point.setName("=1+1"); point.setCode("P001");
-        point.setCategoryId("c"); point.setTagIds(List.of("t", "hidden")); point.setLocation("Floor 1");
+        point.setProjectName("点位项目"); point.setCategoryId("c"); point.setTagIds(List.of("t", "hidden")); point.setLocation("Floor 1");
         try (var book = new XSSFWorkbook(new ByteArrayInputStream(PatrolPointWorkbook.export(List.of(point), Map.of("c", "Building"), Map.of("t", "Tag"), Map.of("p", "Security"))))) {
             var row = book.getSheetAt(0).getRow(1);
+            assertEquals("所属项目", book.getSheetAt(0).getRow(0).getCell(8).getStringCellValue());
+            assertEquals("点位项目", row.getCell(8).getStringCellValue());
             assertEquals(CellType.STRING, row.getCell(0).getCellType()); assertEquals("=1+1", row.getCell(0).getStringCellValue());
             assertEquals("Building", row.getCell(2).getStringCellValue()); assertEquals("Security", row.getCell(3).getStringCellValue());
             assertEquals("Tag", row.getCell(4).getStringCellValue()); assertEquals("Floor 1", row.getCell(5).getStringCellValue());

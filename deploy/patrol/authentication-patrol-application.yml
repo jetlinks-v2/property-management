@@ -59,7 +59,7 @@ jetlinks:
                 granted: true
                 buttons:
                   - {id: save, granted: true}
-                  - {id: delete, granted: false}
+                  - {id: delete, granted: true}
               - id: patrol-points
                 owner: app
                 options: {appName: cloud-patrol}
@@ -75,7 +75,7 @@ jetlinks:
                 granted: true
                 buttons:
                   - {id: save, granted: true}
-                  - {id: delete, granted: false}
+                  - {id: delete, granted: true}
               - id: patrol-records
                 owner: app
                 options: {appName: cloud-patrol}
@@ -90,14 +90,7 @@ jetlinks:
                 granted: true
                 buttons:
                   - {id: save, granted: true}
-                  - {id: delete, granted: false}
-              - id: patrol-warnings
-                owner: app
-                options: {appName: cloud-patrol}
-                granted: true
-                buttons:
-                  - {id: save, granted: true}
-                  - {id: delete, granted: false}
+                  - {id: delete, granted: true}
               - id: patrol-calendar
                 owner: app
                 options: {appName: cloud-patrol}
@@ -136,8 +129,5 @@ jetlinks:
                 accesses: [{supportId: business_application}]
                 options: {scopeStrategy: SELECT_AND_BIND}
               - asset-type: patrolTag
-                accesses: [{supportId: business_application}]
-                options: {scopeStrategy: SELECT_AND_BIND}
-              - asset-type: patrolWarning
                 accesses: [{supportId: business_application}]
                 options: {scopeStrategy: SELECT_AND_BIND}

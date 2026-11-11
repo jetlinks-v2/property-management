@@ -37,7 +37,13 @@ public class PatrolCalendarService {
                          long expectedCount, long completedCount, long missedCount,
                          List<PatrolRosterEntity> staff, List<PatrolTaskEntity> tasks,
                          Map<String, String> staffTelephones, long completedPointCount, long missedPointCount,
-                         long absentPointCount) {}
+                         long absentPointCount) {
+        /** 项目明细复用日历口径，只过滤本次已授权结果，不额外读取资产。 */
+        public Detail forProject(String projectId) {
+            return detail(date, staff.stream().filter(row -> Objects.equals(projectId, row.getProjectId())).toList(),
+                    tasks.stream().filter(row -> Objects.equals(projectId, row.getProjectId())).toList(), staffTelephones);
+        }
+    }
     record Rows(List<PatrolRosterEntity> staff, List<PatrolTaskEntity> tasks) {}
 
     public Mono<Month> month(YearMonth month) {
@@ -48,12 +54,14 @@ public class PatrolCalendarService {
     public Mono<Detail> day(LocalDate day) {
         return rows(day, day.plusDays(1), true).flatMap(rows ->
                 people.telephones(rows.staff().stream().map(PatrolRosterEntity::getUserId).distinct().toList())
-                        .map(telephones -> new Detail(day.toString(),
-                                staffCount(rows.staff()), shiftCount(rows.staff()),
-                                pointCount(rows.tasks()),
-                                expected(rows.tasks()), completed(rows.tasks()), missed(rows.tasks()),
-                                rows.staff(), rows.tasks(), telephones,
-                                completedPointCount(rows.tasks()), missedPointCount(rows.tasks()), absentPointCount(rows.tasks()))));
+                        .map(telephones -> detail(day.toString(), rows.staff(), rows.tasks(), telephones)));
+    }
+
+    private static Detail detail(String date, List<PatrolRosterEntity> staff, List<PatrolTaskEntity> tasks,
+                                 Map<String, String> telephones) {
+        return new Detail(date, staffCount(staff), shiftCount(staff), pointCount(tasks), expected(tasks),
+                completed(tasks), missed(tasks), staff, tasks, telephones,
+                completedPointCount(tasks), missedPointCount(tasks), absentPointCount(tasks));
     }
 
     private Mono<Rows> rows(LocalDate from, LocalDate until, boolean detail) {

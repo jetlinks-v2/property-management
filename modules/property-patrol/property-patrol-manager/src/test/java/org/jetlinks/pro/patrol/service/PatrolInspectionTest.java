@@ -42,13 +42,13 @@ class PatrolInspectionTest {
     }
 
     @Test
-    void choicesOnlyJudgeExplicitPassingOptions() {
+    void choicesUseFirstOptionEvenWithoutOrAgainstFormerPassingSelections() {
         var choice = new CheckItem("lock", "Lock", true, List.of("normal", "abnormal"), ItemType.choice,
-                null, null, null, List.of("normal"), false, null);
+                null, null, null, List.of("abnormal"), false, null);
         assertEquals(CheckResult.pass, PatrolInspection.evaluate(List.of(choice), List.of(new Answer("lock", "normal"))).result());
         assertEquals(CheckResult.fail, PatrolInspection.evaluate(List.of(choice), List.of(new Answer("lock", "abnormal"))).result());
         var legacy = new CheckItem("lock", "Lock", true, List.of("normal", "abnormal"));
-        assertEquals(CheckResult.not_evaluated, PatrolInspection.evaluate(List.of(legacy), List.of(new Answer("lock", "normal"))).result());
+        assertEquals(CheckResult.pass, PatrolInspection.evaluate(List.of(legacy), List.of(new Answer("lock", "normal"))).result());
     }
 
     @Test
@@ -60,6 +60,21 @@ class PatrolInspectionTest {
         assertEquals(CheckResult.not_evaluated, PatrolInspection.evaluate(List.of(text, image), List.of(new Answer("note", "Reference"))).result());
         assertEquals(CheckResult.not_evaluated, PatrolInspection.evaluate(List.of(image), List.of(new Answer("photo", null, "file"))).result());
         assertThrows(BusinessException.class, () -> PatrolInspection.evaluate(List.of(image), List.of(new Answer("photo", "fake-url"))));
+    }
+
+    @Test
+    void textImageAndOptionalOmissionsDoNotBlockNumericChecksOrHideAnomalies() {
+        var text = new CheckItem("note", "Note", true, List.of(), ItemType.text,
+                null, null, "Reference", List.of(), false, null);
+        var photo = new CheckItem("photo", "Photo", false, List.of(), ItemType.image,
+                null, null, null, List.of(), false, null);
+        var standard = List.of(number(false), text, photo);
+        assertEquals(CheckResult.pass, PatrolInspection.evaluate(standard,
+                List.of(new Answer("pressure", "0.4"), new Answer("note", "Checked"))).result());
+        assertEquals(CheckResult.fail, PatrolInspection.evaluate(standard,
+                List.of(new Answer("pressure", "0.400001"), new Answer("note", "Checked"))).result());
+        assertEquals(CheckResult.not_evaluated, PatrolInspection.resultOf(null, new Answer("old", "legacy")));
+        assertEquals(CheckResult.not_evaluated, PatrolInspection.resultOf(number(false), new Answer("pressure", "invalid")));
     }
 
     @Test
@@ -107,7 +122,7 @@ class PatrolInspectionTest {
         var old = mapper.readValue("{\"id\":\"lock\",\"title\":\"Lock\",\"required\":true,\"options\":[\"normal\"]}", CheckItem.class);
         assertEquals(ItemType.choice, old.type());
         assertEquals(List.of(), old.qualifiedOptions());
-        assertEquals(CheckResult.not_evaluated, PatrolInspection.evaluate(List.of(old), List.of(new Answer("lock", "normal"))).result());
+        assertEquals(CheckResult.pass, PatrolInspection.evaluate(List.of(old), List.of(new Answer("lock", "normal"))).result());
         assertEquals("0.2", mapper.readTree(mapper.writeValueAsString(number(false))).get("lowerLimit").asText());
         assertEquals(true, mapper.readTree(mapper.writeValueAsString(number(false))).get("lowerLimit").isTextual());
     }

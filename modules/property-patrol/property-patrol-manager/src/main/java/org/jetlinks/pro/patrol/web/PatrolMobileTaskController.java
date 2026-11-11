@@ -18,10 +18,10 @@ import java.util.List;
 @Resource(id = "patrol-task", name = "巡更任务")
 public class PatrolMobileTaskController {
     private final PatrolMobileService mobile;
-    public record Request(@NotNull LocalDate date, Boolean mine) {}
+    public record Request(@NotNull LocalDate date, Boolean mine, @jakarta.validation.constraints.Size(max = 128) String nfcCode) {}
     @PostMapping("/_query")
     @QueryAction
     public Mono<List<PatrolMobileService.MobileTask>> query(@RequestBody @Valid Request request) {
-        return mobile.tasks(request.date(), !Boolean.FALSE.equals(request.mine()));
+        return mobile.tasks(request.date(), !Boolean.FALSE.equals(request.mine()), request.nfcCode());
     }
 }

@@ -14,7 +14,28 @@ public final class PatrolOverviewAggregation {
     private PatrolOverviewAggregation() {}
     private record Key(String project, String point, String date) {}
 
-    public record Result(Report report, List<PointDay> points) {}
+    public record ProjectDay(String projectName, Day day) {}
+    public record ProjectPerson(String projectName, Person person) {}
+    public record Result(Report report, List<PointDay> points, List<PatrolExecutionEntity> executions) {
+        /** 仅导出时按项目拆分，不把跨项目人员总量重复写到各项目，也不增加查询。 */
+        public List<ProjectDay> projectDays() {
+            List<ProjectDay> rows = new ArrayList<>();
+            points.stream().collect(Collectors.groupingBy(PointDay::projectId, TreeMap::new, Collectors.toList()))
+                    .values().forEach(project -> project.stream()
+                            .collect(Collectors.groupingBy(PointDay::date, TreeMap::new, Collectors.toList()))
+                            .forEach((date, days) -> rows.add(new ProjectDay(project.get(0).projectName(), new Day(date, sum(days))))));
+            return rows;
+        }
+        public List<ProjectPerson> projectPeople() {
+            Map<String, String> names = new HashMap<>();
+            report.projects().forEach(project -> names.put(project.projectId(), project.projectName()));
+            List<ProjectPerson> rows = new ArrayList<>();
+            executions.stream().collect(Collectors.groupingBy(execution -> Objects.toString(execution.getProjectId(), ""),
+                            TreeMap::new, Collectors.toList()))
+                    .forEach((project, facts) -> people(facts).forEach(person -> rows.add(new ProjectPerson(names.get(project), person))));
+            return rows;
+        }
+    }
 
     public static Result aggregate(Range range, List<PatrolTaskEntity> tasks,
                                    List<PatrolExecutionEntity> executions, long now) {
@@ -67,7 +88,11 @@ public final class PatrolOverviewAggregation {
         var days = points.stream().collect(Collectors.groupingBy(PointDay::date, TreeMap::new, Collectors.toList()))
                 .entrySet().stream().map(entry -> new Day(entry.getKey(), sum(entry.getValue()))).toList();
         // 贡献只来源于执行事实，不能把角色共享任务的应巡量复制给每个角色成员。
-        var people = executions.stream().collect(Collectors.groupingBy(PatrolExecutionEntity::getUserId))
+        return new Result(new Report(range.from(), range.to(), now, sum(points), projects, days, people(executions)), points, executions);
+    }
+
+    private static List<Person> people(List<PatrolExecutionEntity> executions) {
+        return executions.stream().collect(Collectors.groupingBy(PatrolExecutionEntity::getUserId))
                 .entrySet().stream().map(entry -> {
                     var facts = entry.getValue();
                     var latest = facts.stream().max(Comparator.comparingLong(PatrolExecutionEntity::getReceiveTime)).orElseThrow();
@@ -77,7 +102,6 @@ public final class PatrolOverviewAggregation {
                             latest.getReceiveTime());
                 }).sorted(Comparator.comparing(Person::userName, Comparator.nullsLast(Comparator.naturalOrder()))
                         .thenComparing(Person::userId)).toList();
-        return new Result(new Report(range.from(), range.to(), now, sum(points), projects, days, people), points);
     }
 
     public static boolean matches(PointDay point, Metric metric) {

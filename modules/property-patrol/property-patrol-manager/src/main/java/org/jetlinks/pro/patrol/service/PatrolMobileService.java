@@ -29,6 +29,7 @@ public class PatrolMobileService {
     private final PatrolScope scope;
     private final SaasPersonDirectory people;
     private final PatrolTaskService tasks;
+    private final PatrolPointService points;
     private final PatrolExecutionService executions;
     private final PatrolExecutionWorkflow workflow;
 
@@ -47,6 +48,21 @@ public class PatrolMobileService {
                     .flatMapSequential(task -> inspect(task, auth.getUser().getId(), mine), 8)
                     .collectList()))
                 .as(MonoTracer.create("/patrol/mobile/tasks"));
+    }
+
+    /** NFC编码仅收窄已经过项目、资产和员工资格校验的任务；不能凭卡号读取其他点位。 */
+    public Mono<List<MobileTask>> tasks(LocalDate date, boolean mine, String nfcCode) {
+        if (nfcCode == null) return tasks(date, mine);
+        String code = nfcCode.trim();
+        if (code.isEmpty() || code.length() > 128) return Mono.error(new BusinessException("error.patrol.nfc_invalid", 400));
+        return tasks(date, mine).flatMap(rows -> {
+            var ids = rows.stream().map(row -> row.task().getPointId()).distinct().toList();
+            if (ids.isEmpty()) return Mono.just(List.of());
+            return points.findById(ids)
+                    .filter(point -> code.equals(point.getNfcCode()))
+                    .map(point -> point.getId()).collectList()
+                    .map(matched -> rows.stream().filter(row -> matched.contains(row.task().getPointId())).toList());
+        });
     }
 
     private Mono<QueryParamEntity> authorizedFactQuery(String scopeKey, QueryParamEntity query) {

@@ -38,8 +38,29 @@ class PatrolMobileServiceTest {
     }
 
     PatrolMobileService service(PatrolScope source) {
-        return new PatrolMobileService(source, people, fixture.tasks,
+        return new PatrolMobileService(source, people, fixture.tasks, fixture.points,
                 fixture.executions, fixture.workflow);
+    }
+
+    @Test
+    void nfcCodeOnlyMatchesVisibleTaskPointsAndKeepsExecutionChecks() {
+        fixture.seedTask(2);
+        fixture.points.createUpdate().set("nfcCode", "NFC-DEMO-01").where("id", "point").execute().block();
+        assertEquals(List.of("task"), mobile.tasks(LocalDate.now(), false, " NFC-DEMO-01 ")
+                .contextWrite(fixture.identity).block().stream().map(row -> row.task().getId()).toList());
+        assertTrue(mobile.tasks(LocalDate.now(), false, "UNKNOWN").contextWrite(fixture.identity).block().isEmpty());
+        var hidden = new org.jetlinks.pro.patrol.entity.PatrolPointEntity();
+        hidden.setId("hidden-point"); hidden.setName("Hidden"); hidden.setCategoryId("category");
+        hidden.setProjectId("other-project"); hidden.setScopeKey("other-app"); hidden.setCode("HIDDEN"); hidden.setNfcCode("HIDDEN-NFC");
+        fixture.points.insert(hidden).block();
+        assertTrue(mobile.tasks(LocalDate.now(), false, "HIDDEN-NFC").contextWrite(fixture.identity).block().isEmpty());
+        fixture.roles.get("post").setUserIds(List.of("bob"));
+        var unassigned = mobile.tasks(LocalDate.now(), false, "NFC-DEMO-01").contextWrite(fixture.identity).block();
+        assertEquals(1, unassigned.size());
+        assertFalse(unassigned.get(0).executable());
+        assertEquals("error.patrol.execution.unassigned", unassigned.get(0).reason());
+        assertTrue(mobile.tasks(LocalDate.now(), true, "NFC-DEMO-01").contextWrite(fixture.identity).block().isEmpty());
+        StepVerifier.create(mobile.tasks(LocalDate.now(), false, " ").contextWrite(fixture.identity)).expectError().verify();
     }
 
     @AfterEach
@@ -89,7 +110,7 @@ class PatrolMobileServiceTest {
     void translatedExceptionsKeepStableReasonsAndMineFilter() {
         fixture.seedTask(1);
         var workflow = mock(PatrolExecutionWorkflow.class);
-        var source = new PatrolMobileService(scope, people, fixture.tasks,
+        var source = new PatrolMobileService(scope, people, fixture.tasks, fixture.points,
                 fixture.executions, workflow);
         for (String code : List.of("error.patrol.execution.completed", "error.patrol.execution.unassigned")) {
             var translated = new org.hswebframework.web.exception.BusinessException(code) {
