@@ -17,10 +17,19 @@ import java.util.List;
 @RequiredArgsConstructor
 @RequestMapping("/property/finance/owner")
 public class OwnerFinanceController {
+    private final OwnerApplicationScope applicationScope;
     private final OwnerHouseSource houses;
     private final OwnerFinanceService finance;
     private final OwnerPrepayService prepay;
     private final BillingJobProperties properties;
+
+    /** 供H5选择/恢复应用时核验；不返回其他成员、权限或内部配置。 */
+    @GetMapping("/context")
+    public Mono<ApplicationContext> context() {
+        return applicationScope.current().map(ApplicationContext::new);
+    }
+
+    public record ApplicationContext(String applicationId) {}
 
     @GetMapping("/rooms")
     public Mono<List<Room>> rooms() {
