@@ -18,6 +18,12 @@
 
 报修服务开启报修所需的访问日志、工单直接资产映射和空间资产表映射；匿名入口仅为 `/repair/public/qr/**`，其余报修和目录接口继续认证。匿名二维码还会在业务层校验配置、范围及上传授权。调度的只读观测保留 `org.jetlinks.pro.smartpark.repair:name=ScheduledJob` MBean；没有另外增加调度实例。
 
+### 组织数据权限
+
+组织层级由认证服务展开到当前用户的认证维度中。报修使用 `AssetsHolder` 的组织权限提供者扩展生成查询条件，不在独立报修库再次查询认证服务的 `s_dimension_closure`；组织数量增加时，授权结果应与小范围查询一致。工单组织归属为 `organizationId`，配置组织归属为 `businessProjectId`，均通过直接资产映射关联项目组织，并继续叠加租户、应用及配置的可见项目交集。
+
+`RepairAssetsConfiguration` 保留平台原 supportId、创建人回退和绑定行为。“所在组织及下级”使用已授权组织维度，“所在组织及上下级”仅在读取时包含上级，写入仍沿用平台边界。空组织范围关闭组织分支，不扩大为全部数据。回归验证覆盖大量组织、无权组织、上级只读和配置映射；发布后仍须用普通账号核验列表、统计和详情一致。
+
 ## 前端
 
 业务前端仓库为 [report-saas-ui](https://github.com/jetlinks-v2/report-saas-ui)，PC 模块由 `saas-runtime-ui` 以 `modules/report-repair-ui` 子模块接入，与巡更一起构建并部署到 Cloud 运行端。应用实例 `configuration.customDomain` 留空，无需独立 PC 站点；员工 H5 仍单独发布。模块通过应用模板的 `componentCode` 注册报修业务页面；组织、用户、空间、客户和字典统一由 `property-base-ui` 提供，不维护基础管理页面或菜单副本。公共基础管理授权迁移见 `deploy/property-base/README.md`，迁移时保留既有角色与资产范围。

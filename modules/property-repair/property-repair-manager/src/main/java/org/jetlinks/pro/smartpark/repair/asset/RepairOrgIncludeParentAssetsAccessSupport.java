@@ -9,10 +9,9 @@ import org.jetlinks.pro.assets.impl.supports.OrgIncludeParentAssetsAccessSupport
 import reactor.core.publisher.Mono;
 
 /**
- * 为公共组件的组织及上下级查询补齐空组织范围。
- * 由报修服务配置创建，沿用组织提供者的资产、创建人回退及写权限契约；
- * 仅在查询不存在有效组织维度时生成空范围，避免优化分支构造无目标的资产条件。
- * 公共组件修复同一分支后移除此兼容实现。
+ * 报修独立数据库的“所在组织及上下级”权限提供者。
+ * 读取使用框架筛选并转换的组织维度，避免依赖认证库闭包表；
+ * 上级只读、写入范围、资产绑定及创建人回退仍由原提供者控制。
  *
  * @see OrgIncludeParentAssetsAccessSupport
  */
@@ -29,12 +28,11 @@ public class RepairOrgIncludeParentAssetsAccessSupport extends OrgIncludeParentA
         String assetType,
         String idProperty,
         AssetPermission... permission) {
-        if (AssetPermission.isForQuery(permission)
-            && authentication.getDimensions().stream().noneMatch(dimension ->
-                isSupported(dimension) && testForQuery(dimension))) {
-            // 空组织只关闭组织分支，不能报错中断其他租户/创建人分支，也不能放开查询。
-            conditional.nest().isNull(idProperty).and().notNull(idProperty).end();
-            return Mono.just(conditional);
+        if (AssetPermission.isForQuery(permission) && !"organization".equals(assetType)) {
+            // 复用平台的忽略规则及 parentOrg 转换，不能手动把上级加入写范围。
+            return getDimensionsForQuery(assetType, authentication).collectList()
+                .flatMap(dimensions -> ExpandedOrganizationQuery.inject(
+                    conditional, dimensions, assetType, idProperty, permission));
         }
         return super.injectConditional0(conditional, authentication, assetType, idProperty, permission);
     }

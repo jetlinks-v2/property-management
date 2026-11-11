@@ -65,6 +65,12 @@ class RepairModuleAssemblyTest {
             "jetlinks.assets.direct.tables.sp_repair_order.dimension-column.org"));
         assertEquals("applicationId", properties.getProperty(
             "jetlinks.assets.direct.tables.sp_repair_order.dimension-column.business_application"));
+        assertEquals("repairConfiguration", properties.getProperty(
+            "jetlinks.assets.direct.tables.sp_repair_configuration.asset-type"));
+        assertEquals("businessProjectId", properties.getProperty(
+            "jetlinks.assets.direct.tables.sp_repair_configuration.dimension-column.org"));
+        assertEquals("applicationId", properties.getProperty(
+            "jetlinks.assets.direct.tables.sp_repair_configuration.dimension-column.business_application"));
         assertEquals("org.jetlinks.pro.smartpark.repair.web", properties.getProperty(
             "springdoc.group-configs[0].packages-to-scan[0]"));
     }

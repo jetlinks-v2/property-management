@@ -56,8 +56,8 @@ class RepairOrgIncludeParentAssetsAccessSupportTest {
     }
 
     @Test
-    void existingOrganizationShouldKeepFrameworkQueryAndWriteConditions() {
-        for (CrudAssetPermission permission : List.of(CrudAssetPermission.read, CrudAssetPermission.save)) {
+    void existingOrganizationShouldKeepFrameworkWriteConditions() {
+        for (CrudAssetPermission permission : List.of(CrudAssetPermission.save)) {
             Authentication authentication = authentication(7, true);
             QueryParamEntity actual = inject(support, authentication, permission);
             QueryParamEntity expected = inject(new OrgIncludeParentAssetsAccessSupport(assetManager),

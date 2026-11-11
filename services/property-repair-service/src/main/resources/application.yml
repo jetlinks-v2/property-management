@@ -79,6 +79,11 @@ jetlinks:
           dimension-column:
             org: organizationId
             business_application: applicationId
+        sp_repair_configuration:
+          asset-type: repairConfiguration
+          dimension-column:
+            org: businessProjectId
+            business_application: applicationId
   microservice:
     discovery:
       enabled: true

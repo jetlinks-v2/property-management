@@ -1,6 +1,7 @@
 package org.jetlinks.pro.smartpark.repair.asset;
 
 import org.jetlinks.pro.assets.AssetManager;
+import org.jetlinks.pro.assets.impl.supports.OrgIncludeChildrenAssetsAccessSupport;
 import org.jetlinks.pro.assets.impl.supports.OrgIncludeParentAssetsAccessSupport;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,9 +11,15 @@ import org.springframework.context.annotation.Configuration;
  * 保留原 Bean 名和 supportId，避免同一组织范围注册多个提供者。
  *
  * @see RepairOrgIncludeParentAssetsAccessSupport
+ * @see RepairOrgIncludeChildrenAssetsAccessSupport
  */
 @Configuration(proxyBeanMethods = false)
 public class RepairAssetsConfiguration {
+
+    @Bean
+    public OrgIncludeChildrenAssetsAccessSupport orgIncludeChildrenAssetsAccessSupport(AssetManager assetManager) {
+        return new RepairOrgIncludeChildrenAssetsAccessSupport(assetManager);
+    }
 
     @Bean
     public OrgIncludeParentAssetsAccessSupport orgIncludeParentAssetsAccessSupport(AssetManager assetManager) {
