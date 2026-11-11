@@ -111,6 +111,10 @@ public class ReceivableView extends ReceivableEntity {
         // 历史导入未提供单价/用量，不能拿导入时的当前标准冒充历史计费依据。
         if ("HISTORICAL_IMPORT".equals(row.getSourceType())) return;
         if (standard != null) setPrice(standard.getBigDecimal("price"));
+        if ("METER".equals(row.getSourceType())) {
+            setUsageValue(frozen.getBigDecimal("quantity"));
+            return;
+        }
         var values = frozen.getJSONObject("values");
         if (values != null)
             setUsageValue(

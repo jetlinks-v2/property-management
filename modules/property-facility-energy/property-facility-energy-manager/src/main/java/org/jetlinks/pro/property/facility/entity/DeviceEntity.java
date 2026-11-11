@@ -26,6 +26,9 @@ import org.jetlinks.pro.property.facility.model.*;
 )
 public class DeviceEntity extends FacilityEntity {
 
+  @Transient
+  private String spaceName;
+
   @Column(length = 256)
   private String cloudDeviceId;
 
@@ -102,6 +105,13 @@ public class DeviceEntity extends FacilityEntity {
 
   @Column(length = 256)
   private String spaceId;
+
+  @Column(length = 24)
+  private String meterType;
+
+  /** Earliest proven time of the current project/space/type tuple; never backdated from a client. */
+  @Column
+  private Long allocationSince;
 
   @Column(length = 256)
   private String location;

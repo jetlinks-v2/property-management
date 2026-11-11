@@ -94,6 +94,7 @@ public class FacilitySyncWriter {
             .fetch()
         )
         .concatMap(row -> {
+          if (Boolean.TRUE.equals(row.getProjectConfirmed()) && candidates.containsKey(row.getCloudDeviceId())) return Mono.empty();
           if (
             selected
               .stream()

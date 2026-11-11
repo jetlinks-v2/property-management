@@ -132,8 +132,7 @@ public class FacilitySync {
     boolean existing =
       row.getProjectId() != null && projects.contains(row.getProjectId());
     row.setSyncState(
-      existing &&
-        (projects.size() == 1 || Boolean.TRUE.equals(row.getProjectConfirmed()))
+      !projects.isEmpty() && (Boolean.TRUE.equals(row.getProjectConfirmed()) || existing && projects.size() == 1)
         ? "active"
         : "pending-project"
     );

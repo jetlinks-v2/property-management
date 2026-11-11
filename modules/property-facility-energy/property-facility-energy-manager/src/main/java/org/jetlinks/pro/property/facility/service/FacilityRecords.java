@@ -67,6 +67,13 @@ public class FacilityRecords {
     ));
   }
 
+  /** Move only this device's former organization grant; application ownership is retained. */
+  Mono<Void> moveOwnership(FacilityEntity row, AssetType type, String previousOrganization) {
+    return bindings.unbindAssets(Flux.just(new AssetUnbindRequest("org", previousOrganization,
+      type.getId(), List.of(row.getId()), AssetBindManager.SOURCE_AUTO)))
+      .then(Mono.defer(() -> bindOwnership(row, type)));
+  }
+
   public <T extends FacilityEntity> Mono<T> update(
     org.hswebframework.web.crud.service.GenericReactiveCrudService<
       T,

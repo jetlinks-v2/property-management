@@ -11,6 +11,7 @@
     <artifactId>property-finance-manager</artifactId>
     <name>Property Finance Manager</name>
     <dependencies>
+        <dependency><groupId>org.jetlinks.pro</groupId><artifactId>property-facility-energy-core</artifactId><version>${project.version}</version></dependency>
         <dependency>
             <groupId>org.jetlinks.pro</groupId>
             <artifactId>property-finance-core</artifactId>

@@ -9,6 +9,7 @@
     </parent>
     <artifactId>property-facility-energy-manager</artifactId>
     <dependencies><dependency><groupId>org.jetlinks.pro</groupId><artifactId>property-facility-energy-core</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>org.jetlinks.pro</groupId><artifactId>property-finance-core</artifactId><version>${project.version}</version></dependency>
         <dependency>
             <groupId>org.jetlinks.pro</groupId>
             <artifactId>property-base-core</artifactId>

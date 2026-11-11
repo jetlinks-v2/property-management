@@ -50,6 +50,20 @@ public class FacilityDevices {
       .flatMap(store::queryPager);
   }
 
+  /** Resolve paths once per visible project, without turning forbidden or missing references into a successful blank. */
+  public Mono<PagerResult<DeviceEntity>> allocations(QueryParamEntity q) {
+    q.setPaging(true); q.setPageSize(Math.min(100, Math.max(1, q.getPageSize())));
+    return query(q).flatMap(page -> Flux.fromIterable(page.getData()).map(DeviceEntity::getProjectId)
+      .filter(Objects::nonNull).distinct().concatMap(project -> directory.spaces(project).collectList())
+      .collectList().map(groups -> {
+        var names = new HashMap<String,String>();
+        for (var group : groups) for (var space : group)
+          names.put(space.getId(), Objects.toString(space.getFullName(), space.getName()));
+        for (var row : page.getData()) row.setSpaceName(names.get(row.getSpaceId()));
+        return page;
+      }));
+  }
+
   @Transactional
   public Mono<DeviceEntity> update(String id, DeviceEntity input) {
     return writable(id).flatMap(row -> {
@@ -82,6 +96,7 @@ public class FacilityDevices {
           row.setMaintainer(input.getMaintainer());
           row.setMaintainerUserId(input.getMaintainerUserId());
           row.setResponsibleUserId(input.getResponsibleUserId());
+          if (!Objects.equals(row.getSpaceId(), input.getSpaceId())) row.setAllocationSince(System.currentTimeMillis());
           row.setSpaceId(input.getSpaceId());
           row.setLocation(input.getLocation());
           row.setFloor(input.getFloor());
@@ -135,14 +150,15 @@ public class FacilityDevices {
   ) {
     return writable(id).flatMap(row -> {
       require(
-        row.getVersion() == version &&
-          row.getCandidateProjectIds().contains(projectId),
+        row.getVersion() == version && !row.getCandidateProjectIds().isEmpty(),
         "conflict"
       );
       return directory.project(projectId).flatMap(project ->
-        records.assertProject(projectId, CrudAssetPermission.save).then(
+        (row.getProjectId() == null ? Mono.<Void>empty() : records.assertProject(row.getProjectId(), CrudAssetPermission.save))
+        .then(records.assertProject(projectId, CrudAssetPermission.save)).then(
           Mono.defer(() -> {
             boolean moved = !projectId.equals(row.getProjectId());
+            String previousOrganization = row.getOrganizationId();
             Mono<Void> move = Mono.empty();
             if (moved) {
               long end = System.currentTimeMillis();
@@ -172,6 +188,7 @@ public class FacilityDevices {
               row.setEnergyEnabled(false);
             }
             row.setProjectConfirmed(true);
+            if (moved) row.setAllocationSince(System.currentTimeMillis());
             row.setProjectId(projectId);
             row.setOrganizationId(projectId);
             row.setProjectName(project.getName());
@@ -196,7 +213,7 @@ public class FacilityDevices {
                 )
               )
               .flatMap(saved ->
-                records
+                (moved ? records.moveOwnership(saved, FacilityAssetType.facilityDevice, previousOrganization) : Mono.<Void>empty()).then(records
                   .log(
                     saved,
                     "device",
@@ -206,7 +223,7 @@ public class FacilityDevices {
                     null,
                     List.of()
                   )
-                  .thenReturn(saved)
+                  .thenReturn(saved))
               );
           })
         )
@@ -214,7 +231,32 @@ public class FacilityDevices {
     });
   }
 
-  /** Partial extension import is atomic; source identity and lifecycle flags cannot be mass-assigned. */
+  /** Only project, meter category and installation space may be configured here. */
+  public record Allocation(String id, long version, String projectId, String meterType, String spaceId, boolean updateSpace) {}
+
+  /** A bounded batch is atomic; stale versions or invalid spaces roll back every selected row. */
+  @Transactional
+  public Mono<List<DeviceEntity>> allocate(List<Allocation> inputs) {
+    require(inputs != null && !inputs.isEmpty() && inputs.size() <= 200, "too_many");
+    require(inputs.stream().map(Allocation::id).distinct().count() == inputs.size(), "invalid_import");
+    return Flux.fromIterable(inputs).concatMap(input -> {
+      DeviceAllocationRules.type(input.meterType());
+      return writable(input.id()).flatMap(old -> {
+        String space = input.updateSpace() ? input.spaceId() :
+          Objects.equals(old.getProjectId(), input.projectId()) ? old.getSpaceId() : null;
+        Mono<Void> validSpace = space == null || space.isBlank() ? Mono.empty() : directory.space(input.projectId(), space).then();
+        boolean changed = old.getAllocationSince() == null || !Objects.equals(old.getProjectId(), input.projectId()) ||
+          !Objects.equals(old.getSpaceId(), space) || !Objects.equals(old.getMeterType(), input.meterType());
+        return validSpace.then(confirmProject(input.id(), input.projectId(), input.version())).flatMap(row -> {
+          long version = row.getVersion();
+          row.setMeterType(input.meterType()); row.setSpaceId(space);
+          if (changed) row.setAllocationSince(System.currentTimeMillis());
+          return records.update(store, row, version, FacilityRecords.nullFields(row, "spaceId"));
+        });
+      });
+    }).collectList();
+  }
+
   public record ExtensionImport(
     String cloudDeviceId,
     Long version,

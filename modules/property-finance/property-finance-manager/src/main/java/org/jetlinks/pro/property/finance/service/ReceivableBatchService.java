@@ -154,7 +154,9 @@ public class ReceivableBatchService {
                                 "WORKLOAD")
                         .get(standard.getBillingMethod());
         var historical = "HISTORICAL_IMPORT".equals(row.getSourceType());
-        var quantity = variable == null || historical ? null : values.get(variable);
+        var quantity = "METER".equals(row.getSourceType())
+                ? com.alibaba.fastjson.JSON.parseObject(row.getSnapshotJson()).getBigDecimal("quantity")
+                : variable == null || historical ? null : values.get(variable);
         long months =
                 ChronoUnit.MONTHS.between(
                                 java.time.YearMonth.from(LocalDate.parse(row.getCalcStartDate())),

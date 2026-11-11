@@ -106,6 +106,7 @@ public final class ReceivableWorkbook {
         if (value == null) return "收费系统";
         return switch (value) {
             case "HISTORICAL_IMPORT" -> "历史导入";
+            case "METER" -> "水电计费";
             case "SETTING", "AUTO", "CHARGING" -> "收费系统";
             default -> value;
         };
