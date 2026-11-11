@@ -24,6 +24,10 @@ import javax.persistence.*;
             @Index(name = "idx_pm_fin_fund_tx", columnList = "transactionId")
         })
 public class FundEntryEntity extends FinanceEntity {
+    /** 每次资金变动独立编号，账户可多次存入，不能以账户ID充当收款单号。 */
+    @Column(length = 40, unique = true)
+    private String billNo;
+
     @Column(length = 64, nullable = false)
     private String projectId;
 

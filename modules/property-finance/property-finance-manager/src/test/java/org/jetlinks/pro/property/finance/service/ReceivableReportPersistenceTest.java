@@ -82,6 +82,19 @@ class ReceivableReportPersistenceTest {
     }
 
     @Test
+    void newDimensionsKeepDistinctCustomerIdentityAndSameTotals() {
+        var one = bill("100", "20");
+        var two = bill("200", "30");
+        bills.createUpdate().set("customerId", "other-customer").where("id", two.getId()).execute().block(WAIT);
+        for (String group : List.of("SPACE", "CUSTOMER", "MONTH")) {
+            var i = input(); i.setGroupBy(group);
+            var result = query(i);
+            assertEquals("300.00", result.summary().netAmount());
+            assertEquals(group.equals("CUSTOMER") ? 2 : 1, result.page().getTotal());
+        }
+    }
+
+    @Test
     void drillMatchesExactGroupingSnapshotAndExportUsesSameScope() {
         bill("10", "1");
         var renamed = bill("20", "2");
@@ -271,7 +284,7 @@ class ReceivableReportPersistenceTest {
         i.setCustomerName("' OR 1=1 --");
         assertEquals("0.00", query(i).summary().netAmount());
         i.setCustomerName(null);
-        i.setReceivableNo(b.getId());
+        i.setReceivableNo(b.getBillNo());
         assertEquals(1, query(i).page().getTotal());
         i.setSpaceIds(List.of("secret"));
         assertEquals(0, query(i).page().getTotal());

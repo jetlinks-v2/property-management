@@ -22,6 +22,15 @@ public class ReceivedReportController {
     private final ReceivedReportService reports;
     private final ReceivedReportExportService exports;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<FinanceExportJobs> jobs;
+    @PostMapping("/_exports/{format}") @ResourceAction(id="export",name="导出")
+    public Mono<org.jetlinks.pro.property.finance.entity.FinanceExportTaskEntity> createExport(@RequestBody ReceivedReportInput input,@PathVariable String format){return jobs.getObject().create("received",input,format);}
+    @GetMapping("/_exports/{id}") @ResourceAction(id="export",name="导出")
+    public Mono<org.jetlinks.pro.property.finance.entity.FinanceExportTaskEntity> exportStatus(@PathVariable String id){return jobs.getObject().status("received",id);}
+    @GetMapping("/_exports/{id}/_download") @ResourceAction(id="export",name="导出")
+    public Mono<org.springframework.core.io.Resource> downloadExport(@PathVariable String id){return jobs.getObject().download("received",id);}
+
     @PostMapping("/_query")
     @ResourceAction(id = "query", name = "查询")
     public Mono<ReceivedReportResult> query(@RequestBody ReceivedReportInput input) {

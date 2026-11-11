@@ -1,0 +1,12 @@
+[
+  {
+    "path": "/property/facility-energy/**",
+    "authorize": true,
+    "order": -20
+  },
+  {
+    "path": "/v3/api-docs/property-facility-energy-service",
+    "authorize": true,
+    "order": -20
+  }
+]

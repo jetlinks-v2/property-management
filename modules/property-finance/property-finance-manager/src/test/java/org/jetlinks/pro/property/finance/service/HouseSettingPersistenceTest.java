@@ -885,7 +885,7 @@ class HouseSettingPersistenceTest {
                                 new org.hswebframework.web.api.crud.entity.QueryParamEntity())
                         .contextWrite(allowed())
                         .block(WAIT);
-        assertEquals(2, audit.getTotal());
+        assertEquals(3, audit.getTotal());
         assertEquals("UNFREEZE", audit.getData().get(0).getOperation());
         assertEquals(true, audit.getData().get(0).getBefore().get("frozen"));
         assertEquals(false, audit.getData().get(0).getAfter().get("frozen"));
@@ -925,7 +925,7 @@ class HouseSettingPersistenceTest {
         assertTrue(bills.findById(bill.getId()).block(WAIT).getDeleted());
         conflict(receivables.detail(project, bill.getId()), 404);
         assertEquals(
-                1,
+                2,
                 receivables
                         .logs(
                                 project,
@@ -972,7 +972,7 @@ class HouseSettingPersistenceTest {
                         .block(WAIT);
         assertEquals(1, results.stream().filter(Boolean::booleanValue).count());
         assertEquals(
-                1,
+                2,
                 receivableLogs
                         .createQuery()
                         .where("receivableId", bill.getId())
@@ -1088,7 +1088,7 @@ class HouseSettingPersistenceTest {
         assertFalse(retained.getFrozen());
         assertEquals(bill.getVersion(), retained.getVersion());
         assertEquals(
-                0,
+                1,
                 receivableLogs
                         .createQuery()
                         .where("receivableId", bill.getId())
@@ -1153,7 +1153,7 @@ class HouseSettingPersistenceTest {
                         .block(WAIT);
         assertEquals(bill.getVersion(), bills.findById(bill.getId()).block(WAIT).getVersion());
         assertEquals(
-                0,
+                1,
                 receivableLogs
                         .createQuery()
                         .where("receivableId", bill.getId())
@@ -1269,7 +1269,7 @@ class HouseSettingPersistenceTest {
                         .block(WAIT);
         assertEquals(1, results.stream().filter(Boolean::booleanValue).count());
         assertEquals(
-                1,
+                2,
                 receivableLogs
                         .createQuery()
                         .where("receivableId", bill.getId())
@@ -1326,7 +1326,7 @@ class HouseSettingPersistenceTest {
         assertEquals(bill.getActualReceivableAmount(), retained.getActualReceivableAmount());
         assertEquals(bill.getSnapshotJson(), retained.getSnapshotJson());
         assertEquals(
-                0,
+                1,
                 receivableLogs
                         .createQuery()
                         .where("receivableId", bill.getId())
@@ -1459,7 +1459,7 @@ class HouseSettingPersistenceTest {
                         .getActualReceivableAmount()
                         .toPlainString());
         assertEquals(
-                1,
+                2,
                 receivableLogs
                         .createQuery()
                         .where("receivableId", source.getId())
@@ -1905,7 +1905,6 @@ class HouseSettingPersistenceTest {
                 bill.getCustomerName(),
                 bill.getSubjectName(),
                 bill.getStandardName(),
-                bill.getContractCode(),
                 bill.getCalcStartDate(),
                 bill.getCalcEndDate(),
                 bill.getAccountPeriod(),
@@ -2224,7 +2223,6 @@ class HouseSettingPersistenceTest {
                 var month = r == 1 ? "01" : "02";
                 var values =
                         List.of(
-                                "HT-1",
                                 context("room").house().fullName(),
                                 "龚超",
                                 "物业费",
@@ -2296,7 +2294,8 @@ class HouseSettingPersistenceTest {
         var row = imported.get(0);
         assertEquals("CLOSED", row.getPeriodStatus());
         assertEquals("HISTORICAL_IMPORT", row.getSourceType());
-        assertEquals("HT-1", row.getContractCode());
+        assertTrue(row.getBillNo().startsWith("YS"));
+        assertEquals("", row.getContractCode());
         var standard = SettingRules.standard(row.getSnapshotJson());
         new ReceivableCalculationService(
                         new ReceivableAmountCalculator(
@@ -2510,7 +2509,6 @@ class HouseSettingPersistenceTest {
                     var row = sheet.createRow(n + 1);
                     var values =
                             java.util.List.of(
-                                    "",
                                     context("room").house().fullName(),
                                     context("room").customers().get(0).name(),
                                     "物业费",
@@ -2603,9 +2601,9 @@ class HouseSettingPersistenceTest {
         try (var book =
                 org.apache.poi.ss.usermodel.WorkbookFactory.create(
                         new java.io.ByteArrayInputStream(template))) {
-            assertEquals("房屋完整路径", book.getSheetAt(0).getRow(0).getCell(1).getStringCellValue());
+            assertEquals("房屋完整路径", book.getSheetAt(0).getRow(0).getCell(0).getStringCellValue());
             assertEquals(1, book.getSheetAt(0).getLastRowNum());
-            assertEquals("张某", book.getSheetAt(0).getRow(1).getCell(2).getStringCellValue());
+            assertEquals("张某", book.getSheetAt(0).getRow(1).getCell(1).getStringCellValue());
             assertNull(book.getSheet("填写示例"));
             assertEquals(
                     context("room").house().fullName(),
@@ -3006,7 +3004,7 @@ class HouseSettingPersistenceTest {
         assertEquals(bill.getActualReceivableAmount(), retained.getActualReceivableAmount());
         assertEquals(bill.getSnapshotJson(), retained.getSnapshotJson());
         assertEquals(
-                0,
+                1,
                 receivableLogs
                         .createQuery()
                         .where("receivableId", bill.getId())
@@ -3035,7 +3033,7 @@ class HouseSettingPersistenceTest {
         assertEquals(
                 1, bills.createQuery().where("settingId", bill.getSettingId()).count().block(WAIT));
         assertEquals(
-                0,
+                1,
                 receivableLogs
                         .createQuery()
                         .where("receivableId", bill.getId())
@@ -3070,7 +3068,7 @@ class HouseSettingPersistenceTest {
             assertFalse(retained.getDeleted());
             assertEquals("UNFREEZE".equals(operation), retained.getFrozen());
             assertEquals(
-                    0,
+                    1,
                     receivableLogs
                             .createQuery()
                             .where("receivableId", bill.getId())
@@ -3098,7 +3096,7 @@ class HouseSettingPersistenceTest {
             assertFalse(retained.getDeleted());
             assertEquals(bill.getVersion(), retained.getVersion());
             assertEquals(
-                    0,
+                    1,
                     receivableLogs
                             .createQuery()
                             .where("receivableId", bill.getId())
@@ -3327,9 +3325,9 @@ class HouseSettingPersistenceTest {
                                 new java.io.ByteArrayInputStream(historicalFile("100.00", true)));
                 var out = new java.io.ByteArrayOutputStream()) {
             var first = book.getSheetAt(0).getRow(1);
-            first.getCell(5).setCellValue("2023-03-01");
-            first.getCell(6).setCellValue("2023-03-28");
-            first.getCell(7).setCellValue("2023-03");
+            first.getCell(4).setCellValue("2023-03-01");
+            first.getCell(5).setCellValue("2023-03-28");
+            first.getCell(6).setCellValue("2023-03");
             book.write(out);
             bytes = out.toByteArray();
         }

@@ -21,6 +21,10 @@ import javax.persistence.*;
         name = "pm_fin_refund",
         indexes = @Index(name = "idx_pm_fin_refund_scope", columnList = "projectId,refundedAt"))
 public class RefundEntity extends FinanceEntity {
+    /** 对外业务单号；不用于替换账务关联和幂等主键。 */
+    @Column(length = 40, unique = true)
+    private String billNo;
+
     @Column(length = 64, nullable = false)
     private String projectId;
 

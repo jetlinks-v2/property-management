@@ -35,6 +35,7 @@ class FacilityDirectoryTest {
   private void prepare(String organization) {
     var external = new PropertyOrganizationInfo();
     external.setId("external");
+    external.setOrganizationType(org.jetlinks.pro.property.base.organization.OrganizationType.external);
     external.setChildren(List.of());
     doReturn(Flux.just(external)).when(directory).organizations();
     doReturn(Mono.just(new PropertyUserInfo())).when(directory).employee("contractor");

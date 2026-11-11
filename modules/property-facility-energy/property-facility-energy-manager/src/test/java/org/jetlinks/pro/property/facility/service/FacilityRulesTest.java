@@ -11,6 +11,28 @@ import org.junit.jupiter.api.Test;
 
 class FacilityRulesTest {
 
+  @Test
+  void standardsRequireWorkTypeAndValidDistinctChoiceOptions() {
+    var standard = new org.jetlinks.pro.property.facility.entity.StandardEntity();
+    standard.setName("standard");
+    var configuration = new FacilityConfiguration(null, null, null, null, null, null, null);
+    assertThrows(BusinessException.class, () -> configuration.standard(standard));
+    var check = item();
+    check.setKind(null);
+    assertThrows(BusinessException.class, () -> FacilityRules.standard(List.of(check)));
+    check.setKind("choice");
+    for (var options : List.of(List.<String>of(), List.of(" "), List.of("正常", " 正常"))) {
+      check.setOptions(options);
+      assertThrows(BusinessException.class, () -> FacilityRules.standard(List.of(check)));
+    }
+    check.setOptions(List.of("正常", "异常"));
+    assertDoesNotThrow(() -> FacilityRules.standard(List.of(check)));
+    check.setKind("number");
+    check.setMinimum(BigDecimal.TEN);
+    check.setMaximum(BigDecimal.ONE);
+    assertThrows(BusinessException.class, () -> FacilityRules.standard(List.of(check)));
+  }
+
   private CheckItem item() {
     var item = new CheckItem();
     item.setId("pressure");

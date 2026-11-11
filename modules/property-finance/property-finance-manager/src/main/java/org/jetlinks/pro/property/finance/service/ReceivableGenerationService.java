@@ -33,6 +33,7 @@ public class ReceivableGenerationService {
     private final ReactiveRepository<HouseSettingEntity, String> settings;
     private final ReactiveRepository<ReceivableEntity, String> bills;
     private final ReactiveRepository<ReceivableChangeEntity, String> changes;
+    private final ReactiveRepository<ReceivableLogEntity, String> logs;
     private final NaturalBillingPeriodService periods;
     private final ReceivableCalculationService calculation;
 
@@ -216,6 +217,12 @@ public class ReceivableGenerationService {
                                                                 calculation.calculate(
                                                                         row, standard, date, kind);
                                                                 return bills.insert(row)
+                                                                        .then(
+                                                                                journal(
+                                                                                        null,
+                                                                                        row,
+                                                                                        auth,
+                                                                                        "GENERATE"))
                                                                         .thenReturn(true);
                                                             }));
                                 }));
@@ -367,6 +374,9 @@ public class ReceivableGenerationService {
             return Mono.empty();
         if ((kind == BillingTaskKind.ACCRUE || kind == BillingTaskKind.CLOSE)
                 && "CLOSED".equals(bill.getPeriodStatus())) return Mono.empty();
+        var before =
+                com.alibaba.fastjson.JSON.parseObject(
+                        ReceivableService.auditSnapshot(bill), ReceivableEntity.class);
         calculation.calculate(bill, standard, date, kind);
         var update =
                 audit(bills.createUpdate(), auth, bill.getVersion())
@@ -384,7 +394,34 @@ public class ReceivableGenerationService {
                 .and("deleted", false)
                 .execute()
                 .flatMap(SubjectService::changed)
-                .then();
+                .then(
+                        Mono.defer(
+                                () -> {
+                                    bill.setVersion(before.getVersion() + 1);
+                                    return journal(before, bill, auth, "CALCULATE");
+                                }));
+    }
+
+    private Mono<Void> journal(
+            ReceivableEntity before,
+            ReceivableEntity after,
+            Authentication auth,
+            String operation) {
+        var log = new ReceivableLogEntity();
+        log.setId(UUID.randomUUID().toString());
+        log.setProjectId(after.getProjectId());
+        log.setSpaceId(after.getSpaceId());
+        log.setReceivableId(after.getId());
+        log.setOperation(operation);
+        log.setReason(operation);
+        log.setOperatorId(auth.getUser().getId());
+        log.setOperatorName(FinanceScope.operatorName(auth));
+        log.setCreateTime(System.currentTimeMillis());
+        log.setBeforeVersion(before == null ? -1L : before.getVersion());
+        log.setAfterVersion(after.getVersion());
+        log.setBeforeJson(before == null ? "{}" : ReceivableService.auditSnapshot(before));
+        log.setAfterJson(ReceivableService.auditSnapshot(after));
+        return logs.insert(log).then();
     }
 
     public record GenerationResult(int generated, int retained) {}

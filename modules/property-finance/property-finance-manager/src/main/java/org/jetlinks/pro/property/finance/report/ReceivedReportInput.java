@@ -24,6 +24,8 @@ public class ReceivedReportInput extends ReportExportInput {
             collectorName,
             receivedDateStart,
             receivedDateEnd;
+    private String calcStartDate, calcEndDate;
+    private List<String> receivedPeriods = List.of();
     private String handoverState;
     private String collectorId;
     private String groupBy = "DETAIL";
@@ -57,7 +59,7 @@ public class ReceivedReportInput extends ReportExportInput {
                                 "ADVANCE_REFUND",
                                 "DEPOSIT_REFUND")
                         .containsAll(sourceTypes)
-                || !Set.of("DETAIL", "PROJECT", "SUBJECT", "METHOD", "SOURCE", "COLLECTOR")
+                || !Set.of("DETAIL", "PROJECT", "SUBJECT", "METHOD", "SOURCE", "COLLECTOR", "DAY", "MONTH", "HANDOVER")
                         .contains(Objects.toString(groupBy, ""))
                 || pageIndex < 0
                 || pageSize < 1
@@ -66,6 +68,9 @@ public class ReceivedReportInput extends ReportExportInput {
             throw error("report_query_invalid", 400);
         for (String s : Arrays.asList(customerName, fullName, paymentNo, collectorName))
             if (s != null && s.length() > 200) throw error("report_query_invalid", 400);
+        var feeStart = date(calcStartDate); var feeEnd = date(calcEndDate);
+        if (feeStart != null && feeEnd != null && feeStart.isAfter(feeEnd)) throw error("report_query_invalid", 400);
+        if (receivedPeriods == null || receivedPeriods.size() > 366 || receivedPeriods.stream().anyMatch(p -> p == null || !p.matches("[0-9]{4}-[0-9]{2}(-[0-9]{2})?"))) throw error("report_query_invalid", 400);
         var start = date(receivedDateStart);
         var end = date(receivedDateEnd);
         if (start != null && end != null && start.isAfter(end))

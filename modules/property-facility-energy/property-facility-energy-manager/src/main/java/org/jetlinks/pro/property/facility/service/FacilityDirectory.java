@@ -1,10 +1,13 @@
 package org.jetlinks.pro.property.facility.service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.hswebframework.web.authorization.Authentication;
+import org.hswebframework.web.api.crud.entity.PagerResult;
+import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.authorization.ReactiveAuthenticationHolder;
 import org.hswebframework.web.authorization.exception.AccessDenyException;
 import org.hswebframework.web.exception.BusinessException;
@@ -15,11 +18,14 @@ import org.jetlinks.pro.assets.scope.AssetScopeResolverManager;
 import org.jetlinks.pro.authorize.BusinessApplicationDimension;
 import org.jetlinks.pro.command.CommandSupportManagerProviders;
 import org.jetlinks.pro.property.base.command.QueryPropertyProjectsCommand;
+import org.jetlinks.pro.property.base.command.QueryPropertyEmployeePageCommand;
 import org.jetlinks.pro.property.base.command.QueryPropertySpacesCommand;
 import org.jetlinks.pro.property.base.command.QueryPropertyUsersCommand;
+import org.jetlinks.pro.property.base.organization.OrganizationType;
 import org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo;
 import org.jetlinks.pro.property.base.space.PropertySpaceInfo;
 import org.jetlinks.pro.property.base.user.PropertyUserInfo;
+import org.jetlinks.pro.property.base.user.PropertyEmployeeInfo;
 import org.jetlinks.pro.tenant.holder.TenantHolder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -51,6 +57,32 @@ public class FacilityDirectory {
     var command = new QueryPropertyUsersCommand();
     command.setEmployeesOnly(true);
     return support().flatMapMany(s -> s.execute(command));
+  }
+
+  /** 项目本身即基础组织；业务成员筛选与基础命令的 user 资产权限取交集，不扩大组织范围。 */
+  public Flux<PropertyEmployeeInfo> projectEmployees(String projectId) {
+    return project(projectId).thenMany(
+      projectEmployeePage(projectId, 0)
+        .expand(page -> (long) (page.getPageIndex() + 1) * 200 < page.getTotal()
+          ? projectEmployeePage(projectId, page.getPageIndex() + 1) : Mono.empty())
+        .concatMapIterable(PagerResult::getData)
+    );
+  }
+
+  private Mono<PagerResult<PropertyEmployeeInfo>> projectEmployeePage(String projectId, int pageIndex) {
+    return Mono.defer(() -> {
+      var query = QueryParamEntity.newQuery()
+        .where("id", "property-user-org", Map.of("orgId$in", List.of(projectId)))
+        .orderByAsc("id").getParam();
+      query.setPageIndex(pageIndex);
+      query.setPageSize(200);
+      var command = new QueryPropertyEmployeePageCommand();
+      command.setQuery(query);
+      return CommandSupportManagerProviders.getCommandSupport(QueryPropertyEmployeePageCommand.SERVICE_ID)
+        .switchIfEmpty(Mono.error(new BusinessException("error.facility.directory_unavailable", 503)))
+        .flatMap(s -> s.execute(command))
+        .doOnNext(page -> page.setPageIndex(pageIndex));
+    });
   }
 
   public Mono<PropertyUserInfo> user(String id) {
@@ -92,6 +124,32 @@ public class FacilityDirectory {
   }
 
   public Flux<PropertyOrganizationInfo> organizations() {
+    return organizationTree().expand(org ->
+      Flux.fromIterable(org.getChildren() == null ? List.of() : org.getChildren())
+    );
+  }
+
+  /** 外协选项只保留明确标注的单位及其授权祖先，不修改用于人员归属校验的完整目录。 */
+  public Flux<PropertyOrganizationInfo> externalOrganizationTree() {
+    return organizationTree().mapNotNull(this::externalBranch);
+  }
+
+  private PropertyOrganizationInfo externalBranch(PropertyOrganizationInfo node) {
+    var children = (node.getChildren() == null ? List.<PropertyOrganizationInfo>of() : node.getChildren())
+      .stream().map(this::externalBranch).filter(Objects::nonNull).toList();
+    if (node.getOrganizationType() != OrganizationType.external && children.isEmpty()) return null;
+    var result = new PropertyOrganizationInfo();
+    result.setId(node.getId());
+    result.setName(node.getName());
+    result.setCode(node.getCode());
+    result.setParentId(node.getParentId());
+    result.setSortIndex(node.getSortIndex());
+    result.setOrganizationType(node.getOrganizationType());
+    result.setChildren(children);
+    return result;
+  }
+
+  private Flux<PropertyOrganizationInfo> organizationTree() {
     var command =
       new org.jetlinks.pro.property.base.command.QueryPropertyOrganizationTreeCommand();
     return CommandSupportManagerProviders.getCommandSupport(command.SERVICE_ID)
@@ -100,17 +158,12 @@ public class FacilityDirectory {
           new BusinessException("error.facility.directory_unavailable", 503)
         )
       )
-      .flatMapMany(s -> s.execute(command))
-      .expand(org ->
-        Flux.fromIterable(
-          org.getChildren() == null ? List.of() : org.getChildren()
-        )
-      );
+      .flatMapMany(s -> s.execute(command));
   }
 
   public Mono<Void> externalOrganization(String id) {
     return organizations()
-      .filter(org -> Objects.equals(id, org.getId()))
+      .filter(org -> Objects.equals(id, org.getId()) && org.getOrganizationType() == OrganizationType.external)
       .next()
       .switchIfEmpty(
         Mono.error(
@@ -137,7 +190,7 @@ public class FacilityDirectory {
         .getParam()
     );
     var branch = organizations()
-      .filter(org -> Objects.equals(externalOrganizationId, org.getId()))
+      .filter(org -> Objects.equals(externalOrganizationId, org.getId()) && org.getOrganizationType() == OrganizationType.external)
       .next()
       .switchIfEmpty(
         Mono.error(

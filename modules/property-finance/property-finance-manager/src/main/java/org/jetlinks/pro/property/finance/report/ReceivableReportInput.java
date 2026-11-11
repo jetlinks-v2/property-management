@@ -16,6 +16,9 @@ public class ReceivableReportInput extends ReportExportInput {
     private List<String> projectIds = List.of();
     private List<String> spaceIds = List.of();
     private List<String> subjectIds = List.of();
+    private List<String> customerIds = List.of();
+    private List<String> months = List.of();
+    private String calcStartDate, calcEndDate;
     private String customerName;
     private String fullName;
     private String receivableNo;
@@ -36,8 +39,12 @@ public class ReceivableReportInput extends ReportExportInput {
         ReportGroupKey.validate(subjectGroups);
         ids(projectIds, 100, true);
         ids(spaceIds, 1000, false);
+        ids(customerIds, 1000, false);
+        if (months == null || months.size() > 120 || months.stream().anyMatch(m -> m == null || !m.matches("[0-9]{4}-[0-9]{2}"))) throw error("report_query_invalid", 400);
+        var feeStart = date(calcStartDate); var feeEnd = date(calcEndDate);
+        if (feeStart != null && feeEnd != null && feeStart.isAfter(feeEnd)) throw error("report_query_invalid", 400);
         ids(subjectIds, 1000, false);
-        if (!Set.of("DETAIL", "PROJECT", "SUBJECT").contains(Objects.toString(groupBy, ""))
+        if (!Set.of("DETAIL", "PROJECT", "SUBJECT", "SPACE", "CUSTOMER", "MONTH").contains(Objects.toString(groupBy, ""))
                 || collectionStatus != null
                         && !Set.of("UNPAID", "PARTIAL", "PAID").contains(collectionStatus)
                 || pageIndex < 0

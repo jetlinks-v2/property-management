@@ -29,6 +29,7 @@ public class FacilityConfiguration {
     require(
       input.getName() != null &&
         !input.getName().isBlank() &&
+        input.getKind() != null &&
         Set.of("inspection", "maintenance").contains(input.getKind()),
       "invalid_standard"
     );

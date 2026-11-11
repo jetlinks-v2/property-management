@@ -36,6 +36,7 @@ public class FundLedger {
             String fingerprint,
             Authentication auth) {
         var entry = new FundEntryEntity();
+        entry.setBillNo(FinanceDocumentNumbers.next("DEPOSIT".equals(a.getType()) ? "YJ" : "YC"));
         entry.setId(peer != null && delta.signum() > 0 ? transaction + ":in" : transaction);
         init(entry, auth);
         entry.setProjectId(a.getProjectId());

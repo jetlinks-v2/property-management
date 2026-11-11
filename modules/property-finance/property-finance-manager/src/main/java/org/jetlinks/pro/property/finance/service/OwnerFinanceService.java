@@ -339,6 +339,7 @@ public class OwnerFinanceService {
     private static Bill bill(ReceivableEntity row) {
         return new Bill(
                 row.getId(),
+                row.getSubjectName(),
                 row.getPeriodStart(),
                 row.getPeriodEnd(),
                 row.getDueDate(),
@@ -357,6 +358,7 @@ public class OwnerFinanceService {
 
     public record Bill(
             String id,
+            String subjectName,
             String periodStart,
             String periodEnd,
             String dueDate,

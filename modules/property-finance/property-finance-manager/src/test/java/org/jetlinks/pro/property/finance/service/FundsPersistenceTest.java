@@ -171,6 +171,8 @@ class FundsPersistenceTest {
         var retry =
                 service.execute(project, request, DATE).contextWrite(fixture.allowed()).block(WAIT);
         assertEquals(first.entry().getId(), retry.entry().getId());
+        assertEquals(first.entry().getBillNo(), retry.entry().getBillNo());
+        assertTrue(first.entry().getBillNo().startsWith("YJ"));
         assertEquals("", first.account().getStandardId());
         assertEquals(setting.subjectId, first.account().getSubjectId());
         money("120.01", retry.account().getBalance());
@@ -322,6 +324,8 @@ class FundsPersistenceTest {
         var a = service.execute(project, r, DATE).contextWrite(fixture.allowed()).block(WAIT);
         var b = service.execute(project, r, DATE).contextWrite(fixture.allowed()).block(WAIT);
         assertEquals(a.entry().getId(), b.entry().getId());
+        assertEquals(a.entry().getBillNo(), b.entry().getBillNo());
+        assertTrue(a.entry().getBillNo().startsWith("YC"));
         money("9007199254740993.01", b.account().getBalance());
         i.setAmount(new BigDecimal("2.00"));
         rejects(service.execute(project, r, DATE), 409);

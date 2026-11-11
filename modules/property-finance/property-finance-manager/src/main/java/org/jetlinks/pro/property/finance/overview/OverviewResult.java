@@ -18,7 +18,7 @@ public record OverviewResult(
             ReceivableReportAmounts summary,
             List<Subject> subjects,
             List<AgeBucket> ageBuckets,
-            long overdueHouseCount) {}
+            long overdueHouseCount, long billingHouseCount, long owingHouseCount) {}
 
     public record Subject(String subjectId, String subjectName, ReceivableReportAmounts amounts) {}
 

@@ -127,13 +127,18 @@ class OwnerFinancePersistenceTest extends PrepayQuotePersistenceTest {
         org.springframework.beans.BeanUtils.copyProperties(original, foreign);
         foreign.setId(UUID.randomUUID().toString());
         foreign.setBillKey(UUID.randomUUID().toString());
+        foreign.setBillNo(
+                org.jetlinks.pro.property.finance.payment.FinanceDocumentNumbers.next("YS"));
         foreign.setProjectId("foreign-project");
         foreign.setSpaceId("foreign-room");
         bills.insert(foreign).block(WAIT);
         assertEquals(
                 result.total(),
                 run(ownerFinance.bills(fixture.project, "room", false, 0, 20)).total());
-        for (var bill : result.data()) assertNotNull(bill.id());
+        for (var bill : result.data()) {
+            assertNotNull(bill.id());
+            assertEquals(original.getSubjectName(), bill.subjectName());
+        }
         var count =
                 bills.createUpdate()
                         .set("customerId", "stranger")
@@ -147,6 +152,38 @@ class OwnerFinancePersistenceTest extends PrepayQuotePersistenceTest {
         assertEquals("stranger", changed.getCustomerId());
         assertEquals("{}", changed.getSnapshotJson());
         assertEquals(0, run(ownerFinance.bills(fixture.project, "room", false, 0, 20)).total());
+    }
+
+    @Test
+    void ownerBillsKeepSubjectsForSamePeriodInBothUnpaidAndPaidLists() {
+        var original =
+                bills.createQuery().where("projectId", fixture.project).fetchOne().block(WAIT);
+        var other = new ReceivableEntity();
+        org.springframework.beans.BeanUtils.copyProperties(original, other);
+        other.setId(UUID.randomUUID().toString());
+        other.setBillKey(UUID.randomUUID().toString());
+        other.setBillNo(null);
+        org.jetlinks.pro.property.finance.payment.FinanceDocumentNumbers.assign(other);
+        other.setSubjectName("停车费");
+        bills.insert(other).block(WAIT);
+        var unpaid = run(ownerFinance.bills(fixture.project, "room", false, 0, 50));
+        assertTrue(unpaid.data().stream().anyMatch(b -> "停车费".equals(b.subjectName())));
+        assertTrue(
+                unpaid.data().stream()
+                        .anyMatch(b -> original.getSubjectName().equals(b.subjectName())));
+        bills.createUpdate()
+                .set("paidAmount", other.getActualReceivableAmount())
+                .set("arrears", java.math.BigDecimal.ZERO)
+                .where("id", other.getId())
+                .execute()
+                .block(WAIT);
+        var paid = run(ownerFinance.bills(fixture.project, "room", true, 0, 50));
+        assertTrue(
+                paid.data().stream()
+                        .anyMatch(
+                                b ->
+                                        b.id().equals(other.getId())
+                                                && "停车费".equals(b.subjectName())));
     }
 
     @Autowired ReactiveRepository<FundEntryEntity, String> fundEntries;

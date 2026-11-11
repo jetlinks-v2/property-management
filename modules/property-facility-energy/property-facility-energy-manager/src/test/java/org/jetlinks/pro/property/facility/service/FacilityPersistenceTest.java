@@ -1598,10 +1598,114 @@ class FacilityPersistenceTest {
     assertTrue(saved.getEnergyEnabled());
   }
 
+  @Autowired CycleStore cycleStore;
+  @Autowired PlanStore planStore;
+  @Autowired StandardStore standardStore;
+  @Autowired GroupStore groupStore;
+  @Autowired FacilityCycles cycleManager;
+  @Autowired FacilityPlans planManager;
+
+  PlanEntity cyclicPlan(String suffix) {
+    long now = System.currentTimeMillis() / 60000 * 60000;
+    var cycle = FacilityScope.initialize(new CycleEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
+    cycle.setId("cycle-" + suffix); cycle.setName("水泵巡检周期"); cycle.setProjectId("p"); cycle.setOrganizationId("p");
+    cycle.setKind("inspection"); cycle.setEnabled(true);
+    var weekly = new java.util.HashMap<Integer, List<CycleRule.Window>>();
+    for (int day = 1; day <= 7; day++) weekly.put(day, List.of(new CycleRule.Window(0, 0, 1, 1, 1, "1", "1")));
+    cycle.setRule(new CycleRule(weekly, Map.of()));
+    cycleStore.insert(cycle).block();
+    var standard = FacilityScope.initialize(new StandardEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
+    standard.setId("standard-" + suffix); standard.setProjectId("p"); standard.setKind("inspection"); standard.setEnabled(true);
+    var item = new CheckItem(); item.setId("pressure"); item.setName("水泵压力正常"); item.setKind("choice");
+    item.setOptions(List.of("符合", "不符合")); standard.setCheckItems(List.of(item)); standardStore.insert(standard).block();
+    var device = FacilityScope.initialize(new DeviceEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
+    device.setId("pump-" + suffix); device.setCloudDeviceId("cloud-pump-" + suffix); device.setProjectId("p");
+    device.setName("消防水泵"); device.setSyncState("active"); device.setInspectionEnabled(true); devices.insert(device).block();
+    var group = FacilityScope.initialize(new GroupEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
+    group.setId("room-" + suffix); group.setProjectId("p"); group.setDeviceIds(List.of(device.getId(), device.getId())); groupStore.insert(group).block();
+    var plan = FacilityScope.initialize(new PlanEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
+    plan.setId("config-" + suffix); plan.setName("消防水泵任务配置"); plan.setProjectId("p"); plan.setOrganizationId("p");
+    plan.setCycleId(cycle.getId()); plan.setStandardId(standard.getId()); plan.setKind("inspection"); plan.setMode("single");
+    plan.setGroupIds(List.of(group.getId(), group.getId())); plan.setReviewerId("reviewer"); plan.setEnabled(true);
+    plan.setStartTime(now - 600000); plan.setEndTime(now + 3600000); plan.setNextRunTime(now); planStore.insert(plan).block();
+    return plan;
+  }
+
+  @Test void cycleGeneratesOneWorkOrderPerDeviceAndExecutionWithStableSnapshots() {
+    var plan = cyclicPlan("once");
+    var result = as("staff", planManager.generate(plan.getId(), false)).block();
+    assertEquals(1, result.size());
+    var task = result.get(0);
+    assertEquals(plan.getNextRunTime(), task.getScheduledTime());
+    assertEquals(plan.getNextRunTime() + 60000, task.getDeadline());
+    assertEquals("open", task.getState());
+    assertNull(task.getAssigneeId());
+    assertEquals("水泵压力正常", task.getStandardSnapshot().get(0).getName());
+    assertEquals(plan.getNextRunTime() + 60000, planStore.findById(plan.getId()).block().getNextRunTime());
+    // Replay the same slot as after a retry; the stable ID reuses the committed work order.
+    planStore.createUpdate().set("nextRunTime", plan.getNextRunTime()).where("id", plan.getId()).execute().block();
+    assertEquals(task.getId(), as("staff", planManager.generate(plan.getId(), false)).block().get(0).getId());
+    assertEquals(1, store.createQuery().where("planId", plan.getId()).count().block());
+    assertEquals(0L, cycleStore.findById(plan.getCycleId()).block().getVersion());
+  }
+
+  @Test void cycleEditsStopAndResumeOnlyWithinConfigurationDatesWithoutRewritingTasks() {
+    var plan = cyclicPlan("edit");
+    var generated = as("staff", planManager.generate(plan.getId(), false)).block().get(0);
+    var project = new PropertyOrganizationInfo(); project.setId("p"); project.setName("项目");
+    when(directory.project("p")).thenReturn(Mono.just(project));
+    doReturn(Mono.empty()).when(records).assertProject(eq("p"), any());
+    var cycle = cycleStore.findById(plan.getCycleId()).block();
+    cycle.setEnabled(false);
+    as("staff", cycleManager.save(cycle)).block();
+    assertEquals(Long.MAX_VALUE, planStore.findById(plan.getId()).block().getNextRunTime());
+    long futureStart = System.currentTimeMillis() + 86400000;
+    planStore.createUpdate().set("startTime", futureStart).set("endTime", futureStart + 3600000)
+      .where("id", plan.getId()).execute().block();
+    cycle = cycleStore.findById(plan.getCycleId()).block(); cycle.setEnabled(true);
+    as("staff", cycleManager.save(cycle)).block();
+    var resumed = planStore.findById(plan.getId()).block();
+    assertTrue(resumed.getNextRunTime() >= futureStart && resumed.getNextRunTime() < resumed.getEndTime());
+    assertEquals(1, store.createQuery().where("planId", plan.getId()).count().block());
+    assertEquals(generated.getScheduledTime(), store.findById(generated.getId()).block().getScheduledTime());
+    assertEquals(generated.getDeadline(), store.findById(generated.getId()).block().getDeadline());
+  }
+
+  @Test void cycleGenerationRollsBackTasksWhenCursorCannotAdvance() {
+    var plan = cyclicPlan("rollback");
+    doReturn(Mono.error(new BusinessException("cursor-conflict"))).when(records).update(eq(planStore), any(PlanEntity.class), anyLong());
+    try {
+      StepVerifier.create(as("staff", planManager.generate(plan.getId(), false))).expectError(BusinessException.class).verify();
+      assertEquals(0, store.createQuery().where("planId", plan.getId()).count().block());
+      assertEquals(plan.getNextRunTime(), planStore.findById(plan.getId()).block().getNextRunTime());
+    } finally { doCallRealMethod().when(records).update(eq(planStore), any(PlanEntity.class), anyLong()); }
+  }
+
+  @Test void concurrentGenerationCommitsOnlyOneTaskAndOneCursorStep() {
+    var plan = cyclicPlan("concurrent");
+    var outcomes = Flux.merge(as("staff", planManager.generate(plan.getId(), false)).materialize(),
+      as("staff", planManager.generate(plan.getId(), false)).materialize()).collectList().block();
+    assertTrue(outcomes.stream().anyMatch(reactor.core.publisher.Signal::isOnNext));
+    assertEquals(1, store.createQuery().where("planId", plan.getId()).count().block());
+    assertEquals(plan.getNextRunTime() + 60000, planStore.findById(plan.getId()).block().getNextRunTime());
+  }
+
+  @Test void referencedCycleCannotBeDeletedAndUnauthorizedCycleCannotGenerate() {
+    var plan = cyclicPlan("permission");
+    StepVerifier.create(as("staff", cycleManager.remove(plan.getCycleId(), 0)))
+      .expectErrorMatches(e -> e instanceof BusinessException && "error.facility.cycle_in_use".equals(e.getMessage())).verify();
+    when(scope.assertRecord(any(CycleEntity.class), eq(org.jetlinks.pro.property.facility.asset.FacilityAssetType.facilityCycle), any(), any()))
+      .thenReturn(Mono.error(new org.hswebframework.web.authorization.exception.AccessDenyException()));
+    StepVerifier.create(as("staff", planManager.generate(plan.getId(), false)))
+      .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+    assertEquals(0, store.createQuery().where("planId", plan.getId()).count().block());
+  }
+
   @SpringBootConfiguration
   @EnableTransactionManagement(proxyTargetClass = true)
   @EnableEasyormRepository("org.jetlinks.pro.property.facility.entity")
   @Import({
+    CycleStore.class, PlanStore.class, StandardStore.class, FacilityCycles.class, FacilityPlans.class,
     TaskStore.class,
     FaultStore.class,
     ProcessStore.class,

@@ -3,6 +3,7 @@ package org.jetlinks.pro.property.finance.report;
 /** 明细及汇总只暴露必要的账单快照，不返回设置JSON或内部财务控制字段。 */
 public record ReceivableReportRow(
         String id,
+        String billNo,
         String projectId,
         String projectName,
         String spaceId,
@@ -19,4 +20,4 @@ public record ReceivableReportRow(
         String remark,
         long billCount,
         ReceivableReportAmounts amounts,
-        long overdueDays) {}
+        long overdueDays, String customerId) {}

@@ -276,6 +276,8 @@ class CashierPersistenceTest {
                         .block(WAIT);
         assertEquals(2, results.size());
         assertEquals(results.get(0).payment().getId(), results.get(1).payment().getId());
+        assertEquals(results.get(0).payment().getBillNo(), results.get(1).payment().getBillNo());
+        assertTrue(results.get(0).payment().getBillNo().startsWith("SS"));
         assertEquals("0.00", bills.findById(row.getId()).block(WAIT).getArrears().toPlainString());
         var different =
                 new CashierService.Submission(

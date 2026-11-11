@@ -30,6 +30,11 @@ public enum FacilityAssetType implements EnumAssetType {
     Arrays.asList(CrudAssetPermission.values()),
     List.of("facility-plan")
   ),
+  facilityCycle(
+    "周期计划",
+    Arrays.asList(CrudAssetPermission.values()),
+    List.of("facility-cycle")
+  ),
   facilityTask(
     "设施Task",
     Arrays.asList(CrudAssetPermission.values()),

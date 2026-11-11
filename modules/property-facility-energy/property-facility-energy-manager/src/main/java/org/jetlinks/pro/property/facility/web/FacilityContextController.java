@@ -38,13 +38,21 @@ public class FacilityContextController {
   @GetMapping("/organizations")
   @QueryAction
   public Flux<org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo> organizations() {
-    return directory.organizations();
+    return directory.externalOrganizationTree();
   }
 
   @GetMapping("/employees")
   @QueryAction
   public Flux<org.jetlinks.pro.property.base.user.PropertyUserInfo> employees() {
     return directory.employees();
+  }
+
+  @GetMapping("/employees/{projectId}")
+  @QueryAction
+  public Flux<org.jetlinks.pro.property.base.user.PropertyEmployeeInfo> projectEmployees(
+    @PathVariable String projectId
+  ) {
+    return directory.projectEmployees(projectId);
   }
 
   @GetMapping("/spaces/{projectId}")

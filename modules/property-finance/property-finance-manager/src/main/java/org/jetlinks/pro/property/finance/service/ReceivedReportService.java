@@ -38,6 +38,10 @@ public class ReceivedReportService {
     private static final String CURRENT =
             "case when substring(\"receivedAt\" from 1 for 10) between \"calcStartDate\" and"
                     + " \"calcEndDate\" then amount else 0 end";
+    private static final String MONTH="substring(\"receivedAt\" from 1 for 7)";
+    private static final String CATEGORY="case when \"calcStartDate\" is null or \"calcEndDate\" is null then 'unassignedAmount' when substring(\"calcEndDate\" from 1 for 4)<substring(\"receivedAt\" from 1 for 4) then 'olderYearAmount' when substring(\"calcEndDate\" from 1 for 7)<"+MONTH+" then 'olderMonthAmount' when substring(\"calcStartDate\" from 1 for 7)>"+MONTH+" then 'futureAmount' else 'thisMonthAmount' end";
+    private static final List<String> CATEGORIES=List.of("olderYearAmount","olderMonthAmount","thisMonthAmount","futureAmount","unassignedAmount");
+    private static String calendar(boolean grouped) {return String.join(",",CATEGORIES.stream().map(k->(grouped?"sum(":"")+"case when ("+CATEGORY+")='"+k+"' then amount else 0 end"+(grouped?")":"")+" as \""+k+"\"").toList());}
     private static final String HANDOVER_SUMS =
             "sum(case when \"handoverState\"='UNHANDED' then amount else 0 end) as unhanded,"
                 + " sum(case when \"handoverState\"='PENDING' then amount else 0 end) as pending,"
@@ -49,7 +53,7 @@ public class ReceivedReportService {
                     + ") as \"currentAmount\", sum(amount- ("
                     + CURRENT
                     + ")) as \"otherAmount\", "
-                    + HANDOVER_SUMS;
+                    + HANDOVER_SUMS + "," + calendar(true);
 
     /** 复用现金来源集，退款按自身发生日记负向现金；预收冲抵不会再次计入收入。 */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -215,6 +219,7 @@ public class ReceivedReportService {
                                 p,
                                 params,
                                 "id",
+                                "billNo",
                                 "projectId",
                                 "paidAt",
                                 "modifierId",
@@ -246,6 +251,7 @@ public class ReceivedReportService {
                                 r,
                                 params,
                                 "id",
+                                "billNo",
                                 "projectId",
                                 "refundedAt",
                                 "method",
@@ -273,6 +279,7 @@ public class ReceivedReportService {
                                 e,
                                 params,
                                 "id",
+                                "billNo",
                                 "projectId",
                                 "accountId",
                                 "transactionId",
@@ -313,18 +320,19 @@ public class ReceivedReportService {
                                 "calcEndDate")
                         + ") ";
         String payment =
-                "select l.\"id\", p.\"id\" as \"sourceId\", l.\"projectId\", l.\"spaceId\","
-                    + " l.\"fullName\", l.\"customerName\", l.\"subjectId\", l.\"subjectName\","
-                    + " p.\"paidAt\" as \"receivedAt\", l.\"calcStartDate\", l.\"calcEndDate\","
-                    + " l.\"method\", l.\"methodText\", l.\"sourceType\", p.\"modifierName\" as"
-                    + " \"collectorSnapshot\", p.\"remark\", l.\"amount\" as amount,"
-                    + " l.\"receivableId\", p.\"modifierId\" as \"collectorId\" from l join p on"
-                    + " l.\"paymentId\"=p.\"id\" and l.\"projectId\"=p.\"projectId\"";
+                "select l.\"id\", p.\"id\" as \"sourceId\", p.\"billNo\" as \"sourceNo\","
+                    + " l.\"projectId\", l.\"spaceId\", l.\"fullName\", l.\"customerName\","
+                    + " l.\"subjectId\", l.\"subjectName\", p.\"paidAt\" as \"receivedAt\","
+                    + " l.\"calcStartDate\", l.\"calcEndDate\", l.\"method\", l.\"methodText\","
+                    + " l.\"sourceType\", p.\"modifierName\" as \"collectorSnapshot\","
+                    + " p.\"remark\", l.\"amount\" as amount, l.\"receivableId\", p.\"modifierId\""
+                    + " as \"collectorId\" from l join p on l.\"paymentId\"=p.\"id\" and"
+                    + " l.\"projectId\"=p.\"projectId\"";
         String refund =
-                "select rl.\"id\", r.\"id\", rl.\"projectId\", rl.\"spaceId\", rl.\"fullName\","
-                    + " rl.\"customerName\", original.\"subjectId\", rl.\"subjectName\","
-                    + " r.\"refundedAt\", original.\"calcStartDate\", original.\"calcEndDate\","
-                    + " r.\"method\", r.\"methodText\", case when"
+                "select rl.\"id\", r.\"id\", r.\"billNo\", rl.\"projectId\", rl.\"spaceId\","
+                    + " rl.\"fullName\", rl.\"customerName\", original.\"subjectId\","
+                    + " rl.\"subjectName\", r.\"refundedAt\", original.\"calcStartDate\","
+                    + " original.\"calcEndDate\", r.\"method\", r.\"methodText\", case when"
                     + " original.\"sourceType\"='TEMPORARY' then 'TEMPORARY_REFUND' else 'REFUND'"
                     + " end, r.\"modifierName\", r.\"reason\", -rl.\"amount\","
                     + " original.\"receivableId\", r.\"modifierId\" from rl join r on"
@@ -334,15 +342,16 @@ public class ReceivedReportService {
                     + " rl.\"spaceId\"=original.\"spaceId\"";
         // 已删账户及原收款行仍保留历史归属；流水名称来自不可变快照，不取账户当前名称。
         String fund =
-                "select e.\"id\", e.\"transactionId\", e.\"projectId\", e.\"spaceId\","
-                    + " e.\"fullName\", e.\"customerName\", a.\"subjectId\", e.\"subjectName\","
-                    + " e.\"occurredAt\", e.\"calcStartDate\", e.\"calcEndDate\", e.\"method\","
-                    + " e.\"methodText\", case when e.\"cashAmount\"<0 then a.\"type\" || '_REFUND'"
-                    + " else a.\"type\" end, e.\"modifierName\", e.\"reason\", e.\"cashAmount\","
-                    + " cast(null as varchar(64)), e.\"modifierId\" from e join a on"
-                    + " e.\"accountId\"=a.\"id\" and e.\"projectId\"=a.\"projectId\"";
+                "select e.\"id\", e.\"transactionId\", e.\"billNo\", e.\"projectId\","
+                    + " e.\"spaceId\", e.\"fullName\", e.\"customerName\", a.\"subjectId\","
+                    + " e.\"subjectName\", e.\"occurredAt\", e.\"calcStartDate\","
+                    + " e.\"calcEndDate\", e.\"method\", e.\"methodText\", case when"
+                    + " e.\"cashAmount\"<0 then a.\"type\" || '_REFUND' else a.\"type\" end,"
+                    + " e.\"modifierName\", e.\"reason\", e.\"cashAmount\", cast(null as"
+                    + " varchar(64)), e.\"modifierId\" from e join a on e.\"accountId\"=a.\"id\""
+                    + " and e.\"projectId\"=a.\"projectId\"";
         String source =
-                "(select report_source.*, \"sourceType\" || '-' || \"sourceId\" as \"sourceNo\""
+                "(select report_source.*"
                         + " from ("
                         + payment
                         + " union all "
@@ -439,6 +448,12 @@ public class ReceivedReportService {
         like(where, params, "collectorName", i.getCollectorName());
         if (i.getCollectorId() != null)
             in(where, params, "collectorId", List.of(i.getCollectorId()));
+        if (i.getCalcStartDate() != null) { where.add("\"calcEndDate\">=?"); params.add(i.getCalcStartDate()); }
+        if (i.getCalcEndDate() != null) { where.add("\"calcStartDate\"<=?"); params.add(i.getCalcEndDate()); }
+        if (!i.getReceivedPeriods().isEmpty()) {
+            where.add("(" + String.join(" or ", Collections.nCopies(i.getReceivedPeriods().size(), "substring(\"receivedAt\" from 1 for length(?))=?")) + ")");
+            i.getReceivedPeriods().forEach(period -> {params.add(period); params.add(period);});
+        }
         if (i.getReceivedDateStart() != null) {
             where.add("substring(\"receivedAt\" from 1 for 10)>=?");
             params.add(i.getReceivedDateStart());
@@ -564,7 +579,7 @@ public class ReceivedReportService {
                                                                             + " \"handoverState\"='APPROVED'"
                                                                             + " then amount else 0"
                                                                             + " end as approved"
-                                                                            + " from "
+                                                                            + "," + calendar(false) + " from "
                                                                             + source
                                                                             + " order by"
                                                                             + " \"receivedAt\""
@@ -572,7 +587,7 @@ public class ReceivedReportService {
                                                                             + " \"sourceType\","
                                                                             + " \"id\""
                                                                     : "select "
-                                                                            + group
+                                                                            + (("DAY".equals(i.getGroupBy()) || "MONTH".equals(i.getGroupBy())) ? group + " as \"receivedAt\"" : group)
                                                                             + ", "
                                                                             + SUMS
                                                                             + " from "
@@ -630,6 +645,9 @@ public class ReceivedReportService {
 
     private static String group(String value) {
         return switch (value) {
+            case "DAY" -> "substring(\"receivedAt\" from 1 for 10)";
+            case "MONTH" -> "substring(\"receivedAt\" from 1 for 7)";
+            case "HANDOVER" -> "\"handoverState\"";
             case "PROJECT" -> "\"projectId\"";
             case "SUBJECT" -> "\"subjectId\", \"subjectName\"";
             case "METHOD" -> "\"method\", \"methodText\"";

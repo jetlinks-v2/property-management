@@ -25,6 +25,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class PrepayBillStore {
     private final ReactiveRepository<ReceivableEntity, String> bills;
+    private final ReactiveRepository<ReceivableLogEntity, String> logs;
     private final PrepayPeriodPricing pricing;
     private final ReceivableCalculationService calculation;
 
@@ -97,7 +98,25 @@ public class PrepayBillStore {
                                                         LocalDate.parse(snapshot.businessDate()),
                                                         org.jetlinks.pro.property.finance.setting
                                                                 .BillingTaskKind.ALL);
-                                                return bills.insert(row).thenReturn(row);
+                                                var log = new ReceivableLogEntity();
+                                                log.setId(UUID.randomUUID().toString());
+                                                log.setProjectId(row.getProjectId());
+                                                log.setSpaceId(row.getSpaceId());
+                                                log.setReceivableId(row.getId());
+                                                log.setOperation("PREPAY_GENERATE");
+                                                log.setReason("PREPAY_GENERATE");
+                                                log.setOperatorId(auth.getUser().getId());
+                                                log.setOperatorName(
+                                                        FinanceScope.operatorName(auth));
+                                                log.setCreateTime(System.currentTimeMillis());
+                                                log.setBeforeVersion(-1L);
+                                                log.setAfterVersion(row.getVersion());
+                                                log.setBeforeJson("{}");
+                                                log.setAfterJson(
+                                                        ReceivableService.auditSnapshot(row));
+                                                return bills.insert(row)
+                                                        .then(logs.insert(log))
+                                                        .thenReturn(row);
                                             });
                         })
                 .collectList();

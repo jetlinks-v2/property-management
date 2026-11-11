@@ -118,7 +118,7 @@ public class ReceivableReportFile {
                             "remark"));
         else
             cols.addAll(
-                    List.of("PROJECT".equals(group) ? "projectName" : "subjectName", "billCount"));
+                    List.of(switch(group){case "PROJECT" -> "projectName";case "SPACE" -> "fullName";case "CUSTOMER" -> "customerName";case "MONTH" -> "receivableDate";default -> "subjectName";}, "billCount"));
         cols.addAll(MONEY);
         return cols;
     }
@@ -129,7 +129,7 @@ public class ReceivableReportFile {
         values.put("subjectName", Objects.toString(row.subjectName(), ""));
         values.put("fullName", Objects.toString(row.fullName(), ""));
         values.put("customerName", Objects.toString(row.customerName(), ""));
-        values.put("id", Objects.toString(row.id(), ""));
+        values.put("id", Objects.toString(row.billNo(), ""));
         values.put("calcStartDate", Objects.toString(row.calcStartDate(), ""));
         values.put("calcEndDate", Objects.toString(row.calcEndDate(), ""));
         values.put("receivableDate", Objects.toString(row.receivableDate(), ""));

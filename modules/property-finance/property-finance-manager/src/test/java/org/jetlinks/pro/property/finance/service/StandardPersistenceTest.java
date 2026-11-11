@@ -607,6 +607,7 @@ class StandardPersistenceTest {
     }
 
     static void initialize(FinanceEntity entity) {
+        org.jetlinks.pro.property.finance.payment.FinanceDocumentNumbers.assign(entity);
         entity.setDeleted(false);
         entity.setVersion(0L);
         entity.setCreateTime(System.currentTimeMillis());

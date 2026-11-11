@@ -17,10 +17,10 @@ public class ReceivedReportFile {
                     "otherPeriodAmount",
                     "unhandedAmount",
                     "pendingAmount",
-                    "approvedAmount");
+                    "approvedAmount", "olderYearAmount","olderMonthAmount","thisMonthAmount","futureAmount","unassignedAmount");
     private static final Map<String, String> ZH =
             Map.ofEntries(
-                    Map.entry("title", "实收统计"),
+                    Map.entry("olderYearAmount","收回往年费用（元）"),Map.entry("olderMonthAmount","收回往月费用（元）"),Map.entry("thisMonthAmount","收回当月费用（元）"),Map.entry("futureAmount","预收未来费用（元）"),Map.entry("unassignedAmount","未指定费用期间（元）"),Map.entry("title", "实收统计"),
                     Map.entry("handoverState", "交账状态"),
                     Map.entry("UNHANDED", "已收未交账"),
                     Map.entry("PENDING", "已收未入账"),
@@ -62,7 +62,7 @@ public class ReceivedReportFile {
                     Map.entry("DEPOSIT_REFUND", "押金退还"));
     private static final Map<String, String> EN =
             Map.ofEntries(
-                    Map.entry("title", "Received report"),
+                    Map.entry("olderYearAmount","Prior years (CNY)"),Map.entry("olderMonthAmount","Prior months (CNY)"),Map.entry("thisMonthAmount","Current month (CNY)"),Map.entry("futureAmount","Future fees (CNY)"),Map.entry("unassignedAmount","Unspecified billing period (CNY)"),Map.entry("title", "Received report"),
                     Map.entry("handoverState", "Handover status"),
                     Map.entry("UNHANDED", "Received, not handed over"),
                     Map.entry("PENDING", "Received, not posted"),
@@ -135,7 +135,9 @@ public class ReceivedReportFile {
                                 case "PROJECT" -> "projectName";
                                 case "SUBJECT" -> "subjectName";
                                 case "METHOD" -> "methodText";
-                                case "COLLECTOR" -> "collectorName";
+                                case "DAY", "MONTH" -> "receivedAt";
+            case "HANDOVER" -> "handoverState";
+            case "COLLECTOR" -> "collectorName";
                                 default -> "sourceType";
                             },
                             "rowCount"));
@@ -185,6 +187,7 @@ public class ReceivedReportFile {
 
     private static Map<String, String> amounts(ReceivedReportAmounts a) {
         var v = new HashMap<String, String>();
+        v.put("olderYearAmount",a.olderYearAmount());v.put("olderMonthAmount",a.olderMonthAmount());v.put("thisMonthAmount",a.thisMonthAmount());v.put("futureAmount",a.futureAmount());v.put("unassignedAmount",a.unassignedAmount());
         v.put("unhandedAmount", a.unhandedAmount());
         v.put("pendingAmount", a.pendingAmount());
         v.put("approvedAmount", a.approvedAmount());
