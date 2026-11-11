@@ -50,9 +50,10 @@ public final class PatrolInspection {
         List<ItemResult> results = new ArrayList<>();
         for (CheckItem item : standard)
             results.add(new ItemResult(item.id(), evaluateItem(item, answers.get(item.id()))));
+        // 汇总仅供异常统计使用，文本、图片和选填空项不阻断已判定检查项的结果。
         CheckResult overall = results.stream().anyMatch(item -> item.result() == CheckResult.fail)
                 ? CheckResult.fail
-                : results.stream().allMatch(item -> item.result() == CheckResult.pass)
+                : results.stream().anyMatch(item -> item.result() == CheckResult.pass)
                         ? CheckResult.pass : CheckResult.not_evaluated;
         return new Evaluation(List.copyOf(results), overall);
     }
@@ -68,25 +69,31 @@ public final class PatrolInspection {
             if (hasImage && item.type() != ItemType.image) throw invalidAnswer();
             return CheckResult.not_evaluated;
         }
-        return switch (item.type()) {
-            case choice -> {
-                if (!item.options().contains(answer.value())) throw invalidAnswer();
-                yield item.qualifiedOptions().isEmpty() ? CheckResult.not_evaluated
-                        : item.qualifiedOptions().contains(answer.value()) ? CheckResult.pass : CheckResult.fail;
-            }
-            case number -> evaluateNumber(item, answer.value());
-            // 参考文本和例图用于人工检查，不用字符串相等或“上传成功”替代检查合格。
-            case text, image -> CheckResult.not_evaluated;
-        };
+        if (item.type() == ItemType.choice && !item.options().contains(answer.value())) throw invalidAnswer();
+        if (item.type() == ItemType.number && (answer.value().length() > 64
+                || !answer.value().matches("[+-]?\\d+(\\.\\d+)?"))) throw invalidAnswer();
+        return resultOf(item, answer);
     }
 
-    private static CheckResult evaluateNumber(CheckItem item, String value) {
-        if (value.length() > 64 || !value.matches("[+-]?\\d+(\\.\\d+)?")) throw invalidAnswer();
-        BigDecimal number = new BigDecimal(value);
-        if (item.lowerLimit() == null && item.upperLimit() == null) return CheckResult.not_evaluated;
-        return item.lowerLimit() != null && number.compareTo(item.lowerLimit()) < 0
-                || item.upperLimit() != null && number.compareTo(item.upperLimit()) > 0
-                ? CheckResult.fail : CheckResult.pass;
+    /** 按执行时快照标识异常：选项首项正常，数值含上下限边界；文本和图片只保留内容。 */
+    public static CheckResult resultOf(CheckItem item, Answer answer) {
+        if (item == null || answer == null || answer.value() == null || answer.value().isBlank())
+            return CheckResult.not_evaluated;
+        return switch (item.type()) {
+            case choice -> item.options().isEmpty() ? CheckResult.not_evaluated
+                    : item.options().get(0).equals(answer.value()) ? CheckResult.pass : CheckResult.fail;
+            case number -> {
+                if (item.lowerLimit() == null && item.upperLimit() == null) yield CheckResult.not_evaluated;
+                // 缺失或不可解析的历史答案只展示原值，不把历史数据错误判为正常或中断导出。
+                BigDecimal number;
+                try { number = new BigDecimal(answer.value()); }
+                catch (NumberFormatException ignored) { yield CheckResult.not_evaluated; }
+                yield item.lowerLimit() != null && number.compareTo(item.lowerLimit()) < 0
+                        || item.upperLimit() != null && number.compareTo(item.upperLimit()) > 0
+                        ? CheckResult.fail : CheckResult.pass;
+            }
+            case text, image -> CheckResult.not_evaluated;
+        };
     }
 
     private static BusinessException invalidAnswer() {

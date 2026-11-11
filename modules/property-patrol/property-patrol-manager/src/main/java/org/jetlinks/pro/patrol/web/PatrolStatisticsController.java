@@ -80,7 +80,7 @@ public class PatrolStatisticsController {
                                                @RequestParam(defaultValue = "false") boolean qualification,
                                                @RequestBody PatrolStatisticsService.Range range) {
         boolean people = "people".equals(dimension);
-        return service.report(range, people)
+        return service.reportByProject(range, people)
                 .flatMap(report -> Mono.fromCallable(() -> PatrolStatisticsExport.write(report, people, qualification))
                         .subscribeOn(Schedulers.boundedElastic()))
                 .map(bytes -> ResponseEntity.ok()

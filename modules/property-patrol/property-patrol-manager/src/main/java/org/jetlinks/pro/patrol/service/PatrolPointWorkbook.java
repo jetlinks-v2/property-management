@@ -85,7 +85,7 @@ public final class PatrolPointWorkbook {
                                 Map<String, String> tags, Map<String, String> pointPosts) throws IOException {
         try (var book = new XSSFWorkbook(); var bytes = new ByteArrayOutputStream()) {
             var sheet = book.createSheet("巡更点位");
-            header(sheet, new String[]{"点位名称", "点位编码", "分类", "指定巡更角色", "标签", "所属位置", "状态", "最后编辑时间"});
+            header(sheet, new String[]{"点位名称", "点位编码", "分类", "指定巡更角色", "标签", "所属位置", "状态", "最后编辑时间", "所属项目"});
             var format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.of("Asia/Shanghai"));
             int index = 1;
             for (var point : points) {
@@ -94,7 +94,7 @@ public final class PatrolPointWorkbook {
                         pointPosts.getOrDefault(point.getId(), ""),
                         String.join("、", (point.getTagIds() == null ? List.<String>of() : point.getTagIds()).stream()
                                 .map(tags::get).filter(Objects::nonNull).toList()), point.getLocation(),
-                        point.isEnabled() ? "启用" : "停用", point.getModifyTime() == null ? "" : format.format(Instant.ofEpochMilli(point.getModifyTime()))};
+                        point.isEnabled() ? "启用" : "停用", point.getModifyTime() == null ? "" : format.format(Instant.ofEpochMilli(point.getModifyTime())), point.getProjectName()};
                 var row = sheet.createRow(index++);
                 // 显式写字符串，名称以 =/+ 开头也不成为公式。
                 for (int col = 0; col < values.length; col++) row.createCell(col).setCellValue(values[col] == null ? "" : values[col]);

@@ -1,4 +1,8 @@
 package org.jetlinks.pro.patrol.entity;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import java.util.List;
+import javax.persistence.Transient;
 import lombok.Getter;
 import lombok.Setter;
 import org.hswebframework.web.crud.annotation.EnableEntityEvent;
@@ -17,10 +21,18 @@ import javax.persistence.Column;
 @EnableEntityEvent
 @Table(name = "pt_level", indexes = @javax.persistence.Index(name = "pt_level_project", columnList = "scopeKey,projectId,ownerOrganizationId"))
 @Asset(type = "patrolLevel")
+@JsonIgnoreProperties(value = "ruleSummary", allowGetters = true)
 public class PatrolLevelEntity extends PatrolRemovableConfigEntity {
     @Column
     @JsonCodec
     @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)
     @NotNull
     private PatrolRule rule;
+
+    /** 列表和导出使用同一份只读展示值；写入始终以原始 rule 为准。 */
+    @Transient
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public List<String> getRuleSummary() {
+        return PatrolRuleSummary.rows(rule);
+    }
 }

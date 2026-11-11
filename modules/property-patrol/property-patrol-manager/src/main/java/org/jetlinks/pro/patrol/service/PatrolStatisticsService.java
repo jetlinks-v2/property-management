@@ -18,42 +18,57 @@ public class PatrolStatisticsService {
     private final PatrolTaskService tasks;
     public record Range(LocalDate from, LocalDate to, List<String> categoryIds) {}
     public record Row(String id, String name, long pointCount, long taskCount, long completedTasks,
-                      long expected, long completed, long missing, double coverage, double qualification) {}
+                      long expected, long completed, long missing, double coverage, double qualification, String projectName) {
+        public Row(String id, String name, long pointCount, long taskCount, long completedTasks,
+                   long expected, long completed, long missing, double coverage, double qualification) {
+            this(id, name, pointCount, taskCount, completedTasks, expected, completed, missing, coverage, qualification, null);
+        }
+    }
     /** 总计在同一授权任务流中计算，点位去重，百分比由分子分母重算。 */
     public record Report(LocalDate from, LocalDate to, List<Row> rows, Row total) {}
     private static final class Accumulator {
-        final Map<String, Count> groups = new TreeMap<>();
+        private record Key(String projectId, String id) {}
+        final Map<Key, Count> groups = new TreeMap<>(Comparator.comparing(Key::projectId).thenComparing(Key::id));
         final Count total = new Count();
-        void add(PatrolTaskEntity task, boolean people) {
+        void add(PatrolTaskEntity task, boolean people, boolean byProject) {
             String id = people ? task.getRoleId() : task.getPointId();
-            Count count = groups.computeIfAbsent(id, ignored -> new Count());
+            var key = new Key(byProject ? Objects.toString(task.getProjectId(), "") : "", id);
+            Count count = groups.computeIfAbsent(key, ignored -> new Count());
+            count.projectName = byProject ? task.getProjectName() : null;
             count.name = people ? task.getRoleName() : task.getPointName();
             count.add(task);
             total.add(task);
         }
         Report report(Range range) {
             return new Report(range.from(), range.to(), groups.entrySet().stream()
-                    .map(entry -> entry.getValue().row(entry.getKey())).toList(), total.row("total"));
+                    .map(entry -> entry.getValue().row(entry.getKey().id())).toList(), total.row("total"));
         }
     }
     static final class Count {
-        String name;
+        String name, projectName;
         Set<String> points = new HashSet<>();
         long tasks, completeTasks, expected, completed;
         void add(PatrolTaskEntity task) {
-            points.add(task.getPointId()); tasks++;
+            points.add(Objects.toString(task.getProjectId(), "") + "|" + task.getPointId()); tasks++;
             expected += task.getRequiredCount(); completed += task.getCompletedCount();
             if (task.getCompletedCount() >= task.getRequiredCount()) completeTasks++;
         }
         Row row(String id) {
             return new Row(id, name, points.size(), tasks, completeTasks, expected, completed,
-                    expected - completed, percent(completed, expected), percent(completeTasks, tasks));
+                    expected - completed, percent(completed, expected), percent(completeTasks, tasks), projectName);
         }
     }
     public Mono<List<Row>> query(Range range, boolean people) {
         return report(range, people).map(Report::rows);
     }
     public Mono<Report> report(Range range, boolean people) {
+        return report(range, people, false);
+    }
+    /** 导出按项目细分同一角色的共享任务；原查询接口保留既有维度。 */
+    public Mono<Report> reportByProject(Range range, boolean people) {
+        return report(range, people, true);
+    }
+    private Mono<Report> report(Range range, boolean people, boolean byProject) {
         if (range.from() == null || range.to() == null || range.to().isBefore(range.from())
                 || range.to().isAfter(range.from().plusDays(365)))
             return Mono.error(new BusinessException("error.patrol.statistics.range"));
@@ -68,7 +83,7 @@ public class PatrolStatisticsService {
         // 以指定岗位为旧角色指派对象；不能把同一份岗位应巡次数复制给每个成员。
         return AssetsHolder.injectQueryParam(query, PatrolAssetType.patrolPlan, "planId")
                 .flatMapMany(tasks::query)
-                .collect(Accumulator::new, (counts, task) -> counts.add(task, people))
+                .collect(Accumulator::new, (counts, task) -> counts.add(task, people, byProject))
                 .map(counts -> counts.report(range));
     }
     private static double percent(long numerator, long denominator) {
