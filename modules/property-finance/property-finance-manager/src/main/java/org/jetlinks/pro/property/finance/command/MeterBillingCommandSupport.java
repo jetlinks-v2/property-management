@@ -14,6 +14,11 @@ import reactor.core.publisher.Mono;
 @CommandService(id = QueryMeterStandardsCommand.SERVICE_ID, name = "水电计费")
 public class MeterBillingCommandSupport {
   private final MeterBillingService billing;
+  private final org.jetlinks.pro.property.finance.service.MeterBillLedger ledger;
+  @CommandHandler
+  public Mono<org.hswebframework.web.api.crud.entity.PagerResult<MeterBillingModels.Bill>> queryMeterBills(QueryMeterBillsCommand command) {
+    return ledger.query(command.getProjectId(),command.getQuery());
+  }
   @CommandHandler
   public Mono<List<MeterBillingModels.Standard>> queryMeterStandards(QueryMeterStandardsCommand command) { return billing.standards(command.getProjectId()); }
   @CommandHandler

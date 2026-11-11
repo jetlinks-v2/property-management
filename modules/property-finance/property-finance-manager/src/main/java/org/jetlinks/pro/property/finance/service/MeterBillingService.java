@@ -63,7 +63,7 @@ public class MeterBillingService {
   @Transactional
   public Mono<Result> process(ProcessMeterBillCommand input) {
     return authorize().flatMap(auth -> {
-      if (input.isConfirm() && !auth.hasPermission("facility-meter-billing", "generate")) return Mono.error(error("permission_denied", 403));
+      if (input.isConfirm() && !auth.hasPermission("facility-meter-billing", "review")) return Mono.error(error("permission_denied", 403));
       YearMonth month;
       LocalDate due, receivable;
       try { month = YearMonth.parse(input.getMonth()); due = LocalDate.parse(input.getDueDate()); receivable = LocalDate.parse(input.getReceivableDate()); }
@@ -101,19 +101,27 @@ public class MeterBillingService {
           s.getExecuteDate() != null && s.getExecuteDate().compareTo(month.atDay(1).toString()) > 0 ||
           s.getCancelDate() != null && s.getCancelDate().compareTo(month.atEndOfMonth().toString()) < 0) return Mono.error(error("setting_standard_unavailable", 409));
         return houses.context(evidence.projectId(), evidence.spaceId(), input.isConfirm()).flatMap(context -> {
+          // 内置用量必须来自相应能源类型，不能把电表读数代入水费公式；旧自定义用量保留。
+          if (org.jetlinks.pro.property.finance.meter.MeterBillingModels.isUsageCode(evidence.usageVariable())
+              && !Objects.equals(evidence.usageVariable(), org.jetlinks.pro.property.finance.meter.MeterBillingModels.usageCode(evidence.energyType())))
+            return Mono.error(error("meter_rule_invalid", 400));
           var customer = customer(context, month);
           var values = rules.values(s, evidence.usageVariable(), evidence.quantity(), evidence.fixedValues(), context.house().billingArea());
           BigDecimal amount = rules.calculate(s, values);
-          String fingerprint = DigestUtils.sha256Hex(JSON.toJSONString(Arrays.asList(evidence, s.getVersion(), s.getFormulaVersion(), s.getFormulaExpression(),
-            s.getTaxSnapshotJson(), s.getPrice(), new TreeMap<>(values), context, receivable, due)));
-          var result = result(evidence, context, customer, s, amount, fingerprint, null, null);
+          String fingerprint = DigestUtils.sha256Hex(JSON.toJSONString(Arrays.asList(evidenceSnapshot(evidence), s.getVersion(), s.getFormulaVersion(), s.getFormulaExpression(),
+            s.getTaxSnapshotJson(), s.getPrice(), new TreeMap<>(values), SettingRules.houseSnapshot(context.house()),
+            context.customers().stream().map(SettingRules::customerSnapshot).toList(), receivable.toString(), due.toString())));
+          var detail = new Detail(receivable.toString(),due.toString(),s.getFormulaDisplay(),s.getPrice(),values,
+            evidence.readings()==null?List.of():evidence.readings().stream().map(r -> new Readout(r.value(),r.rawValue(),r.time())).toList(),null,null,
+            MeterBillLedger.tiers(s.getFormulaExpression(),values));
+          var result = result(evidence, context, customer, s, amount, fingerprint, null, null,detail);
           if (!input.isConfirm()) return Mono.just(result);
           if (!fingerprint.equals(input.getFingerprint())) return Mono.error(error("meter_preview_changed", 409));
           return periods.assertOpen(evidence.projectId(), month.atEndOfMonth()).then(periods.assertOpen(evidence.projectId(), receivable))
             .then(Mono.defer(() -> {
               var bill = bill(tenant, key, month, evidence, context, customer, s, values, amount, receivable, due, fingerprint, auth);
               return bills.insert(bill).then(logs.insert(log(bill, auth))).thenReturn(
-                result(evidence, context, customer, s, amount, fingerprint, bill.getId(), bill.getBillNo()));
+                result(evidence, context, customer, s, amount, fingerprint, bill.getId(), bill.getBillNo(),MeterBillLedger.detail(bill)));
             }));
         });
       });
@@ -126,16 +134,16 @@ public class MeterBillingService {
     return c;
   }
   private Result result(MeterUsageEvidence e, PropertyHouseContext context, PropertyHouseCustomer c, StandardEntity s,
-      BigDecimal amount, String fingerprint, String billId, String billNo) {
+      BigDecimal amount, String fingerprint, String billId, String billNo, Detail detail) {
     return new Result(e.deviceId(), e.deviceName(), e.projectId(), e.spaceId(), context.house().fullName(), c.name(), e.energyType(), e.month(),
-      e.quantity(), amount, s.getSubjectName(), s.getStandardName(), fingerprint, billId, billNo);
+      e.quantity(), amount, s.getSubjectName(), s.getStandardName(), fingerprint, billId, billNo,detail);
   }
   private Result existing(ReceivableEntity bill, MeterUsageEvidence e) {
     if (Boolean.TRUE.equals(bill.getDeleted())) throw error("meter_bill_deleted", 409);
     var snapshot = JSON.parseObject(bill.getSnapshotJson());
     return new Result(e.deviceId(), e.deviceName(), bill.getProjectId(), bill.getSpaceId(), bill.getFullName(), bill.getCustomerName(), e.energyType(),
       bill.getAccountPeriod(), snapshot.getBigDecimal("quantity"), bill.getContractReceivableAmount(), bill.getSubjectName(), bill.getStandardName(),
-      snapshot.getString("fingerprint"), bill.getId(), bill.getBillNo());
+      snapshot.getString("fingerprint"), bill.getId(), bill.getBillNo(),MeterBillLedger.detail(bill));
   }
   private ReceivableEntity bill(String tenant, String key, YearMonth month, MeterUsageEvidence e, PropertyHouseContext context,
       PropertyHouseCustomer c, StandardEntity s, Map<String,BigDecimal> values, BigDecimal amount, LocalDate receivable, LocalDate due,
@@ -143,6 +151,9 @@ public class MeterBillingService {
     var b = new ReceivableEntity(); b.setId(UUID.randomUUID().toString()); b.setBillNo(FinanceDocumentNumbers.next("YS"));
     b.setBillKey(key); b.setTenantId(tenant); b.setVersion(0L); b.setDeleted(false); b.setCreateTime(System.currentTimeMillis()); b.setModifyTime(b.getCreateTime());
     b.setModifierId(auth.getUser().getId()); b.setModifierName(FinanceScope.operatorName(auth));
+    // 确认出账即发布应收；普通应收二次审核已取消，业主端只展示已发布账单。
+    b.setReviewState("APPROVED"); b.setReviewedOn(LocalDate.now(ZoneId.of("Asia/Shanghai")).toString());
+    b.setReviewedBy(auth.getUser().getId()); b.setReviewedName(FinanceScope.operatorName(auth));
     b.setProjectId(e.projectId()); b.setSpaceId(e.spaceId()); b.setFullName(context.house().fullName());
     b.setSubjectId(s.getSubjectId()); b.setSubjectName(s.getSubjectName()); b.setStandardId(s.getId()); b.setStandardName(s.getStandardName());
     b.setConfigVersion(0); b.setSourceType("METER"); b.setAccountPeriod(month.toString());
@@ -155,10 +166,27 @@ public class MeterBillingService {
     var bean = new org.springframework.beans.BeanWrapperImpl(b);
     for (var field : bean.getPropertyDescriptors()) if (field.getPropertyType() == BigDecimal.class) bean.setPropertyValue(field.getName(), BigDecimal.ZERO.setScale(2));
     b.setContractReceivableAmount(amount); b.setAccruedReceivableAmount(amount); b.setActualReceivableAmount(amount); b.setArrears(amount);
-    var snapshot = new LinkedHashMap<String,Object>(); snapshot.put("house", context.house()); snapshot.put("customer", SettingRules.customerSnapshot(c));
-    snapshot.put("standard", s); snapshot.put("values", values); snapshot.put("evidence", e); snapshot.put("quantity", e.quantity());
+    var snapshot = new LinkedHashMap<String,Object>(); snapshot.put("house", SettingRules.houseSnapshot(context.house())); snapshot.put("customer", SettingRules.customerSnapshot(c));
+    snapshot.put("standard", s); snapshot.put("values", values); snapshot.put("evidence", evidenceSnapshot(e)); snapshot.put("quantity", e.quantity());
     snapshot.put("fingerprint", fingerprint); snapshot.put("sourceType", "METER"); b.setSnapshotJson(JSON.toJSONString(snapshot));
+    snapshot.put("meterReadings", readingSnapshots(e)); b.setSnapshotJson(JSON.toJSONString(snapshot));
     return b;
+  }
+  /** Fastjson in the published service does not serialize Java record accessors; explicit maps protect both audit and fingerprints. */
+  static Map<String,Object> evidenceSnapshot(MeterUsageEvidence e) {
+    var result=new LinkedHashMap<String,Object>();
+    result.put("deviceId",e.deviceId()); result.put("cloudDeviceId",e.cloudDeviceId()); result.put("deviceName",e.deviceName());
+    result.put("projectId",e.projectId()); result.put("spaceId",e.spaceId()); result.put("energyType",e.energyType()); result.put("month",e.month());
+    result.put("subjectId",e.subjectId()); result.put("standardId",e.standardId()); result.put("usageVariable",e.usageVariable());
+    result.put("fixedValues",new TreeMap<>(e.fixedValues())); result.put("quantity",e.quantity()); result.put("sourceFingerprint",e.sourceFingerprint());
+    result.put("allocationSince",e.allocationSince()); result.put("effectiveFrom",e.effectiveFrom()); result.put("effectiveTo",e.effectiveTo());
+    result.put("readings",readingSnapshots(e)); return result;
+  }
+  private static List<Map<String,Object>> readingSnapshots(MeterUsageEvidence e) {
+    if(e.readings()==null) return List.of();
+    return e.readings().stream().map(reading -> {
+      Map<String,Object> row=new LinkedHashMap<>(); row.put("value",reading.value()); row.put("rawValue",reading.rawValue()); row.put("time",reading.time()); return row;
+    }).toList();
   }
   private ReceivableLogEntity log(ReceivableEntity bill, Authentication auth) {
     var l = new ReceivableLogEntity(); l.setId(UUID.randomUUID().toString()); l.setProjectId(bill.getProjectId()); l.setSpaceId(bill.getSpaceId());

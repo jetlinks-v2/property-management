@@ -53,11 +53,14 @@ public class FacilityMeterCharges {
   }
 
   static MeterChargeEntity associationRule(Association input, MeterBillingModels.Standard standard, MeterChargeEntity old) {
-    var variables = standard.variables().stream().filter(v -> !v.system()).toList();
-    require(variables.size() == 1, "meter_standard_usage_invalid");
+    var measured = standard.variables().stream().filter(v -> MeterBillingModels.isUsageCode(v.code())).toList();
+    var variables = standard.variables().stream().filter(v -> !v.system() && !MeterBillingModels.isUsageCode(v.code())).toList();
+    // 系统预置不代表无需实测：优先按水/电编码匹配，仍兼容旧标准的唯一自定义用量。
+    require(measured.isEmpty() ? variables.size() == 1 : measured.size() == 1 && variables.isEmpty()
+      && Objects.equals(measured.get(0).code(), MeterBillingModels.usageCode(input.energyType())), "meter_standard_usage_invalid");
     var row = new MeterChargeEntity(); row.setId(input.id()); row.setVersion(input.version());
     row.setProjectId(input.projectId()); row.setEnergyType(input.energyType()); row.setSubjectId(input.subjectId()); row.setStandardId(input.standardId());
-    row.setUsageVariable(variables.get(0).code()); row.setFixedValues(Map.of()); row.setEnabled(true);
+    row.setUsageVariable((measured.isEmpty() ? variables : measured).get(0).code()); row.setFixedValues(Map.of()); row.setEnabled(true);
     String today = LocalDate.now(ZoneId.of("Asia/Shanghai")).toString();
     // Preserve existing historical coverage; a changed association only affects today or a future standard start.
     boolean same = old != null && Objects.equals(old.getSubjectId(), input.subjectId()) && Objects.equals(old.getStandardId(), input.standardId()) &&
@@ -87,7 +90,9 @@ public class FacilityMeterCharges {
         var standard = options.stream().filter(s -> s.id().equals(input.getStandardId()) && s.subjectId().equals(input.getSubjectId()))
           .findFirst().orElseThrow(() -> new org.hswebframework.web.exception.BusinessException("error.facility.meter_rule_invalid", 400));
         var variables = standard.variables();
-        require(variables.stream().anyMatch(v -> v.code().equals(input.getUsageVariable()) && !v.system()), "meter_rule_invalid");
+        require(variables.stream().anyMatch(v -> v.code().equals(input.getUsageVariable()) && (!v.system() || MeterBillingModels.isUsageCode(v.code()))), "meter_rule_invalid");
+        require(variables.stream().filter(v -> MeterBillingModels.isUsageCode(v.code())).allMatch(v ->
+          Objects.equals(v.code(), MeterBillingModels.usageCode(input.getEnergyType())) && v.code().equals(input.getUsageVariable())), "meter_rule_invalid");
         var expected = new HashSet<String>();
         for (var variable : variables) if (!variable.system() && !variable.code().equals(input.getUsageVariable())) expected.add(variable.code());
         require(input.getFixedValues() != null && expected.equals(input.getFixedValues().keySet()) &&
@@ -170,7 +175,9 @@ public class FacilityMeterCharges {
             mapping.getVersion() + ":" + rule.version() + ":" + facts);
           return new MeterUsageEvidence(device.getId(), device.getCloudDeviceId(), device.getName(), device.getProjectId(), device.getSpaceId(),
             device.getMeterType(), monthText, rule.subjectId(), rule.standardId(), rule.usageVariable(), rule.fixedValues(),
-            usage.value(), fingerprint, device.getAllocationSince(), rule.effectiveFrom(), rule.effectiveTo());
+            usage.value(), fingerprint, device.getAllocationSince(), rule.effectiveFrom(), rule.effectiveTo(),
+            series.isEmpty() ? List.of() : List.of(series.get(0),series.get(series.size()-1)).stream()
+              .map(r -> new MeterUsageEvidence.Readout(r.getValue(),r.getRawValue(),r.getObservedTime())).toList());
         });
       });
     });

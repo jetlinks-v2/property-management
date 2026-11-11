@@ -9,4 +9,9 @@ public interface FacilityJobsMBean {
   long getSyncCount();
   long getCollectionCount();
   int getActiveSubscriptions();
+  boolean isMeterPreparing();
+  long getMeterLastCompletedTime();
+  long getMeterPreparedCount();
+  long getMeterFailureCount();
+  String getMeterLastError();
 }

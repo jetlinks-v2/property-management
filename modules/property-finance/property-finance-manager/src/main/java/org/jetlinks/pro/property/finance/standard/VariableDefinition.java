@@ -23,7 +23,9 @@ public record VariableDefinition(
                     system("BILLING_PERSON", "计费人数", "后续计费环节提供", 30),
                     system("PERIOD_MONTHS", "起止时间（月）", "由计费起止日期计算", 40),
                     system("CONTRACT_COUNT", "合同约定次数", "后续计费环节提供", 50),
-                    system("WORKLOAD", "工程量数值", "后续计费环节提供", 60));
+                    system("WORKLOAD", "工程量数值", "后续计费环节提供", 60),
+                    system("WATER_USAGE", "用水量", "账期实际用水量（m³），由计量数据提供", 70),
+                    system("ELECTRICITY_USAGE", "用电量", "账期实际用电量（kW·h），由计量数据提供", 80));
 
     private static VariableDefinition system(String code, String name, String desc, int sort) {
         return new VariableDefinition(

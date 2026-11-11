@@ -32,7 +32,7 @@ public final class StandardWorkbook {
                     standard.getSubjectName(),
                     label("billingMethods", standard.getBillingMethod()),
                     standard.getFormulaDisplay(),
-                    standard.getPrice().toPlainString(),
+                    standard.getFormulaExpression().startsWith("TIERED(") ? "阶梯单价（首档 " + standard.getPrice().toPlainString() + "）" : standard.getPrice().toPlainString(),
                     label("chargeRoundTypes", standard.getChargeRoundType()),
                     label("mantissas", standard.getMantissa()),
                     label("settlementMethods", standard.getSettlementMethod()),

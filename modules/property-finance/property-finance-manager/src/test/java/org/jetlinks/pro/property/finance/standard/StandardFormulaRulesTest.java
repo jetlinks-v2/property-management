@@ -29,8 +29,9 @@ class StandardFormulaRulesTest {
                         new BigDecimal("2"),
                         "WORKLOAD",
                         new BigDecimal("2"),
-                        "PERIOD_MONTHS",
-                        new BigDecimal("3"));
+                        "PERIOD_MONTHS", new BigDecimal("3"),
+                        "WATER_USAGE", new BigDecimal("2"),
+                        "ELECTRICITY_USAGE", new BigDecimal("2"));
         for (var method : methods) {
             var result =
                     StandardRules.formula(
@@ -42,12 +43,39 @@ class StandardFormulaRulesTest {
             var expected =
                     values.get("STANDARD_PRICE")
                             .multiply(
-                                    method.get("value").equals("CUSTOM")
-                                            ? BigDecimal.ONE
-                                            : new BigDecimal("6"));
+                                    method.get("value").equals("CUSTOM") ? BigDecimal.ONE
+                                      : Set.of("WATER", "ELECTRICITY").contains(method.get("value")) ? new BigDecimal("2")
+                                      : new BigDecimal("6"));
             assertEquals(
                     expected,
                     new ChargeFormulaEvaluator().evaluate(parsed, values, 2, RoundingMode.HALF_UP));
+        }
+    }
+
+    @Test void meterBuiltinsAreAvailableAndCannotMultiplyMonthsOrUseTheWrongEnergy() {
+        assertTrue(VariableDefinition.SYSTEM.stream().anyMatch(v -> v.variableCode().equals("WATER_USAGE") && v.scopeType().equals("SYSTEM")));
+        assertTrue(VariableDefinition.SYSTEM.stream().anyMatch(v -> v.variableCode().equals("ELECTRICITY_USAGE") && v.scopeType().equals("SYSTEM")));
+        var input = valid(); input.setBillingMethod("WATER");
+        input.setFormulaExpression("${STANDARD_PRICE}*${WATER_USAGE}");
+        assertEquals("WATER", StandardRules.validate(input).getBillingMethod());
+        input.setFormulaExpression("${STANDARD_PRICE}*${WATER_USAGE}*${PERIOD_MONTHS}");
+        assertThrows(BusinessException.class, () -> StandardRules.validate(input));
+        input.setFormulaExpression("${STANDARD_PRICE}*${ELECTRICITY_USAGE}");
+        assertThrows(BusinessException.class, () -> StandardRules.validate(input));
+        input.setFormulaExpression("TIERED(${WATER_USAGE},${STANDARD_PRICE},10,4)");
+        input.setSettlementMethod("QUARTERLY");
+        assertThrows(BusinessException.class, () -> StandardRules.validate(input));
+    }
+
+    @Test void meterFormulaCannotDeleteOrDuplicateTheProtectedProduct() {
+        String valid = "TIERED(${STANDARD_PRICE}*${ELECTRICITY_USAGE},100,0.8)*0.9+2";
+        var result = StandardRules.formula(parser, valid,
+                "[费用_金额]=阶梯累加([收费标准_单价]*[用电量],100,0.8)*0.9+2", VariableDefinition.SYSTEM);
+        assertEquals(valid, result.formulaExpression());
+        for (String expression : List.of("${STANDARD_PRICE}+${WATER_USAGE}",
+                "${STANDARD_PRICE}*${WATER_USAGE}+${WATER_USAGE}", "${WATER_USAGE}*${STANDARD_PRICE}")) {
+            String display = "[费用_金额]=" + expression.replace("${STANDARD_PRICE}", "[收费标准_单价]").replace("${WATER_USAGE}", "[用水量]");
+            assertThrows(BusinessException.class, () -> StandardRules.formula(parser, expression, display, VariableDefinition.SYSTEM));
         }
     }
 

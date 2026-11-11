@@ -64,7 +64,7 @@ class FacilityJobsTest {
     when(alerts.evaluate(any())).thenReturn(Mono.empty());
     when(notifications.poll()).thenReturn(Mono.empty());
     var polling = new FacilityJobs(jobs, plans, mappings, rules, execution,
-      mock(FacilitySync.class), mock(FacilityPlans.class), telemetry, alerts, notifications, mock(FacilityTaskMessages.class, invocation -> Mono.empty()));
+      mock(FacilitySync.class), mock(FacilityPlans.class), telemetry, alerts, notifications, mock(FacilityTaskMessages.class, invocation -> Mono.empty()), mock(FacilityMeterMonths.class));
 
     StepVerifier.create(polling.poll()).verifyComplete();
     verify(telemetry, times(1004)).collect(any());
@@ -107,7 +107,7 @@ class FacilityJobsTest {
     when(telemetry.collect(any())).thenReturn(Mono.never());
     when(notifications.poll()).thenReturn(Mono.empty());
     var polling = new FacilityJobs(jobs, plans, mappings, rules, execution,
-      mock(FacilitySync.class), manager, telemetry, mock(FacilityAlerts.class), notifications, mock(FacilityTaskMessages.class, invocation -> Mono.empty()));
+      mock(FacilitySync.class), manager, telemetry, mock(FacilityAlerts.class), notifications, mock(FacilityTaskMessages.class, invocation -> Mono.empty()), mock(FacilityMeterMonths.class));
     var running = polling.poll().subscribe();
     try {
       verify(telemetry).collect(any());

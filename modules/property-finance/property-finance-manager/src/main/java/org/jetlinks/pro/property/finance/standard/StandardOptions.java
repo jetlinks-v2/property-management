@@ -9,9 +9,9 @@ public final class StandardOptions {
     public static Map<String, Object> enums() {
         var options = new LinkedHashMap<String, Object>();
         var methods = new ArrayList<Map<String, Object>>();
-        String[] codes = {"AREA", "PERSON", "COUNT", "WORKLOAD", "CUSTOM"};
-        String[] texts = {"面积", "人数", "次数", "工作量", "自定义"};
-        String[] variables = {"BILLING_AREA", "BILLING_PERSON", "CONTRACT_COUNT", "WORKLOAD", null};
+        String[] codes = {"AREA", "PERSON", "COUNT", "WORKLOAD", "WATER", "ELECTRICITY", "CUSTOM"};
+        String[] texts = {"面积", "人数", "次数", "工作量", "用水量", "用电量", "自定义"};
+        String[] variables = {"BILLING_AREA", "BILLING_PERSON", "CONTRACT_COUNT", "WORKLOAD", "WATER_USAGE", "ELECTRICITY_USAGE", null};
         for (int i = 0; i < codes.length; i++) {
             var method = new LinkedHashMap<String, Object>();
             method.put("value", codes[i]);
@@ -19,7 +19,8 @@ public final class StandardOptions {
             String expression =
                     variables[i] == null
                             ? "${STANDARD_PRICE}"
-                            : "${STANDARD_PRICE}*${" + variables[i] + "}*${PERIOD_MONTHS}";
+                            : "${STANDARD_PRICE}*${" + variables[i] + "}"
+                                + (Set.of("WATER", "ELECTRICITY").contains(codes[i]) ? "" : "*${PERIOD_MONTHS}");
             String display = expression;
             for (var variable : VariableDefinition.SYSTEM)
                 display =

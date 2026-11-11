@@ -37,6 +37,7 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
   private final FacilityAlerts alerts;
   private final FacilityNotifications notifications;
   private final FacilityTaskMessages taskMessages;
+  private final FacilityMeterMonths meterMonths;
   private final ClusterPluginScheduler scheduler = new ClusterPluginScheduler(
     "property-facility-energy"
   );
@@ -46,7 +47,7 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
     collected = new AtomicLong();
   private volatile boolean running;
   private volatile long completed;
-  private Disposable task, planTask, messageTask;
+  private Disposable task, planTask, messageTask, meterTask;
   private ObjectName objectName;
 
   public Mono<Void> poll() {
@@ -147,6 +148,7 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
       "facility-plan-jobs", Mono.defer(this::pollPlans), Duration.ofSeconds(30), true
     );
     messageTask = scheduler.interval("facility-task-messages", Mono.defer(taskMessages::poll), Duration.ofSeconds(15), true);
+    meterTask = scheduler.interval("facility-meter-months", Mono.defer(meterMonths::poll), Duration.ofMinutes(10), true);
     running = true;
     try {
       objectName = new ObjectName(
@@ -166,6 +168,7 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
     if (task != null) task.dispose();
     if (planTask != null) planTask.dispose();
     if (messageTask != null) messageTask.dispose();
+    if (meterTask != null) meterTask.dispose();
     telemetry.stop();
     if (objectName != null) try {
       ManagementFactory.getPlatformMBeanServer().unregisterMBean(objectName);
@@ -202,4 +205,9 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
   public int getActiveSubscriptions() {
     return telemetry.activeSubscriptions();
   }
+  public boolean isMeterPreparing() { return meterMonths.isRunning(); }
+  public long getMeterLastCompletedTime() { return meterMonths.getCompleted(); }
+  public long getMeterPreparedCount() { return meterMonths.getPrepared(); }
+  public long getMeterFailureCount() { return meterMonths.getFailures(); }
+  public String getMeterLastError() { return meterMonths.getLastError(); }
 }

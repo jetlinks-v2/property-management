@@ -69,6 +69,7 @@ class StandardPersistenceTest {
     @Autowired ReactiveRepository<FinanceProjectCompanyEntity, String> companyLinks;
     @Autowired ReactiveRepository<TaxItemEntity, String> taxRows;
     @Autowired ReactiveRepository<StandardEntity, String> standardRows;
+    @Autowired ReactiveRepository<FormulaVariableEntity, String> variableRows;
     @Autowired ReactiveRepository<StandardVariableReferenceEntity, String> references;
     String projectId;
     String companyId;
@@ -163,6 +164,49 @@ class StandardPersistenceTest {
         conflict(variables.delete(projectId, variable.id(), 1L), 409);
         assertEquals(
                 1, references.createQuery().where("standardId", saved.getId()).count().block(WAIT));
+    }
+
+    @Test
+    void builtinMeterStandardsSaveAndReopenWithoutProjectVariables() {
+        var input = input("W1", "阶梯水费");
+        input.setBillingMethod("WATER"); input.setSettlementMethod("MONTHLY"); input.setPrice("3.00");
+        input.setFormulaExpression("TIERED(${STANDARD_PRICE}*${WATER_USAGE},10,4,20,5)*0.9+2");
+        input.setFormulaDisplay("[费用_金额]=阶梯累加([收费标准_单价]*[用水量],10,4,20,5)*0.9+2");
+        var saved = service.create(projectId,input).contextWrite(auth()).block(WAIT);
+        var detail = service.detail(projectId,saved.getId()).contextWrite(auth()).block(WAIT);
+        assertEquals(input.getFormulaExpression(),detail.getFormulaExpression());
+        assertTrue(detail.getVariablesSnapshot().stream().anyMatch(v -> v.variableCode().equals("WATER_USAGE") && v.scopeType().equals("SYSTEM")));
+        StepVerifier.create(variables.create(projectId,new VariableInput("WATER_USAGE","伪造用水量",null,null,true,null)).contextWrite(auth()))
+                .expectErrorMatches(failure -> TaxItemPersistenceTest.status(failure,400)).verify(WAIT);
+        var electricity = input("E1","固定电费"); electricity.setBillingMethod("ELECTRICITY");
+        electricity.setFormulaExpression("${STANDARD_PRICE}*${ELECTRICITY_USAGE}");
+        electricity.setFormulaDisplay("[费用_金额]=[收费标准_单价]*[用电量]");
+        assertEquals("ELECTRICITY",service.create(projectId,electricity).contextWrite(auth()).block(WAIT).getBillingMethod());
+    }
+
+    @Test
+    void existingProjectUsageIdentitySurvivesNewSystemRegistration() {
+        var legacy = new FormulaVariableEntity();
+        legacy.setId(UUID.randomUUID().toString());
+        legacy.setProjectId(projectId);
+        legacy.setVariableCode("WATER_USAGE");
+        legacy.setVariableName("原用水量");
+        legacy.setNameKey("原用水量");
+        legacy.setEnabled(true);
+        legacy.setSort(10);
+        initialize(legacy);
+        variableRows.insert(legacy).block(WAIT);
+
+        var matches = variables.list(projectId).contextWrite(auth()).collectList().block(WAIT)
+                .stream().filter(row -> row.variableCode().equals("WATER_USAGE")).toList();
+        assertEquals(1, matches.size());
+        assertEquals(legacy.getId(), matches.get(0).id());
+        assertEquals("PROJECT", matches.get(0).scopeType());
+        var updated = variables.update(projectId, legacy.getId(),
+                new VariableInput("WATER_USAGE", "原用水量", "更新说明", 10, true, 0L))
+                .contextWrite(auth()).block(WAIT);
+        assertEquals(legacy.getId(), updated.id());
+        assertEquals(1L, updated.version());
     }
 
     @Test
@@ -382,7 +426,10 @@ class StandardPersistenceTest {
         taxRows.insertBatch(Flux.just(taxOptions)).block(WAIT);
         var options = service.options(projectId).contextWrite(auth()).block(WAIT);
         assertEquals(206, ((List<?>) options.get("subjects")).size());
-        assertEquals(6, ((List<?>) options.get("variables")).size());
+        var definitions = (List<VariableDefinition>) options.get("variables");
+        assertEquals(8, definitions.size());
+        assertTrue(definitions.stream().anyMatch(row -> row.variableCode().equals("WATER_USAGE")));
+        assertTrue(definitions.stream().anyMatch(row -> row.variableCode().equals("ELECTRICITY_USAGE")));
         var query = new QueryParamEntity();
         query.setPageSize(1);
         var firstPage = service.taxOptions(projectId, query).contextWrite(auth()).block(WAIT);

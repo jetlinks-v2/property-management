@@ -109,4 +109,19 @@ class FacilityMeterChargesTest {
       assertThrows(RuntimeException.class,()->FacilityMeterCharges.associationRule(input,standard,null));
     }
   }
+  @Test void builtinUsageIsSelectedByMeterTypeAndMixedInputsAreRejected() {
+    var price=new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Variable("STANDARD_PRICE","单价",true);
+    var water=new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Variable("WATER_USAGE","用水量",true);
+    var electricity=new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Variable("ELECTRICITY_USAGE","用电量",true);
+    var extra=new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Variable("EXTRA","其他用量",false);
+    var input=new FacilityMeterCharges.Association(null,null,"project","water","subject","standard");
+    var standard=new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Standard("standard",0L,"subject","水费","水费标准",
+      "水费公式",BigDecimal.ONE,null,null,List.of(price,water));
+    assertEquals("WATER_USAGE",FacilityMeterCharges.associationRule(input,standard,null).getUsageVariable());
+    for(var invalid:List.of(List.of(price,electricity),List.of(price,water,electricity),List.of(price,water,extra))) {
+      var bad=new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Standard("standard",0L,"subject","水费","标准",
+        "公式",BigDecimal.ONE,null,null,invalid);
+      assertThrows(RuntimeException.class,()->FacilityMeterCharges.associationRule(input,bad,null));
+    }
+  }
 }

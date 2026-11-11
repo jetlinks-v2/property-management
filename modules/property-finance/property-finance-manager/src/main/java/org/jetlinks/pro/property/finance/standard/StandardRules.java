@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 public final class StandardRules {
     private static final Pattern TOKEN = Pattern.compile("\\$\\{([A-Z][A-Z0-9_]*)}");
     public static final List<String> BILLING_METHODS =
-            List.of("AREA", "PERSON", "COUNT", "WORKLOAD", "CUSTOM");
+            List.of("AREA", "PERSON", "COUNT", "WORKLOAD", "WATER", "ELECTRICITY", "CUSTOM");
 
     private StandardRules() {}
 
@@ -41,6 +41,16 @@ public final class StandardRules {
         next.setSettlementMethod(
                 choice(input.getSettlementMethod(), List.of("MONTHLY", "QUARTERLY")));
         next.setPrice(decimal(input.getPrice(), false));
+        if (Objects.toString(input.getFormulaExpression(), "").contains("TIERED(")
+                && !List.of("WATER", "ELECTRICITY").contains(next.getBillingMethod()))
+            throw error("standard_meter_formula_invalid", 400);
+        if (List.of("WATER", "ELECTRICITY").contains(next.getBillingMethod())) {
+            String usage = org.jetlinks.pro.property.finance.meter.MeterBillingModels.usageCode(next.getBillingMethod().toLowerCase(Locale.ROOT));
+            String formula = Objects.toString(input.getFormulaExpression(), "");
+            if (!"MONTHLY".equals(next.getSettlementMethod()) || !formula.contains("${" + usage + "}")
+                    || formula.contains("${PERIOD_MONTHS}") || formula.contains("${" + ("WATER".equals(next.getBillingMethod()) ? "ELECTRICITY_USAGE" : "WATER_USAGE") + "}"))
+                throw error("standard_meter_formula_invalid", 400);
+        }
         number(input.getChargeRoundType(), 2);
         number(input.getMantissa(), 2);
         number(input.getIsDelay(), 1);
@@ -116,6 +126,10 @@ public final class StandardRules {
             var parsed = parser.parse(executable, names);
             if (!parsed.containsVariable("STANDARD_PRICE"))
                 throw error("standard_price_required", 400);
+            for (String usage : List.of("WATER_USAGE", "ELECTRICITY_USAGE")) {
+                if (parsed.containsVariable(usage) && !parsed.preservesMeterBase(usage))
+                    throw error("standard_meter_formula_invalid", 400);
+            }
             var matcher = TOKEN.matcher(executable);
             var derived = new StringBuffer("[费用_金额]=");
             while (matcher.find())
@@ -124,13 +138,14 @@ public final class StandardRules {
                         java.util.regex.Matcher.quoteReplacement(
                                 "[" + names.get(matcher.group(1)) + "]"));
             matcher.appendTail(derived);
-            if (!compact(derived.toString()).equals(visible))
+            String derivedDisplay = derived.toString().replace("TIERED(", "阶梯累加(");
+            if (!compact(derivedDisplay).equals(visible))
                 throw error("standard_formula_mismatch", 400);
             var used =
                     definitions.stream()
                             .filter(variable -> parsed.containsVariable(variable.variableCode()))
                             .toList();
-            return new FormulaResult(executable, derived.toString(), used);
+            return new FormulaResult(executable, derivedDisplay, used);
         } catch (IllegalArgumentException failure) {
             throw error("standard_formula_invalid", 400);
         }

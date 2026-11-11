@@ -116,7 +116,7 @@ public final class SettingRules {
     }
 
     // 当前JSON组件不序列化record访问器，明确字段确保房屋/客户快照实际落库。
-    private static Map<String, Object> houseSnapshot(PropertyHouseInfo house) {
+    public static Map<String, Object> houseSnapshot(PropertyHouseInfo house) {
         var result = new LinkedHashMap<String, Object>();
         result.put("projectId", house.projectId());
         result.put("spaceId", house.spaceId());

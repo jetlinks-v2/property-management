@@ -14,7 +14,8 @@ import org.springframework.stereotype.Component;
 /** Meter quantities are not time-prorated: the measured complete interval already defines coverage. */
 @Component @RequiredArgsConstructor
 public class MeterBillingRules {
-  public static final Set<String> SYSTEM = Set.of("STANDARD_PRICE", "BILLING_AREA", "PERIOD_MONTHS");
+  private static final Set<String> TRUSTED = Set.of("STANDARD_PRICE", "BILLING_AREA", "PERIOD_MONTHS");
+  public static final Set<String> SYSTEM = Set.of("STANDARD_PRICE", "BILLING_AREA", "PERIOD_MONTHS", "WATER_USAGE", "ELECTRICITY_USAGE");
   private final ChargeFormulaParser parser;
   private final ChargeFormulaEvaluator evaluator;
   public BigDecimal amount(StandardEntity standard, String usageVariable, BigDecimal usage,
@@ -23,13 +24,15 @@ public class MeterBillingRules {
   }
   public Map<String, BigDecimal> values(StandardEntity standard, String usageVariable, BigDecimal usage,
       Map<String, BigDecimal> fixed, BigDecimal area) {
-    if (SYSTEM.contains(Objects.toString(usageVariable, "")) || usage == null || usage.signum() < 0) throw error("meter_rule_invalid", 400);
+    if (TRUSTED.contains(Objects.toString(usageVariable, "")) || usage == null || usage.signum() < 0) throw error("meter_rule_invalid", 400);
     var values = new TreeMap<String, BigDecimal>();
     var definitions = StandardSnapshots.variables(standard.getVariablesSnapshotJson());
     if (definitions.stream().noneMatch(v -> v.variableCode().equals(usageVariable))) throw error("meter_rule_invalid", 409);
     var expected = new HashSet<String>();
     for (var variable : definitions) {
       String code = variable.variableCode();
+      if (org.jetlinks.pro.property.finance.meter.MeterBillingModels.isUsageCode(code) && !code.equals(usageVariable))
+        throw error("meter_rule_invalid", 400);
       BigDecimal value = switch(code) {
         case "STANDARD_PRICE" -> standard.getPrice();
         case "BILLING_AREA" -> area;

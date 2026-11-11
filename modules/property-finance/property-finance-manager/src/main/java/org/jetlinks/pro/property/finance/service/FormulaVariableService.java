@@ -10,6 +10,7 @@ import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.authorization.Authentication;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.finance.entity.*;
+import org.jetlinks.pro.property.finance.meter.MeterBillingModels;
 import org.jetlinks.pro.property.finance.standard.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,15 +38,27 @@ public class FormulaVariableService {
         query.noPaging();
         query.setForUpdate(lock);
         query.orderBy("id");
-        return Flux.concat(
-                Flux.fromIterable(VariableDefinition.SYSTEM),
-                variables
+        return variables
                         .createQuery()
                         .setParam(query)
                         .where("projectId", projectId)
                         .and("deleted", false)
                         .fetch()
-                        .map(VariableDefinition::of));
+                        .map(VariableDefinition::of)
+                        .collectList()
+                        .flatMapMany(rows -> Flux.fromIterable(registeredDefinitions(rows)));
+    }
+
+    /** 新内置编码如与已使用的项目变量相同，保留原身份及引用，不能静默替换历史定义。 */
+    static List<VariableDefinition> registeredDefinitions(List<VariableDefinition> projectVariables) {
+        var result = new ArrayList<VariableDefinition>();
+        for (var system : VariableDefinition.SYSTEM) {
+            if (projectVariables.stream().noneMatch(v -> v.variableCode().equals(system.variableCode()))) {
+                result.add(system);
+            }
+        }
+        result.addAll(projectVariables);
+        return result;
     }
 
     @Transactional
@@ -56,7 +69,7 @@ public class FormulaVariableService {
                         auth ->
                                 Mono.defer(
                                         () -> {
-                                            var entity = validate(input);
+                                            var entity = validate(input, null);
                                             entity.setId(UUID.randomUUID().toString());
                                             entity.setProjectId(projectId);
                                             init(entity, auth);
@@ -75,13 +88,12 @@ public class FormulaVariableService {
                         auth ->
                                 Mono.defer(
                                         () -> {
-                                            var next = validate(input);
                                             return variable(projectId, id)
                                                     .flatMap(
                                                             old ->
                                                                     update(
                                                                             old,
-                                                                            next,
+                                                                            validate(input, old),
                                                                             input.version(),
                                                                             auth));
                                         }))
@@ -176,7 +188,7 @@ public class FormulaVariableService {
                 .switchIfEmpty(Mono.error(error("variable_not_found", 404)));
     }
 
-    private static FormulaVariableEntity validate(VariableInput input) {
+    private static FormulaVariableEntity validate(VariableInput input, FormulaVariableEntity old) {
         if (input == null) throw error("variable_invalid", 400);
         var entity = new FormulaVariableEntity();
         entity.setVariableCode(StandardRules.text(input.variableCode(), 64, true));
@@ -185,15 +197,18 @@ public class FormulaVariableService {
         entity.setDescription(StandardRules.text(input.description(), 300, false));
         entity.setSort(input.sort() == null ? 100 : input.sort());
         entity.setEnabled(input.enabled() == null || input.enabled());
+        // 已持久化的同编码用量变量允许继续编辑，禁止新建占用内置编码或名称。
+        boolean unchangedUsageCode = old != null
+                && MeterBillingModels.isUsageCode(old.getVariableCode())
+                && old.getVariableCode().equals(entity.getVariableCode());
+        boolean unchangedName = old != null
+                && old.getVariableName().equalsIgnoreCase(entity.getVariableName());
+        boolean reserved = VariableDefinition.SYSTEM.stream().anyMatch(variable ->
+                (variable.variableCode().equals(entity.getVariableCode()) && !unchangedUsageCode)
+                        || (variable.variableName().equalsIgnoreCase(entity.getVariableName()) && !unchangedName));
         if (!entity.getVariableCode().matches("[A-Z][A-Z0-9_]{1,63}")
                 || entity.getVariableName().matches(".*[\\[\\]{}].*")
-                || VariableDefinition.SYSTEM.stream()
-                        .anyMatch(
-                                variable ->
-                                        variable.variableCode().equals(entity.getVariableCode())
-                                                || variable.variableName()
-                                                        .equalsIgnoreCase(
-                                                                entity.getVariableName())))
+                || reserved)
             throw error("variable_invalid", 400);
         return entity;
     }
