@@ -15,6 +15,22 @@ import org.junit.jupiter.api.*;
 import reactor.core.publisher.*;
 
 class FacilityMeterChargesTest {
+  @Test void gasUsesItsOwnBuiltinAndReadsTheMappedCounterWithoutMixingWater() {
+    var price = new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Variable("STANDARD_PRICE", "单价", true);
+    var gas = new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Variable("GAS_USAGE", "用气量", true);
+    var input = new FacilityMeterCharges.Association(null, null, "project", "gas", "subject", "standard");
+    var standard = new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Standard("standard", 0L, "subject", "燃气费", "燃气标准",
+      "燃气公式", BigDecimal.ONE, null, null, List.of(price, gas));
+    assertEquals("GAS_USAGE", FacilityMeterCharges.associationRule(input, standard, null).getUsageVariable());
+    device.setMeterType("gas"); mapping.setEnergyType("gas"); rule.setEnergyType("gas"); rule.setUsageVariable("GAS_USAGE");
+    var evidence = service.evidence("meter", "2024-02").block();
+    assertEquals("gas", evidence.energyType()); assertEquals("GAS_USAGE", evidence.usageVariable());
+    assertEquals(new BigDecimal("12.346"), evidence.quantity());
+    mapping.setEnergyType("water");
+    assertThrows(RuntimeException.class, () -> service.evidence("meter", "2024-02").block());
+    var wrongInput = new FacilityMeterCharges.Association(null, null, "project", "water", "subject", "standard");
+    assertThrows(RuntimeException.class, () -> FacilityMeterCharges.associationRule(wrongInput, standard, null));
+  }
   final FacilityDevices devices=mock(FacilityDevices.class);
   final FacilityMappings mappings=mock(FacilityMappings.class);
   final FacilityReadings readings=mock(FacilityReadings.class);

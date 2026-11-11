@@ -8,7 +8,7 @@ import org.jetlinks.pro.property.facility.entity.DeviceEntity;
 public final class DeviceAllocationRules {
   private DeviceAllocationRules() {}
   public static String type(String type) {
-    FacilityScope.require(Set.of("device", "water", "electricity").contains(Objects.toString(type, "")), "allocation_invalid");
+    FacilityScope.require(Set.of("device", "water", "electricity", "gas").contains(Objects.toString(type, "")), "allocation_invalid");
     return type;
   }
   public static void changed(DeviceEntity row, String project, String space, String type, long now) {

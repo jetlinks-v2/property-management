@@ -7,6 +7,22 @@ import org.jetlinks.pro.property.finance.entity.StandardEntity;
 import org.jetlinks.pro.property.finance.calculation.*;
 
 class MeterBillingRulesTest {
+  @Test void readoutCodecsRetainNormalizedValueAlongsideRawValue() {
+    var finance = new org.jetlinks.pro.property.finance.meter.MeterBillingModels.Readout(new BigDecimal("12.50"),new BigDecimal("125"),123L);
+    var facility = new org.jetlinks.pro.property.facility.model.MeterUsageEvidence.Readout(new BigDecimal("12.50"),new BigDecimal("125"),123L);
+    for (Object reading : java.util.List.of(finance,facility)) {
+      var json = com.alibaba.fastjson.JSON.parseObject(com.alibaba.fastjson.JSON.toJSONString(reading));
+      assertEquals(0,new BigDecimal("12.50").compareTo(json.getBigDecimal("value")));
+      assertEquals(0,new BigDecimal("125").compareTo(json.getBigDecimal("rawValue")));
+      assertEquals(123L,json.getLong("time"));
+      // Command wrappers may consume the conventional value key; normalizedValue must stand alone.
+      json.remove("value");
+      assertEquals(new BigDecimal("12.50"),json.toJavaObject(org.jetlinks.pro.property.finance.meter.MeterBillingModels.Readout.class).value());
+    }
+    var stored = com.alibaba.fastjson.JSON.parseObject(com.alibaba.fastjson.JSON.toJSONString(finance),org.jetlinks.pro.property.finance.meter.MeterBillingModels.Readout.class);
+    var transported = com.alibaba.fastjson.JSON.parseObject(com.alibaba.fastjson.JSON.toJSONString(facility),org.jetlinks.pro.property.facility.model.MeterUsageEvidence.Readout.class);
+    assertEquals(finance.value(),stored.value()); assertEquals(facility.value(),transported.value());
+  }
   private StandardEntity standard() {
     var s = new StandardEntity(); s.setPrice(new BigDecimal("3.25"));
     s.setFormulaExpression("${STANDARD_PRICE} * ${WATER_USAGE}");

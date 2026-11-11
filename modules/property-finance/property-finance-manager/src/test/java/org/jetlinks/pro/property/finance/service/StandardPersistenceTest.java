@@ -182,6 +182,16 @@ class StandardPersistenceTest {
         electricity.setFormulaExpression("${STANDARD_PRICE}*${ELECTRICITY_USAGE}");
         electricity.setFormulaDisplay("[费用_金额]=[收费标准_单价]*[用电量]");
         assertEquals("ELECTRICITY",service.create(projectId,electricity).contextWrite(auth()).block(WAIT).getBillingMethod());
+        var gas = input("G1", "阶梯燃气费"); gas.setBillingMethod("GAS"); gas.setPrice("2.50");
+        gas.setFormulaExpression("TIERED(${STANDARD_PRICE}*${GAS_USAGE},20,3.20,40,4.00)");
+        gas.setFormulaDisplay("[费用_金额]=阶梯累加([收费标准_单价]*[用气量],20,3.20,40,4.00)");
+        var savedGas = service.create(projectId,gas).contextWrite(auth()).block(WAIT);
+        var gasDetail = service.detail(projectId,savedGas.getId()).contextWrite(auth()).block(WAIT);
+        assertEquals("GAS",gasDetail.getBillingMethod());
+        assertEquals(gas.getFormulaExpression(),gasDetail.getFormulaExpression());
+        assertTrue(gasDetail.getVariablesSnapshot().stream().anyMatch(v -> v.variableCode().equals("GAS_USAGE") && v.scopeType().equals("SYSTEM")));
+        StepVerifier.create(variables.create(projectId,new VariableInput("GAS_USAGE","伪造用气量",null,null,true,null)).contextWrite(auth()))
+                .expectErrorMatches(failure -> TaxItemPersistenceTest.status(failure,400)).verify(WAIT);
     }
 
     @Test
@@ -427,7 +437,7 @@ class StandardPersistenceTest {
         var options = service.options(projectId).contextWrite(auth()).block(WAIT);
         assertEquals(206, ((List<?>) options.get("subjects")).size());
         var definitions = (List<VariableDefinition>) options.get("variables");
-        assertEquals(8, definitions.size());
+        assertEquals(9, definitions.size());
         assertTrue(definitions.stream().anyMatch(row -> row.variableCode().equals("WATER_USAGE")));
         assertTrue(definitions.stream().anyMatch(row -> row.variableCode().equals("ELECTRICITY_USAGE")));
         var query = new QueryParamEntity();

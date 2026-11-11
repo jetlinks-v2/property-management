@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 public final class StandardRules {
     private static final Pattern TOKEN = Pattern.compile("\\$\\{([A-Z][A-Z0-9_]*)}");
     public static final List<String> BILLING_METHODS =
-            List.of("AREA", "PERSON", "COUNT", "WORKLOAD", "WATER", "ELECTRICITY", "CUSTOM");
+            List.of("AREA", "PERSON", "COUNT", "WORKLOAD", "WATER", "ELECTRICITY", "GAS", "CUSTOM");
 
     private StandardRules() {}
 
@@ -42,13 +42,14 @@ public final class StandardRules {
                 choice(input.getSettlementMethod(), List.of("MONTHLY", "QUARTERLY")));
         next.setPrice(decimal(input.getPrice(), false));
         if (Objects.toString(input.getFormulaExpression(), "").contains("TIERED(")
-                && !List.of("WATER", "ELECTRICITY").contains(next.getBillingMethod()))
+                && !List.of("WATER", "ELECTRICITY", "GAS").contains(next.getBillingMethod()))
             throw error("standard_meter_formula_invalid", 400);
-        if (List.of("WATER", "ELECTRICITY").contains(next.getBillingMethod())) {
+        if (List.of("WATER", "ELECTRICITY", "GAS").contains(next.getBillingMethod())) {
             String usage = org.jetlinks.pro.property.finance.meter.MeterBillingModels.usageCode(next.getBillingMethod().toLowerCase(Locale.ROOT));
             String formula = Objects.toString(input.getFormulaExpression(), "");
             if (!"MONTHLY".equals(next.getSettlementMethod()) || !formula.contains("${" + usage + "}")
-                    || formula.contains("${PERIOD_MONTHS}") || formula.contains("${" + ("WATER".equals(next.getBillingMethod()) ? "ELECTRICITY_USAGE" : "WATER_USAGE") + "}"))
+                    || formula.contains("${PERIOD_MONTHS}") || List.of("WATER_USAGE", "ELECTRICITY_USAGE", "GAS_USAGE").stream()
+                        .anyMatch(code -> !code.equals(usage) && formula.contains("${" + code + "}")))
                 throw error("standard_meter_formula_invalid", 400);
         }
         number(input.getChargeRoundType(), 2);
@@ -126,7 +127,7 @@ public final class StandardRules {
             var parsed = parser.parse(executable, names);
             if (!parsed.containsVariable("STANDARD_PRICE"))
                 throw error("standard_price_required", 400);
-            for (String usage : List.of("WATER_USAGE", "ELECTRICITY_USAGE")) {
+            for (String usage : List.of("WATER_USAGE", "ELECTRICITY_USAGE", "GAS_USAGE")) {
                 if (parsed.containsVariable(usage) && !parsed.preservesMeterBase(usage))
                     throw error("standard_meter_formula_invalid", 400);
             }

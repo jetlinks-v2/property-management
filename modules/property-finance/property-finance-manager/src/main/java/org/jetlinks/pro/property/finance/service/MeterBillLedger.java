@@ -3,6 +3,8 @@ package org.jetlinks.pro.property.finance.service;
 import com.alibaba.fastjson.JSON;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
+import org.hswebframework.ezorm.core.param.SqlTerm;
+import org.hswebframework.ezorm.core.param.Term;
 import org.hswebframework.ezorm.rdb.mapping.ReactiveRepository;
 import org.hswebframework.web.api.crud.entity.*;
 import org.hswebframework.web.crud.query.QueryHelper;
@@ -28,6 +30,7 @@ public class MeterBillLedger {
       .flatMap(tenant -> {
         var q = SubjectService.page(input == null ? new QueryParamEntity() : input);
         q.setForUpdate(false);
+        q.setTerms(energyTerms(q.getTerms()));
         // User OR terms remain inside their own group; published facts cannot escape the requested tenant/project.
         q.toNestQuery(n -> n.and("tenantId",tenant).and("projectId",project).and("deleted",false)
           .and("sourceType","METER").and("reviewState","APPROVED"));
@@ -36,6 +39,25 @@ public class MeterBillLedger {
           .flatMap(secured -> QueryHelper.transformPageResult(QueryHelper.queryPager(secured,bills::createQuery),
             rows -> Mono.just(rows.stream().map(MeterBillLedger::view).toList())));
       });
+  }
+
+  /** 分类取落账时的能源快照；旧账缺少证据类型时回退到同一快照的计费方式，在分页前过滤。 */
+  private static List<Term> energyTerms(List<Term> input) {
+    var result = new ArrayList<Term>();
+    for (var term : input) {
+      if ("energyType".equals(term.getColumn())) {
+        String energy = Objects.toString(term.getValue(), "");
+        if (!"eq".equals(term.getTermType()) || !Set.of("water", "electricity", "gas").contains(energy) || !term.getTerms().isEmpty())
+          throw FinanceScope.error("report_query_invalid", 400);
+        var filter = SqlTerm.of("coalesce(cast(snapshot_json as jsonb)->'evidence'->>'energyType',"
+          + " case cast(snapshot_json as jsonb)->'standard'->>'billingMethod'"
+          + " when 'WATER' then 'water' when 'ELECTRICITY' then 'electricity' when 'GAS' then 'gas' end) = ?", energy);
+        filter.setType(term.getType()); result.add(filter);
+      } else {
+        term.setTerms(energyTerms(term.getTerms())); result.add(term);
+      }
+    }
+    return result;
   }
 
   static Detail detail(ReceivableEntity row) {
@@ -66,7 +88,7 @@ public class MeterBillLedger {
     var standard=snapshot.getJSONObject("standard");
     String type=e==null?null:e.getString("energyType");
     if(type==null && standard!=null) type=switch(Objects.toString(standard.getString("billingMethod"),"")) {
-      case "WATER" -> "water"; case "ELECTRICITY" -> "electricity"; default -> null;
+      case "WATER" -> "water"; case "ELECTRICITY" -> "electricity"; case "GAS" -> "gas"; default -> null;
     };
     var result=new Result(e==null?null:e.getString("deviceId"),e==null?null:e.getString("deviceName"),row.getProjectId(),row.getSpaceId(),
       row.getFullName(),row.getCustomerName(),type,row.getAccountPeriod(),snapshot.getBigDecimal("quantity"),

@@ -77,7 +77,7 @@ public class FacilityMeterCharges {
 
   @Transactional
   public Mono<MeterChargeEntity> save(MeterChargeEntity input) {
-    require(Set.of("water", "electricity").contains(Objects.toString(input.getEnergyType(), "")), "allocation_invalid");
+    require(Set.of("water", "electricity", "gas").contains(Objects.toString(input.getEnergyType(), "")), "allocation_invalid");
     LocalDate start;
     try {
       start = LocalDate.parse(input.getEffectiveFrom());
@@ -152,7 +152,7 @@ public class FacilityMeterCharges {
     require(to <= System.currentTimeMillis(), "meter_month_open");
     return devices.read(id).flatMap(device -> {
       FacilityDevices.requireActive(device);
-      require(Boolean.TRUE.equals(device.getEnergyEnabled()) && Set.of("water", "electricity").contains(Objects.toString(device.getMeterType(), "")) &&
+      require(Boolean.TRUE.equals(device.getEnergyEnabled()) && Set.of("water", "electricity", "gas").contains(Objects.toString(device.getMeterType(), "")) &&
         Boolean.TRUE.equals(device.getProjectConfirmed()) && device.getSpaceId() != null &&
         device.getAllocationSince() != null && device.getAllocationSince() <= from, "meter_allocation_gap");
       return Mono.zip(rules(device.getProjectId()), mappings.forDevice(id)).flatMap(tuple -> {

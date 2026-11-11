@@ -10,7 +10,18 @@ import org.junit.jupiter.api.Test;
 class TieredChargeFormulaTest {
     private final ChargeFormulaParser parser = new ChargeFormulaParser();
     private final ChargeFormulaEvaluator evaluator = new ChargeFormulaEvaluator();
-    private final Set<String> variables = Set.of("STANDARD_PRICE", "WATER_USAGE", "ELECTRICITY_USAGE");
+    private final Set<String> variables = Set.of("STANDARD_PRICE", "WATER_USAGE", "ELECTRICITY_USAGE", "GAS_USAGE");
+
+    @Test void gasChargesMonthlyBandsAndFlatPriceWithTwoDecimalTotals() {
+        var formula = parser.parse("TIERED(${STANDARD_PRICE}*${GAS_USAGE},20,3.20,40,4.00)", variables);
+        assertTrue(formula.preservesMeterBase("GAS_USAGE"));
+        Map.of("0", "0.00", "20", "50.00", "30", "82.00", "40", "114.00", "45", "134.00", "20.125", "50.40")
+            .forEach((usage, expected) -> assertEquals(new BigDecimal(expected), evaluator.evaluate(formula,
+                Map.of("STANDARD_PRICE", new BigDecimal("2.50"), "GAS_USAGE", new BigDecimal(usage)), 2, RoundingMode.HALF_UP)));
+        var flat = parser.parse("TIERED(${STANDARD_PRICE}*${GAS_USAGE})", variables);
+        assertEquals(new BigDecimal("75.00"), evaluator.evaluate(flat,
+            Map.of("STANDARD_PRICE", new BigDecimal("2.50"), "GAS_USAGE", new BigDecimal("30")), 2, RoundingMode.HALF_UP));
+    }
 
     @Test void ordinaryVariablesContainingTieredRemainValid() {
         var formula = parser.parse("${STANDARD_PRICE}*${TIERED_FACTOR}", Set.of("STANDARD_PRICE", "TIERED_FACTOR"));

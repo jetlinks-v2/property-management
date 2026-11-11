@@ -13,11 +13,12 @@ public final class MeterBillingModels {
     return switch (energyType == null ? "" : energyType) {
       case "water" -> "WATER_USAGE";
       case "electricity" -> "ELECTRICITY_USAGE";
+      case "gas" -> "GAS_USAGE";
       default -> null;
     };
   }
   public static boolean isUsageCode(String code) {
-    return "WATER_USAGE".equals(code) || "ELECTRICITY_USAGE".equals(code);
+    return "WATER_USAGE".equals(code) || "ELECTRICITY_USAGE".equals(code) || "GAS_USAGE".equals(code);
   }
   public record Variable(String code, String name, boolean system) implements Serializable {}
   public record Standard(String id, long version, String subjectId, String subjectName, String name,
@@ -41,7 +42,18 @@ public final class MeterBillingModels {
       this(receivableDate,dueDate,formula,price,values,readings,reviewedName,reviewedTime,List.of());
     }
   }
-  public record Readout(BigDecimal value, BigDecimal rawValue, Long time) implements Serializable {}
+  /** Explicit normalized field survives command codecs; value remains a compatible JSON alias. */
+  @lombok.Getter @lombok.Setter @lombok.NoArgsConstructor @lombok.AllArgsConstructor
+  public static class Readout implements Serializable {
+    private BigDecimal normalizedValue;
+    private BigDecimal rawValue;
+    private Long time;
+    public BigDecimal value() { return normalizedValue; }
+    public BigDecimal getValue() { return normalizedValue; }
+    public void setValue(BigDecimal value) { normalizedValue = value; }
+    public BigDecimal rawValue() { return rawValue; }
+    public Long time() { return time; }
+  }
   public record Tier(BigDecimal from, BigDecimal to, BigDecimal price, BigDecimal quantity, BigDecimal amount) implements Serializable {}
   public record Bill(String id, String accountPeriod, String fullName, String customerName, String subjectName,
     String billNo, String receivableDate, String dueDate, Result result) implements Serializable {}

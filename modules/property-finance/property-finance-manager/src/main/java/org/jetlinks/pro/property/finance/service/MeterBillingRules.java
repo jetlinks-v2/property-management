@@ -15,7 +15,7 @@ import org.springframework.stereotype.Component;
 @Component @RequiredArgsConstructor
 public class MeterBillingRules {
   private static final Set<String> TRUSTED = Set.of("STANDARD_PRICE", "BILLING_AREA", "PERIOD_MONTHS");
-  public static final Set<String> SYSTEM = Set.of("STANDARD_PRICE", "BILLING_AREA", "PERIOD_MONTHS", "WATER_USAGE", "ELECTRICITY_USAGE");
+  public static final Set<String> SYSTEM = Set.of("STANDARD_PRICE", "BILLING_AREA", "PERIOD_MONTHS", "WATER_USAGE", "ELECTRICITY_USAGE", "GAS_USAGE");
   private final ChargeFormulaParser parser;
   private final ChargeFormulaEvaluator evaluator;
   public BigDecimal amount(StandardEntity standard, String usageVariable, BigDecimal usage,

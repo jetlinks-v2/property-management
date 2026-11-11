@@ -142,6 +142,73 @@ class MeterBillingPersistenceTest {
       .expectErrorMatches(e->TaxItemPersistenceTest.status(e,400)).verify(WAIT);
     assertEquals(1,bills.createQuery().where("projectId",fixture.project).count().block(WAIT));
   }
+  @Test void gasTierPreviewApprovalAndRetryKeepOneReceivableAndFrozenGasDetails() {
+    var standard = standards.findById(fixture.standardId).block(WAIT);
+    standard.setBillingMethod("GAS"); standard.setPrice(new BigDecimal("2.50"));
+    standard.setFormulaExpression("TIERED(${STANDARD_PRICE}*${GAS_USAGE},20,3.20,40,4.00)");
+    standard.setFormulaDisplay("月度阶梯燃气费");
+    standard.setVariablesSnapshotJson("[{\"variableCode\":\"STANDARD_PRICE\",\"variableName\":\"单价\"},{\"variableCode\":\"GAS_USAGE\",\"variableName\":\"用气量\"}]");
+    standards.updateById(standard.getId(), standard).block(WAIT);
+    ((EvidenceSource)service).setEvidence(new MeterUsageEvidence("device", "cloud-device", "燃气表", fixture.project, "room", "gas", "2024-02",
+      fixture.subjectId, fixture.standardId, "GAS_USAGE", Map.of(), new BigDecimal("30"), "gas-v1", 1L, "2024-01-01", null));
+    var auth = allowed("query", "review");
+    var preview = service.process(command(false, null)).contextWrite(auth).block(WAIT);
+    assertEquals(new BigDecimal("82.00"), preview.amount()); assertNull(preview.billId());
+    assertEquals("gas", preview.energyType());
+    assertEquals(3, preview.detail().tiers().size());
+    assertEquals(0, new BigDecimal("50.00").compareTo(preview.detail().tiers().get(0).amount()));
+    assertEquals(0, new BigDecimal("32.00").compareTo(preview.detail().tiers().get(1).amount()));
+    var saved = service.process(command(true, preview.fingerprint())).contextWrite(auth).block(WAIT);
+    assertEquals(saved.billId(), service.process(command(true, preview.fingerprint())).contextWrite(auth).block(WAIT).billId());
+    var bill = bills.findById(saved.billId()).block(WAIT);
+    assertEquals("APPROVED", bill.getReviewState()); assertEquals(new BigDecimal("82.00"), bill.getArrears());
+    var frozen = com.alibaba.fastjson.JSON.parseObject(bill.getSnapshotJson());
+    assertEquals("gas", frozen.getJSONObject("evidence").getString("energyType"));
+    assertEquals("GAS_USAGE", frozen.getJSONObject("evidence").getString("usageVariable"));
+    assertEquals(1, bills.createQuery().where("projectId", fixture.project).count().block(WAIT));
+    var query = new org.jetlinks.pro.property.finance.command.QueryMeterBillsCommand(); query.setProjectId(fixture.project);
+    var page = CommandSupportManagerProviders.getCommandSupport(QueryMeterStandardsCommand.SERVICE_ID)
+      .flatMap(s -> s.execute(query)).contextWrite(auth).block(WAIT);
+    assertEquals("gas", page.getData().get(0).result().energyType());
+    assertEquals(new BigDecimal("82.00"), page.getData().get(0).result().amount());
+    ((EvidenceSource)service).setEvidence(new MeterUsageEvidence("other", "other-cloud", "水表", fixture.project, "room", "water", "2024-02",
+      fixture.subjectId, fixture.standardId, "GAS_USAGE", Map.of(), BigDecimal.ONE, "wrong", 1L, "2024-01-01", null));
+    StepVerifier.create(service.process(command(false, null)).contextWrite(auth))
+      .expectErrorMatches(e -> TaxItemPersistenceTest.status(e, 400)).verify(WAIT);
+  }
+  @Test void ledgerEnergyFiltersFrozenFactsBeforePagingAndPreservesSearchGroupsAndTenant() {
+    var auth = allowed("query", "review");
+    var expected = new HashMap<String, String>();
+    for (String energy : List.of("water", "electricity", "gas")) {
+      String usage = org.jetlinks.pro.property.finance.meter.MeterBillingModels.usageCode(energy);
+      var standard = standards.findById(fixture.standardId).block(WAIT);
+      standard.setBillingMethod(energy.toUpperCase(Locale.ROOT)); standard.setPrice(BigDecimal.ONE);
+      standard.setFormulaExpression("${STANDARD_PRICE}*${" + usage + "}"); standard.setFormulaDisplay(energy);
+      standard.setVariablesSnapshotJson("[{\"variableCode\":\"STANDARD_PRICE\",\"variableName\":\"单价\"},{\"variableCode\":\""+usage+"\",\"variableName\":\"用量\"}]");
+      standards.updateById(standard.getId(), standard).block(WAIT);
+      ((EvidenceSource)service).setEvidence(new MeterUsageEvidence(energy, "cloud-"+energy, energy, fixture.project, "room", energy, "2024-02",
+        fixture.subjectId, fixture.standardId, usage, Map.of(), new BigDecimal("10"), energy+"-v1", 1L, "2024-01-01", null));
+      var preview = service.process(command(false, null)).contextWrite(auth).block(WAIT);
+      expected.put(energy, service.process(command(true, preview.fingerprint())).contextWrite(auth).block(WAIT).billId());
+    }
+    // A legacy water bill still belongs to water after the current standard becomes gas.
+    var water = bills.findById(expected.get("water")).block(WAIT);
+    var snapshot = com.alibaba.fastjson.JSON.parseObject(water.getSnapshotJson());
+    snapshot.getJSONObject("evidence").remove("energyType");
+    water.setSnapshotJson(snapshot.toJSONString()); bills.updateById(water.getId(), water).block(WAIT);
+    for (String energy : expected.keySet()) {
+      var query = new org.jetlinks.pro.property.finance.command.QueryMeterBillsCommand(); query.setProjectId(fixture.project);
+      var terms = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery().where("energyType", energy)
+        .nest().is("customerName", "customer").or().is("accountPeriod", "2024-02").end().getParam();
+      terms.setPageSize(1); query.setQuery(terms);
+      var page = CommandSupportManagerProviders.getCommandSupport(QueryMeterStandardsCommand.SERVICE_ID)
+        .flatMap(s -> s.execute(query)).contextWrite(auth).block(WAIT);
+      assertEquals(1, page.getTotal()); assertEquals(expected.get(energy), page.getData().get(0).id());
+      assertEquals(energy, page.getData().get(0).result().energyType());
+      assertEquals(0, CommandSupportManagerProviders.getCommandSupport(QueryMeterStandardsCommand.SERVICE_ID)
+        .flatMap(s -> s.execute(query)).contextWrite(auth.putAll(TenantHolder.makeCurrent("other-tenant"))).block(WAIT).getTotal());
+    }
+  }
   @Test void evidenceVersionChangeWithSameQuantityInvalidatesApprovalAndReadoutsAreFrozen() {
     var auth=allowed("query","review");
     var first=service.process(command(false,null)).contextWrite(auth).block(WAIT);

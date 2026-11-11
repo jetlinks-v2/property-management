@@ -18,5 +18,16 @@ public record MeterUsageEvidence(String deviceId, String cloudDeviceId, String d
     this(deviceId,cloudDeviceId,deviceName,projectId,spaceId,energyType,month,subjectId,standardId,usageVariable,
       fixedValues,quantity,sourceFingerprint,allocationSince,effectiveFrom,effectiveTo,List.of());
   }
-  public record Readout(BigDecimal value, BigDecimal rawValue, Long time) implements Serializable {}
+  /** Explicit normalized field survives command codecs; value remains a compatible JSON alias. */
+  @lombok.Getter @lombok.Setter @lombok.NoArgsConstructor @lombok.AllArgsConstructor
+  public static class Readout implements Serializable {
+    private BigDecimal normalizedValue;
+    private BigDecimal rawValue;
+    private Long time;
+    public BigDecimal value() { return normalizedValue; }
+    public BigDecimal getValue() { return normalizedValue; }
+    public void setValue(BigDecimal value) { normalizedValue = value; }
+    public BigDecimal rawValue() { return rawValue; }
+    public Long time() { return time; }
+  }
 }

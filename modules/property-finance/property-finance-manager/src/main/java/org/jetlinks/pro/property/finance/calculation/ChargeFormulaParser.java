@@ -263,7 +263,7 @@ public class ChargeFormulaParser {
         }
     }
 
-    /** 有限阶梯只接收一个水/电用量与首档标准价，后续档位是冻结常量，不执行脚本。 */
+    /** 有限阶梯只接收一个水/电/气用量与首档标准价，后续档位是冻结常量，不执行脚本。 */
     private static final class TieredNode extends Node {
         private final VariableNode usage;
         private final VariableNode price;
@@ -274,7 +274,7 @@ public class ChargeFormulaParser {
             this.usage = usage;
             this.price = price;
             this.bands = List.copyOf(bands);
-            if (!Set.of("WATER_USAGE", "ELECTRICITY_USAGE").contains(usage.variable)
+            if (!Set.of("WATER_USAGE", "ELECTRICITY_USAGE", "GAS_USAGE").contains(usage.variable)
                     || !"STANDARD_PRICE".equals(price.variable) || bands.size() % 2 != 0 || bands.size() > 18) {
                 throw new IllegalArgumentException("阶梯用量、单价或档位数量无效");
             }
