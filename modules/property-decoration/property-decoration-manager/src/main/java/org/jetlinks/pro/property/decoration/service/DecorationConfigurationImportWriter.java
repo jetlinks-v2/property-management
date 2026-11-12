@@ -29,7 +29,7 @@ public class DecorationConfigurationImportWriter {
             String id = DecorationConfigurationService.key(ctx.applicationId(), dimension.projectId(), "checks", dimension.houseType(), dimension.decorationType(), dimension.scene());
             return configurations.findById(id).map(old -> {
                 require(ctx.tenantId().equals(old.getTenantId()), "version_conflict");
-                var input = input(group); input.setId(old.getId()); input.setName(old.getName()); input.setVersion(old.getVersion());
+                var input = input(group); input.setId(old.getId()); input.setVersion(old.getVersion());
                 input.getContent().setChecks(DecorationCheckImportPlan.merge(old.getContent().getChecks(), group, ignored -> null));
                 return new Prepared(group, input);
             }).switchIfEmpty(Mono.fromSupplier(() -> {
@@ -41,7 +41,7 @@ public class DecorationConfigurationImportWriter {
     private DecorationRequests.Config input(DecorationCheckImportPlan.Group group) {
         var dimension = group.dimension(); var input = new DecorationRequests.Config();
         input.setProjectId(dimension.projectId()); input.setKind("checks"); input.setHouseType(dimension.houseType());
-        input.setDecorationType(dimension.decorationType()); input.setScene(dimension.scene()); input.setName("检查配置导入");
+        input.setDecorationType(dimension.decorationType()); input.setScene(dimension.scene());
         input.setContent(new DecorationModels.Configuration()); return input;
     }
 

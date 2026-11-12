@@ -23,6 +23,7 @@ import static org.jetlinks.pro.property.decoration.service.DecorationRules.*;
 public class DecorationTaskService {
     private final DecorationApplicationService applications;
     private final DecorationScope scope;
+    private final DecorationListStatusService listStatuses;
     private final DecorationTaskRepository tasks;
     private final DecorationConfigurationService configurations;
     private final DecorationAttachmentService attachments;
@@ -32,8 +33,10 @@ public class DecorationTaskService {
     private final org.springframework.beans.factory.ObjectProvider<org.jetlinks.pro.property.decoration.model.DecorationNotificationGateway> notifications;
 
     public Mono<PagerResult<DecorationTaskEntity>> query(QueryParamEntity query) {
-        return scope.current().flatMap(ctx -> scope.query(query, ctx))
-            .flatMap(q -> QueryHelper.queryPager(q, tasks::createQuery));
+        return scope.current().flatMap(ctx -> listStatuses.fill(scope.query(query, ctx)
+            .flatMap(q -> QueryHelper.queryPager(q, tasks::createQuery)),
+            DecorationTaskEntity::getDecorationId, DecorationTaskEntity::setDecorationStatus)
+            .map(page -> handlingAccess(page, ctx)));
     }
     /** 个人工作台：可信认证决定执行人/角色，个人条件与统一范围在数据库中AND后分页。 */
     public Mono<PagerResult<DecorationTaskEntity>> mine(QueryParamEntity query) {
@@ -50,7 +53,22 @@ public class DecorationTaskService {
                 }
             });
             return q;
-        })).flatMap(q -> QueryHelper.queryPager(q, tasks::createQuery));
+        }).flatMap(q -> QueryHelper.queryPager(q, tasks::createQuery))
+            .map(page -> handlingAccess(page, ctx)));
+    }
+
+    /** 目录查询不等于任务执行资格；每次读取均用当前可信认证计算，不沿用记录创建人的权限。 */
+    static PagerResult<DecorationTaskEntity> handlingAccess(PagerResult<DecorationTaskEntity> page, DecorationScope.Context ctx) {
+        var roleIds = ctx.authentication().getDimensions("role").stream().map(role -> role.getId()).collect(java.util.stream.Collectors.toSet());
+        for (var task : page.getData()) {
+            boolean acceptance = Set.of("firstAcceptance", "secondAcceptance").contains(task.getKind());
+            task.setFeedbackAllowed("pending".equals(task.getStatus()) &&
+                (acceptance && ctx.userId().equals(task.getAssigneeId()) || "daily".equals(task.getKind()) &&
+                    task.getDetails().getInspectionRoles().stream().anyMatch(role -> roleIds.contains(role.roleId()))));
+            task.setReviewAllowed("inspectionRecord".equals(task.getKind()) && "waiting_review".equals(task.getStatus()) &&
+                roleIds.contains(task.getDetails().getReviewRoleId()));
+        }
+        return page;
     }
     /** 通知受理与整改任务状态分开；没有真实提供方时明确阻止发送。 */
     public Mono<DecorationApplicationEntity> notifyViolation(String id, DecorationRequests.Rectification input) {
@@ -89,9 +107,10 @@ public class DecorationTaskService {
     }
 
     public Mono<PagerResult<DecorationTaskEntity>> query(String id, QueryParamEntity query, boolean mine) {
-        return applications.read(id, mine).flatMap(row -> scope.current().flatMap(ctx -> scope.query(query, ctx)))
+        return applications.read(id, mine).flatMap(row -> scope.current().flatMap(ctx -> scope.query(query, ctx)
             .map(q -> q.toNestQuery(n -> n.and("decorationId", id)).getParam())
-            .flatMap(q -> QueryHelper.queryPager(q, tasks::createQuery));
+            .flatMap(q -> QueryHelper.queryPager(q, tasks::createQuery))
+            .map(page -> handlingAccess(page, ctx))));
     }
     public Mono<DecorationApplicationEntity> requestAcceptance(String id, DecorationRequests.AcceptanceRequest input, boolean mine) {
         return applications.mutate(id, "requestAcceptance", input, mine, (row, ctx) -> {
@@ -107,7 +126,8 @@ public class DecorationTaskService {
             // 申请和指派可能相隔多日；时间与申请人只在本轮申请时记录，指派不得覆盖。
             row.setAcceptanceDate(input.getAcceptanceDate()); row.setAcceptanceRequestTime(System.currentTimeMillis());
             row.setAcceptanceRequesterId(ctx.userId()); row.setAcceptanceRequesterName(ctx.userName()); row.setAcceptanceSource(mine ? "h5_owner" : "pc_admin");
-            if (mine && !retry) return Mono.empty(); // 业主首次申请等待管理人员指派，不允许客户端自行指派验收人。
+            // 业主每轮申请均等待物业指派，不能用业主权限查询员工目录或沿用上一轮验收人。
+            if (mine) return Mono.empty();
             Mono<List<String>> people = retry ? tasks.createQuery().where("decorationId", id).and("round", previousRound)
                 .and("kind", input.getType() == 1 ? "firstAcceptance" : "secondAcceptance").fetch().map(DecorationTaskEntity::getAssigneeId).distinct().collectList()
                 : Mono.just(input.getAssigneeIds());
@@ -160,8 +180,9 @@ public class DecorationTaskService {
     }
     public Mono<DecorationApplicationEntity> assignInspection(String id, DecorationRequests.Inspection input) {
         return applications.mutate(id, "assignInspection", input, false, (row, ctx) -> {
-            active(row); require(row.getPermit() != null, "permit_required"); require(input.getStartTime() <= input.getEndTime(), "invalid_dates");
-            require(input.getEndTime() >= System.currentTimeMillis(), "invalid_dates");
+            active(row); require(permitReceived(row.getPermit()), "permit_required");
+            long assignedTime = System.currentTimeMillis();
+            require(row.getCompletionTime() != null && row.getCompletionTime() >= assignedTime, "invalid_dates");
             require(input.getInspectionRoles().stream().map(DecorationModels.InspectionRole::roleId).distinct().count() == input.getInspectionRoles().size(), "invalid_assignees");
             return Mono.zip(roles.require(input.getReviewRoleId()),
                 Flux.fromIterable(input.getInspectionRoles()).concatMap(config -> roles.require(config.roleId())
@@ -169,12 +190,13 @@ public class DecorationTaskService {
                 configurations.match(ctx, row.getProjectId(), "checks", row.getDetails().getHouseType(), row.getDetails().getDecorationType(), "daily"))
                 .flatMap(tuple -> {
                     var plan = new DecorationModels.TaskDetails();
-                    plan.setInspectionRoles(tuple.getT2()); plan.setStartTime(input.getStartTime()); plan.setEndTime(input.getEndTime());
+                    // 指派即开始，沿用原系统以计划竣工日期截止的口径，不接受客户端自选时段。
+                    plan.setInspectionRoles(tuple.getT2()); plan.setStartTime(assignedTime); plan.setEndTime(row.getCompletionTime());
                     plan.setReviewRoleId(tuple.getT1().id()); plan.setReviewRoleName(tuple.getT1().name()); plan.setChecks(tuple.getT3().getContent().getChecks());
                     plan.setAssignedById(ctx.userId()); plan.setAssignedByName(ctx.userName()); row.setInspectionPlan(plan);
                     // 首次指派不补造过去任务；当天已存在的任务保留原角色/检查项，变更作用于后续日期。
-                    row.setNextInspectionTime(DecorationInspectionGenerator.dayStart(Math.max(input.getStartTime(), System.currentTimeMillis())));
-                    return inspections.generateLocked(row, System.currentTimeMillis()).then();
+                    row.setNextInspectionTime(DecorationInspectionGenerator.dayStart(assignedTime));
+                    return inspections.generateLocked(row, assignedTime).then();
                 });
         });
     }

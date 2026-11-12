@@ -16,7 +16,7 @@ class DecorationPermitResponseTest {
         row.setId("permit-test");
         var document = new DecorationPermitDocumentService.Document(row, "data:image/png;base64,test", "digest", null);
         when(documents.prepare("permit-test")).thenReturn(Mono.just(document));
-        var controller = new DecorationApplicationController(null, null, null, null, null, null, documents);
+        var controller = new DecorationApplicationController(null, null, null, null, null, null, null, null, documents);
 
         WebTestClient.bindToController(controller).build().get()
             .uri("/decoration/applications/permit-test/permit/document")

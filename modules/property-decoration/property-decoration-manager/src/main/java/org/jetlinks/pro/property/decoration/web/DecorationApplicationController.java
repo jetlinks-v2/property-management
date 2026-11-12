@@ -19,11 +19,13 @@ import reactor.core.publisher.Flux;
 @Resource(id="decoration-application",name="装修申请管理")
 public class DecorationApplicationController {
     private final DecorationApplicationService applications;
+    private final DecorationReviewListService reviewList;
     private final DecorationReviewService reviews;
     private final DecorationPermitService permits;
     private final DecorationTaskService tasks;
     private final DecorationFinanceService finance;
     private final DecorationOverviewService overview;
+    private final DecorationDashboardService dashboard;
     private final DecorationPermitDocumentService documents;
     @GetMapping("/_requests/{requestId}") @QueryAction
     public Mono<DecorationApplicationEntity> creationResult(@PathVariable String requestId) { return applications.creationResult(requestId, false); }
@@ -31,8 +33,14 @@ public class DecorationApplicationController {
     public Mono<DecorationApplicationEntity> actionResult(@PathVariable String id, @PathVariable String requestId) { return applications.actionResult(id, requestId, false); }
     @PostMapping("/_query") @QueryAction
     public Mono<PagerResult<DecorationApplicationEntity>> query(@RequestBody QueryParamEntity query) { return applications.query(query, false); }
+    /** 同一查询权限下的轻量列表；完整详情接口保持兼容，不把私有快照带入审核表格。 */
+    @PostMapping(value="/_query", params="view=review") @QueryAction
+    public Mono<PagerResult<DecorationReviewListService.Row>> reviewList(@RequestBody QueryParamEntity query) { return reviewList.query(query); }
     @PostMapping("/_statistics") @QueryAction
     public Mono<DecorationOverviewService.Report> statistics(@RequestBody QueryParamEntity query) { return overview.query(query); }
+    /** 新概况只读指标；旧统计接口保留供已部署前端兼容。 */
+    @PostMapping("/_dashboard") @QueryAction
+    public Mono<DecorationDashboardService.Report> dashboard(@RequestBody QueryParamEntity query) { return dashboard.query(query); }
     @PostMapping("/_export") @ResourceAction(id="export", name="导出装修记录")
     public Mono<org.springframework.http.ResponseEntity<String>> export(@RequestBody QueryParamEntity query) {
         return applications.export(query).map(rows -> org.springframework.http.ResponseEntity.ok()
@@ -62,7 +70,7 @@ public class DecorationApplicationController {
 
     @PostMapping("/{id}/review") @ResourceAction(id="review",name="审核资料与保证金")
     public Mono<DecorationApplicationEntity> review(@PathVariable String id, @Valid @RequestBody DecorationRequests.Review input) { return reviews.review(id, input); }
-    @PostMapping("/{id}/end") @ResourceAction(id="end",name="结束装修")
+    @PostMapping("/{id}/end") @ResourceAction(id="end",name="补充结束说明")
     public Mono<DecorationApplicationEntity> end(@PathVariable String id, @Valid @RequestBody DecorationRequests.Action input) { return reviews.end(id, input); }
     @PostMapping("/{id}/completion-time") @ResourceAction(id="save",name="修改计划竣工时间")
     public Mono<DecorationApplicationEntity> changeEndTime(@PathVariable String id, @Valid @RequestBody DecorationRequests.ChangeEndTime input) { return reviews.changeEndTime(id, input); }
@@ -71,6 +79,9 @@ public class DecorationApplicationController {
     public Mono<DecorationApplicationEntity> changeActualEndTime(@PathVariable String id, @Valid @RequestBody DecorationRequests.ChangeActualEndTime input) { return reviews.changeActualEndTime(id, input); }
     @PostMapping("/{id}/permit") @ResourceAction(id="permit",name="办理备案")
     public Mono<DecorationApplicationEntity> permit(@PathVariable String id, @Valid @RequestBody DecorationRequests.IssuePermit input) { return permits.issue(id, input); }
+    /** 施工登记沿用备案操作授权；申请聚合统一校验范围、员工、版本和幂等。 */
+    @PostMapping("/{id}/permit/workers") @ResourceAction(id="permit",name="办理备案")
+    public Mono<DecorationApplicationEntity> workers(@PathVariable String id, @Valid @RequestBody DecorationRequests.RegisterWorkers input) { return permits.registerWorkers(id, input); }
     @PostMapping("/{id}/permit/print") @ResourceAction(id="print",name="打印备案证明")
     public Mono<DecorationApplicationEntity> print(@PathVariable String id, @Valid @RequestBody DecorationRequests.PrintPermit input) { return permits.print(id, input); }
     /** 与打印共用现有按钮权限，不修改租户或平台授权定义。 */

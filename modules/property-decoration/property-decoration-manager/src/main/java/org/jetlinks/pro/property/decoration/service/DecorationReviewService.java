@@ -20,6 +20,7 @@ public class DecorationReviewService {
             editable(row); require(input.getResult() == 1 || input.getResult() == 2, "invalid_review");
             if (input.getResult() == 2) require(input.getRemark() != null && !input.getRemark().isBlank(), "remark_required");
             if ("deposit".equals(input.getItemId())) {
+                require(row.getDepositReviewStatus() != 1, "review_already_approved");
                 amount(input.getAmount());
                 var agreement = row.getDetails().getAgreement();
                 var first = agreement.getFirstRefund() == null ? java.math.BigDecimal.ZERO : agreement.getFirstRefund();
@@ -29,7 +30,8 @@ public class DecorationReviewService {
                 row.setDepositReviewStatus(input.getResult()); row.setApprovedDeposit(input.getAmount());
                 row.setDepositReviewerId(ctx.userId()); row.setDepositReviewerName(ctx.userName()); row.setDepositReviewTime(System.currentTimeMillis()); row.setDepositReviewRemark(input.getRemark());
             } else {
-                var material = row.getDetails().getMaterials().stream().filter(m -> m.getDefinition().getId().equals(input.getItemId())).findFirst().orElseThrow(() -> error("invalid_materials", 400));
+                var material = reviewItems(row).filter(m -> m.getDefinition().getId().equals(input.getItemId())).findFirst().orElseThrow(() -> error("invalid_materials", 400));
+                require(material.getReviewStatus() != 1, "review_already_approved");
                 require(input.getAnnotations().size() <= 50 && input.getAnnotations().stream().allMatch(m ->
                     Double.isFinite(m.x()) && Double.isFinite(m.y()) && Double.isFinite(m.width()) && Double.isFinite(m.height())
                     && m.x() >= 0 && m.y() >= 0 && m.width() >= 0.005 && m.height() >= 0.005
@@ -53,8 +55,12 @@ public class DecorationReviewService {
             require(input.getMaterials().stream().map(DecorationRequests.MaterialUpload::getItemId).distinct().count() == input.getMaterials().size(), "invalid_materials");
             var ids = new ArrayList<String>();
             for (var upload : input.getMaterials()) {
-                var material = row.getDetails().getMaterials().stream().filter(m -> m.getDefinition().getId().equals(upload.getItemId())).findFirst().orElseThrow(() -> error("invalid_materials", 400));
+                var material = reviewItems(row).filter(m -> m.getDefinition().getId().equals(upload.getItemId())).findFirst().orElseThrow(() -> error("invalid_materials", 400));
                 require(material.getReviewStatus() == 2 && !upload.getFileIds().isEmpty(), "rejected_material_required");
+                if ("self-inspection".equals(upload.getItemId())) {
+                    row.getDetails().setSelfInspectionFiles(List.copyOf(upload.getFileIds()));
+                    // 原签署快照保留历史正文；当前自检文件以重提交后的有权回执为准。
+                }
                 material.setFileIds(upload.getFileIds()); material.setReviewStatus(0); material.setReviewerId(null); material.setReviewerName(null); material.setReviewTime(null); material.setRemark(null); material.setAnnotatedFileId(null); ids.addAll(upload.getFileIds());
                 // 批注属于旧图版本；历史快照保留，不能带入替换后的新图审核。
                 material.setAnnotationSourceFileId(null); material.setAnnotations(List.of());
@@ -66,21 +72,34 @@ public class DecorationReviewService {
     public Mono<DecorationApplicationEntity> changeEndTime(String id, DecorationRequests.ChangeEndTime input) {
         return applications.mutate(id, "changeEndTime", input, false, (row, ctx) -> {
             active(row); require(input.getCompletionTime() >= row.getDetails().getStartTime(), "invalid_dates");
-            row.getDetails().setCompletionTime(input.getCompletionTime()); row.setCompletionTime(input.getCompletionTime()); return Mono.empty();
-        });
-    }
-    /** 实际结束时间可纠正；结束原因、计划日期和财务回执保持各自动作的所有权。 */
-    public Mono<DecorationApplicationEntity> changeActualEndTime(String id, DecorationRequests.ChangeActualEndTime input) {
-        return applications.mutate(id, "changeActualEndTime", input, false, (row, ctx) -> {
-            require(input.getActualEndTime() >= row.getDetails().getStartTime(), "invalid_dates");
-            row.setActualEndTime(input.getActualEndTime()); row.setActiveHouseKey(null); row.setStatus("finished");
+            row.getDetails().setCompletionTime(input.getCompletionTime()); row.setCompletionTime(input.getCompletionTime());
+            if (row.getInspectionPlan() != null) {
+                require(input.getCompletionTime() >= row.getInspectionPlan().getStartTime(), "invalid_dates");
+                // 竣工日期变化同步未来巡检；已生成任务保留快照。到期后延期，从当天恢复而不补造过去任务。
+                row.getInspectionPlan().setEndTime(input.getCompletionTime());
+                long now = System.currentTimeMillis();
+                if (row.getNextInspectionTime() == null && input.getCompletionTime() >= now) {
+                    row.setNextInspectionTime(DecorationInspectionGenerator.dayStart(now));
+                }
+            }
             return Mono.empty();
         });
     }
+    /** 退费完成才结束办理；此处仅更正已完成申请的结束时间，不改变状态及房屋占用。 */
+    public Mono<DecorationApplicationEntity> changeActualEndTime(String id, DecorationRequests.ChangeActualEndTime input) {
+        return applications.mutate(id, "changeActualEndTime", input, false, (row, ctx) -> {
+            require(row.getRefundStatus() == 2, "refund_completion_required");
+            require(input.getActualEndTime() >= row.getDetails().getStartTime(), "invalid_dates");
+            row.setActualEndTime(input.getActualEndTime());
+            return Mono.empty();
+        });
+    }
+    /** 保留既有动作契约供补充结束说明，禁止用手动结束代替退费完成。 */
     public Mono<DecorationApplicationEntity> end(String id, DecorationRequests.Action input) {
         return applications.mutate(id, "end", input, false, (row, ctx) -> {
-            active(row); require(input.getRemark() != null && !input.getRemark().isBlank(), "remark_required");
-            row.setActualEndTime(System.currentTimeMillis()); row.setEndReason(input.getRemark()); row.setActiveHouseKey(null); row.setStatus("finished"); return Mono.empty();
+            require(row.getRefundStatus() == 2, "refund_completion_required");
+            require(input.getRemark() != null && !input.getRemark().isBlank(), "remark_required");
+            row.setEndReason(input.getRemark()); return Mono.empty();
         });
     }
 }

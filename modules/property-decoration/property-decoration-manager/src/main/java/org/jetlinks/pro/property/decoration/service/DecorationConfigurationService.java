@@ -29,8 +29,20 @@ public class DecorationConfigurationService {
             .flatMap(q -> QueryHelper.queryPager(q, repository::createQuery));
     }
     public Mono<DecorationConfigurationEntity> match(DecorationScope.Context ctx, String project, String kind, String house, String type, String scene) {
+        return scope.project(project).then(Mono.defer(() -> findEnabled(ctx, project, kind, house, type, scene)));
+    }
+    /** 申请表在同一订阅中校验一次项目权限，再并行匹配两个精确配置；不跨请求保留授权结果。 */
+    public Mono<FormConfiguration> form(DecorationScope.Context ctx, String project, String house, String type) {
+        return scope.project(project).then(Mono.defer(() -> Mono.zip(
+            findEnabled(ctx, project, "agreement", house, "", ""),
+            findEnabled(ctx, project, "materials", house, type, ""))
+            .map(tuple -> new FormConfiguration(tuple.getT1().getContent().getAgreement(), tuple.getT2().getContent().getMaterials()))));
+    }
+    public record FormConfiguration(DecorationModels.Agreement agreement, java.util.List<DecorationModels.MaterialDefinition> materials) {}
+
+    private Mono<DecorationConfigurationEntity> findEnabled(DecorationScope.Context ctx, String project, String kind, String house, String type, String scene) {
         String key = key(ctx.applicationId(), project, kind, house, type, scene);
-        return scope.project(project).then(repository.findById(key))
+        return repository.findById(key)
             .filter(row -> !row.getDeleted() && row.getEnabled() && row.getTenantId().equals(ctx.tenantId()))
             .switchIfEmpty(Mono.error(error("configuration_missing", 409)));
     }
@@ -51,7 +63,7 @@ public class DecorationConfigurationService {
                 var row = new DecorationConfigurationEntity(); row.setId(id); row.setConfigurationKey(id);
                 row.setApplicationId(ctx.applicationId()); row.setTenantId(ctx.tenantId()); row.setProjectId(input.getProjectId());
                 row.setKind(input.getKind()); row.setHouseType(input.getHouseType()); row.setDecorationType(input.getDecorationType()); row.setScene(input.getScene());
-                row.setName(input.getName()); row.setEnabled(input.isEnabled()); row.setDeleted(false); row.setContent(input.getContent());
+                row.setEnabled(input.isEnabled()); row.setDeleted(false); row.setContent(input.getContent());
                 row.setVersion(input.getVersion() + 1); row.setModifyTime(System.currentTimeMillis());
                 return repository.findById(id).flatMap(old -> {
                     require(old.getTenantId().equals(ctx.tenantId()) && old.getVersion() == input.getVersion(), "version_conflict");

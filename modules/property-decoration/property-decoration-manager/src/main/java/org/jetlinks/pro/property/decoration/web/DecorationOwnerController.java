@@ -22,6 +22,14 @@ public class DecorationOwnerController {
     private final DecorationPermitService permits;
     private final DecorationTaskService tasks;
     private final DecorationFinanceService finance;
+    private final DecorationOwnerHouseService houses;
+    private final DecorationNotificationService notifications;
+    @PostMapping("/_notifications/_query") @QueryAction
+    public Mono<PagerResult<DecorationNotificationService.Notice>> notifications(@RequestBody QueryParamEntity query) { return notifications.mine(query); }
+    @GetMapping("/_houses") @QueryAction
+    public Mono<java.util.List<DecorationOwnerHouseService.House>> houses() { return houses.houses(); }
+    @PostMapping("/_summaries") @QueryAction
+    public Mono<PagerResult<DecorationOwnerHouseService.ApplicationSummary>> summaries(@RequestBody QueryParamEntity query) { return houses.applications(query); }
     @GetMapping("/_requests/{requestId}") @QueryAction
     public Mono<DecorationApplicationEntity> creationResult(@PathVariable String requestId) { return applications.creationResult(requestId, true); }
     @GetMapping("/{id}/_requests/{requestId}") @QueryAction

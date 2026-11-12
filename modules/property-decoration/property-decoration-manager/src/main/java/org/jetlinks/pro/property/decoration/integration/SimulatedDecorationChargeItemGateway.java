@@ -18,8 +18,8 @@ import java.util.Locale;
 @ConditionalOnProperty(name = "decoration.integrations.simulated.enabled", havingValue = "true")
 public class SimulatedDecorationChargeItemGateway implements DecorationChargeItemGateway {
     private static final List<ChargeItem> ITEMS = List.of(
-        new ChargeItem("SIM-DECORATION-DEPOSIT", "装修保证金（模拟）"),
-        new ChargeItem("SIM-DECORATION-SERVICE", "装修服务费（模拟）")
+        new ChargeItem("SIM-DECORATION-DEPOSIT", "装修保证金"),
+        new ChargeItem("SIM-DECORATION-SERVICE", "装修服务费")
     );
 
     /** 项目、员工及应用权限仍由原目录入口检查，不因模拟模式放宽。 */

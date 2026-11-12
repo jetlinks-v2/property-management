@@ -85,6 +85,11 @@ public final class DecorationModels {
         private List<String> eligibleNatures = new ArrayList<>();
         private Integer validityMonths;
     }
+    /** 项目名称由装修自检定义提供，客户端仅提交固定项目键与是/否答案。 */
+    @Getter @Setter public static class SelfInspectionItem {
+        @jakarta.validation.constraints.NotBlank private String key;
+        @jakarta.validation.constraints.NotNull private Boolean value;
+    }
     @Getter @Setter public static class ApplicationDetails {
         private String ownerCertificate;
         private String constructionUnit;
@@ -96,9 +101,14 @@ public final class DecorationModels {
         private String houseType;
         private Long startTime;
         private Long completionTime;
+        private List<SelfInspectionItem> selfInspectionItems = new ArrayList<>();
         private String selfInspectionRemark;
         private int selfInspectionStatus;
         private List<String> selfInspectionFiles = new ArrayList<>();
+        /** 自检整表独立逐项审核；历史申请无此字段，不补造旧审核记录。 */
+        private Material selfInspectionReview;
+        /** 独立登记草稿；保存人员不代表已发证、打印或领取。 */
+        private WorkerRegistration workerRegistration;
         private boolean noticesAccepted;
         private List<String> signatureFiles = new ArrayList<>();
         private List<Material> materials = new ArrayList<>();
@@ -135,7 +145,8 @@ public final class DecorationModels {
         private Long endTime;
         private int validityMonths;
         private Long printTime;
-        /** 每次打印保留原始私有图片，延期及项目章变更不覆盖历史。 */
+        private Long downloadTime;
+        /** 每次打印或下载保留原始私有图片，延期及项目章变更不覆盖历史。 */
         private List<PermitPrint> prints = new ArrayList<>();
         private Long legacyPrintTime;
         private List<PermitCollection> collections = new ArrayList<>();
@@ -149,18 +160,41 @@ public final class DecorationModels {
         private String approverPhone;
         private List<Extension> extensions = new ArrayList<>();
     }
-    /** 打印登记只表示提交打印任务，不表示纸张已输出或已领取。 */
+    /** 输出记录只表示发起打印或下载，不表示已出纸、已保存到磁盘或已领取。旧记录默认为打印。 */
     public record PermitPrint(String snapshotFileId, String sealDigest, Long endTime,
-        String operatorId, String operatorName, long time) {}
+        String operatorId, String operatorName, long time, String outputType) {
+        public PermitPrint {
+            if (outputType == null) outputType = "print";
+        }
+        public PermitPrint(String snapshotFileId, String sealDigest, Long endTime,
+                           String operatorId, String operatorName, long time) {
+            this(snapshotFileId, sealDigest, endTime, operatorId, operatorName, time, "print");
+        }
+    }
     /** 每次领证绑定该有效期的图片，延期后仍可追溯旧领取记录。 */
     public record PermitCollection(String snapshotFileId, Long endTime, String collectedBy, long collectedTime,
         String operatorId, String operatorName) {}
+    @Getter @Setter public static class WorkerRegistration {
+        private String safetyPerson;
+        private String safetyPhone;
+        private String content;
+        private boolean entrusted;
+        private List<Worker> workers = new ArrayList<>();
+        private String operatorId;
+        private String operatorName;
+        private Long time;
+    }
     @Getter @Setter public static class Worker {
-        private String name;
-        private String certificate;
-        private String phone;
-        private Long entryTime;
-        private Long expirationTime;
+        @jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max=128) private String name;
+        @jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max=64) private String certificate;
+        @jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max=64) private String phone;
+        @jakarta.validation.constraints.NotNull @jakarta.validation.constraints.Min(1) private Long entryTime;
+        @jakarta.validation.constraints.NotNull @jakarta.validation.constraints.Min(1) private Long expirationTime;
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        @jakarta.validation.constraints.AssertTrue(message="{error.decoration.invalid_worker_dates}")
+        public boolean isDateRangeValid() {
+            return entryTime == null || expirationTime == null || expirationTime >= entryTime;
+        }
     }
     @Getter @Setter public static class Extension {
         private Long beforeEndTime;

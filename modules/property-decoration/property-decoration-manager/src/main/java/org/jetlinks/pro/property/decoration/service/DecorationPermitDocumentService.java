@@ -24,7 +24,7 @@ public class DecorationPermitDocumentService {
 
     public record Document(DecorationApplicationEntity application, String sealDataUrl, String sealDigest, String snapshotFileId) {}
 
-    /** 已打印且有效期未变时复用原图，不因主档换章而重新生成历史证件。 */
+    /** 已打印或下载且有效期未变时复用原图，不因主档换章而重新生成历史证件。 */
     static org.jetlinks.pro.property.decoration.model.DecorationModels.PermitPrint currentPrint(DecorationApplicationEntity row) {
         var permit = row.getPermit();
         if (permit == null || permit.getPrints().isEmpty()) return null;

@@ -91,5 +91,8 @@ springdoc:
 # 使用装饰后的公共上传过滤器，保留文件策略及大小写无关的请求头。
 file:
   manager:
+    # 独立装修服务消费集群公共文件能力，避免本地默认文件实现优先于远端提供方。
+    command:
+      enabled: false
     upload-filter:
       enabled: false

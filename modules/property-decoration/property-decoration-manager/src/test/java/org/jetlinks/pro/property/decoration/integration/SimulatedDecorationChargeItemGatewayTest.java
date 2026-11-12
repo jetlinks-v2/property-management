@@ -44,7 +44,7 @@ class SimulatedDecorationChargeItemGatewayTest {
             assertEquals(2, page.getTotal());
             assertEquals(1, page.getPageIndex());
             assertEquals(List.of(new DecorationChargeItemGateway.ChargeItem(
-                "SIM-DECORATION-SERVICE", "装修服务费（模拟）")), page.getData());
+                "SIM-DECORATION-SERVICE", "装修服务费")), page.getData());
         }).verifyComplete();
         var search = QueryParamEntity.newQuery().where("name", "like", "保证金").getParam();
         StepVerifier.create(gateway.query("project", search)).assertNext(page -> {

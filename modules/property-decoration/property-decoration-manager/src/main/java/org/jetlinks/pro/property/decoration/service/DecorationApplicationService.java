@@ -35,6 +35,7 @@ public class DecorationApplicationService {
     private final DecorationScope scope;
     private final DecorationApplicationRepository repository;
     private final DecorationHistoryRepository histories;
+    private final DecorationNotificationService notifications;
     private final DecorationConfigurationService configurations;
     private final DecorationAttachmentService attachments;
     private final DecorationSelfInspectionService selfInspections;
@@ -120,9 +121,15 @@ public class DecorationApplicationService {
                 details.setOwnerCertificate(input.getOwnerCertificate()); details.setConstructionUnit(input.getConstructionUnit()); details.setConstructionManager(input.getConstructionManager());
                 details.setManagerPhone(input.getManagerPhone()); details.setManagerCertificate(input.getManagerCertificate()); details.setConstructionType(input.getConstructionType());
                 details.setDecorationType(input.getDecorationType()); details.setHouseType(home.houseType()); details.setStartTime(input.getStartTime()); details.setCompletionTime(input.getCompletionTime());
-                details.setNoticesAccepted(input.isNoticesAccepted()); details.setSelfInspectionStatus(input.getSelfInspectionStatus()); details.setSelfInspectionRemark(input.getSelfInspectionRemark()); details.setSelfInspectionFiles(input.getSelfInspectionFiles()); details.setSignatureFiles(input.getSignatureFiles());
+                details.setNoticesAccepted(input.isNoticesAccepted()); details.setSignatureFiles(input.getSignatureFiles());
+                // 业主端冻结逐项答案与整表签字图；服务台保留线下签字后导入的原文件。
+                details.setSelfInspectionItems(mine ? DecorationSelfInspectionForm.snapshot(input) : List.of());
+                if (mine) details.setSelfInspectionStatus(DecorationSelfInspectionForm.status(details.getSelfInspectionItems()));
                 details.setAgreement(tuple.getT1().getContent().getAgreement());
-                details.setSignedDocuments(DecorationDocuments.freeze(input, home, details.getAgreement(), ctx));
+                details.setSignedDocuments(DecorationDocuments.freeze(input, home, tuple.getT2().getContent().getMaterials(), ctx, mine));
+                details.setSelfInspectionFiles(mine ? details.getSignedDocuments().stream()
+                    .filter(document -> "selfInspection".equals(document.getKind())).map(DecorationModels.SignedDocument::getDocumentFileId).toList() : List.copyOf(input.getSelfInspectionFiles()));
+                details.setSelfInspectionReview(DecorationRules.selfInspectionReview(details.getSelfInspectionFiles()));
                 details.setMaterials(materials(tuple.getT2().getContent().getMaterials(), input.getMaterials())); row.setDetails(details);
                 var ids = new ArrayList<>(files(row));
                 return attachments.validate(ids, row.getProjectId(), null, ctx, false).then(repository.insert(row))
@@ -174,7 +181,7 @@ public class DecorationApplicationService {
         var history = new DecorationHistoryEntity(); history.setId(identity(row.getId() + ":" + request)); history.setRequestKey(history.getId());
         history.setDecorationId(row.getId()); history.setRequestDigest(digest); history.setAction(action); history.setActorId(ctx.userId()); history.setActorName(ctx.userName());
         history.setSnapshot(row); history.setBeforeStatus(before); history.setAfterStatus(row.getStatus()); history.setRemark(remark); history.setVersion(row.getVersion()); history.setCreateTime(System.currentTimeMillis());
-        return histories.insert(history).then();
+        return histories.insert(history).then(notifications.record(history));
     }
     public static List<String> files(DecorationApplicationEntity row) {
         var files = new ArrayList<>(row.getDetails().getSelfInspectionFiles()); files.addAll(row.getDetails().getSignatureFiles());

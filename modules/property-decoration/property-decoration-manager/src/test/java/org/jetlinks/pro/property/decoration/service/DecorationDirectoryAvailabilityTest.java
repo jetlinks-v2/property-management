@@ -6,14 +6,20 @@ import org.jetlinks.core.command.CommandSupport;
 import org.jetlinks.core.metadata.FunctionMetadata;
 import org.jetlinks.pro.command.CommandSupportManagerProvider;
 import org.jetlinks.pro.property.base.command.QueryPropertyHouseholdsCommand;
+import org.jetlinks.pro.property.base.command.QueryCurrentPropertyHousesCommand;
 import org.jetlinks.pro.property.base.command.QueryPropertyDictionaryItemsCommand;
+import org.jetlinks.pro.property.base.command.QueryPropertyProjectCommand;
+import org.jetlinks.pro.property.base.organization.PropertyProjectInfo;
+import org.hswebframework.web.authorization.exception.AccessDenyException;
 import org.jetlinks.pro.property.base.dictionary.PropertyDictionaryItemInfo;
+import org.jetlinks.pro.property.base.house.PropertyHouseholdInfo;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.util.Map;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -35,6 +41,39 @@ class DecorationDirectoryAvailabilityTest {
             registration.dispose();
             previous.ifPresent(provider -> CommandSupportManagerProvider.supports.register("propertyService", provider));
         }
+    }
+
+    @Test void candidateProjectUsesExactPublicCommandAndPreservesAuthentication() {
+        var user = new org.hswebframework.web.authorization.simple.SimpleUser(); user.setId("candidate");
+        var auth = new org.hswebframework.web.authorization.simple.SimpleAuthentication(); auth.setUser(user);
+        var support = CommandSupport.create(QueryPropertyProjectCommand::new, command ->
+            org.hswebframework.web.authorization.Authentication.currentReactive().map(current -> {
+                assertEquals("candidate", current.getUser().getId());
+                assertEquals("project", command.getProjectId());
+                return new PropertyProjectInfo("project", "项目");
+            }));
+        withProvider(support, () -> StepVerifier.create(new DecorationScope().canReadProject("project")
+                .contextWrite(context -> context.put(org.hswebframework.web.authorization.Authentication.class, auth)))
+            .expectNext(true).verifyComplete());
+    }
+
+    @Test void exactCandidateProjectOnlyConvertsPermissionDenialAndKeepsProviderErrors() {
+        var denied = CommandSupport.create(QueryPropertyProjectCommand::new,
+            command -> Mono.<PropertyProjectInfo>error(new AccessDenyException()));
+        withProvider(denied, () -> StepVerifier.create(new DecorationScope().canReadProject("project"))
+            .expectNext(false).verifyComplete());
+        var foreign = CommandSupport.create(QueryPropertyProjectCommand::new,
+            command -> Mono.just(new PropertyProjectInfo("other", "其他项目")));
+        withProvider(foreign, () -> StepVerifier.create(new DecorationScope().canReadProject("project"))
+            .expectNext(false).verifyComplete());
+        var failure = new IllegalStateException("directory offline");
+        var unavailable = CommandSupport.create(QueryPropertyProjectCommand::new,
+            command -> Mono.<PropertyProjectInfo>error(failure));
+        withProvider(unavailable, () -> StepVerifier.create(new DecorationScope().canReadProject("project"))
+            .expectErrorMatches(error -> error == failure).verify());
+        var unsupported = CommandSupport.create(QueryPropertyHouseholdsCommand::new, command -> Flux.empty());
+        withProvider(unsupported, () -> StepVerifier.create(new DecorationScope().canReadProject("project"))
+            .expectErrorSatisfies(error -> assertEquals(503, ((BusinessException) error).getStatus())).verify());
     }
 
     @Test void missingRemoteCommandMustNotBecomeAnEmptyHouseholdList() {
@@ -79,5 +118,55 @@ class DecorationDirectoryAvailabilityTest {
         withProvider(support, () -> StepVerifier.create(new DecorationScope().dictionaryItems("house-type")
                 .contextWrite(reactor.util.context.Context.of(org.hswebframework.web.authorization.Authentication.class, authentication)))
             .expectNext(new PropertyDictionaryItemInfo("residential", "住宅", 1L)).verifyComplete());
+    }
+
+    @Test void ownerHouseCommandInheritsAuthenticationAndDoesNotInventAnOwnerId() {
+        var support = CommandSupport.create(QueryCurrentPropertyHousesCommand::new, command ->
+            org.hswebframework.web.authorization.Authentication.currentReactive().map(auth -> {
+                assertEquals("reader", auth.getUser().getId());
+                assertEquals(null, command.getProjectId()); assertEquals(null, command.getSpaceId());
+                assertFalse(command.readable().containsKey("userId"));
+                return List.<org.jetlinks.pro.property.base.archive.PropertyOwnerHouse>of();
+            }));
+        var user = new org.hswebframework.web.authorization.simple.SimpleUser(); user.setId("reader");
+        var authentication = new org.hswebframework.web.authorization.simple.SimpleAuthentication(); authentication.setUser(user);
+        withProvider(support, () -> StepVerifier.create(new DecorationScope().ownerHouses()
+                .contextWrite(reactor.util.context.Context.of(org.hswebframework.web.authorization.Authentication.class, authentication)))
+            .expectNext(List.of()).verifyComplete());
+    }
+
+    @Test void ownerHouseDirectoryDistinguishesUnsupportedEmptyAndFailure() {
+        var unsupported = CommandSupport.create(QueryPropertyHouseholdsCommand::new, command -> Flux.empty());
+        withProvider(unsupported, () -> StepVerifier.create(new DecorationScope().ownerHouses())
+            .expectErrorSatisfies(e -> assertEquals(503, ((BusinessException) e).getStatus())).verify());
+        var empty = CommandSupport.create(QueryCurrentPropertyHousesCommand::new, command -> Mono.empty());
+        withProvider(empty, () -> StepVerifier.create(new DecorationScope().ownerHouses())
+            .expectErrorSatisfies(e -> assertEquals(503, ((BusinessException) e).getStatus())).verify());
+        var failure = new IllegalStateException("directory offline");
+        var unavailable = CommandSupport.create(QueryCurrentPropertyHousesCommand::new, command -> Mono.error(failure));
+        withProvider(unavailable, () -> StepVerifier.create(new DecorationScope().ownerHouses())
+            .expectErrorMatches(e -> e == failure).verify());
+    }
+
+    @Test void exactHouseholdFiltersAndMineSurviveTheCommandPayloadBoundary() {
+        var home = new PropertyHouseholdInfo("project", "house", "101", "residential", "customer", "owner", "业主", "13800000000", "relation", "owner");
+        var provider = CommandSupport.create(QueryPropertyHouseholdsCommand::new, command -> {
+            var restored = new QueryPropertyHouseholdsCommand(); command.readable().forEach(restored::with);
+            assertEquals("project", restored.getProjectId()); assertEquals("house", restored.getSpaceId());
+            assertEquals("customer", restored.getCustomerId()); assertEquals(true, restored.isMine());
+            return Flux.just(home);
+        });
+        withProvider(provider, () -> StepVerifier.create(new DecorationScope().household("project", "house", "customer", true))
+            .expectNext(home).verifyComplete());
+    }
+
+    @Test void exactHouseholdStillRejectsEmptyOrMismatchedRelations() {
+        var empty = CommandSupport.create(QueryPropertyHouseholdsCommand::new, command -> Flux.empty());
+        withProvider(empty, () -> StepVerifier.create(new DecorationScope().household("project", "house", "customer", false))
+            .expectErrorSatisfies(e -> assertEquals(403, ((BusinessException) e).getStatus())).verify());
+        var foreign = new PropertyHouseholdInfo("foreign", "house", "101", "residential", "customer", "owner", "业主", "13800000000", "relation", "owner");
+        withProvider(CommandSupport.create(QueryPropertyHouseholdsCommand::new, command -> Flux.just(foreign)),
+            () -> StepVerifier.create(new DecorationScope().household("project", "house", "customer", false))
+                .expectErrorSatisfies(e -> assertEquals(403, ((BusinessException) e).getStatus())).verify());
     }
 }

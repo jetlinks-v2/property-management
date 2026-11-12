@@ -74,7 +74,7 @@ class DecorationConfigurationImportPersistenceTest {
         configurations.save(config("daily", 0)).contextWrite(auth("admin")).block(WAIT);
     }
     private DecorationRequests.Config config(String scene, long version) {
-        var input = new DecorationRequests.Config(); input.setName("原配置"); input.setKind("checks"); input.setProjectId("project");
+        var input = new DecorationRequests.Config(); input.setKind("checks"); input.setProjectId("project");
         input.setHouseType("residential"); input.setDecorationType("first"); input.setScene(scene); input.setVersion(version);
         input.setContent(new DecorationModels.Configuration()); return input;
     }
@@ -180,11 +180,11 @@ class DecorationConfigurationImportPersistenceTest {
 
     @Test void configurationConflictAfterImageUploadCompensatesTheUncommittedImage() throws Exception {
         when(storage.save(anyString(), any())).thenAnswer(call -> uploaded(call.getArgument(1), "uploaded-before-conflict")
-            .flatMap(id -> { var concurrent = config("daily", 1); concurrent.setName("其他编辑已保存"); return configurations.save(concurrent).thenReturn(id); }));
+            .flatMap(id -> { var concurrent = config("daily", 1); concurrent.setEnabled(false); return configurations.save(concurrent).thenReturn(id); }));
         StepVerifier.create(service.importChecks("concurrent-edit", new Part(workbook(true, "日常巡检"))).contextWrite(auth("admin")))
             .expectErrorMatches(e -> e.getMessage().contains("version_conflict")).verify(WAIT);
         var saved = configs.createQuery().where("scene", "daily").fetchOne().block(WAIT);
-        assertEquals(2L, saved.getVersion()); assertEquals("其他编辑已保存", saved.getName()); assertTrue(saved.getContent().getChecks().isEmpty());
+        assertEquals(2L, saved.getVersion()); assertFalse(saved.getEnabled()); assertTrue(saved.getContent().getChecks().isEmpty());
         assertEquals(0, files.createQuery().count().block(WAIT)); assertEquals(0, imports.createQuery().count().block(WAIT));
         verify(storage).delete("uploaded-before-conflict");
     }

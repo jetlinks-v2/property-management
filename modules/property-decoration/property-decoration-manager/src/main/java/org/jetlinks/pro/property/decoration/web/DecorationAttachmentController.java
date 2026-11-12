@@ -26,6 +26,10 @@ public class DecorationAttachmentController {
         @RequestPart("file") Mono<FilePart> file) {
         return file.flatMap(part -> attachments.upload(projectId, decorationId, purpose, part));
     }
+    @GetMapping("/{id}/metadata") @QueryAction
+    public Mono<DecorationAttachmentService.Receipt> metadata(@PathVariable String id) { return attachments.metadata(id); }
+    @GetMapping("/{id}/word-text") @QueryAction
+    public Mono<String> wordText(@PathVariable String id) { return attachments.wordText(id); }
     @GetMapping("/{id}") @QueryAction
     public Mono<ResponseEntity<Flux<DataBuffer>>> download(@PathVariable String id) { return attachments.download(id); }
 }

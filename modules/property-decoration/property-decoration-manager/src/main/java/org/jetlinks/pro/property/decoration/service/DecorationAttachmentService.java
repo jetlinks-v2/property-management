@@ -25,7 +25,7 @@ import static org.jetlinks.pro.property.decoration.service.DecorationRules.*;
 @RequiredArgsConstructor
 public class DecorationAttachmentService {
     private static final long MAX_BYTES = 20L * 1024 * 1024;
-    private static final Set<String> EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp", "heic", "pdf", "doc", "docx", "dwg", "dxf");
+    private static final Set<String> EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp", "heic", "pdf", "doc", "docx", "xls", "xlsx", "gif", "bmp", "dwg", "dxf");
     private final DecorationScope scope;
     private final DecorationAttachmentRepository receipts;
     private final DecorationApplicationRepository applications;
@@ -116,15 +116,33 @@ public class DecorationAttachmentService {
                 && row.getCreatorId().equals(ctx.userId()) && "template".equals(row.getPurpose()) && row.getDecorationId() == null)
             .flatMap(row -> files.delete(row.getFileId()).then(receipts.deleteById(row.getId())))).then();
     }
-    public Mono<ResponseEntity<Flux<DataBuffer>>> download(String id) {
+    /** 元信息和正文复用下载的应用、租户、项目及申请访问校验。 */
+    private Mono<DecorationAttachmentEntity> authorized(String id) {
         return scope.current().flatMap(ctx -> scope.query(QueryParamEntity.newQuery().where("id", id).getParam(), ctx)
             .flatMap(q -> receipts.createQuery().setParam(q).fetchOne()).switchIfEmpty(Mono.error(error("invalid_attachment", 404)))
-            .flatMap(row -> authorize(row, ctx).thenReturn(ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType(row.getContentType()))
-                .header("X-Content-Type-Options", "nosniff")
-                .header("Cache-Control", "private, no-store")
-                .header("Content-Disposition", ContentDisposition.inline().filename(row.getName(), StandardCharsets.UTF_8).build().toString())
-                .body(files.read(row.getFileId())))));
+            .flatMap(row -> authorize(row, ctx).thenReturn(row)));
+    }
+    public Mono<Receipt> metadata(String id) {
+        return authorized(id).map(row -> new Receipt(row.getId(), row.getName(), row.getSize(), row.getContentType()));
+    }
+    /** 二进制Word在装修服务内提取可阅读正文，不向第三方公开私有文件。解析移到专用工作线程。 */
+    public Mono<String> wordText(String id) {
+        return authorized(id).flatMap(row -> {
+            require(row.getName().toLowerCase(Locale.ROOT).endsWith(".doc"), "invalid_attachment");
+            return DataBufferUtils.join(files.read(row.getFileId()), (int) MAX_BYTES)
+                .map(buffer -> { try { byte[] bytes = new byte[buffer.readableByteCount()]; buffer.read(bytes); return bytes; }
+                    finally { DataBufferUtils.release(buffer); } })
+                .publishOn(reactor.core.scheduler.Schedulers.boundedElastic())
+                .map(DecorationWordPreview::text);
+        });
+    }
+    public Mono<ResponseEntity<Flux<DataBuffer>>> download(String id) {
+        return authorized(id).map(row -> ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType(row.getContentType()))
+            .header("X-Content-Type-Options", "nosniff")
+            .header("Cache-Control", "private, no-store")
+            .header("Content-Disposition", ContentDisposition.inline().filename(row.getName(), StandardCharsets.UTF_8).build().toString())
+            .body(files.read(row.getFileId())));
     }
     private Mono<Void> authorize(DecorationAttachmentEntity row, DecorationScope.Context ctx) {
         if ("template".equals(row.getPurpose()) || row.getCreatorId().equals(ctx.userId())) return Mono.empty();

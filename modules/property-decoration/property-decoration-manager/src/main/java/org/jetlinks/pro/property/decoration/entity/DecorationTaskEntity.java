@@ -21,6 +21,11 @@ import org.jetlinks.pro.property.decoration.model.DecorationModels;
     @Index(name="idx_pd_task_assignee",columnList="applicationId,projectId,assigneeId,status") })
 public class DecorationTaskEntity extends GenericEntity<String> {
 
+    /** 列表读取时补充的当前装修状态；不写入任务或自检快照。 */
+    @javax.persistence.Transient private String decorationStatus;
+    /** 当前读取人的执行人/角色资格，供页面与菜单动作权限取交集；不持久化，也不代替提交校验。 */
+    @javax.persistence.Transient private boolean feedbackAllowed;
+    @javax.persistence.Transient private boolean reviewAllowed;
     @Column(length=64, nullable=false, updatable=false) private String applicationId;
     @Column(length=64, nullable=false, updatable=false) private String tenantId;
     @Column(length=64, nullable=false, updatable=false) private String projectId;

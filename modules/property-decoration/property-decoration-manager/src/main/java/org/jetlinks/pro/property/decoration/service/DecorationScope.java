@@ -11,6 +11,7 @@ import org.jetlinks.pro.tenant.holder.TenantHolder;
 import org.jetlinks.pro.command.CommandSupportManagerProviders;
 import org.jetlinks.pro.property.base.command.*;
 import org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo;
+import org.jetlinks.pro.property.base.archive.PropertyOwnerHouse;
 import org.jetlinks.pro.property.base.house.PropertyHouseholdInfo;
 import org.jetlinks.pro.property.base.user.PropertyEmployeeInfo;
 import org.springframework.stereotype.Component;
@@ -43,6 +44,16 @@ public class DecorationScope {
     public Mono<PropertyOrganizationInfo> project(String id) {
         return projects().filter(p -> p.getId().equals(id)).next().switchIfEmpty(Mono.error(new AccessDenyException()));
     }
+    /** 候选人权限按单个项目求值，避免为每个人读取、组装完整组织树。 */
+    public Mono<Boolean> canReadProject(String id) {
+        var command = new QueryPropertyProjectCommand(); command.setProjectId(id);
+        return support(QueryPropertyProjectCommand.SERVICE_ID, command)
+            .flatMap(s -> s.execute(command))
+            .filter(project -> Objects.equals(id, project.id()))
+            .hasElement()
+            // 仅明确的无权结果排除候选人；目录缺失、网络和数据错误仍向上传播。
+            .onErrorReturn(AccessDenyException.class, false);
+    }
     public Flux<PropertyOrganizationInfo> tree() {
         var command = new QueryPropertyOrganizationTreeCommand();
         return support(QueryPropertyOrganizationTreeCommand.SERVICE_ID, command).flatMapMany(s -> s.execute(command));
@@ -51,13 +62,23 @@ public class DecorationScope {
         var command = new QueryPropertyHouseholdsCommand(); command.setProjectId(projectId); command.setMine(mine);
         return support(QueryPropertyHouseholdsCommand.SERVICE_ID, command).flatMapMany(s -> s.execute(command));
     }
+    /** 一次读取认证本人房屋候选；调用方仍须取装修项目、空间授权交集，缺命令或目录故障不降级。 */
+    public Mono<List<PropertyOwnerHouse>> ownerHouses() {
+        var command = new QueryCurrentPropertyHousesCommand();
+        return support(QueryCurrentPropertyHousesCommand.SERVICE_ID, command).flatMap(s -> s.execute(command))
+            .switchIfEmpty(Mono.error(DecorationRules.error("directory_unavailable", 503)));
+    }
     /** 导入只接受公共主档中的启用编码；未部署字典命令时保持503，不相信客户端字典快照。 */
     public Flux<org.jetlinks.pro.property.base.dictionary.PropertyDictionaryItemInfo> dictionaryItems(String typeCode) {
         var command = new QueryPropertyDictionaryItemsCommand(); command.setTypeCode(typeCode);
         return support(QueryPropertyDictionaryItemsCommand.SERVICE_ID, command).flatMapMany(s -> s.execute(command));
     }
     public Mono<PropertyHouseholdInfo> household(String projectId, String spaceId, String customerId, boolean mine) {
-        return households(projectId, mine).filter(h -> Objects.equals(h.spaceId(), spaceId) && Objects.equals(h.customerId(), customerId))
+        // 精确关系读取将条件下推到基础服务；提供方仍校验项目、空间及本人关系，不拉取整项目后再筛选。
+        var command = new QueryPropertyHouseholdsCommand();
+        command.setProjectId(projectId); command.setSpaceId(spaceId); command.setCustomerId(customerId); command.setMine(mine);
+        return support(QueryPropertyHouseholdsCommand.SERVICE_ID, command).flatMapMany(s -> s.execute(command))
+            .filter(h -> Objects.equals(h.projectId(), projectId) && Objects.equals(h.spaceId(), spaceId) && Objects.equals(h.customerId(), customerId))
             .next().switchIfEmpty(Mono.error(DecorationRules.error("household_mismatch", 403)));
     }
     public Mono<PropertyEmployeeInfo> employee() {
@@ -71,19 +92,22 @@ public class DecorationScope {
         return support(QueryPropertyEmployeePageCommand.SERVICE_ID, command).flatMap(s -> s.execute(command));
     }
     public Mono<QueryParamEntity> query(QueryParamEntity input, Context context) {
+        return projects().map(PropertyOrganizationInfo::getId).collectList()
+            .map(ids -> query(input, context, ids));
+    }
+    /** 仅供本服务复用本次基础目录核验的项目范围，避免同一请求重复拉取组织树。 */
+    QueryParamEntity query(QueryParamEntity input, Context context, List<String> projectIds) {
         var query = input.clone(); query.setTotal(null); query.setPaging(true);
         query.setPageIndex(Math.max(0, query.getPageIndex())); query.setPageSize(Math.max(1, Math.min(100, query.getPageSize())));
         query.setIncludes(java.util.Set.of()); query.setExcludes(java.util.Set.of());
         if (query.getSorts().isEmpty()) query.toQuery().orderByDesc("createTime");
         if (query.getSorts().stream().noneMatch(sort -> "id".equals(sort.getName()))) query.toQuery().orderByDesc("id");
         // 权限在基础服务执行，装修库没有 s_organization，不能将它的资产 SQL 子查询复制到业务库。
-        return projects().map(PropertyOrganizationInfo::getId).collectList().map(ids -> {
-            query.toNestQuery(q -> {
-                q.and("applicationId", context.applicationId()).and("tenantId", context.tenantId());
-                if (ids.isEmpty()) q.isNull("projectId").notNull("projectId"); else q.in("projectId", ids);
-            });
-            return query;
+        query.toNestQuery(q -> {
+            q.and("applicationId", context.applicationId()).and("tenantId", context.tenantId());
+            if (projectIds.isEmpty()) q.isNull("projectId").notNull("projectId"); else q.in("projectId", projectIds);
         });
+        return query;
     }
     private Mono<CommandSupport> support(String id, Command<?> command) {
         return CommandSupportManagerProviders.getCommandSupport(id)

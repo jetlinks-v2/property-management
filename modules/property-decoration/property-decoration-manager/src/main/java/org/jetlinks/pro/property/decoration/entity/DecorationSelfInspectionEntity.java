@@ -19,6 +19,8 @@ import java.util.List;
     @Index(name="idx_pd_self_scope", columnList="applicationId,tenantId,projectId,createTime")
 })
 public class DecorationSelfInspectionEntity extends GenericEntity<String> {
+    /** 列表读取时补充的当前装修状态；不写入任务或自检快照。 */
+    @javax.persistence.Transient private String decorationStatus;
     @Column(length=64, nullable=false, updatable=false) private String applicationId;
     @Column(length=64, nullable=false, updatable=false) private String tenantId;
     @Column(length=64, nullable=false, updatable=false) private String projectId;

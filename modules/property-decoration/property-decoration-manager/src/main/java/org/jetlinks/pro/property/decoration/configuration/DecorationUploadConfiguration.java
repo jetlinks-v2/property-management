@@ -2,6 +2,7 @@ package org.jetlinks.pro.property.decoration.configuration;
 
 import org.jetlinks.pro.io.file.FileProperties;
 import org.jetlinks.pro.io.filter.FileUploadWebFilter;
+import org.jetlinks.pro.property.decoration.service.DecorationFileStorage;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
@@ -40,7 +41,7 @@ public class DecorationUploadConfiguration {
                     }
                 };
                 return chain.filter(rebuilt.mutate().request(request).build());
-            });
+            }).contextWrite(context -> DecorationFileStorage.withRequestHeaders(context, exchange.getRequest().getHeaders()));
         }
     }
 }

@@ -30,11 +30,13 @@ public final class DecorationRequests {
         @NotNull private Long startTime;
         @NotNull private Long completionTime;
         @AssertTrue private boolean noticesAccepted;
+        /** 固定九项逐项确认；总结果和归档图片从答案及签署文书生成。 */
+        @NotNull @Valid @Size(max=9) private List<DecorationModels.SelfInspectionItem> selfInspectionItems = new ArrayList<>();
         @Size(max=2000) private String selfInspectionRemark;
         @Min(0) @Max(1) private int selfInspectionStatus;
         @Size(max=20) private List<String> selfInspectionFiles = new ArrayList<>();
         @Size(max=20) private List<String> signatureFiles = new ArrayList<>();
-        @Valid @Size(min=4,max=4) private List<SignedDocument> signedDocuments = new ArrayList<>();
+        @Valid @Size(max=201) private List<SignedDocument> signedDocuments = new ArrayList<>();
         @Valid @Size(max=200) private List<MaterialUpload> materials = new ArrayList<>();
     }
     @Getter @Setter public static class SignedDocument {
@@ -52,8 +54,9 @@ public final class DecorationRequests {
         @NotNull @Min(1) private Long version;
         @Size(max=2000) private String remark;
     }
-    /** 完整证件先保存为私有图片，打印登记绑定图片回执及预览时的章摘要。 */
+    /** 打印或下载前保存完整私有证件；旧请求未带输出类型时仍按打印处理。 */
     @Getter @Setter public static class PrintPermit extends Action {
+        @NotNull @Pattern(regexp="print|download") private String outputType = "print";
         @NotBlank @Pattern(regexp="[a-f0-9]{64}") private String sealDigest;
         @NotBlank @Size(max=64) private String snapshotFileId;
     }
@@ -77,12 +80,14 @@ public final class DecorationRequests {
     /** 管理端登记或纠正实际结束时间，不接受清空以重新激活装修。 */
     @Getter @Setter public static class ChangeActualEndTime extends Action { @NotNull @Min(1) private Long actualEndTime; }
     @Getter @Setter public static class IssuePermit extends Action {
-        @NotBlank private String safetyPerson;
-        @NotBlank private String safetyPhone;
+        @NotBlank @Size(max=128) private String safetyPerson;
+        @NotBlank @Size(max=64) private String safetyPhone;
         @NotBlank @Size(max=2000) private String content;
         private boolean entrusted;
-        @Size(max=200) private List<DecorationModels.Worker> workers = new ArrayList<>();
+        @NotNull @Valid @Size(max=200) private List<DecorationModels.Worker> workers = new ArrayList<>();
     }
+    /** 复用备案登记字段，独立保存不推进发证状态。 */
+    @Getter @Setter public static class RegisterWorkers extends IssuePermit { }
     @Getter @Setter public static class ExtendPermit extends Action { @Min(1) @Max(120) private int months; }
     @Getter @Setter public static class Acceptance extends Action {
         @Min(1) @Max(2) private int type;
@@ -103,8 +108,9 @@ public final class DecorationRequests {
     @Getter @Setter public static class Inspection extends Action {
         @NotNull @Size(min=1,max=30) @Valid private List<DecorationModels.InspectionRole> inspectionRoles = new ArrayList<>();
         @NotBlank private String reviewRoleId;
-        @NotNull private Long startTime;
-        @NotNull private Long endTime;
+        // 兼容旧客户端字段；指派日期及截止日期统一由服务端从当前时间和计划竣工时间确定。
+        private Long startTime;
+        private Long endTime;
     }
     @Getter @Setter public static class Rectification extends Action {
         @NotBlank private String taskId;
@@ -119,7 +125,6 @@ public final class DecorationRequests {
         private String id;
         @NotBlank private String projectId;
         @Pattern(regexp="agreement|materials|checks|validity") @NotNull private String kind;
-        @NotBlank @Size(max=128) private String name;
         @Size(max=64) private String houseType = "";
         @Size(max=64) private String decorationType = "";
         @Size(max=64) private String scene = "";

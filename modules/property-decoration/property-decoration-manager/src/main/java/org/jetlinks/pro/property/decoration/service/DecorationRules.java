@@ -33,12 +33,12 @@ public final class DecorationRules {
         require(input.getOwnerCertificate() != null && input.getOwnerCertificate().matches(identity), "invalid_owner_identity");
         require(input.getManagerCertificate() != null && input.getManagerCertificate().matches(identity), "invalid_manager_identity");
     }
-    /** 已发布旧数据仅有printTime，沿用原流程资格但不补造领取人或领取时间。 */
+    /** 当前版本完成打印或下载即完成备案；兼容既有领取记录，不补造任何领取信息。 */
     public static boolean permitReceived(DecorationModels.Permit permit) {
         return permit != null && (permit.getCollectedTime() != null
-            || permit.getPrintTime() != null && permit.getPrints().isEmpty());
+            || permit.getPrintTime() != null || permit.getDownloadTime() != null);
     }
-    public static void active(DecorationApplicationEntity row) { require(row.getActualEndTime() == null, "ended"); }
+    public static void active(DecorationApplicationEntity row) { require(row.getRefundStatus() != 2 && row.getActualEndTime() == null, "ended"); }
     public static void editable(DecorationApplicationEntity row) {
         active(row); require(row.getPaymentStatus() == 0 && row.getPermit() == null, "payment_locked");
     }
@@ -46,15 +46,28 @@ public final class DecorationRules {
         require(amount != null && amount.signum() > 0 && amount.compareTo(new BigDecimal("9999999999.99")) <= 0
             && amount.stripTrailingZeros().scale() <= 2, "invalid_amount");
     }
+    /** 新申请把自检整表纳入审核；已持久化旧申请无该字段，沿用原有审核资格。 */
+    public static java.util.stream.Stream<DecorationModels.Material> reviewItems(DecorationApplicationEntity row) {
+        var materials = row.getDetails().getMaterials().stream();
+        var self = row.getDetails().getSelfInspectionReview();
+        return self == null ? materials : java.util.stream.Stream.concat(java.util.stream.Stream.of(self), materials);
+    }
+    public static DecorationModels.Material selfInspectionReview(List<String> files) {
+        var definition = new DecorationModels.MaterialDefinition();
+        definition.setId("self-inspection"); definition.setName("装修自检表"); definition.setKind("material");
+        definition.setSource("upload"); definition.setRequired(true);
+        var material = new DecorationModels.Material(); material.setDefinition(definition); material.setFileIds(files);
+        return material;
+    }
     public static String reviewedStatus(DecorationApplicationEntity row) {
-        if (row.getDepositReviewStatus() == 2 || row.getDetails().getMaterials().stream().anyMatch(m -> m.getReviewStatus() == 2)) return "rejected";
+        if (row.getDepositReviewStatus() == 2 || reviewItems(row).anyMatch(m -> m.getReviewStatus() == 2)) return "rejected";
         boolean approved = row.getDepositReviewStatus() == 1
-            && row.getDetails().getMaterials().stream().allMatch(m -> !m.getDefinition().isRequired() && m.getFileIds().isEmpty() || m.getReviewStatus() == 1);
+            && reviewItems(row).allMatch(m -> !m.getDefinition().isRequired() && m.getFileIds().isEmpty() || m.getReviewStatus() == 1);
         return approved ? (row.getPaymentStatus() == 2 ? "pending_permit" : "pending_payment") : "reviewing";
     }
     public static void paid(DecorationApplicationEntity row) {
         active(row); require(row.getPaymentStatus() == 2, "payment_required");
-        require(row.getDepositReviewStatus() == 1 && row.getDetails().getMaterials().stream().allMatch(m -> !m.getDefinition().isRequired() && m.getFileIds().isEmpty() || m.getReviewStatus() == 1), "review_required");
+        require(row.getDepositReviewStatus() == 1 && reviewItems(row).allMatch(m -> !m.getDefinition().isRequired() && m.getFileIds().isEmpty() || m.getReviewStatus() == 1), "review_required");
     }
     public static void checks(List<DecorationModels.CheckItem> definitions, List<DecorationModels.CheckResult> results) {
         require(results.size() == results.stream().map(DecorationModels.CheckResult::getItemId).distinct().count(), "invalid_checks");

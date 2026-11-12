@@ -16,6 +16,7 @@ import static org.jetlinks.pro.property.decoration.service.DecorationRules.*;
 @Service @RequiredArgsConstructor
 public class DecorationSelfInspectionService {
     private final DecorationScope scope;
+    private final DecorationListStatusService listStatuses;
     private final DecorationSelfInspectionRepository repository;
 
     /** 仅在申请创建事务内调用；附件继续属于申请，不重新消费回执。 */
@@ -39,7 +40,8 @@ public class DecorationSelfInspectionService {
             .map(query -> query.toNestQuery(nest -> nest.and("deleted", false)).getParam());
     }
     public Mono<PagerResult<DecorationSelfInspectionEntity>> query(QueryParamEntity input) {
-        return scoped(input).flatMap(query -> QueryHelper.queryPager(query, repository::createQuery));
+        return listStatuses.fill(scoped(input).flatMap(query -> QueryHelper.queryPager(query, repository::createQuery)),
+            DecorationSelfInspectionEntity::getDecorationId, DecorationSelfInspectionEntity::setDecorationStatus);
     }
     public Mono<DecorationSelfInspectionEntity> read(String id) {
         return scoped(QueryParamEntity.newQuery().where("id", id).getParam())

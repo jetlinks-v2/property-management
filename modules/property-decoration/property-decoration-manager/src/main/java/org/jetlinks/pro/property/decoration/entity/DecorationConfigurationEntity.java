@@ -26,7 +26,6 @@ public class DecorationConfigurationEntity extends GenericEntity<String> {
     @Column(length=64, nullable=false, updatable=false) private String decorationType;
     @Column(length=64, nullable=false, updatable=false) private String scene;
     @Column(length=64, nullable=false, updatable=false) private String configurationKey;
-    @Column(length=128) private String name;
     @Column private Boolean enabled;
     @Column private Boolean deleted;
     @Column private Long version;
