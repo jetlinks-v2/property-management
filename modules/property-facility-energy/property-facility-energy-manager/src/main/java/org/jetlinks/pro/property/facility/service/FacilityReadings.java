@@ -78,7 +78,7 @@ public class FacilityReadings {
           return records.update(readings, previous, version)
             .then(createManual(previous.getDeviceId(), input, previous.getId()))
             .flatMap(saved -> records.log(previous, "reading", "resubmit", "rejected", "resubmitted",
-              saved.getId(), List.of()).thenReturn(saved));
+              saved.getReason(), List.of()).thenReturn(saved));
         })));
   }
 

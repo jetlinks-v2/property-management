@@ -31,6 +31,7 @@ class FacilityReadingPageTest {
   @Autowired DeviceStore devices;
   @Autowired MappingStore mappings;
   @Autowired FacilityScope scope;
+  @Autowired ProcessStore processes;
 
   @BeforeEach void setup() {
     reset(scope);
@@ -228,6 +229,10 @@ class FacilityReadingPageTest {
     assertEquals("pending", fresh.getStatus()); assertEquals(CONTEXT.userId(), fresh.getCreatorId());
     assertEquals("修正录入错误", fresh.getReason()); assertEquals(1234567L, fresh.getObservedTime());
     assertEquals(0, new BigDecimal("42.50").compareTo(fresh.getRawValue()));
+    var logs = processes.createQuery().where("targetId", old.getId())
+      .and("action", "resubmit").fetch().collectList().block(WAIT);
+    assertEquals(1, logs.size());
+    assertEquals(input.getReason(), logs.get(0).getComment());
     assertThrows(org.hswebframework.web.exception.BusinessException.class,
       () -> manager.resubmit(old.getId(), original.getVersion(), input).block(WAIT));
     when(scope.current()).thenReturn(Mono.just(new FacilityContext(CONTEXT.tenantId(), CONTEXT.applicationId(), "reviewer", "审核员")));
