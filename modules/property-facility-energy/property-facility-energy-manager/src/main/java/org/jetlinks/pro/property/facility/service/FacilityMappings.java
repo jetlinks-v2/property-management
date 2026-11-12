@@ -148,6 +148,7 @@ public class FacilityMappings {
                     ).then(mappings.findById(id));
               });
           })
+          .flatMap(saved -> devices.classify(device, saved.getEnergyType()).thenReturn(saved))
       );
   }
 

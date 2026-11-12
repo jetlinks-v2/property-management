@@ -30,6 +30,8 @@ class MeterConfigurationPersistenceTest {
   @SpyBean FacilityRecords records;
   @Autowired DeviceStore devices;
   @Autowired FacilityDevices allocation;
+  @Autowired FacilityMappings mappingManager;
+  @Autowired FacilityCloud cloud;
   String project;
   @BeforeEach void setup() {
     project=UUID.randomUUID().toString();
@@ -95,6 +97,38 @@ class MeterConfigurationPersistenceTest {
     var result=allocation.allocate(List.of(first,second)).block(WAIT); assertEquals(2,result.size());
     assertEquals("water",devices.findById(one.getId()).block(WAIT).getMeterType());
     assertEquals("electricity",devices.findById(two.getId()).block(WAIT).getMeterType());
+  }
+  @Test void projectOnlyAllocationRetainsEachMetersTypeSpaceAndEffectiveTime() {
+    var one=device(UUID.randomUUID().toString()); var two=device(UUID.randomUUID().toString());
+    for (var row : List.of(one,two)) {
+      row.setMeterType(row==one ? "water" : "gas"); row.setSpaceId("room"); row.setAllocationSince(100L);
+      devices.save(row).block(WAIT);
+    }
+    when(directory.space(project,"room")).thenReturn(Mono.just(new org.jetlinks.pro.property.base.space.PropertySpaceInfo()));
+    var result=allocation.allocate(List.of(
+      new FacilityDevices.Allocation(one.getId(),0L,project,null,null,false),
+      new FacilityDevices.Allocation(two.getId(),0L,project,null,null,false))).block(WAIT);
+    assertEquals(List.of("water","gas"),result.stream().map(DeviceEntity::getMeterType).toList());
+    for (var row : result) { assertEquals("room",row.getSpaceId()); assertEquals(100L,row.getAllocationSince()); }
+  }
+  @Test void energyConfigurationOwnsMeterTypeAndStaleUpdatesCannotChangeIt() {
+    var device=device(UUID.randomUUID().toString());
+    var metadata=mock(org.jetlinks.core.things.ThingMetadata.class);
+    var property=mock(org.jetlinks.core.metadata.PropertyMetadata.class);
+    when(property.getId()).thenReturn("total"); when(metadata.getProperties()).thenReturn(List.of(property));
+    when(cloud.metadata(device.getCloudDeviceId())).thenReturn(Mono.just(metadata));
+    var metric=new MetricMapping(); metric.setPropertyId("total"); metric.setKind("counter"); metric.setUnit("m³");
+    metric.setMultiplier(BigDecimal.ONE); metric.setScale(2);
+    var input=new MappingEntity(); input.setDeviceId(device.getId()); input.setEnergyType("water");
+    input.setMeterLevel("submeter"); input.setStaleAfterSeconds(3600L); input.setMetrics(List.of(metric)); input.setEnabled(true);
+    var saved=mappingManager.save(input).block(WAIT);
+    var water=devices.findById(device.getId()).block(WAIT);
+    assertEquals("water",water.getMeterType()); assertNotNull(water.getAllocationSince());
+    input.setVersion(saved.getVersion()); input.setEnergyType("gas"); saved=mappingManager.save(input).block(WAIT);
+    assertEquals("gas",devices.findById(device.getId()).block(WAIT).getMeterType());
+    input.setVersion(saved.getVersion()-1); input.setEnergyType("electricity");
+    StepVerifier.create(mappingManager.save(input)).expectError().verify(WAIT);
+    assertEquals("gas",devices.findById(device.getId()).block(WAIT).getMeterType());
   }
   @Import({FacilityPersistenceTest.Config.class,MeterChargeStore.class,FacilityMeterCharges.class})
   static class Config {}

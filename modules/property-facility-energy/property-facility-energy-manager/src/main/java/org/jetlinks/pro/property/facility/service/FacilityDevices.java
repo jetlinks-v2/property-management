@@ -231,7 +231,7 @@ public class FacilityDevices {
     });
   }
 
-  /** Only project, meter category and installation space may be configured here. */
+  /** 项目分配省略类型及空间时保留原值；旧客户端的显式字段仍按原契约校验。 */
   public record Allocation(String id, long version, String projectId, String meterType, String spaceId, boolean updateSpace) {}
 
   /** A bounded batch is atomic; stale versions or invalid spaces roll back every selected row. */
@@ -240,21 +240,30 @@ public class FacilityDevices {
     require(inputs != null && !inputs.isEmpty() && inputs.size() <= 200, "too_many");
     require(inputs.stream().map(Allocation::id).distinct().count() == inputs.size(), "invalid_import");
     return Flux.fromIterable(inputs).concatMap(input -> {
-      DeviceAllocationRules.type(input.meterType());
+      if (input.meterType() != null) DeviceAllocationRules.type(input.meterType());
       return writable(input.id()).flatMap(old -> {
+        String meterType = input.meterType() == null ? old.getMeterType() : input.meterType();
         String space = input.updateSpace() ? input.spaceId() :
           Objects.equals(old.getProjectId(), input.projectId()) ? old.getSpaceId() : null;
         Mono<Void> validSpace = space == null || space.isBlank() ? Mono.empty() : directory.space(input.projectId(), space).then();
         boolean changed = old.getAllocationSince() == null || !Objects.equals(old.getProjectId(), input.projectId()) ||
-          !Objects.equals(old.getSpaceId(), space) || !Objects.equals(old.getMeterType(), input.meterType());
+          !Objects.equals(old.getSpaceId(), space) || !Objects.equals(old.getMeterType(), meterType);
         return validSpace.then(confirmProject(input.id(), input.projectId(), input.version())).flatMap(row -> {
           long version = row.getVersion();
-          row.setMeterType(input.meterType()); row.setSpaceId(space);
+          row.setMeterType(meterType); row.setSpaceId(space);
           if (changed) row.setAllocationSince(System.currentTimeMillis());
           return records.update(store, row, version, FacilityRecords.nullFields(row, "spaceId"));
         });
       });
     }).collectList();
+  }
+
+  /** 能源映射保存已校验设备写权限；同事务同步类型，只在分类变化时更新归属生效时间。 */
+  Mono<DeviceEntity> classify(DeviceEntity row, String type) {
+    if (Objects.equals(row.getMeterType(), type)) return Mono.just(row);
+    long version = row.getVersion();
+    row.setMeterType(type); row.setAllocationSince(System.currentTimeMillis());
+    return records.update(store, row, version);
   }
 
   public record ExtensionImport(
