@@ -18,6 +18,12 @@ public class DecorationNotificationEntity extends GenericEntity<String> {
     @Column(length=64,nullable=false,updatable=false) private String applicationId;
     @Column(length=64,nullable=false,updatable=false) private String projectId;
     @Column(length=64,nullable=false,updatable=false) private String userId;
+    /** 既有记录为空时按业主通知读取；新记录明确区分端别和任务，避免双身份串信。 */
+    @Column(length=16,updatable=false) private String recipientSide;
+    @Column(length=64,updatable=false) private String taskId;
+    @Column(updatable=false) private Long taskVersion;
+    @Column(length=64,updatable=false) private String roleId;
+    @Column(length=64,updatable=false) private String dispatcherId;
     @Column(length=64,updatable=false) private String event;
     @Column(length=32,updatable=false) private String step;
     @Column(length=128,updatable=false) private String title;

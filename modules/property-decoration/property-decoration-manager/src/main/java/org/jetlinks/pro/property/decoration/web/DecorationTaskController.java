@@ -17,6 +17,7 @@ import reactor.core.publisher.Flux;
 @RequestMapping("/decoration/tasks") @Resource(id="decoration-task",name="装修巡检验收")
 public class DecorationTaskController {
     private final DecorationTaskService tasks;
+    private final DecorationNotificationService notifications;
     private final DecorationAcceptanceListService acceptances;
     private final DecorationInspectionListService inspections;
     /** 周期任务与其反馈、整改按一次巡检汇总，不改变个人任务和违规记录查询。 */
@@ -31,6 +32,8 @@ public class DecorationTaskController {
         @RequestParam(defaultValue="false") boolean includeEligible) {
         return acceptances.query(kind, query, includeEligible);
     }
+    @PostMapping("/mine/notifications/_query") @QueryAction
+    public Mono<PagerResult<DecorationNotificationService.Notice>> notifications(@RequestBody QueryParamEntity query) { return notifications.mine(query, true); }
     @PostMapping("/mine/_query") @QueryAction
     public Mono<PagerResult<DecorationTaskEntity>> mine(@RequestBody QueryParamEntity query) { return tasks.mine(query); }
     @PostMapping("/_query") @QueryAction

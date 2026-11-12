@@ -31,4 +31,13 @@ class DecorationProgressNoticeTest {
         assertEquals(row.getMessage(),command.getMessage());assertEquals(row.getDetailUrl(),((Map<?,?>)command.getDetail()).get("url"));
         assertEquals(java.util.Set.of("decorationId","applicationId","step","url"),((Map<?,?>)command.getDetail()).keySet());
     }
+    @Test void staffNotificationPayloadLocatesTaskWithoutCredentials(){
+        var notice=new DecorationNotificationEntity();notice.setId("notice");notice.setUserId("staff");notice.setApplicationId("app");
+        notice.setDecorationId("application");notice.setRecipientSide("staff");notice.setTaskId("task");notice.setStep("task");notice.setCreateTime(1L);
+        notice.setDetailUrl("/decoration-h5/?applicationScope=app&side=staff&decorationId=application&step=task&taskId=task");
+        var detail=(Map<?,?>)DecorationInsideMailSender.command(notice).getDetail();
+        assertEquals("staff",detail.get("side"));assertEquals("task",detail.get("taskId"));
+        assertEquals(java.util.Set.of("applicationId","decorationId","side","taskId","step","url"),detail.keySet());
+    }
+
 }

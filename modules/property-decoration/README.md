@@ -92,8 +92,21 @@ PC在线审核使用 `POST /decoration/applications/_query?view=review`，只查
 
 ## 流程提醒与通知
 
-装修步骤完成后的下一步提示由PC/H5共用流程规则派生，全部资料及保证金通过后才提示缴费。真实状态转移与办理轨迹在同一事务写入 `pd_notification`：申请提交/驳回、全部审核通过、缴费完成、备案完成/延期、首验和二验申请/指派/结果、退款成功。轨迹ID同时作为通知ID，幂等重试不重复入队，业务回滚不产生通知；不回填历史轨迹。收件人只取申请业主账号，不开放任意收件人或批量广播。
+装修步骤完成后的下一步提示由PC/H5共用流程规则派生，全部资料及保证金通过后才提示缴费。真实状态转移与办理轨迹在同一事务写入 `pd_notification`：申请提交/驳回、全部审核通过、缴费完成、备案完成/延期、首验和二验申请/指派/结果、退款成功。轨迹ID同时作为通知ID，幂等重试不重复入队，业务回滚不产生通知；不回填历史轨迹。流程提醒收件人取申请业主账号；任务通知另按可信指派及复核角色展开，不开放任意收件人或批量广播。
 
 `POST /decoration/mobile/applications/_notifications/_query` 沿用业主query权限，叠加本人、可信应用/租户及基础档案已授权项目范围，只返回通知展示字段。点击链接仍由本人详情接口核验资格；通知不授予申请访问权限。链接只带应用、装修ID和步骤，不携带凭据、手机号或附件地址。
 
 后台复用 `notify-core` 的 `SendUserNotificationCommand`，固定 `inside-mail` 通道及 `property-decoration` 通知源；不修改公共服务。默认每5秒读取最多50条已提交记录，CAS租约避免并发发送，20秒命令超时及有上限退避重试；失败不回滚业务，不把入队显示为外部送达。公共命令没有幂等收据，成功应答丢失时属于至少一次投递。`decoration.notifications.enabled=false` 可关闭站内投递，装修自有通知查询仍可使用。JMX `org.jetlinks:type=DecorationNotification,name=Delivery` 提供发送、失败与本轮候选数量；批次span `/property/decoration/notifications` 不记录隐私载荷。微信订阅消息和APP系统通知需现有通道另行接入，不用站内信代替其送达状态。
+
+
+### H5身份与员工通知
+
+`GET /decoration/mobile/identity` 在当前可信应用 Scope 下返回 `{owner,staff}`；分别要求 `decoration-owner:query` 加有效本人房屋、`decoration-task:query` 加有效员工档案。无员工档案仅关闭员工身份，公共目录故障仍传播。双身份选择与切换属于装修 H5，不改变认证、应用成员或租户授权。
+
+员工通知通过 `POST /decoration/tasks/mine/notifications/_query`，要求现有任务查询权限、有效员工、本人与应用/租户/项目范围；角色通知还检查当前角色。新通知记录区分 `recipientSide`、`taskId/taskVersion`、`roleId` 及可信 `dispatcherId`，历史空端别兼容为业主。角色意向不展示为个人通知。
+
+首验/二验指派同事务入队 `firstTaskAssigned/secondTaskAssigned`；巡检不通过或重发整改入队业主 `rectificationRequired`；业主提交或重提整改入队 `rectificationReview`；复核通过/驳回入队业主 `rectificationPassed/rectificationRejected`。复用既有整改状态机和按钮，不创建第二套复核记录。通知失败不回滚业务。
+
+后台以原计划指派人的实时认证和应用资产范围查询启用角色成员，再逐人核验实时应用成员、任务动作权限、有效员工、项目权限和复核角色。Scope本身不作为成员授权证明。不伪造系统管理员、不持久化token、不以业主权限枚举员工。角色事件按人生成稳定通知ID，每人独立重试，角色展开不计为已送达；任务版本、状态、指派人或复核角色变化使旧员工待办取消。角色已移除、员工失效或应用成员撤销不继续投递；目录暂时不可用保留重试。
+
+公共 `SendUserNotificationCommand` 仍使用 `inside-mail`，detail 保留 `applicationId/decorationId/step/url`，增加 `side` 及可选 `taskId`。业主整改为 `step=rectification`；员工任务为 `step=task`。APP宿主应将定位字段转换到装修模块路由，业务详情仍重新鉴权。系统推送及真机送达另由APP通道接入，不能用站内入队/发送状态代替。

@@ -67,6 +67,7 @@ class DecorationPersistenceTest {
     @Autowired DecorationHistoryRepository histories;
     @Autowired DecorationNotificationRepository notificationRows;
     @Autowired DecorationNotificationService notifications;
+    @Autowired DecorationNotificationRecipients noticeRecipients;
     @Autowired org.jetlinks.pro.property.decoration.integration.DecorationInsideMailSender mailSender;
     @Autowired DecorationTaskRepository tasks;
     @Autowired DecorationAttachmentRepository files;
@@ -82,7 +83,9 @@ class DecorationPersistenceTest {
 
     @BeforeEach void prepare(){
         notificationRows.deleteById(notificationRows.createQuery().fetch().map(DecorationNotificationEntity::getId)).block(WAIT);
-        reset(mailSender);
+        reset(mailSender, noticeRecipients);
+        when(noticeRecipients.allowed(anyString(),any())).thenReturn(Mono.just(true));
+        when(noticeRecipients.roleMembers(any())).thenReturn(Flux.just("reviewer"));
         when(mailSender.send(any())).thenReturn(Mono.empty());
         selfInspectionRows.deleteById(selfInspectionRows.createQuery().fetch().map(DecorationSelfInspectionEntity::getId)).block(WAIT);
         rows.deleteById(rows.createQuery().fetch().map(DecorationApplicationEntity::getId)).block(WAIT);
@@ -153,6 +156,55 @@ class DecorationPersistenceTest {
         when(mailSender.send(any())).thenReturn(Mono.empty());notifications.poll().block(WAIT);
         notice=notificationRows.findById(notice.getId()).block(WAIT);assertEquals("sent",notice.getState());assertNotNull(notice.getSentTime());assertEquals(2,notice.getAttempts());
     }
+    @Test void employeeTaskAndRectificationNoticesAreScopedRetryableAndTransactional(){
+        var row=ready();task(row,"notice-acceptance",1,"firstAcceptance","staff","pending");
+        var acceptance=tasks.findById("notice-acceptance").block(WAIT);
+        notifications.task(row,acceptance,"firstTaskAssigned").contextWrite(auth("admin")).block(WAIT);
+        notifications.task(row,acceptance,"firstTaskAssigned").contextWrite(auth("admin")).block(WAIT);
+        var assigned=notificationRows.createQuery().where("event","firstTaskAssigned").fetchOne().block(WAIT);
+        assertEquals("staff",assigned.getUserId());assertEquals("staff",assigned.getRecipientSide());
+        assertEquals("notice-acceptance",assigned.getTaskId());assertTrue(assigned.getDetailUrl().contains("side=staff"));
+        assertTrue(assigned.getDetailUrl().contains("taskId=notice-acceptance"));
+        assertEquals(1,notifications.mine(new QueryParamEntity(),true).contextWrite(auth("staff")).block(WAIT).getTotal());
+        assertEquals(0,notifications.mine(new QueryParamEntity(),true).contextWrite(auth("other")).block(WAIT).getTotal());
+        assertEquals(0,notifications.mine(new QueryParamEntity()).contextWrite(auth("staff")).block(WAIT).getTotal());
+        notifications.poll().block(WAIT);verify(mailSender).send(argThat(notice->"firstTaskAssigned".equals(notice.getEvent())));
+
+        task(row,"notice-rectification",0,"inspectionRecord","inspector","owner_rectification");
+        var task=tasks.findById("notice-rectification").block(WAIT);task.getDetails().setReviewRoleId("review");
+        task.getDetails().setAssignedById("admin");tasks.save(task).block(WAIT);
+        notifications.task(row,task,"rectificationRequired").contextWrite(auth("admin")).block(WAIT);
+        var correction=rectify(row,task.getId());correction.setRemark("已完成整改，请复核");
+        row=workflow.submitRectification(row.getId(),correction,true).contextWrite(auth("owner")).block(WAIT);
+        var intent=notificationRows.createQuery().where("event","rectificationReview").fetchOne().block(WAIT);
+        assertEquals("",intent.getUserId());assertEquals("review",intent.getRoleId());assertEquals("admin",intent.getDispatcherId());
+        when(noticeRecipients.roleMembers(any())).thenReturn(Flux.error(new IllegalStateException("directory offline")));
+        notifications.poll().block(WAIT);
+        assertEquals("waiting_review",tasks.findById(task.getId()).block(WAIT).getStatus());
+        assertEquals("pending",notificationRows.findById(intent.getId()).block(WAIT).getState());
+        assertEquals(0,notifications.mine(new QueryParamEntity(),true).contextWrite(auth("reviewer","review")).block(WAIT).getTotal());
+        when(noticeRecipients.roleMembers(any())).thenReturn(Flux.just("reviewer","reviewer"));
+        notificationRows.createUpdate().set("nextAttemptTime",0L).where("id",intent.getId()).execute().block(WAIT);
+        notifications.poll().block(WAIT);notifications.poll().block(WAIT);
+        assertEquals(1,notifications.mine(new QueryParamEntity(),true).contextWrite(auth("reviewer","review")).block(WAIT).getTotal());
+        assertEquals(0,notifications.mine(new QueryParamEntity(),true).contextWrite(auth("reviewer")).block(WAIT).getTotal());
+        verify(mailSender,times(1)).send(argThat(notice->"reviewer".equals(notice.getUserId())));
+        var reject=rectify(row,task.getId());reject.setPassed(false);reject.setRemark("请补充照片");
+        row=workflow.reviewRectification(row.getId(),reject).contextWrite(auth("reviewer","review")).block(WAIT);
+        assertEquals(1,notificationRows.createQuery().where("event","rectificationRejected").and("userId","owner").count().block(WAIT));
+        var resubmit=rectify(row,task.getId());resubmit.setRemark("已补充");
+        row=workflow.submitRectification(row.getId(),resubmit,true).contextWrite(auth("owner")).block(WAIT);
+        var pass=rectify(row,task.getId());pass.setPassed(true);
+        row=workflow.reviewRectification(row.getId(),pass).contextWrite(auth("reviewer","review")).block(WAIT);
+        assertEquals(1,notificationRows.createQuery().where("event","rectificationPassed").and("userId","owner").count().block(WAIT));
+        // 已完成的任务不再向旧复核人补发待办；点击历史通知仍须经过正常任务读取边界。
+        notifications.poll().block(WAIT);
+        assertTrue(notificationRows.createQuery().where("event","rectificationReview").and("userId", "").fetch().collectList().block(WAIT)
+            .stream().anyMatch(notice->"cancelled".equals(notice.getState())));
+        when(scope.employee()).thenReturn(Mono.error(DecorationRules.error("employee_required",403)));
+        assertCode(notifications.mine(new QueryParamEntity(),true),"employee_required","staff");
+    }
+
     @Test void invalidContactsAreRejectedBeforeCreatingAnApplication(){
         var input=create("invalid-contact");input.setContactPhone("123");
         var invalidOwnerPhone=assertThrows(org.hswebframework.web.exception.BusinessException.class,()->applications.create(input,false));
@@ -1531,6 +1583,7 @@ class DecorationPersistenceTest {
     @ImportAutoConfiguration({EasyormConfiguration.class,R2dbcSqlExecutorConfiguration.class,R2dbcAutoConfiguration.class,R2dbcTransactionManagerAutoConfiguration.class,TransactionAutoConfiguration.class,EntityFactoryConfiguration.class})
     static class Config {
         @Bean org.jetlinks.pro.property.decoration.integration.DecorationInsideMailSender mailSender(){return mock(org.jetlinks.pro.property.decoration.integration.DecorationInsideMailSender.class);}
+        @Bean DecorationNotificationRecipients noticeRecipients(){return mock(DecorationNotificationRecipients.class);}
         @Bean DecorationScope scope(){return mock(DecorationScope.class);}
         @Bean DecorationAssigneeService assignees(){return mock(DecorationAssigneeService.class);}
         @Bean DecorationRoleService roles(){return mock(DecorationRoleService.class);}

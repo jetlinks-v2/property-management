@@ -30,6 +30,7 @@ public class DecorationTaskService {
     private final DecorationAssigneeService assignees;
     private final DecorationRoleService roles;
     private final DecorationInspectionGenerator inspections;
+    private final DecorationNotificationService businessNotices;
     private final org.springframework.beans.factory.ObjectProvider<org.jetlinks.pro.property.decoration.model.DecorationNotificationGateway> notifications;
 
     public Mono<PagerResult<DecorationTaskEntity>> query(QueryParamEntity query) {
@@ -101,7 +102,7 @@ public class DecorationTaskService {
                 copy.getDetails().setFeedback(old.getDetails().getFeedback()); old.setStatus("reissued");
                 recordHandling(old, "resendRectification", input, ctx);
                 recordHandling(copy, "resendRectification", input, ctx);
-                return tasks.insert(copy).then(saveTask(old));
+                return tasks.insert(copy).then(saveTask(old)).then(businessNotices.task(row, copy, "rectificationRequired"));
             });
         });
     }
@@ -148,7 +149,8 @@ public class DecorationTaskService {
             .flatMap(config -> Flux.fromIterable(ids).concatMap(id -> assignees.eligible(id, row.getProjectId(), ctx).map(person -> {
                 var task = newTask(row, kind, ctx); task.setAssigneeId(person.id()); task.setAssigneeName(person.name());
                 task.getDetails().setChecks(config.getContent().getChecks()); return task;
-            })).collectList().flatMap(rows -> tasks.insertBatch(Flux.just(rows)).then()))
+            })).collectList().flatMap(rows -> tasks.insertBatch(Flux.just(rows)).thenMany(Flux.fromIterable(rows)
+                .concatMap(task -> businessNotices.task(row, task, row.getAcceptanceType()==1?"firstTaskAssigned":"secondTaskAssigned"))).then()))
             .doOnSuccess(ignore -> row.setStatus(row.getAcceptanceType() == 1 ? "first_acceptance_in_progress" : "second_acceptance_in_progress"));
     }
     public Mono<DecorationApplicationEntity> acceptanceFeedback(String id, DecorationRequests.Feedback input) {
@@ -215,11 +217,13 @@ public class DecorationTaskService {
                 var record = newTask(row, "inspectionRecord", ctx); record.setParentId(task.getId()); record.setAssigneeId(ctx.userId()); record.setAssigneeName(ctx.userName());
                 record.getDetails().setReviewRoleId(task.getDetails().getReviewRoleId());
                 record.getDetails().setReviewRoleName(task.getDetails().getReviewRoleName());
+                record.getDetails().setAssignedById(task.getCreatorId());
                 record.getDetails().setChecks(task.getDetails().getChecks()); fillFeedback(record, input); record.getDetails().setViolations(input.getViolations());
                 // 任务提交即对业主可见；外部消息受理不代替业务下发，也不阻断巡检落库。
                 record.setStatus(input.isPassed() ? "passed" : "owner_rectification");
                 task.setStatus("completed"); task.setAssigneeId(ctx.userId()); task.setAssigneeName(ctx.userName());
-                return validateFiles(record, row, ctx).then(tasks.insert(record)).then(saveTask(task));
+                return validateFiles(record, row, ctx).then(tasks.insert(record)).then(saveTask(task))
+                    .then(input.isPassed()?Mono.empty():businessNotices.task(row, record, "rectificationRequired"));
             });
         });
     }
@@ -231,7 +235,7 @@ public class DecorationTaskService {
                 require(!input.getFileIds().isEmpty() || input.getRemark() != null && !input.getRemark().isBlank(), "rectification_required");
                 task.getDetails().setRectificationFiles(input.getFileIds()); task.getDetails().setRectificationRemark(input.getRemark()); task.setStatus("waiting_review");
                 recordHandling(task, "submitRectification", input, ctx);
-                return attachments.validate(input.getFileIds(), row.getProjectId(), id, ctx, false).then(attachments.consume(input.getFileIds(), id, ctx)).then(saveTask(task));
+                return attachments.validate(input.getFileIds(), row.getProjectId(), id, ctx, false).then(attachments.consume(input.getFileIds(), id, ctx)).then(saveTask(task)).then(businessNotices.task(row, task, "rectificationReview"));
             });
         });
     }
@@ -243,7 +247,8 @@ public class DecorationTaskService {
                 role(ctx, task.getDetails().getReviewRoleId());
                 if (!input.isPassed()) require(input.getRemark() != null && !input.getRemark().isBlank(), "remark_required");
                 task.setStatus(input.isPassed() ? "rectified" : "rectification_rejected");
-                recordHandling(task, "reviewRectification", input, ctx); return saveTask(task);
+                recordHandling(task, "reviewRectification", input, ctx);
+                return saveTask(task).then(businessNotices.task(row, task, input.isPassed()?"rectificationPassed":"rectificationRejected"));
             });
         });
     }
@@ -254,7 +259,9 @@ public class DecorationTaskService {
                 require(Set.of("owner_rectification", "rectification_rejected", "waiting_review").contains(task.getStatus()), "invalid_state");
                 return roles.require(input.getReviewRoleId()).flatMap(role -> {
                     task.getDetails().setReviewRoleId(role.id()); task.getDetails().setReviewRoleName(role.name());
-                    recordHandling(task, "reassignReviewRole", input, ctx); return saveTask(task);
+                    task.getDetails().setAssignedById(ctx.userId());
+                    recordHandling(task, "reassignReviewRole", input, ctx); return saveTask(task)
+                        .then("waiting_review".equals(task.getStatus())?businessNotices.task(row, task, "rectificationReview"):Mono.empty());
                 });
             });
         });
