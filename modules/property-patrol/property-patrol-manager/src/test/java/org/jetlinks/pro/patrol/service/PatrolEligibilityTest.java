@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /** 原角色/全员语义在真实任务生成、SQL、事务及资产边界下的回归。 */
 class PatrolEligibilityTest {
@@ -104,5 +105,36 @@ class PatrolEligibilityTest {
         }
         var roster = f.rosters.createQuery().fetch().blockFirst();
         assertEquals("", roster.getRoleId()); assertEquals("alice", roster.getUserId());
+    }
+
+    @Test void listBatchesReferencesAndReusesShiftsOnlyInsideOneRequest() {
+        var task = assigned();
+        roster("alice", "post", false);
+        var plans = spy(f.plans);
+        var points = spy(f.points);
+        var rosters = spy(f.rosters);
+        var workflow = new PatrolExecutionWorkflow(f.tasks, plans, points, f.roles, rosters, f.executions,
+                mock(org.jetlinks.pro.patrol.integration.SaasPersonDirectory.class), f.attachments,
+                org.springframework.transaction.reactive.TransactionalOperator.create(
+                        new org.springframework.r2dbc.connection.R2dbcTransactionManager(f.db.connections)));
+        var now = Instant.now();
+        var checks = workflow.listEligibility(java.util.Collections.nCopies(50, task), "alice", now)
+                .contextWrite(f.identity).block();
+        for (int n = 0; n < 50; n++) assertNotNull(checks.apply(task).contextWrite(f.identity).block());
+        verify(plans, times(1)).findById(anyCollection());
+        verify(points, times(1)).findById(anyCollection());
+        verify(plans, never()).findById(anyString());
+        verify(points, never()).findById(anyString());
+        verify(rosters, times(1)).createQuery();
+
+        f.points.createUpdate().set(org.jetlinks.pro.patrol.entity.PatrolPointEntity::isEnabled, false)
+                .where(org.jetlinks.pro.patrol.entity.PatrolPointEntity::getId, "point").execute().block();
+        var fresh = workflow.listEligibility(List.of(task), "alice", now).contextWrite(f.identity).block();
+        StepVerifier.create(fresh.apply(task).contextWrite(f.identity))
+                .expectErrorSatisfies(error -> assertEquals("error.patrol.reference.unavailable",
+                        ((BusinessException) error).getI18nCode())).verify();
+        // 提交预检也必须实时读取，不使用此前列表允许执行的快照。
+        StepVerifier.create(workflow.checkEligibility(task, "alice", now).contextWrite(f.identity))
+                .expectError(BusinessException.class).verify();
     }
 }

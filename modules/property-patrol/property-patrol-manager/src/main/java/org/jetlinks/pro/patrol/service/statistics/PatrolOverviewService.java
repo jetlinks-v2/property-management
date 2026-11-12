@@ -8,7 +8,7 @@ import org.jetlinks.pro.assets.AssetsHolder;
 import org.jetlinks.pro.patrol.asset.PatrolAssetType;
 import org.jetlinks.pro.patrol.service.PatrolExecutionService;
 import org.jetlinks.pro.patrol.service.PatrolTaskService;
-import org.jetlinks.pro.patrol.service.terms.PatrolExecutionTaskTermBuilder;
+import org.jetlinks.pro.patrol.service.terms.PatrolStatisticsTaskIdsTermBuilder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -75,10 +75,11 @@ public class PatrolOverviewService {
                 .flatMap(authorized -> tasks.query(authorized).collectList().flatMap(periods -> {
                     if (periods.size() > TASK_LIMIT) return Mono.error(new BusinessException("error.patrol.statistics.too_many"));
                     if (periods.isEmpty()) return Mono.just(new Detail(periods, List.of()));
-                    // 复用任务筛选及其资产授权，在数据库关联执行；不按每 500 个任务重复往返数据库。
+                    // 仅查询本次已经通过计划资产、应用、项目及筛选校验的有界时段。
+                    // 不把授权子查询再关联到全部执行历史；一次数组绑定让数据库直接命中 task_id 覆盖索引。
                     var executionQuery = QueryParamEntity.newQuery()
-                            .and("taskId", PatrolExecutionTaskTermBuilder.TERM_TYPE,
-                                    authorized.getTerms()).getParam();
+                            .and("taskId", PatrolStatisticsTaskIdsTermBuilder.TERM_TYPE,
+                                    periods.stream().map(period -> period.getId()).toList()).getParam();
                     if (detail) executionQuery.toQuery().orderByAsc("receiveTime").orderByAsc("id");
                     executionQuery.setPageIndex(0); executionQuery.setPageSize(EXECUTION_LIMIT + 1);
                     executionQuery.setPaging(true);

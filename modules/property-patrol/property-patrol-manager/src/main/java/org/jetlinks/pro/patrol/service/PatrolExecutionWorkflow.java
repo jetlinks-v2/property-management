@@ -12,6 +12,8 @@ import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.patrol.asset.PatrolAssetType;
 import org.jetlinks.pro.patrol.domain.ExecutionPolicy;
 import org.jetlinks.pro.patrol.entity.PatrolExecutionEntity;
+import org.jetlinks.pro.patrol.entity.PatrolPlanEntity;
+import org.jetlinks.pro.patrol.entity.PatrolPointEntity;
 import org.jetlinks.pro.patrol.entity.PatrolRole;
 import org.jetlinks.pro.patrol.entity.PatrolRosterEntity;
 import org.jetlinks.pro.patrol.entity.PatrolTaskEntity;
@@ -20,14 +22,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.reactive.TransactionalOperator;
 
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Flux;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 /** 执行唯一事务 owner：资格、CAS 计数和执行事实一起提交；重试只恢复同一个已提交请求。 */
 @Service
@@ -144,9 +150,37 @@ public class PatrolExecutionWorkflow {
 
     /** 列表只预检；提交仍在事务中重新校验，不能把页面状态当成执行凭据。 */
     Mono<String> checkEligibility(PatrolTaskEntity task, String userId, Instant now) {
+        return checkEligibility(task, userId, now, plans.findById(task.getPlanId()),
+                points.findById(task.getPointId()), scopeKey -> checkRoster(task, scopeKey, userId, now));
+    }
+
+    /** 只复用本次已授权列表的参考数据，提交入口仍实时读取；不跨用户、应用或请求缓存。 */
+    Mono<Function<PatrolTaskEntity, Mono<String>>> listEligibility(List<PatrolTaskEntity> tasks, String userId, Instant now) {
         return Mono.zip(
-                        plans.findById(task.getPlanId()),
-                        points.findById(task.getPointId()),
+                Flux.fromIterable(tasks).map(PatrolTaskEntity::getPlanId).distinct().buffer(200)
+                        .concatMap(plans::findById).collectMap(PatrolPlanEntity::getId),
+                Flux.fromIterable(tasks).map(PatrolTaskEntity::getPointId).distinct().buffer(200)
+                        .concatMap(points::findById).collectMap(PatrolPointEntity::getId))
+                .map(data -> {
+                    record RosterKey(String scopeKey, String projectId, LocalDate date) {}
+                    Map<RosterKey, Mono<List<PatrolRosterEntity>>> shifts = new ConcurrentHashMap<>();
+                    return task -> checkEligibility(task, userId, now,
+                            Mono.justOrEmpty(data.getT1().get(task.getPlanId())),
+                            Mono.justOrEmpty(data.getT2().get(task.getPointId())), scopeKey -> {
+                                if (!hasRole(task)) return applyExecutionPolicy(task, List.of(), userId, now);
+                                var key = new RosterKey(scopeKey, task.getProjectId(), startDate(task));
+                                return shifts.computeIfAbsent(key, ignored -> rosterRows(task, scopeKey).cache())
+                                        .flatMap(rows -> applyExecutionPolicy(task, rows, userId, now));
+                            });
+                });
+    }
+
+    private Mono<String> checkEligibility(PatrolTaskEntity task, String userId, Instant now,
+                                          Mono<PatrolPlanEntity> plan, Mono<PatrolPointEntity> point,
+                                          Function<String, Mono<Void>> roster) {
+        return Mono.zip(
+                        plan,
+                        point,
                         hasRole(task) ? roles.currentRole(task.getRoleId()).map(role -> role.isEnabled()
                                 && role.getUserIds().contains(userId)) : Mono.just(true))
                 .switchIfEmpty(
@@ -162,7 +196,7 @@ public class PatrolExecutionWorkflow {
                                 return Mono.error(
                                         new BusinessException("error.patrol.reference.unavailable", 400));
                             }
-                            return checkRoster(task, data.getT1().getScopeKey(), userId, now)
+                            return roster.apply(data.getT1().getScopeKey())
                                     .thenReturn(data.getT1().getScopeKey());
                         });
     }
@@ -174,16 +208,22 @@ public class PatrolExecutionWorkflow {
             Instant now) {
         // 老系统全员任务不受排班限制；指定任务按开始日、项目判定，班次不要求与任务同角色。
         if (!hasRole(task)) return applyExecutionPolicy(task, List.of(), userId, now);
+        return rosterRows(task, scopeKey).flatMap(rows -> applyExecutionPolicy(task, rows, userId, now));
+    }
+
+    private static LocalDate startDate(PatrolTaskEntity task) {
+        return Instant.ofEpochMilli(task.getStartTime()).atZone(ZoneId.of("Asia/Shanghai")).toLocalDate();
+    }
+
+    private Mono<List<PatrolRosterEntity>> rosterRows(PatrolTaskEntity task, String scopeKey) {
         return rosters.createQuery()
                 .where(PatrolRosterEntity::getScopeKey, scopeKey)
-                .and(PatrolRosterEntity::getBusinessDate, Instant.ofEpochMilli(task.getStartTime())
-                        .atZone(ZoneId.of("Asia/Shanghai")).toLocalDate())
+                .and(PatrolRosterEntity::getBusinessDate, startDate(task))
                 .and(PatrolRosterEntity::getProjectId, task.getProjectId())
                 .and(PatrolRosterEntity::isEnabled, true)
                 .fetch()
                 .take(1001)
-                .collectList()
-                .flatMap(rows -> applyExecutionPolicy(task, rows, userId, now));
+                .collectList();
     }
 
     private Mono<Void> applyExecutionPolicy(

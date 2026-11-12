@@ -53,7 +53,9 @@ public class PatrolPointAssignmentService {
         return authorizePoints(pointIds, CrudAssetPermission.read).then(scope.current()).flatMap(current -> {
             var query = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
                     .in("pointId", pointIds).is("scopeKey", current.key()).is("enabled", true).getParam();
-            query.setPaging(false);
+            query.setPaging(true);
+            query.setPageIndex(0);
+            query.setPageSize(10001);
             return AssetsHolder.injectQueryParam(query, PatrolAssetType.patrolPlan, "id")
                     .flatMapMany(plans::query).take(10001).collectList().flatMap(rows -> {
                         if (rows.size() > 10000) return Mono.error(new BusinessException("error.patrol.assignment.limit"));

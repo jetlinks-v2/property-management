@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDate;
+import java.util.Set;
 
 /** 按任务逻辑日期统计应巡事实，不把申请、豁免或人员评价混入完成次数。 */
 @RestController
@@ -48,6 +49,7 @@ public class PatrolReportController {
                         .between("businessDate", range.from().toString(), range.to().toString())
                         .getParam();
         query.setPaging(false);
+        query.setIncludes(Set.of("requiredCount", "completedCount", "endTime"));
         long now = System.currentTimeMillis();
         // 在数据库查询前注入授权；流式折叠，不把全量任务收集到内存。
         return AssetsHolder.injectQueryParam(query, PatrolAssetType.patrolPlan, "planId")

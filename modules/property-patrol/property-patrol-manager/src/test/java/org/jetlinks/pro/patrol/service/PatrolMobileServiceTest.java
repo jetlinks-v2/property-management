@@ -116,7 +116,8 @@ class PatrolMobileServiceTest {
             var translated = new org.hswebframework.web.exception.BusinessException(code) {
                 @Override public String getMessage() { return "Localized display message"; }
             };
-            when(workflow.checkEligibility(any(), eq("alice"), any())).thenReturn(Mono.error(translated));
+            when(workflow.listEligibility(any(), eq("alice"), any()))
+                    .thenReturn(Mono.just(task -> Mono.error(translated)));
             var all = source.tasks(LocalDate.now(), false).contextWrite(fixture.identity).block();
             assertEquals(code, all.get(0).reason());
             assertFalse(all.get(0).executable());

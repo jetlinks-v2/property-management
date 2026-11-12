@@ -50,7 +50,7 @@ public class PatrolMissedService {
     /** PC 组详情展示已申报、未申报及已补录；关联计划权限在读取和生成明细前注入。 */
     public Mono<List<PatrolMissedItemEntity>> group(String groupId) {
         var query = QueryParamEntity.newQuery().is("taskGroupId", groupId).getParam();
-        query.setPaging(false);
+        query.setPaging(true); query.setPageIndex(0); query.setPageSize(LIMIT + 1);
         return AssetsHolder.injectQueryParam(query, PatrolAssetType.patrolPlan, "planId")
                 .flatMapMany(tasks::query).take(LIMIT + 1L).collectList()
                 .flatMap(rows -> materialize(rows).then(readItems(query)))
@@ -89,7 +89,7 @@ public class PatrolMissedService {
     }
 
     private Mono<List<PatrolMissedItemEntity>> readItems(QueryParamEntity query) {
-        query.setPaging(false);
+        query.setPaging(true); query.setPageIndex(0); query.setPageSize(LIMIT + 1);
         return helper.select(PatrolMissedItemEntity.class).all(PatrolMissedItemEntity.class)
                 .as(PatrolTaskEntity::getPointName, PatrolMissedItemEntity::setPointName)
                 .as(PatrolTaskEntity::getRoleName, PatrolMissedItemEntity::setRoleName)

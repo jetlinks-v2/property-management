@@ -80,6 +80,9 @@ public class PatrolStatisticsService {
         if (range.categoryIds() != null && !range.categoryIds().isEmpty())
             query.toQuery().in("categoryId", range.categoryIds());
         query.setPaging(false);
+        // 历史报表只累加次数及分组字段，不传输每条任务的标准、答案和规则快照。
+        query.setIncludes(Set.of("roleId", "roleName", "pointId", "pointName", "projectId", "projectName",
+                "requiredCount", "completedCount"));
         // 以指定岗位为旧角色指派对象；不能把同一份岗位应巡次数复制给每个成员。
         return AssetsHolder.injectQueryParam(query, PatrolAssetType.patrolPlan, "planId")
                 .flatMapMany(tasks::query)

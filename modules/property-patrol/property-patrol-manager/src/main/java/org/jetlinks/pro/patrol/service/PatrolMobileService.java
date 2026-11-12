@@ -44,8 +44,9 @@ public class PatrolMobileService {
         return ReactiveAuthenticationHolder.get().flatMap(auth -> scope.current().flatMap(current ->
                 people.assertMembers(List.of(auth.getUser().getId()))
                     .then(taskRows(current.key(), date))
-                    .flatMapMany(Flux::fromIterable)
-                    .flatMapSequential(task -> inspect(task, auth.getUser().getId(), mine), 8)
+                    .flatMapMany(rows -> workflow.listEligibility(rows, auth.getUser().getId(), Instant.now())
+                            .flatMapMany(check -> Flux.fromIterable(rows)
+                                    .flatMapSequential(task -> inspect(task, check.apply(task), mine), 8)))
                     .collectList()))
                 .as(MonoTracer.create("/patrol/mobile/tasks"));
     }
@@ -77,15 +78,17 @@ public class PatrolMobileService {
             .lt("startTime", date.plusDays(1).atStartOfDay(ZONE).toInstant().toEpochMilli())
             .gt("endTime", date.atStartOfDay(ZONE).toInstant().toEpochMilli())
             .orderByAsc("startTime").orderByAsc("id").getParam();
-        query.setPaging(false);
+        query.setPaging(true);
+        query.setPageIndex(0);
+        query.setPageSize(LIMIT + 1);
         // 授权计划作为数据库子查询；数量限制只检查当天任务，不受无关历史计划数量影响。
         return authorizedFactQuery(scopeKey, query)
             .flatMap(authorized -> tasks.query(authorized).take(LIMIT + 1L).collectList())
             .flatMap(rows -> rows.size() > LIMIT ? Mono.error(tooMany()) : Mono.just(rows));
     }
 
-    private Mono<MobileTask> inspect(PatrolTaskEntity task, String userId, boolean mine) {
-        return workflow.checkEligibility(task, userId, Instant.now())
+    private Mono<MobileTask> inspect(PatrolTaskEntity task, Mono<String> eligibility, boolean mine) {
+        return eligibility
             .map(key -> new MobileTask(task, true, ""))
             .onErrorResume(BusinessException.class, error ->
                 // 原因是客户端契约，不能使用受当前语言影响的异常展示文本。
