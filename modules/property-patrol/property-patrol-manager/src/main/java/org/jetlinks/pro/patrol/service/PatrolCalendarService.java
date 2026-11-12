@@ -10,6 +10,7 @@ import org.jetlinks.pro.patrol.entity.PatrolTaskEntity;
 import org.jetlinks.pro.patrol.integration.SaasPersonDirectory;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 import java.time.*;
 import java.util.*;
@@ -85,17 +86,32 @@ public class PatrolCalendarService {
         // 在数据库限制有界读取；多取一条用于明确报错，不能先返回全月后在客户端截断。
         staffQuery.setPageIndex(0); staffQuery.setPageSize(MAX_ROWS + 1); staffQuery.setPaging(true);
         taskQuery.setPageIndex(0); taskQuery.setPageSize(MAX_ROWS + 1); taskQuery.setPaging(true);
+        Flux<PatrolTaskEntity> taskRows;
+        if (detail) taskRows = authorizedTasks(taskQuery);
+        else {
+            // 两个互斥日期分支分别命中覆盖索引，避免 OR 让月历退回主表/位图堆扫描。
+            // 两次读取各自注入同一计划权限，最终共享一个数量预算，旧任务既不丢失也不重复。
+            taskQuery.setTerms(QueryParamEntity.newQuery().gte("belongDate", from.toString())
+                    .lt("belongDate", until.toString()).getParam().getTerms());
+            var legacy = taskQuery.clone();
+            legacy.setTerms(QueryParamEntity.newQuery().isNull("belongDate")
+                    .gte("businessDate", from.toString()).lt("businessDate", until.toString()).getParam().getTerms());
+            taskRows = Flux.concat(authorizedTasks(taskQuery), authorizedTasks(legacy));
+        }
         // 两类数据分别注入其拥有的资产权限，不能用计划权限替代排班权限。
         return Mono.zip(
                 AssetsHolder.injectQueryParam(staffQuery, PatrolAssetType.patrolRoster, "id")
                         .flatMapMany(rosters::query).take(MAX_ROWS + 1L).collectList(),
-                AssetsHolder.injectQueryParam(taskQuery, PatrolAssetType.patrolPlan, "planId")
-                        .flatMapMany(tasks::query).take(MAX_ROWS + 1L).collectList())
+                taskRows.take(MAX_ROWS + 1L).collectList())
                 .map(pair -> {
                     if (pair.getT1().size() > MAX_ROWS || pair.getT2().size() > MAX_ROWS)
                         throw new BusinessException("error.patrol.calendar.too_many");
                     return new Rows(pair.getT1(), pair.getT2());
                 });
+    }
+
+    private Flux<PatrolTaskEntity> authorizedTasks(QueryParamEntity query) {
+        return AssetsHolder.injectQueryParam(query, PatrolAssetType.patrolPlan, "planId").flatMapMany(tasks::query);
     }
 
     private Month buildMonth(YearMonth month, Rows rows) {

@@ -1355,6 +1355,9 @@ class PatrolWorkflowTest {
         var result = calendar.day(LocalDate.of(2026, 10, 31)).contextWrite(identity).block();
         assertEquals(List.of("legacy-date"), result.tasks().stream().map(PatrolTaskEntity::getId).toList());
         assertEquals(1, result.pointCount());
+        var month = calendar.month(java.time.YearMonth.of(2026, 10)).contextWrite(identity).block();
+        assertEquals(result.tasks().size(), month.days().get(30).taskCount());
+        assertEquals(result.expectedCount(), month.days().get(30).expectedCount());
     }
 
     @Test

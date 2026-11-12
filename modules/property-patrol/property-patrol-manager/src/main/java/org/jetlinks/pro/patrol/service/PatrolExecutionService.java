@@ -47,7 +47,7 @@ public class PatrolExecutionService extends GenericReactiveCrudService<PatrolExe
     @Override public Flux<PatrolExecutionEntity> query(QueryParamEntity query) { return snapshotQuery(query).fetch(); }
     /** 已授权任务集合的统计事实投影，无需再次关联时段或读取答案、照片和检查标准快照。 */
     public Flux<PatrolExecutionEntity> queryStatisticsFacts(QueryParamEntity query) {
-        query.setIncludes(Set.of("id", "taskId", "pointId", "projectId", "userId", "userName", "receiveTime", "result"));
+        query.setIncludes(Set.of("taskId", "pointId", "projectId", "userId", "userName", "receiveTime", "result"));
         return super.query(query);
     }
     @Override public Mono<Integer> count(QueryParamEntity query) {
