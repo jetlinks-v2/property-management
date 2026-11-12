@@ -5,7 +5,6 @@ import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.exception.BusinessException;
 import org.jetlinks.pro.assets.AssetType;
 import org.jetlinks.pro.assets.AssetsHolder;
-import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.command.CommandSupportManagerProviders;
 import org.jetlinks.sdk.server.auth.UserDetail;
 import org.jetlinks.sdk.server.auth.UserInfo;
@@ -24,6 +23,9 @@ import java.util.*;
 /** 固定 SaaS 命令来源，分页读取和缺失复核均不继承操作者的筛选、资产或事务上下文。 */
 @Component
 public class SaasUserSource {
+    @Value("${property.user-sync.server-id:}")
+    private String serverId = "";
+
     @Value("${property.user-sync.max-users:100000}")
     private int maxUsers = 100000;
 
@@ -108,21 +110,51 @@ public class SaasUserSource {
     }
 
     /**
-     * 用户镜像按统一资产权限批量裁剪，保留调用者认证及租户/应用 Scope。
-     * 与详情使用相同的 user 资产；不依赖额外目录命令，也不把 Cloud 表条件注入镜像库。
+     * 用户资产绑定由 SaaS 持有：保留调用者和 Scope，将统一权限条件交给原用户命令求值。
+     * 基础库仅按返回 ID 裁剪镜像，不能在本库缺少 user 绑定时把有效员工误过滤为空。
      */
     public Flux<String> authorizedIds(List<String> ids) {
         return Flux.fromIterable(ids)
                 .distinct()
                 .buffer(PAGE_SIZE)
-                .concatMap(batch -> AssetsHolder.filterAssets(
-                        Flux.fromIterable(batch), AssetType.of("user"),
-                        id -> id, CrudAssetPermission.read))
-                .timeout(Duration.ofSeconds(10));
+                .concatMap(batch -> {
+                    var query = new QueryParamEntity();
+                    query.setPageSize(PAGE_SIZE);
+                    query.setPageIndex(0);
+                    query.setIncludes(Set.of("id"));
+                    query.and("id", "in", batch);
+                    return AssetsHolder.injectQueryParam(query, AssetType.of("user"), "id")
+                            .flatMap(this::authorizedPage)
+                            .flatMapMany(page -> {
+                                if (page.getData() == null || page.getTotal() != page.getData().size()
+                                        || page.getTotal() > batch.size()) return Flux.error(invalid());
+                                var seen = new HashSet<String>();
+                                for (var user : page.getData()) {
+                                    if (user == null || !batch.contains(user.getId())
+                                            || !seen.add(user.getId())) return Flux.error(invalid());
+                                }
+                                return Flux.fromIterable(page.getData()).map(UserInfo::getId);
+                            });
+                })
+                .timeout(Duration.ofSeconds(Math.max(10, pageTimeoutSeconds)));
+    }
+
+    /** 标准用户分页无需拉取用户详情和组织；查询动作和原 user 资产权限均不降级。 */
+    protected Mono<PagerResult<UserInfo>> authorizedPage(QueryParamEntity query) {
+        var command = QueryPagerCommand.of(UserInfo.class);
+        command.withQueryParam(query);
+        return CommandSupportManagerProviders.getCommandSupport("authService:user")
+                .as(CommandSupportManagerProviders.clusterRouter(serverId))
+                .switchIfEmpty(Mono.error(new BusinessException.NoStackTrace(
+                        "error.property_user_source_unavailable", 503)))
+                .flatMap(support -> support.execute(command))
+                .timeout(Duration.ofSeconds(Math.max(1, pageTimeoutSeconds)));
     }
 
     protected Mono<PagerResult<UserDetail>> page(QueryParamEntity query) {
         return CommandSupportManagerProviders.getCommandSupport("authService:user")
+                // 同步快照、缺失复核和授权查询必须使用同一用户来源，不能随机切换到另一套认证库。
+                .as(CommandSupportManagerProviders.clusterRouter(serverId))
                 .switchIfEmpty(
                         Mono.error(
                                 new BusinessException.NoStackTrace(

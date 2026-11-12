@@ -46,6 +46,8 @@ class PropertyHouseholdPersistenceTest {
         organizations.deleteById(organizations.createQuery().fetch().map(PropertyOrganizationEntity::getId)).block();
         reset(directory);var project=new PropertyOrganizationInfo();project.setId("project");
         when(directory.projects(any())).thenReturn(Flux.just(project));
+        when(directory.assertProject(anyString())).thenAnswer(call -> "project".equals(call.getArgument(0))
+            ? Mono.empty() : Mono.error(new AccessDenyException()));
         var org=new PropertyOrganizationEntity();org.setId("project");org.setName("项目");org.setVersion(0L);org.setDeleted(false);org.setOrganizationType(OrganizationType.project);organizations.insert(org).block();
         var root=new PropertySpaceBindingEntity();root.setId("root");root.setOrganizationId("project");root.setVersion(0L);root.setDeleted(false);bindings.insert(root).block();
         for(String id:List.of("house","denied")){
@@ -90,7 +92,7 @@ class PropertyHouseholdPersistenceTest {
     @Test void unauthorizedProjectAndDirectoryFailuresDoNotFallback(){
         var query=command(false);query.setProjectId("foreign");
         StepVerifier.create(support.query(query).contextWrite(access("alice",Set.of("house")))).expectError(AccessDenyException.class).verify();
-        when(directory.projects(any())).thenReturn(Flux.error(new IllegalStateException("directory unavailable")));
+        when(directory.assertProject("project")).thenReturn(Mono.error(new IllegalStateException("directory unavailable")));
         StepVerifier.create(support.query(command(true)).contextWrite(access("alice",Set.of("house")))).expectErrorMessage("directory unavailable").verify();
     }
     private QueryPropertyHouseholdsCommand command(boolean mine){var c=new QueryPropertyHouseholdsCommand();c.setProjectId("project");c.setMine(mine);return c;}

@@ -108,6 +108,22 @@ class PropertyDirectoryPersistenceTest {
     }
 
     @Test
+    void exactProjectCheckKeepsAssetTenantTypeAndDeletionBoundaries() {
+        add("allowed", "reader", "tenant-a", OrganizationType.project, false);
+        add("foreign", "reader", "tenant-b", OrganizationType.project, false);
+        add("denied", "someone-else", "tenant-a", OrganizationType.project, false);
+        add("deleted", "reader", "tenant-a", OrganizationType.project, true);
+        add("external", "reader", "tenant-a", OrganizationType.external, false);
+        StepVerifier.create(directory.assertProject("allowed").contextWrite(access())
+            .contextWrite(TenantHolder.makeCurrent("tenant-a"))).verifyComplete();
+        for (String id : List.of("foreign", "denied", "deleted", "external", "missing", "")) {
+            StepVerifier.create(directory.assertProject(id).contextWrite(access())
+                .contextWrite(TenantHolder.makeCurrent("tenant-a"))).expectError(AccessDenyException.class).verify();
+        }
+        StepVerifier.create(directory.assertProject("allowed").contextWrite(access())).expectError(AccessDenyException.class).verify();
+    }
+
+    @Test
     void userMirrorFiltersRealAssetsBeforePagingCountsAndCommandWithoutCloudUserTable() {
         addUser("a-forbidden", "someone-else", "tenant-a");
         addUser("b-allowed", "reader", "tenant-a");
@@ -243,8 +259,21 @@ class PropertyDirectoryPersistenceTest {
 
     @Import({OrganizationPersistenceTest.Config.class, PropertyDirectoryCommandSupport.class, PropertyUserScope.class, PropertyUserService.class})
     static class Config {
-        // 生产权限入口直接受真实 Holder 约束，不能以测试替身掩盖不存在的目录命令。
-        @Bean SaasUserSource userSource() { return new SaasUserSource(); }
+        // 外部 SaaS 用户命令用真实 Holder 和 Cloud 资产夹具求值；本测试库仍无 s_user。
+        // 统一条件注入及 SDK 响应边界另由 SaasUserSourceTest 验证。
+        @Bean SaasUserSource userSource() {
+            return new SaasUserSource() {
+                @Override protected Mono<org.hswebframework.web.api.crud.entity.PagerResult<org.jetlinks.sdk.server.auth.UserInfo>> authorizedPage(QueryParamEntity query) {
+                    var candidateIds = Flux.fromIterable(query.getTerms()).expand(term -> Flux.fromIterable(term.getTerms()))
+                        .filter(term -> "id".equals(term.getColumn()) && "in".equals(term.getTermType()))
+                        .next().flatMapMany(term -> Flux.fromIterable((List<?>)term.getValue()).map(String::valueOf));
+                    return org.jetlinks.pro.assets.AssetsHolder.filterAssets(candidateIds,
+                            AssetType.of("user"), id -> id, org.jetlinks.pro.assets.crud.CrudAssetPermission.read)
+                        .map(id -> { var user = new org.jetlinks.sdk.server.auth.UserInfo(); user.setId(id); return user; })
+                        .collectList().map(rows -> org.hswebframework.web.api.crud.entity.PagerResult.of(rows.size(), rows, query));
+                }
+            };
+        }
         @Bean AssetManager assets() { return mock(AssetManager.class); }
         @Bean ArchiveScope archive(ReactiveRepository<PropertyOrganizationEntity, String> organizations,
             ReactiveRepository<PropertySpaceBindingEntity, String> bindings,

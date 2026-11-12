@@ -3,7 +3,6 @@ package org.jetlinks.pro.property.base.command;
 import lombok.RequiredArgsConstructor;
 import org.hswebframework.ezorm.rdb.mapping.ReactiveRepository;
 import org.hswebframework.web.authorization.annotation.Authorize;
-import org.hswebframework.web.authorization.exception.AccessDenyException;
 import org.jetlinks.core.annotation.command.CommandHandler;
 import org.jetlinks.pro.annotation.command.CommandService;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
@@ -31,9 +30,7 @@ public class PropertyHouseholdCommandSupport {
 
     @CommandHandler(name = "查询有效客户房屋关系")
     public Flux<PropertyHouseholdInfo> query(QueryPropertyHouseholdsCommand command) {
-        return directory.projects(new QueryPropertyProjectsCommand())
-            .any(project -> project.getId().equals(command.getProjectId()))
-            .flatMap(allowed -> allowed ? scope.authenticated() : Mono.error(new AccessDenyException()))
+        return directory.assertProject(command.getProjectId()).then(scope.authenticated())
             .flatMapMany(auth -> scope.spaces(command.getProjectId(), command.getSpaceId(), CrudAssetPermission.read)
                 .flatMapMany(spaces -> {
                     if (spaces.isEmpty()) return Flux.empty();
@@ -51,7 +48,8 @@ public class PropertyHouseholdCommandSupport {
                             .when(command.isMine(), q -> q.and("userId", auth.getUser().getId())).fetch()
                             .collectMap(PropertyCustomerEntity::getId);
                         var homes = houses.createQuery().where("projectId", command.getProjectId()).and("deleted", false)
-                            .in("id", names.keySet()).fetch().collectMap(PropertyHouseEntity::getId);
+                            .in("id", rows.stream().map(PropertyCustomerRelationshipEntity::getSpaceId).distinct().toList())
+                            .fetch().collectMap(PropertyHouseEntity::getId);
                         return Mono.zip(people, homes).flatMapMany(tuple -> Flux.fromIterable(rows)
                             .filter(r -> tuple.getT1().containsKey(r.getCustomerId()) && tuple.getT2().containsKey(r.getSpaceId()))
                             .map(r -> {

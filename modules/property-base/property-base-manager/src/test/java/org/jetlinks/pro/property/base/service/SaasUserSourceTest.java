@@ -13,6 +13,49 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class SaasUserSourceTest {
     @Test
+    void snapshotRecheckAndAuthorizedQueriesUseTheSameConfiguredUserNode() {
+        var source = new SaasUserSource();
+        org.springframework.test.util.ReflectionTestUtils.setField(source, "serverId", "runtime-users");
+        var support = org.mockito.Mockito.mock(org.jetlinks.core.command.CommandSupport.class);
+        org.mockito.Mockito.when(support.execute(org.mockito.ArgumentMatchers.any(
+                org.jetlinks.sdk.server.commons.cmd.QueryPagerCommand.class)))
+            .thenAnswer(call -> Mono.deferContextual(context -> {
+                if (call.getArgument(0) instanceof org.jetlinks.sdk.server.auth.cmd.QueryUserDetailPageCommand) {
+                    assertFalse(context.hasKey("scope-marker"));
+                    return Mono.just(PagerResult.of(1,
+                        List.of(UserPersistenceTest.user("owner")), new QueryParamEntity()));
+                }
+                assertEquals("caller-scope", context.get("scope-marker"));
+                return Mono.just(PagerResult.of(1, List.of(info("owner")), new QueryParamEntity()));
+            }));
+        var routes = new java.util.concurrent.atomic.AtomicInteger();
+        var providers = org.jetlinks.pro.command.CommandSupportManagerProvider.supports;
+        var previous = providers.get("authService:user");
+        var registration = providers.register("authService:user", new org.jetlinks.pro.command.CommandSupportManagerProvider() {
+            public String getProvider() { return "authService:user"; }
+            public Mono<? extends org.jetlinks.core.command.CommandSupport> getCommandSupport(
+                    String module, java.util.Map<String, Object> options) {
+                return Mono.deferContextual(context -> {
+                    assertTrue(context.stream().anyMatch(entry -> "runtime-users".equals(entry.getValue())));
+                    routes.incrementAndGet();
+                    return Mono.just(support);
+                });
+            }
+        });
+        try {
+            StepVerifier.create(source.fetchAll()).assertNext(rows -> assertTrue(rows.containsKey("owner"))).verifyComplete();
+            StepVerifier.create(source.find("owner")).assertNext(found -> assertTrue(found.isPresent())).verifyComplete();
+            StepVerifier.create(source.authorizedPage(new QueryParamEntity())
+                .contextWrite(context -> context.put("scope-marker", "caller-scope")))
+                .assertNext(page -> assertEquals("owner", page.getData().get(0).getId())).verifyComplete();
+            assertEquals(3, routes.get());
+        } finally {
+            registration.dispose();
+            previous.ifPresent(provider -> providers.register("authService:user", provider));
+        }
+    }
+
+    @Test
     void snapshotUsesConfiguredSyncBudgetBeyondNinetySeconds() {
         var source = new SaasUserSource() {
             @Override protected Mono<PagerResult<org.jetlinks.sdk.server.auth.UserDetail>> page(
@@ -34,59 +77,78 @@ class SaasUserSourceTest {
     }
 
     @Test
-    void directoryPermissionQueryKeepsCallerScopeAndFailsClosed() {
+    void directoryQueriesCloudWithRealAssetConditionsAndKeepsCallerScope() {
         var marker = new Object();
-        var holder = org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetsHolder.class);
-        org.mockito.Mockito.when(holder.filter(org.mockito.ArgumentMatchers.any(reactor.core.publisher.Flux.class),
-                org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetType.class),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetPermission[].class)))
-                .thenAnswer(call -> reactor.core.publisher.Flux.deferContextual(ctx -> {
+        var assets = org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetManager.class);
+        var user = new org.hswebframework.web.authorization.simple.SimpleUser(); user.setId("reader");
+        var holder = new org.jetlinks.pro.assets.impl.CreatorAssetsHolder(user, assets);
+        var source = new SaasUserSource() {
+            @Override protected Mono<PagerResult<org.jetlinks.sdk.server.auth.UserInfo>> authorizedPage(QueryParamEntity query) {
+                return Mono.deferContextual(ctx -> {
                     assertSame(marker, ctx.get("scope-marker"));
-                    assertEquals("user", call.<org.jetlinks.pro.assets.AssetType>getArgument(1).getId());
-                    return call.<reactor.core.publisher.Flux<String>>getArgument(0)
-                            .filter("allowed"::equals);
-                }));
-        var source = new SaasUserSource();
+                    var terms = flatten(query.getTerms());
+                    assertTrue(terms.stream().anyMatch(t ->
+                        org.jetlinks.pro.assets.impl.terms.AssetsCreatorTermFragmentBuilder.createTermType(
+                            org.jetlinks.pro.assets.AssetType.of("user")).equals(t.getTermType())
+                            && "reader".equals(t.getValue())));
+                    assertTrue(terms.stream().anyMatch(t -> "id".equals(t.getColumn())
+                            && t.getValue() instanceof List<?> ids && ids.equals(List.of("allowed", "hidden"))));
+                    return Mono.just(PagerResult.of(1, List.of(info("allowed")), query));
+                });
+            }
+        };
         StepVerifier.create(source.authorizedIds(List.of("allowed", "hidden", "allowed"))
                 .contextWrite(ctx -> ctx.put("scope-marker", marker)
                         .put(org.jetlinks.pro.assets.AssetsHolder.class, holder)))
                 .expectNext("allowed").verifyComplete();
-        org.mockito.Mockito.when(holder.filter(org.mockito.ArgumentMatchers.any(reactor.core.publisher.Flux.class),
-                org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetType.class),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetPermission[].class)))
-                .thenReturn(reactor.core.publisher.Flux.error(new IllegalStateException("asset unavailable")));
-        StepVerifier.create(source.authorizedIds(List.of("allowed"))
-                .contextWrite(ctx -> ctx.put(org.jetlinks.pro.assets.AssetsHolder.class, holder)))
-                .expectErrorMessage("asset unavailable").verify();
-        StepVerifier.create(source.authorizedIds(List.of())).verifyComplete();
+        org.mockito.Mockito.verifyNoInteractions(assets);
+        var failed = new SaasUserSource() {
+            @Override protected Mono<PagerResult<org.jetlinks.sdk.server.auth.UserInfo>> authorizedPage(QueryParamEntity query) {
+                return Mono.error(new IllegalStateException("upstream denied"));
+            }
+        };
+        StepVerifier.create(failed.authorizedIds(List.of("allowed")))
+                .expectErrorMessage("upstream denied").verify();
     }
 
     @Test
-    void directoryBatchesUniqueCandidatesAndNeverRequestsAnEmptyBatch() {
+    void directoryBatchesUniqueCandidatesAndRejectsUnrequestedCloudIds() {
         var requested = new java.util.ArrayList<String>();
         var batches = new java.util.ArrayList<Integer>();
-        var holder = org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetsHolder.class);
-        org.mockito.Mockito.when(holder.filter(org.mockito.ArgumentMatchers.any(reactor.core.publisher.Flux.class),
-                org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetType.class),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetPermission[].class)))
-                .thenAnswer(call -> call.<reactor.core.publisher.Flux<String>>getArgument(0)
-                        .collectList().flatMapMany(ids -> {
-                            assertFalse(ids.isEmpty()); assertTrue(ids.size() <= 200);
-                            requested.addAll(ids); batches.add(ids.size());
-                            return reactor.core.publisher.Flux.fromIterable(ids);
-                        }));
-        var source = new SaasUserSource();
+        var source = new SaasUserSource() {
+            @Override protected Mono<PagerResult<org.jetlinks.sdk.server.auth.UserInfo>> authorizedPage(QueryParamEntity query) {
+                @SuppressWarnings("unchecked") var ids = (List<String>)query.getTerms().get(0).getValue();
+                assertFalse(ids.isEmpty()); assertTrue(ids.size() <= 200);
+                requested.addAll(ids); batches.add(ids.size());
+                List<org.jetlinks.sdk.server.auth.UserInfo> rows = ids.stream()
+                    .map(id -> info(id)).toList();
+                return Mono.just(PagerResult.of(rows.size(), rows, query));
+            }
+        };
         var ids = java.util.stream.IntStream.range(0, 450).mapToObj(i -> "candidate-" + i).toList();
         var duplicates = new java.util.ArrayList<>(ids); duplicates.add(ids.get(0));
-        StepVerifier.create(source.authorizedIds(duplicates).collectList()
-                .contextWrite(ctx -> ctx.put(org.jetlinks.pro.assets.AssetsHolder.class, holder)))
+        StepVerifier.create(source.authorizedIds(duplicates).collectList())
             .assertNext(result -> assertEquals(ids, result)).verifyComplete();
         assertEquals(ids, requested); assertEquals(java.util.List.of(200, 200, 50), batches);
         StepVerifier.create(source.authorizedIds(java.util.List.of())).verifyComplete();
         assertEquals(3, batches.size());
+        var invalid = new SaasUserSource() {
+            @Override protected Mono<PagerResult<org.jetlinks.sdk.server.auth.UserInfo>> authorizedPage(QueryParamEntity query) {
+                return Mono.just(PagerResult.of(1, List.of(info("unrequested")), query));
+            }
+        };
+        StepVerifier.create(invalid.authorizedIds(List.of("allowed")))
+                .expectError(org.hswebframework.web.exception.BusinessException.class).verify();
+    }
+
+    private static List<org.hswebframework.ezorm.core.param.Term> flatten(List<org.hswebframework.ezorm.core.param.Term> terms) {
+        var result = new ArrayList<org.hswebframework.ezorm.core.param.Term>();
+        for (var term : terms) { result.add(term); result.addAll(flatten(term.getTerms())); }
+        return result;
+    }
+
+    private static org.jetlinks.sdk.server.auth.UserInfo info(String id) {
+        var user = new org.jetlinks.sdk.server.auth.UserInfo(); user.setId(id); return user;
     }
 
     @Test

@@ -34,7 +34,7 @@ GET `/property/space/_tree?projectId=...&customerBound=true` 仅返回当前有�
 
 | 命令 | 输入 / 输出 | 权限与空结果 |
 | --- | --- | --- |
-| `QueryPropertyEmployeePageCommand` | `query: QueryParamEntity` → `PagerResult<PropertyEmployeeInfo>`；每页1–200 | 认证及 user 资产范围（基础服务通过平台 AssetsHolder 批量校验原 user 资产，再与基础有效员工相交）；先过滤未删除、启用、employee=true，再分页。应用成员关系由消费方在认证服务中解析并以 ID 相交，不能把认证库的 in-dimension 条件发送到基础库 |
+| `QueryPropertyEmployeePageCommand` | `query: QueryParamEntity` → `PagerResult<PropertyEmployeeInfo>`；每页1–200 | 认证及 user 资产范围（基础服务通过 AssetsHolder 生成原 user 资产条件，交给 SaaS 用户命令执行，再与基础有效员工相交）；先过滤未删除、启用、employee=true，再分页。应用成员关系由消费方在认证服务中解析并以 ID 相交，不能把认证库的 in-dimension 条件发送到基础库 |
 | `GetCurrentPropertyEmployeeCommand` | 无输入 → 本人 `PropertyEmployeeInfo` | 从可信认证身份读取，不要求用户维护菜单或目录授权；非员工、停用或已删除返回空；匿名和服务错误传播 |
 
 DTO 仅含 id、name、telephone、直接 organizationIds；员工 ID 与 SaaS user ID 一致，不包含密码、客户资料或内部审计字段。query 通过 AbstractCommand 属性序列化；调用方不能把空结果当有效执行身份，也不能降级为任意 SaaS 用户。员工与客户双身份按 employee 状态判断，纯客户不进入巡更岗位候选。
@@ -98,9 +98,11 @@ return CommandSupportManagerProviders
 
 用户管理实现位于 manager 的 `service/*User*`、`entity/PropertyUser*`、`entity/UserSyncStateEntity`、`web/PropertyUserController`，设计以相邻 `../../../设计文档/用户管理设计.md` 为准。SaaS 账号资料只读，物业身份可以同时为客户、员工，也可清空；身份不等于 SaaS 角色或房屋关系。客户身份保留原 `owner` 编码及数据库列，房屋关系中的“业主”性质含义不变。
 
-`/property/user` 提供 `_query`、`_counts`、`{id}`、`_identities`、`{id}/identities`、`_sync`、`_sync/status`，资源 `property-user`，动作 `query/save/sync`。分页及计数先通过平台 `AssetsHolder.filterAssets`（200 ID/批）校验原 `user/read` 资产授权，再与 `pm_user` 筛选取交集；不依赖额外的认证目录命令，不在镜像库执行依赖 Cloud `s_user` 的权限 SQL；保留调用者认证、租户和应用 Scope，权限故障明确传播。详情与标注分别校验 read/save。标注提交完整集合和 version，冲突拒绝覆盖；没有通用账号保存或删除接口。
+`/property/user` 提供 `_query`、`_counts`、`{id}`、`_identities`、`{id}/identities`、`_sync`、`_sync/status`，资源 `property-user`，动作 `query/save/sync`。分页及计数先通过平台 `AssetsHolder.injectQueryParam` 生成原 `user/read` 资产条件，按200个候选 ID/批调用既有 `authService:user` 标准分页命令，在 SaaS 原用户及资产绑定库求值后与 `pm_user` 筛选取交集；调用角色需具备 `user:query` 只读动作，缺失按403传播，不能当空目录。不在镜像库执行或查询 Cloud 用户的权限表；保留调用者认证、租户和应用 Scope，权限故障明确传播。详情与标注分别校验 read/save。标注提交完整集合和 version，冲突拒绝覆盖；没有通用账号保存或删除接口。
 
 全量同步通过 `authService:user` 显式 SDK 命令执行，分页暂存、校验和缺失 ID 复核后统一事务落库，保留本地身份、版本和标注审计；异常空来源、分页变化、重复 ID 或复核失败均不提交。SaaS 删除仅逻辑删除，同 ID 恢复保留身份。
+
+部署多个用户命令提供方时，可配置 `property.user-sync.server-id`（环境变量 `PROPERTY_USER_SYNC_SERVER_ID`）固定运行端认证节点。全量快照、缺失用户复核及权限目录读取共用该节点；不配置时沿用集群默认路由。部署后核对来源，不能把另一套认证库的少量用户快照当作原来源的全量结果；指定节点不可用时应报错，不切换来源继续删除。
 
 用户及关系表 `pm_user`、`pm_user_org` 和租约表 `pm_user_sync_state` 由 EasyORM 管理。配置统一使用 `application-local.yml` 中的 `property.user-sync`：`enabled` 默认 true、`interval-seconds` 默认 3600（1 小时）、`max-users` 默认 100000、`timeout-seconds` 默认 120、`page-timeout-seconds` 默认 60。分页快照读取使用整轮超时预算，单页等待同时受单页和整轮预算约束；批量迁入账号时应结合实测耗时配置整轮预算。关闭 enabled 同时关闭 worker 及手动任务入口。首次在应用就绪 5 秒后执行；手动同步返回 taskId，客户端轮询状态，不能把受理当完成。
 

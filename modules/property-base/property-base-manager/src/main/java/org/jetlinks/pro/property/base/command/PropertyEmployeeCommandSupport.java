@@ -37,7 +37,7 @@ public class PropertyEmployeeCommandSupport {
         query.setPageIndex(Math.max(0, query.getPageIndex()));
         query.toNestQuery(q -> q.and("deleted", false).and("employee", true).and("status", 1));
         // user 的 Scope 成员与组织权限由认证服务解析；本库仅执行有效员工和直接组织关系条件。
-        // Reuse the shared directory owner: user asset SQL cannot run in the mirror database.
+        // user 权限条件交给 SaaS 用户命令执行，本库只按授权 ID 裁剪镜像。
         return userScope.query(query)
                 .flatMap(scoped -> QueryHelper.queryPager(scoped, users::createQuery))
                 .flatMap(page -> QueryHelper.transformPageResult(Mono.just(page), this::enrich));

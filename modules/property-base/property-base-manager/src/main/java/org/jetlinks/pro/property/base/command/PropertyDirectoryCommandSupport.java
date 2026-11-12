@@ -47,6 +47,13 @@ public class PropertyDirectoryCommandSupport {
         });
     }
 
+    /** 同模块精确校验沿用目录的资产与租户交集，不枚举无关项目，也不开放新的远程命令。 */
+    public Mono<Void> assertProject(String projectId) {
+        if (projectId == null || projectId.isBlank()) return Mono.error(new AccessDenyException());
+        return readableProjects(projectId).next()
+            .switchIfEmpty(Mono.error(new AccessDenyException())).then();
+    }
+
     /**
      * pm 组织镜像不含 Cloud 的 s_organization，不能在镜像 SQL 中展开 organization 资产条件。
      * 通过资产服务批量过滤后再与可信租户取交集；命令只返回授权目录，不在消费方复制基础表。
