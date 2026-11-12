@@ -18,6 +18,7 @@ public class FacilityTaskExecutions {
   private final TaskStore tasks;
   private final FacilityRecords records;
   private final FacilityScope scope;
+  private final FacilityEmployeeMessages messages;
 
   public static boolean aggregate(TaskEntity task) {
     return task.getParentTaskId() == null && task.getDeviceCount() != null && task.getDeviceCount() > 0;
@@ -68,10 +69,11 @@ public class FacilityTaskExecutions {
           parent.setState(submitted == rows.size() ? "review" : "executing");
           return records.update(tasks, parent, version)
             .flatMap(updated -> Objects.equals(from, updated.getState()) ? Mono.just(updated) :
-              records.log(updated, "task", action, from, updated.getState(), null, List.of()).thenReturn(updated));
+              records.log(updated, "task", action, from, updated.getState(), null, List.of())
+                .then(messages.task(updated, "review".equals(updated.getState()) ? "review" : action)).thenReturn(updated));
         })).thenReturn(saved);
     }
-    if (!aggregate(saved)) return Mono.just(saved);
+    if (!aggregate(saved)) return messages.task(saved, "review".equals(saved.getState()) ? "review" : action).thenReturn(saved);
     return children(saved).collectList().flatMap(rows -> {
       require(rows.size() == saved.getDeviceCount(), "task_devices_inaccessible");
       // Batch by original version: portable optimistic updates, with no per-device directory calls.
@@ -90,7 +92,7 @@ public class FacilityTaskExecutions {
         return update.in("id", entry.getValue().stream().map(TaskEntity::getId).toList())
           .and("version", entry.getKey()).and("tenantId", saved.getTenantId()).and("applicationId", saved.getApplicationId())
           .and("parentTaskId", saved.getId()).execute().doOnNext(count -> require(count == entry.getValue().size(), "conflict"));
-      }).then(Mono.just(saved));
+      }).then(messages.task(saved, action)).thenReturn(saved);
     });
   }
 

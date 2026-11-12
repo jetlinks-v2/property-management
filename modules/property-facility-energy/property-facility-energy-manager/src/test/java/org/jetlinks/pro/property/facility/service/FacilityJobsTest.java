@@ -16,6 +16,99 @@ import reactor.test.StepVerifier;
 /** 后台流式扫描跨应用配置；单条失败不能截断后续采集及规则评估。 */
 class FacilityJobsTest {
 
+  static class RulesFixture {
+    final JobStore jobs = mock(JobStore.class);
+    final PlanStore plans = mock(PlanStore.class);
+    final MappingStore mappings = mock(MappingStore.class);
+    final RuleStore rules = mock(RuleStore.class);
+    final FacilityExecution execution = mock(FacilityExecution.class);
+    final FacilityTelemetry telemetry = mock(FacilityTelemetry.class);
+    final FacilityAlerts alerts = mock(FacilityAlerts.class);
+    final FacilityNotifications notifications = mock(FacilityNotifications.class);
+    final FacilityTaskMessages messages = mock(FacilityTaskMessages.class);
+    final FacilityMeterMonths months = mock(FacilityMeterMonths.class);
+    final FacilityJobs polling;
+    final RuleEntity rule = new RuleEntity();
+
+    RulesFixture() {
+      ReactiveQuery<JobEntity> jobQuery = mock(ReactiveQuery.class, RETURNS_SELF);
+      ReactiveQuery<PlanEntity> planQuery = mock(ReactiveQuery.class, RETURNS_SELF);
+      ReactiveQuery<MappingEntity> mappingQuery = mock(ReactiveQuery.class, RETURNS_SELF);
+      ReactiveQuery<RuleEntity> ruleQuery = mock(ReactiveQuery.class, RETURNS_SELF);
+      when(jobs.createQuery()).thenReturn(jobQuery); when(jobQuery.fetch()).thenReturn(Flux.empty());
+      when(plans.createQuery()).thenReturn(planQuery); when(planQuery.fetch()).thenReturn(Flux.empty());
+      when(mappings.createQuery()).thenReturn(mappingQuery);
+      var mapping = new MappingEntity(); mapping.setId("slow-mapping");
+      when(mappingQuery.fetch()).thenReturn(Flux.just(mapping));
+      rule.setId("offline-rule");
+      when(rules.createQuery()).thenReturn(ruleQuery); when(ruleQuery.fetch()).thenReturn(Flux.just(rule));
+      when(execution.asOwner(any(), any())).thenAnswer(call -> {
+        Supplier<Mono<?>> work = call.getArgument(1); return Mono.defer(work);
+      });
+      when(telemetry.collect(any())).thenReturn(Mono.never());
+      when(alerts.evaluate(any())).thenReturn(Mono.empty());
+      when(notifications.poll()).thenReturn(Mono.empty());
+      when(messages.poll()).thenReturn(Mono.empty()); when(months.poll()).thenReturn(Mono.empty());
+      polling = new FacilityJobs(jobs, plans, mappings, rules, execution, mock(FacilitySync.class),
+        mock(FacilityPlans.class), telemetry, alerts, notifications, messages, months);
+    }
+  }
+
+  @Test void neverEndingTelemetryDoesNotBlockRulesOrNotificationPolls() {
+    var fixture = new RulesFixture();
+    var running = fixture.polling.poll().subscribe();
+    try {
+      verify(fixture.telemetry).collect(any());
+      verify(fixture.alerts).evaluate(fixture.rule);
+      verify(fixture.notifications).poll();
+      StepVerifier.create(fixture.polling.pollRules()).verifyComplete();
+      verify(fixture.alerts, times(2)).evaluate(fixture.rule);
+      verify(fixture.notifications, times(2)).poll();
+      assertTrue(fixture.polling.isPolling());
+    } finally { running.dispose(); }
+    assertFalse(fixture.polling.isPolling());
+  }
+
+  @Test void rulePollRejectsReentryAndCancellationReleasesTheGate() {
+    var fixture = new RulesFixture();
+    when(fixture.alerts.evaluate(any())).thenReturn(Mono.never());
+    var running = fixture.polling.pollRules().subscribe();
+    assertTrue(fixture.polling.isPolling());
+    StepVerifier.create(fixture.polling.pollRules()).verifyComplete();
+    verify(fixture.alerts, times(1)).evaluate(fixture.rule);
+    running.dispose();
+    assertFalse(fixture.polling.isPolling());
+    when(fixture.alerts.evaluate(any())).thenReturn(Mono.empty());
+    StepVerifier.create(fixture.polling.pollRules()).verifyComplete();
+    verify(fixture.alerts, times(2)).evaluate(fixture.rule);
+    assertFalse(fixture.polling.isPolling());
+  }
+
+  @Test void lifecycleSchedulesRulesIndependentlyAndStopCancelsInFlightEvaluation() {
+    var fixture = new RulesFixture();
+    var cancelled = new java.util.concurrent.atomic.AtomicBoolean();
+    when(fixture.alerts.evaluate(any())).thenReturn(Mono.<Void>never().doOnCancel(() -> cancelled.set(true)));
+    var scheduler = mock(org.jetlinks.pro.plugin.context.ClusterPluginScheduler.class);
+    var subscriptions = new ArrayList<reactor.core.Disposable>();
+    when(scheduler.interval(anyString(), any(), any(java.time.Duration.class), eq(true))).thenAnswer(call -> {
+      Mono<Void> operation = call.getArgument(1);
+      var subscription = operation.subscribe(); subscriptions.add(subscription); return subscription;
+    });
+    org.springframework.test.util.ReflectionTestUtils.setField(fixture.polling, "scheduler", scheduler);
+    fixture.polling.start();
+    try {
+      verify(scheduler).interval(eq("facility-rule-jobs"), any(), eq(java.time.Duration.ofSeconds(30)), eq(true));
+      verify(fixture.alerts).evaluate(fixture.rule);
+      assertTrue(fixture.polling.isRunning()); assertTrue(fixture.polling.isPolling());
+    } finally { fixture.polling.stop(); }
+    assertTrue(cancelled.get()); assertTrue(subscriptions.stream().allMatch(reactor.core.Disposable::isDisposed));
+    assertFalse(fixture.polling.isRunning()); assertFalse(fixture.polling.isPolling());
+    verify(fixture.telemetry).stop();
+    when(fixture.alerts.evaluate(any())).thenReturn(Mono.empty());
+    StepVerifier.create(fixture.polling.pollRules()).verifyComplete();
+    verify(fixture.alerts, times(2)).evaluate(fixture.rule);
+  }
+
   @Test
   void allMappingsAndRulesBeyondFirstThousandAreProcessed() {
     var jobs = mock(JobStore.class, RETURNS_DEEP_STUBS);

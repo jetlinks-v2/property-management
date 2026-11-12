@@ -25,6 +25,8 @@ public class FacilityAlertController {
   private final FacilityAlerts manager;
   private final FacilityNotifications notifier;
   private final FacilityQueries queries;
+  private final AlertEpisodeStore episodes;
+  private final ProcessStore processes;
 
   public record Action(long version, String state, String comment) {}
 
@@ -37,6 +39,37 @@ public class FacilityAlertController {
       FacilityAssetType.facilityDevice,
       "deviceId"
     );
+  }
+
+  @GetMapping("/{id}") @QueryAction
+  public Mono<AlertEntity> read(@PathVariable String id) { return manager.read(id); }
+
+  @PostMapping("/history/_query") @QueryAction
+  public Mono<PagerResult<AlertEpisodeEntity>> history(@RequestBody QueryParamEntity query) {
+    return queries.page(episodes, query.clone().toNestQuery().notNull("deviceId").getParam(), FacilityAssetType.facilityDevice, "deviceId");
+  }
+
+  @GetMapping("/{id}/history") @QueryAction
+  public Mono<PagerResult<AlertEpisodeEntity>> episodes(@PathVariable String id, @RequestParam(defaultValue = "0") int pageIndex) {
+    return read(id).flatMap(row -> {
+      // 历史快照的episodeId指向当前事件，分页仍与同一设备/计划资产范围相交。
+      String current = row instanceof AlertEpisodeEntity ? row.getEpisodeId() : row.getId();
+      var q = QueryParamEntity.newQuery().is("episodeId", current).orderByDesc("firstTime").getParam();
+      q.setPageIndex(Math.max(0, pageIndex)); q.setPageSize(15);
+      return queries.page(episodes, q, row.getTargetId() == null ? FacilityAssetType.facilityDevice : FacilityAssetType.facilityTarget,
+        row.getTargetId() == null ? "deviceId" : "targetId");
+    });
+  }
+
+  @GetMapping("/{id}/processes") @QueryAction
+  public Mono<PagerResult<ProcessEntity>> processes(@PathVariable String id, @RequestParam(defaultValue = "0") int pageIndex) {
+    return read(id).flatMap(row -> {
+      String current = row instanceof AlertEpisodeEntity ? row.getEpisodeId() : row.getId();
+      var q = QueryParamEntity.newQuery().is("targetId", current).and("targetType", "alert").orderByDesc("createTime").getParam();
+      q.setPageIndex(Math.max(0, pageIndex)); q.setPageSize(20);
+      // 读取父事件已经完成范围授权；日志没有设备列，不能把targetId当设备资产校验。
+      return processes.queryPager(q.toNestQuery().and("tenantId", row.getTenantId()).and("applicationId", row.getApplicationId()).getParam());
+    });
   }
 
   @PostMapping("/plans/_query")

@@ -28,6 +28,10 @@ public class ReadingEntity extends FacilityEntity {
   @Column(length = 256)
   private String deviceId;
 
+  /** 列表查询时批量补齐当前设备名，不改变历史读数快照。 */
+  @Transient
+  private String deviceName;
+
   @Column(length = 256)
   private String mappingId;
 
@@ -76,6 +80,10 @@ public class ReadingEntity extends FacilityEntity {
 
   @Column(length = 256)
   private String replacesId;
+
+  /** 驳回后重新提交的来源记录；旧记录保留原读数及驳回状态变更。 */
+  @Column(length = 256)
+  private String resubmitsId;
 
   @Column
   private Long meterEpoch;

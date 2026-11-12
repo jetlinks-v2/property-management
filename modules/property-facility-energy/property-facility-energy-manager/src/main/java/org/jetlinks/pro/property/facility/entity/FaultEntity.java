@@ -50,6 +50,41 @@ public class FaultEntity extends FacilityEntity {
   @Column(length = 256)
   private String assigneeId;
 
+  @Column(length = 128)
+  private String assigneeName;
+
+  @Column(length = 64)
+  private String reviewerId;
+
+  @Column(length = 128)
+  private String reviewerName;
+
+  @Column(length = 32)
+  private String priority;
+
+  @Column(length = 64)
+  private String category;
+
+  @Column
+  private Long deadline;
+
+  @Column
+  private Long claimedTime;
+
+  @Column
+  private Long startedTime;
+
+  @Column
+  private Long submittedTime;
+
+  @Column(length = 4000)
+  private String closeReason;
+
+  @Column
+  @JsonCodec
+  @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)
+  private List<String> resolutionAttachments = new ArrayList<>();
+
   @Column(length = 4000)
   private String resolution;
 

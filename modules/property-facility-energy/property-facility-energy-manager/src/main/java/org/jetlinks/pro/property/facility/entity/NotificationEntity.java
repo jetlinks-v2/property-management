@@ -30,6 +30,10 @@ public class NotificationEntity extends FacilityEntity {
 
   @Column(length = 64)
   private String taskId;
+  @Column(length = 64)
+  private String faultId;
+  @Column(length = 64)
+  private String alertId;
   @Column(length = 32)
   private String messageType;
   @Column(length = 256)

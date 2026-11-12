@@ -50,6 +50,16 @@ public class AlertEntity extends FacilityEntity {
   @Column(length = 256)
   private String state;
 
+  /** 信号异常/恢复与人工处置分别存储，恢复不代表人工已处理。 */
+  @Column(length = 32)
+  private String processingState;
+
+  @Column(length = 64)
+  private String episodeId;
+
+  @Column
+  private Long occurrences;
+
   @Column(length = 256)
   private String level;
 

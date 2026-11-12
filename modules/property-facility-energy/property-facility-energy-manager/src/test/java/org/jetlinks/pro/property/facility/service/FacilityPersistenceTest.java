@@ -90,6 +90,8 @@ class FacilityPersistenceTest {
   @Autowired
   FacilityFiles files;
 
+  @Autowired FacilityExecution faultExecution;
+
   @BeforeEach
   void resetData() {
     store.createDelete().where("id", "test").execute().block();
@@ -100,6 +102,15 @@ class FacilityPersistenceTest {
       .block();
     logs.createDelete().where("targetId", "test").execute().block();
     reset(scope, directory, files, notifier);
+    reset(faultExecution);
+    when(faultExecution.asUser(any(), anyString(), any())).thenAnswer(call -> {
+      String user = call.getArgument(1);
+      java.util.function.Supplier<Mono<Object>> work = call.getArgument(2);
+      var auth = mock(org.hswebframework.web.authorization.Authentication.class);
+      when(auth.hasPermission(eq("facility-fault"), anyString())).thenAnswer(permission ->
+        !user.equals("no-" + permission.<String>getArgument(1)));
+      return Mono.defer(work).contextWrite(c -> c.put(org.hswebframework.web.authorization.Authentication.class, auth));
+    });
     when(notifier.enqueue(any(), any(), any())).thenReturn(Mono.empty());
     when(notifier.enqueueTarget(any(), any(), any())).thenReturn(Mono.empty());
     when(directory.taskAssignee(any(), anyString())).thenReturn(Mono.empty());
@@ -1517,7 +1528,7 @@ class FacilityPersistenceTest {
     });
     return spy(new FacilityNotifications(
       deviceManager, targets, alerts, readingManager, directory, records,
-      notifications, bindings, bindingManager, devices, ruleStore, execution
+      notifications, bindings, bindingManager, devices, ruleStore, execution, mock(FacilityEmployeeMessages.class, RETURNS_SMART_NULLS)
     ));
   }
 
@@ -1535,7 +1546,12 @@ class FacilityPersistenceTest {
     alert.setState("open");
     alert.setNotificationSequence(1);
     alerts.save(alert).block();
-    dispatcher.enqueue(alert, rule, device).block();
+    // 已持久化旧站内发件箱继续验证重试/撤权；新员工消息直接写统一收件箱，不再经过provider。
+    var legacy = FacilityScope.initialize(new NotificationEntity(), new FacilityContext("tenant", "app", "staff", "Staff"));
+    FacilityScope.inherit(legacy, device); legacy.setDeviceId(device.getId()); legacy.setEventId(alert.getId());
+    legacy.setUserId("employee"); legacy.setRecipientKey("employee"); legacy.setChannel("inside"); legacy.setSequence(1);
+    legacy.setState("pending"); legacy.setAttempts(0); legacy.setNextAttemptTime(System.currentTimeMillis());
+    notifications.insert(legacy).block();
     return notifications.createQuery().where("deviceId", device.getId()).fetchOne().block();
   }
 
@@ -1578,6 +1594,21 @@ class FacilityPersistenceTest {
     assertEquals("eligibility_permission_denied", cancelled.getFailureReason());
     assertEquals(0, cancelled.getAttempts());
     verify(dispatcher, never()).sendInside(any());
+  }
+
+  @Test void legacyCustomerSmsIsCancelledBeforeDispatchAndCannotBeRetried() {
+    alertFixture("retired-sms", "instant", "instant");
+    var dispatcher = notificationDispatcher("retired-sms-device");
+    var notice = pendingEmployeeNotice("retired-sms", dispatcher);
+    notifications.createUpdate().set("channel", "sms").set("userId", "customer").where("id", notice.getId()).execute().block();
+    dispatcher.poll().block();
+    var retired = notifications.findById(notice.getId()).block();
+    assertEquals("cancelled", retired.getState()); assertEquals("employee_channel_only", retired.getFailureReason());
+    assertEquals(0, retired.getAttempts()); verify(dispatcher, never()).sendInside(any());
+    notifications.createUpdate().set("state", "failed").where("id", notice.getId()).execute().block();
+    as("staff", dispatcher.retry(notice.getId())).block();
+    assertEquals("cancelled", notifications.findById(notice.getId()).block().getState());
+    assertEquals("employee_channel_only", notifications.findById(notice.getId()).block().getFailureReason());
   }
 
   @Test
@@ -1628,7 +1659,8 @@ class FacilityPersistenceTest {
       bindingManager,
       devices,
       ruleStore,
-      mock(FacilityExecution.class)
+      mock(FacilityExecution.class),
+      mock(FacilityEmployeeMessages.class, RETURNS_SMART_NULLS)
     );
     sample(
       rule,
@@ -1920,6 +1952,91 @@ class FacilityPersistenceTest {
     assertEquals(0, store.createQuery().where("planId", plan.getId()).count().block());
   }
 
+  @Autowired AlertEpisodeStore episodeStore;
+  @Autowired FacilityFaults faultManager;
+
+  @Test void alertEpisodesPreserveHandlingAcrossRecoveryAndStartFreshRound() {
+    var rule = alertFixture("episode-history", "instant", "instant");
+    var device = devices.findById("episode-history-device").block(); long now = System.currentTimeMillis();
+    as("staff", alertWriter.record(rule, device, java.math.BigDecimal.TEN, "A", now, "current")).block();
+    String id = FacilityRecords.stableId(rule.getId(), device.getId());
+    var active = alerts.findById(id).block();
+    as("staff", ruleManager.action(id, "closed", "已检查接线，等待设备恢复", active.getVersion())).block();
+    assertEquals("open", alerts.findById(id).block().getState());
+    assertEquals("closed", alerts.findById(id).block().getProcessingState());
+    as("staff", alertWriter.record(rule, device, java.math.BigDecimal.ZERO, "A", now + 1000, "current")).block();
+    as("staff", alertWriter.record(rule, device, java.math.BigDecimal.TEN, "A", now + 2000, "current")).block();
+    var old = episodeStore.findById(FacilityRecords.stableId(id, Long.toString(now))).block();
+    assertEquals("closed", old.getProcessingState()); assertEquals("recovered", old.getState());
+    assertEquals("已检查接线，等待设备恢复", old.getComment()); assertEquals(now + 1000, old.getRecoveredTime());
+    var current = alerts.findById(id).block(); assertEquals("open", current.getProcessingState()); assertNull(current.getComment());
+    assertEquals(2, episodeStore.createQuery().where("episodeId", id).count().block());
+  }
+
+  @Test void faultLifecyclePersistsAuditAndRefusesWrongActorAndStaleVersion() {
+    alertFixture("fault-lifecycle", "instant", "instant");
+    when(directory.projectEmployee(anyString(), anyString())).thenAnswer(call -> Mono.just(
+      new org.jetlinks.pro.property.base.user.PropertyEmployeeInfo(call.getArgument(1), call.getArgument(1), null, List.of(call.<String>getArgument(0)))));
+    var input = new FaultEntity(); input.setDeviceId("fault-lifecycle-device"); input.setDescription("水泵异常振动");
+    input.setReviewerId("reviewer"); input.setAssigneeId("worker"); input.setDeadline(System.currentTimeMillis() + 3600000);
+    var dispatchAuth = mock(org.hswebframework.web.authorization.Authentication.class);
+    when(dispatchAuth.hasPermission("facility-fault", "dispatch")).thenReturn(true);
+    var row = as("staff", faultManager.create(input))
+      .contextWrite(context -> context.put(org.hswebframework.web.authorization.Authentication.class, dispatchAuth)).block();
+    assertEquals("assigned", row.getState());
+    String faultId = row.getId();
+    StepVerifier.create(as("other", faultManager.action(faultId, "claim", new org.jetlinks.pro.property.facility.model.FaultCommand(0L, null, null, List.of())))).expectError(BusinessException.class).verify();
+    row = as("worker", faultManager.action(faultId, "claim", new org.jetlinks.pro.property.facility.model.FaultCommand(0L, null, null, List.of()))).block();
+    row = as("worker", faultManager.action(faultId, "start", new org.jetlinks.pro.property.facility.model.FaultCommand(row.getVersion(), null, null, List.of()))).block();
+    row = as("worker", faultManager.action(faultId, "resolve", new org.jetlinks.pro.property.facility.model.FaultCommand(row.getVersion(), "已更换轴承", null, List.of()))).block();
+    long version = row.getVersion();
+    StepVerifier.create(as("worker", faultManager.action(faultId, "approve", new org.jetlinks.pro.property.facility.model.FaultCommand(version, null, null, List.of())))).expectError(BusinessException.class).verify();
+    row = as("reviewer", faultManager.action(faultId, "reject", new org.jetlinks.pro.property.facility.model.FaultCommand(version, "补充运行检查", null, List.of()))).block();
+    row = as("worker", faultManager.action(faultId, "resolve", new org.jetlinks.pro.property.facility.model.FaultCommand(row.getVersion(), "试运行正常", null, List.of()))).block();
+    long submittedVersion = row.getVersion();
+    StepVerifier.create(as("staff", faultManager.action(faultId, "reviewer", new FaultCommand(submittedVersion, "原负责人离职", "no-review", List.of()))))
+      .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+    assertEquals("reviewer", faults.findById(faultId).block().getReviewerId());
+    row = as("staff", faultManager.action(faultId, "reviewer", new FaultCommand(submittedVersion, "原负责人离职", "replacement", List.of()))).block();
+    assertEquals("review", row.getState()); assertEquals("试运行正常", row.getResolution());
+    long replacedVersion = row.getVersion();
+    StepVerifier.create(as("reviewer", faultManager.action(faultId, "approve", new FaultCommand(replacedVersion, null, null, List.of()))))
+      .expectError(BusinessException.class).verify();
+    row = as("replacement", faultManager.action(faultId, "approve", new org.jetlinks.pro.property.facility.model.FaultCommand(row.getVersion(), "验收通过", null, List.of()))).block();
+    assertEquals("closed", faults.findById(faultId).block().getState()); assertNotNull(row.getCompletedTime());
+    assertEquals(8, logs.createQuery().where("targetId", faultId).count().block());
+  }
+
+  @Test void creatingAssignedFaultRequiresDispatchPermissionBeforeAnyWrite() {
+    var input = new FaultEntity(); input.setDeviceId("unread-device"); input.setDescription("水泵漏水");
+    input.setReviewerId("reviewer"); input.setAssigneeId("worker"); input.setDeadline(System.currentTimeMillis() + 3600000);
+    var auth = mock(org.hswebframework.web.authorization.Authentication.class);
+    when(auth.hasPermission("facility-fault", "dispatch")).thenReturn(false);
+    StepVerifier.create(as("staff", faultManager.create(input))
+      .contextWrite(context -> context.put(org.hswebframework.web.authorization.Authentication.class, auth)))
+      .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+    assertEquals(0, faults.createQuery().where("deviceId", "unread-device").count().block());
+  }
+
+  @Test void faultParticipantsNeedCurrentBusinessPermissionAndProjectMembership() {
+    alertFixture("fault-participant", "instant", "instant");
+    when(directory.projectEmployee(anyString(), anyString())).thenAnswer(call -> Mono.just(
+      new org.jetlinks.pro.property.base.user.PropertyEmployeeInfo(call.getArgument(1), call.getArgument(1), null, List.of(call.<String>getArgument(0)))));
+    var input = new FaultEntity(); input.setDeviceId("fault-participant-device"); input.setDescription("水泵异常");
+    input.setReviewerId("no-review"); input.setDeadline(System.currentTimeMillis() + 3600000);
+    StepVerifier.create(as("staff", faultManager.create(input)))
+      .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+    input.setReviewerId("reviewer"); input.setAssigneeId("no-save");
+    var auth = mock(org.hswebframework.web.authorization.Authentication.class);
+    when(auth.hasPermission("facility-fault", "dispatch")).thenReturn(true);
+    StepVerifier.create(as("staff", faultManager.create(input)).contextWrite(c -> c.put(org.hswebframework.web.authorization.Authentication.class, auth)))
+      .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+    input.setAssigneeId(null); input.setReviewerId("foreign-project");
+    when(directory.projectEmployee(anyString(), eq("foreign-project"))).thenReturn(Mono.error(new BusinessException("error.facility.project_employee_required", 400)));
+    StepVerifier.create(as("staff", faultManager.create(input))).expectError(BusinessException.class).verify();
+    assertEquals(0, faults.createQuery().where("deviceId", "fault-participant-device").count().block());
+  }
+
   @Autowired FacilityInbox inbox;
   @Autowired NotificationStore inboxStore;
 
@@ -1930,7 +2047,7 @@ class FacilityPersistenceTest {
     });
     var task = task("single"); task.setId("inbox-root"); task.setDeviceCount(3);
     task.setScheduledTime(1000L); task.setDeadline(61000L); task.setProjectId("inbox-project");
-    var writer = new FacilityTaskMessages(store, inboxStore, null, null, null);
+    var writer = new FacilityTaskMessages(store, inboxStore, null, null, null, null);
     writer.store(task,"new","inbox-worker").block(); writer.store(task,"new","inbox-worker").block();
     Mono.when(writer.store(task,"new","inbox-race"), writer.store(task,"new","inbox-race")).block();
     assertEquals(1,inboxStore.createQuery().where("userId","inbox-race").count().block());
@@ -1949,6 +2066,14 @@ class FacilityPersistenceTest {
     as("inbox-worker",inbox.read(null,"inbox-project")).block();
     assertEquals(0,as("inbox-worker",inbox.unread("inbox-project")).block());
     assertEquals(1,as("inbox-other",inbox.unread("inbox-project")).block());
+    var approval = FacilityTaskMessages.message(task, "task:review", "inbox-worker");
+    approval.setChannel("employee"); inboxStore.insert(approval).block();
+    assertEquals(1, as("inbox-worker", inbox.unread("inbox-project")).block());
+    var employeeMessages = as("inbox-worker", inbox.page(QueryParamEntity.newQuery()
+      .is("messageType", "task:review").getParam())).block();
+    assertEquals(1, employeeMessages.getTotal());
+    assertEquals(approval.getId(), employeeMessages.getData().get(0).getId());
+    assertEquals(1, as("inbox-other", inbox.unread("inbox-project")).block());
     assertNull(inboxStore.findById("inbox-other-app").block().getReadTime());
   }
 
@@ -1964,6 +2089,7 @@ class FacilityPersistenceTest {
     FacilityQueries.class,
     FacilityRecords.class,
     FacilityTasks.class,
+    FacilityFaults.class,
     FacilityTaskExecutions.class,
     BindingStore.class,
     DeviceStore.class,
@@ -1974,6 +2100,8 @@ class FacilityPersistenceTest {
     AlertStore.class,
     FacilityOwner.class,
     FacilityAlertWriter.class,
+    AlertEpisodeStore.class,
+    FacilityAlertEpisodes.class,
     FacilityDevices.class,
     FacilityBindings.class,
     FacilityReports.class,
@@ -1995,11 +2123,22 @@ class FacilityPersistenceTest {
   })
   static class Config {
 
+    @Bean FacilityExecution faultExecution() { return mock(FacilityExecution.class); }
+
     @Bean
     org.jetlinks.pro.assets.AssetBindManager bindings() {
       var bindings = mock(org.jetlinks.pro.assets.AssetBindManager.class);
       when(bindings.bindAssets(any())).thenReturn(Mono.empty());
+      when(bindings.unbindAssets(any())).thenReturn(Mono.empty());
       return bindings;
+    }
+
+    @Bean
+    FacilityEmployeeMessages employeeMessages() {
+      var messages = mock(FacilityEmployeeMessages.class);
+      when(messages.task(any(), anyString())).thenReturn(Mono.empty());
+      when(messages.fault(any(), anyString())).thenReturn(Mono.empty());
+      return messages;
     }
 
     @Bean

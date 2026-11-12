@@ -23,6 +23,7 @@ public class FacilityAlertWriter {
   private final AlertStore alerts;
   private final FacilityRecords records;
   private final FacilityNotifications notifications;
+  private final FacilityAlertEpisodes episodes;
 
   @Transactional
   public Mono<Void> record(
@@ -102,6 +103,7 @@ public class FacilityAlertWriter {
             )
           )
         );
+        Mono<Void> preserve = create ? Mono.empty() : episodes.snapshot(row);
         long version = row.getVersion();
         String from = row.getState();
         row.setId(id);
@@ -120,8 +122,9 @@ public class FacilityAlertWriter {
           if ("recovered".equals(from)) return Mono.empty();
           row.setState("recovered");
           row.setRecoveredTime(now);
-          return records
-            .update(alerts, row, version)
+          return preserve.then(records
+            .update(alerts, row, version))
+            .then(episodes.snapshot(row))
             .then(
               records.log(
                 row,
@@ -149,7 +152,12 @@ public class FacilityAlertWriter {
         if (episode) {
           row.setState("open");
           row.setFirstTime(now);
+          row.setEpisodeId(FacilityRecords.stableId(id, Long.toString(now)));
           row.setRecoveredTime(null);
+          row.setProcessingState("open");
+          row.setHandlerId(null); row.setComment(null); row.setOccurrences(1L);
+        } else {
+          row.setOccurrences((row.getOccurrences() == null ? 1L : row.getOccurrences()) + 1L);
         }
         if (send) {
           row.setNotificationSequence(
@@ -166,10 +174,11 @@ public class FacilityAlertWriter {
                 alerts,
                 row,
                 version,
-                episode ? new String[] { "recoveredTime" } : new String[0]
+                episode ? new String[] { "recoveredTime", "handlerId", "comment" } : new String[0]
               )
               .then();
-        return save
+        return preserve.then(save)
+          .then(episodes.snapshot(row))
           .then(
             send
               ? parent instanceof DeviceEntity device

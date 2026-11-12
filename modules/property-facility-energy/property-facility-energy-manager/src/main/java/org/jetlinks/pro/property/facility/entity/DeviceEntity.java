@@ -47,6 +47,10 @@ public class DeviceEntity extends FacilityEntity {
   @Column(length = 256)
   private String sourceState;
 
+  /** 当前上游状态首次被本服务观察到的时间；不能用每次同步时间重置离线时长。 */
+  @Column
+  private Long sourceStateSince;
+
   @Column(length = 256)
   private String syncState;
 

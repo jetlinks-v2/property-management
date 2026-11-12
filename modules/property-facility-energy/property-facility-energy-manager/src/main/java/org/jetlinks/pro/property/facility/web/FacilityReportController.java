@@ -16,6 +16,7 @@ import reactor.core.publisher.Mono;
 public class FacilityReportController {
 
   private final FacilityReports reports;
+  private final FacilityReportAnalysis analysis;
   private final EnergyTargetStore targets;
   private final FacilityQueries queries;
 
@@ -58,6 +59,76 @@ public class FacilityReportController {
     @RequestParam long to
   ) {
     return reports.operations(projectId, from, to);
+  }
+
+  @GetMapping("/work")
+  @QueryAction
+  public Mono<Map<String, Object>> work(@RequestParam(required = false) String projectId,
+    @RequestParam long from, @RequestParam long to, @RequestParam(defaultValue = "inspection") String kind) {
+    return analysis.work(projectId, from, to, kind);
+  }
+
+  @GetMapping("/faults")
+  @QueryAction
+  public Mono<Map<String, Object>> faults(@RequestParam(required = false) String projectId,
+    @RequestParam long from, @RequestParam long to) {
+    return analysis.faults(projectId, from, to);
+  }
+
+  @GetMapping("/alerts")
+  @QueryAction
+  public Mono<Map<String, Object>> alerts(@RequestParam(required = false) String projectId,
+    @RequestParam long from, @RequestParam long to) {
+    return analysis.alerts(projectId, from, to);
+  }
+
+  @PostMapping("/work/_query")
+  @QueryAction
+  public Mono<org.hswebframework.web.api.crud.entity.PagerResult<org.jetlinks.pro.property.facility.entity.TaskEntity>> workDetails(
+    @RequestParam(required = false) String projectId, @RequestParam long from, @RequestParam long to,
+    @RequestParam(defaultValue = "inspection") String kind, @RequestParam(required = false) String groupId,
+    @RequestParam(required = false) String bucket, @RequestBody org.hswebframework.web.api.crud.entity.QueryParamEntity query) {
+    return analysis.workDetails(projectId, from, to, kind, groupId, bucket, query);
+  }
+
+  @PostMapping("/faults/_query")
+  @QueryAction
+  public Mono<org.hswebframework.web.api.crud.entity.PagerResult<org.jetlinks.pro.property.facility.entity.FaultEntity>> faultDetails(
+    @RequestParam(required = false) String projectId, @RequestParam long from, @RequestParam long to,
+    @RequestBody org.hswebframework.web.api.crud.entity.QueryParamEntity query) {
+    return analysis.faultDetails(projectId, from, to, query);
+  }
+
+  @PostMapping("/alerts/_query")
+  @QueryAction
+  public Mono<org.hswebframework.web.api.crud.entity.PagerResult<org.jetlinks.pro.property.facility.entity.AlertEpisodeEntity>> alertDetails(
+    @RequestParam(required = false) String projectId, @RequestParam long from, @RequestParam long to,
+    @RequestBody org.hswebframework.web.api.crud.entity.QueryParamEntity query) {
+    return analysis.alertDetails(projectId, from, to, query);
+  }
+
+  @GetMapping("/energy/analysis")
+  @QueryAction
+  public Mono<Map<String, Object>> energyAnalysis(@RequestParam(required = false) String projectId,
+    @RequestParam long from, @RequestParam long to, @RequestParam(defaultValue = "master") String level,
+    @RequestParam(defaultValue = "electricity") String energyType, @RequestParam(defaultValue = "day") String period) {
+    return reports.energyAnalysis(projectId, from, to, level, energyType, period);
+  }
+
+  @PostMapping("/energy/_query")
+  @QueryAction
+  public Mono<org.hswebframework.web.api.crud.entity.PagerResult<Map<String, Object>>> energyDetails(
+    @RequestParam(required = false) String projectId, @RequestParam long from, @RequestParam long to,
+    @RequestParam(defaultValue = "master") String level, @RequestParam String energyType,
+    @RequestParam(required = false) String deviceId, @RequestBody org.hswebframework.web.api.crud.entity.QueryParamEntity query) {
+    return reports.energyDetails(projectId, from, to, level, energyType, deviceId, query);
+  }
+
+  @GetMapping("/targets/analysis")
+  @QueryAction
+  public Mono<Map<String, Object>> targetAnalysis(@RequestParam(required = false) String projectId,
+    @RequestParam int year, @RequestParam int month, @RequestParam String energyType) {
+    return reports.targetAnalysis(projectId, year, month, energyType);
   }
 
   @GetMapping("/comparison")

@@ -21,7 +21,6 @@ import reactor.core.publisher.*;
 public class FacilityEnergyController {
 
   private final MappingStore store;
-  private final ReadingStore readings;
   private final ReplacementStore replacements;
   private final FacilityMappings mappings;
   private final FacilityReadings manager;
@@ -85,14 +84,10 @@ public class FacilityEnergyController {
   @PostMapping("/readings/_query")
   @QueryAction
   public Mono<PagerResult<ReadingEntity>> readings(
-    @RequestBody QueryParamEntity q
+    @RequestBody QueryParamEntity q,
+    @RequestParam(defaultValue = "false") boolean mine
   ) {
-    return queries.page(
-      readings,
-      q,
-      FacilityAssetType.facilityDevice,
-      "deviceId"
-    );
+    return mine ? manager.mine(q) : manager.page(q);
   }
 
   @PostMapping("/readings/{deviceId}")
@@ -102,6 +97,16 @@ public class FacilityEnergyController {
     @Valid @RequestBody ReadingInput row
   ) {
     return manager.manual(deviceId, row);
+  }
+
+  @PostMapping("/readings/{id}/resubmit")
+  @SaveAction
+  public Mono<ReadingEntity> resubmit(
+    @PathVariable String id,
+    @RequestParam long version,
+    @Valid @RequestBody ReadingInput input
+  ) {
+    return manager.resubmit(id, version, input);
   }
 
   @PostMapping("/readings/{id}/review")

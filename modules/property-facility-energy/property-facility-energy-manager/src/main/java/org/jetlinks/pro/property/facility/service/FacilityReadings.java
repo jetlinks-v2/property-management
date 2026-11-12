@@ -5,7 +5,10 @@ import static org.jetlinks.pro.property.facility.service.FacilityScope.require;
 import java.math.BigDecimal;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
+import org.hswebframework.web.api.crud.entity.PagerResult;
+import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
+import org.jetlinks.pro.property.facility.asset.FacilityAssetType;
 import org.jetlinks.pro.property.facility.entity.*;
 import org.jetlinks.pro.property.facility.model.*;
 import org.jetlinks.sdk.server.device.DeviceProperty;
@@ -26,6 +29,58 @@ public class FacilityReadings {
   private final FacilityDevices devices;
   private final FacilityScope scope;
   private final FacilityRecords records;
+
+  /** 抄表列表只列计量读数；先与用户条件及资产范围取交集，再计数和分页。 */
+  public Mono<PagerResult<ReadingEntity>> page(QueryParamEntity query) {
+    var metering = query.clone().toNestQuery()
+      .in("metricKind", List.of("counter", "increment")).getParam();
+    return scope.query(metering, FacilityAssetType.facilityDevice, "deviceId")
+      .flatMap(readings::queryPager)
+      .flatMap(page -> {
+        if (page.getData().isEmpty()) return Mono.just(page);
+        var ids = page.getData().stream().map(ReadingEntity::getDeviceId)
+          .filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) return Mono.just(page);
+        // 仅查当前页的设备，批量补齐名称也保留租户、应用及设备资产权限。
+        return scope.query(new QueryParamEntity().toQuery().in("id", ids).getParam(),
+            FacilityAssetType.facilityDevice, "id")
+          .flatMapMany(deviceStore::query)
+          .collectMap(DeviceEntity::getId)
+          .map(devices -> {
+            page.getData().forEach(row -> {
+              var device = devices.get(row.getDeviceId());
+              if (device != null) row.setDeviceName(device.getName());
+            });
+            return page;
+          });
+      });
+  }
+
+  /** 本人记录是业务筛选，继续与设备资产权限取交集，不能由客户端指定创建人。 */
+  public Mono<PagerResult<ReadingEntity>> mine(QueryParamEntity query) {
+    return scope.current().flatMap(context -> page(query.clone().toNestQuery()
+      .and("creatorId", context.userId()).and("source", "manual").getParam()));
+  }
+
+  /** 旧记录与新申请在同一事务提交；版本CAS阻止重复重提，原读数不被覆盖。 */
+  @Transactional
+  public Mono<ReadingEntity> resubmit(String id, long version, ReadingInput input) {
+    return readings.findById(id)
+      .switchIfEmpty(Mono.error(new org.hswebframework.web.exception.NotFoundException()))
+      .flatMap(previous -> devices.writable(previous.getDeviceId()).flatMap(device ->
+        records.child(previous, device).then(scope.current()).flatMap(context -> {
+          require("manual".equals(previous.getSource()) && "rejected".equals(previous.getStatus())
+            && context.userId().equals(previous.getCreatorId()), "invalid_reading_resubmit");
+          require(previous.getVersion() == version, "conflict");
+          require(Objects.equals(previous.getPropertyId(), input.getPropertyId())
+            && input.getReplacesId() == null, "invalid_reading");
+          previous.setStatus("resubmitted");
+          return records.update(readings, previous, version)
+            .then(createManual(previous.getDeviceId(), input, previous.getId()))
+            .flatMap(saved -> records.log(previous, "reading", "resubmit", "rejected", "resubmitted",
+              saved.getId(), List.of()).thenReturn(saved));
+        })));
+  }
 
   @Transactional
   public Mono<ReadingEntity> ingest(
@@ -147,8 +202,15 @@ public class FacilityReadings {
 
   @Transactional
   public Mono<ReadingEntity> manual(String deviceId, ReadingInput input) {
+    return createManual(deviceId, input, null);
+  }
+
+  private Mono<ReadingEntity> createManual(String deviceId, ReadingInput input, String resubmitsId) {
     return devices.writable(deviceId).flatMap(device ->
-      mappingManager.forDevice(deviceId).flatMap(mapping -> {
+      mappingManager.forDevice(deviceId)
+        .switchIfEmpty(Mono.error(new org.hswebframework.web.exception.BusinessException(
+          "error.facility.property_missing", 400)))
+        .flatMap(mapping -> {
         var metric = mapping
           .getMetrics()
           .stream()
@@ -161,7 +223,10 @@ public class FacilityReadings {
             )
           );
         require(
-          !"state".equals(metric.getKind()) &&
+          Boolean.TRUE.equals(mapping.getEnabled()) &&
+            Set.of("counter", "increment").contains(metric.getKind()) &&
+            input.getValue() != null && input.getValue().signum() >= 0 &&
+            input.getObservedTime() != null && input.getObservedTime() > 0 &&
             input.getObservedTime() <= System.currentTimeMillis(),
           "invalid_reading"
         );
@@ -183,6 +248,7 @@ public class FacilityReadings {
           row.setStatus("pending");
           row.setReason(input.getReason());
           row.setReplacesId(input.getReplacesId());
+          row.setResubmitsId(resubmitsId);
           return epoch(deviceId, input.getObservedTime()).flatMap(epoch -> {
             row.setMeterEpoch(epoch);
             return readings.insert(row).thenReturn(row);

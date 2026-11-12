@@ -41,17 +41,17 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
   private final ClusterPluginScheduler scheduler = new ClusterPluginScheduler(
     "property-facility-energy"
   );
-  private final AtomicBoolean polling = new AtomicBoolean(), planning = new AtomicBoolean();
+  private final AtomicBoolean polling = new AtomicBoolean(), planning = new AtomicBoolean(), evaluatingRules = new AtomicBoolean();
   private final AtomicLong failures = new AtomicLong(),
     synced = new AtomicLong(),
     collected = new AtomicLong();
   private volatile boolean running;
   private volatile long completed;
-  private Disposable task, planTask, messageTask, meterTask;
+  private Disposable task, planTask, ruleTask, messageTask, meterTask;
   private ObjectName objectName;
 
   public Mono<Void> poll() {
-    return Mono.when(pollPlans(), pollBackground(), taskMessages.poll());
+    return Mono.when(pollPlans(), pollBackground(), pollRules(), taskMessages.poll());
   }
 
   /** 周期生单不等待能源历史补采；独立互斥，慢采集期间仍按时检查到期计划。 */
@@ -65,6 +65,20 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
           .onErrorResume(e -> failure("plan", row.getId(), e)))
         .then().doFinally(s -> planning.set(false))
         .as(MonoTracer.create("/property/facility-energy/jobs/plans"));
+    });
+  }
+
+  /** 预警与通知不等待历史补采；独立互斥保持规则轮询及时运行。 */
+  public Mono<Void> pollRules() {
+    return Mono.defer(() -> {
+      if (!evaluatingRules.compareAndSet(false, true)) return Mono.empty();
+      return Mono.defer(() -> rules.createQuery()
+        .where("enabled", true).and("deleted", false).fetch().limitRate(32)
+        .concatMap(row -> execution.asOwner(row, () -> alerts.evaluate(row))
+          .onErrorResume(e -> failure("rule", row.getId(), e)))
+        .then(Mono.defer(notifications::poll)))
+        .doFinally(s -> evaluatingRules.set(false))
+        .as(MonoTracer.create("/property/facility-energy/jobs/rules"));
     });
   }
 
@@ -104,21 +118,7 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
         )
         .collect(java.util.stream.Collectors.toSet())
         .doOnNext(telemetry::reconcile)
-        .thenMany(
-          rules
-            .createQuery()
-            .where("enabled", true)
-            .and("deleted", false)
-            // Rule evaluation must cover the same complete configuration set on every poll.
-            .fetch()
-            .limitRate(32)
-        )
-        .concatMap(row ->
-          execution
-            .asOwner(row, () -> alerts.evaluate(row))
-            .onErrorResume(e -> failure("rule", row.getId(), e))
-        )
-        .then(notifications.poll())
+        .then()
         .doOnSuccess(v -> completed = System.currentTimeMillis())
         .doFinally(s -> polling.set(false))
         .as(MonoTracer.create("/property/facility-energy/jobs"));
@@ -147,6 +147,9 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
     planTask = scheduler.interval(
       "facility-plan-jobs", Mono.defer(this::pollPlans), Duration.ofSeconds(30), true
     );
+    ruleTask = scheduler.interval(
+      "facility-rule-jobs", Mono.defer(this::pollRules), Duration.ofSeconds(30), true
+    );
     messageTask = scheduler.interval("facility-task-messages", Mono.defer(taskMessages::poll), Duration.ofSeconds(15), true);
     meterTask = scheduler.interval("facility-meter-months", Mono.defer(meterMonths::poll), Duration.ofMinutes(10), true);
     running = true;
@@ -167,6 +170,7 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
     running = false;
     if (task != null) task.dispose();
     if (planTask != null) planTask.dispose();
+    if (ruleTask != null) ruleTask.dispose();
     if (messageTask != null) messageTask.dispose();
     if (meterTask != null) meterTask.dispose();
     telemetry.stop();
@@ -183,7 +187,7 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
   }
 
   public boolean isPolling() {
-    return polling.get() || planning.get();
+    return polling.get() || planning.get() || evaluatingRules.get();
   }
 
   public long getLastCompletedTime() {

@@ -14,11 +14,31 @@ public class FacilityInbox {
   private final NotificationStore notifications;
   private final FacilityScope scope;
 
-  Mono<QueryParamEntity> scoped(QueryParamEntity query) {
-    return scope.current().flatMap(context -> scope.query(query.clone().toNestQuery()
-      .and("userId", context.userId()).and("channel", "h5-task").and("state", "generated").getParam(),
-      FacilityAssetType.facilityTask, "taskId"));
+  Mono<QueryParamEntity> scoped(QueryParamEntity query) { return scoped(query, true); }
+
+  private Mono<QueryParamEntity> scoped(QueryParamEntity query, boolean personal) {
+    return scope.current().flatMap(context -> {
+      var base = personal ? query.clone().toNestQuery().and("userId", context.userId()).and("state", "generated").getParam() : query.clone().toNestQuery().getParam();
+      // 轮询提醒与派单/审批消息使用不同渠道，但必须经过同一任务资产和本人范围。
+      var task = scope.query(base.clone().toNestQuery().in("channel", java.util.List.of("h5-task", "employee")).notNull("taskId").getParam(), FacilityAssetType.facilityTask, "taskId");
+      var fault = scope.query(base.clone().toNestQuery().and("channel", "employee").notNull("faultId").getParam(), FacilityAssetType.facilityFault, "faultId");
+      var alert = scope.query(base.clone().toNestQuery().and("channel", "employee").notNull("alertId").notNull("deviceId").getParam(), FacilityAssetType.facilityDevice, "deviceId");
+      var target = scope.query(base.clone().toNestQuery().and("channel", "employee").notNull("targetId").getParam(), FacilityAssetType.facilityTarget, "targetId");
+      return Mono.zip(task, fault, alert, target).map(scopes -> {
+        var combined = base.clone(); combined.setTerms(new java.util.ArrayList<>());
+        for (var branch : java.util.List.of(scopes.getT1(), scopes.getT2(), scopes.getT3(), scopes.getT4())) {
+          var term = new org.hswebframework.ezorm.core.param.Term();
+          term.setType(org.hswebframework.ezorm.core.param.Term.Type.or); term.setTerms(branch.getTerms());
+          combined.getTerms().add(term);
+        }
+        return combined;
+      });
+    });
   }
+  public Mono<PagerResult<NotificationEntity>> records(QueryParamEntity query) {
+    return scoped(query, false).flatMap(notifications::queryPager);
+  }
+
   public Mono<PagerResult<NotificationEntity>> page(QueryParamEntity query) {
     return scoped(query).flatMap(notifications::queryPager);
   }

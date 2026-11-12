@@ -1,6 +1,7 @@
 package org.jetlinks.pro.property.facility.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 import java.sql.JDBCType;
 import java.util.*;
@@ -88,6 +89,8 @@ public class PlanEntity extends FacilityEntity {
   private Long endTime;
 
   @Column
+  // 排程由服务端计算；浏览器回传终止哨兵值时可能发生整数精度溢出，禁止将其作为输入。
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private Long nextRunTime;
 
   @Column

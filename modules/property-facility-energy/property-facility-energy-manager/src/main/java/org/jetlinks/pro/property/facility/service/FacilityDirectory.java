@@ -199,11 +199,16 @@ public class FacilityDirectory {
 
   /** Business participant rules supplement task asset permissions; broad read/save access does not confer claim eligibility. */
   public Mono<Void> taskAssignee(TaskEntity task, String userId) {
+    return projectEmployee(task.getProjectId(), userId).then();
+  }
+
+  /** 维修与作业任务共用项目直接成员约束，资产可写不代表可以参与其他项目的维修。 */
+  public Mono<PropertyEmployeeInfo> projectEmployee(String projectId, String userId) {
+    if (userId == null || userId.isBlank()) return Mono.error(new BusinessException("error.facility.employee_required", 400));
     return employee(userId).then(employeeInfo(userId)
       .switchIfEmpty(Mono.error(new BusinessException("error.facility.employee_required", 400))))
       .doOnNext(person -> FacilityScope.require(
-        task.getProjectId() != null && belongs(person, List.of(task.getProjectId())), "project_employee_required"))
-      .then();
+        projectId != null && belongs(person, List.of(projectId)), "project_employee_required"));
   }
 
   public Flux<PropertyEmployeeInfo> taskAssignees(TaskEntity task) {

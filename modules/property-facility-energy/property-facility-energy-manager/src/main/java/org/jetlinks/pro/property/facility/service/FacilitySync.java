@@ -124,9 +124,9 @@ public class FacilitySync {
     row.setSourceCode(source.getId());
     row.setProductId(source.getProductId());
     row.setProductName(source.getProductName());
-    row.setSourceState(
-      source.getState() == null ? "unknown" : source.getState().name()
-    );
+    String state = source.getState() == null ? "unknown" : source.getState().name();
+    if (!Objects.equals(state, row.getSourceState()) || row.getSourceStateSince() == null) row.setSourceStateSince(now);
+    row.setSourceState(state);
     row.setLastSeenTime(now);
     row.setCandidateProjectIds(projects);
     boolean existing =

@@ -24,6 +24,7 @@ public class FacilityTaskMessages {
   private final FacilityExecution execution;
   private final FacilityDirectory directory;
   private final FacilityRecords records;
+  private final FacilityNotificationPolicies policies;
   private final AtomicBoolean polling = new AtomicBoolean();
 
   public Mono<Void> poll() {
@@ -54,6 +55,10 @@ public class FacilityTaskMessages {
   }
 
   Mono<Void> enqueue(TaskEntity task, String type) {
+    return policies.enabled(task, "task").filter(Boolean::booleanValue).flatMap(enabled -> enqueueEnabled(task, type));
+  }
+
+  private Mono<Void> enqueueEnabled(TaskEntity task, String type) {
     Flux<String> recipients = "open".equals(task.getState())
       ? directory.taskAssignees(task).map(person -> person.id())
       : Mono.justOrEmpty(task.getAssigneeId()).flux();

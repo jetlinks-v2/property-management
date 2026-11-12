@@ -13,7 +13,9 @@ class FacilityTaskMessagesTest {
   final NotificationStore store = mock(NotificationStore.class);
   final FacilityDirectory directory = mock(FacilityDirectory.class);
   final FacilityExecution execution = mock(FacilityExecution.class);
-  final FacilityTaskMessages service = spy(new FacilityTaskMessages(mock(TaskStore.class), store, execution, directory, mock(FacilityRecords.class)));
+  final FacilityNotificationPolicies policies = mock(FacilityNotificationPolicies.class);
+  final FacilityTaskMessages service = spy(new FacilityTaskMessages(mock(TaskStore.class), store, execution, directory, mock(FacilityRecords.class), policies));
+  @org.junit.jupiter.api.BeforeEach void setupPolicies() { when(policies.enabled(any(), anyString())).thenReturn(Mono.just(true)); }
   TaskEntity task() {
     var task = new TaskEntity(); task.setId("parent"); task.setTenantId("tenant"); task.setApplicationId("app");
     task.setCreatorId("creator"); task.setProjectId("project"); task.setName("水泵巡检"); task.setKind("inspection");

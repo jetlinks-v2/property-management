@@ -32,48 +32,14 @@ public class FacilityNotifications {
   private final DeviceStore devices;
   private final RuleStore rules;
   private final FacilityExecution execution;
+  private final FacilityEmployeeMessages employeeMessages;
 
   public Mono<Void> enqueue(
     AlertEntity alert,
     RuleEntity rule,
     DeviceEntity device
   ) {
-    return bindingManager
-      .active(device)
-      .map(Optional::of)
-      .defaultIfEmpty(Optional.empty())
-      .flatMap(binding -> {
-        var targets = new ArrayList<NotificationEntity>();
-        if (binding.isPresent()) for (Contact contact : binding
-          .get()
-          .getContacts()) {
-          if (
-            Boolean.TRUE.equals(contact.getPortalEnabled()) &&
-            contact.getUserId() != null
-          ) targets.add(
-            entry(alert, rule, device, binding.get(), contact, "h5")
-          );
-          if (
-            Boolean.TRUE.equals(rule.getSmsEnabled()) &&
-            Boolean.TRUE.equals(contact.getSmsEnabled()) &&
-            contact.getTelephone() != null
-          ) targets.add(
-            entry(alert, rule, device, binding.get(), contact, "sms")
-          );
-        }
-        if (device.getResponsibleUserId() != null) {
-          var employee = new Contact();
-          employee.setUserId(device.getResponsibleUserId());
-          targets.add(entry(alert, rule, device, null, employee, "inside"));
-        }
-        return Flux.fromIterable(targets)
-          .concatMap(row ->
-            store
-              .findById(row.getId())
-              .switchIfEmpty(store.insert(row).thenReturn(row))
-          )
-          .then();
-      });
+    return employeeMessages.alert(alert, rule, device);
   }
 
   /** Project plans notify the configured employee, never an arbitrary meter owner. */
@@ -82,41 +48,7 @@ public class FacilityNotifications {
     RuleEntity rule,
     EnergyTargetEntity target
   ) {
-    return directory.employee(rule.getNotifyUserId()).flatMap(employee -> {
-      var contact = new Contact();
-      contact.setUserId(employee.getId());
-      contact.setTelephone(employee.getTelephone());
-      var rows = new ArrayList<NotificationEntity>();
-      rows.add(targetEntry(alert, rule, target, contact, "inside"));
-      if (
-        Boolean.TRUE.equals(rule.getSmsEnabled()) &&
-        employee.getTelephone() != null &&
-        !employee.getTelephone().isBlank()
-      ) rows.add(targetEntry(alert, rule, target, contact, "sms"));
-      return Flux.fromIterable(rows)
-        .concatMap(row ->
-          store
-            .findById(row.getId())
-            .switchIfEmpty(store.insert(row).thenReturn(row))
-        )
-        .then();
-    });
-  }
-
-  private NotificationEntity targetEntry(
-    AlertEntity alert,
-    RuleEntity rule,
-    EnergyTargetEntity target,
-    Contact contact,
-    String channel
-  ) {
-    var placeholder = new DeviceEntity();
-    placeholder.setId(target.getId());
-    placeholder.setName(target.getProjectName());
-    var row = entry(alert, rule, placeholder, null, contact, channel);
-    row.setDeviceId(null);
-    row.setTargetId(target.getId());
-    return row;
+    return employeeMessages.target(alert, rule, target);
   }
 
   private Mono<Void> authorize(
@@ -199,13 +131,16 @@ public class FacilityNotifications {
 
   public Mono<Void> poll() {
     long now = System.currentTimeMillis();
-    return store
+    // 历史客户/短信发件箱也必须停止发送，保留可审计的停发原因。
+    return store.createUpdate().set("state", "cancelled").set("failureReason", "employee_channel_only")
+      .in("channel", List.of("sms", "h5")).in("state", List.of("pending", "failed")).execute()
+      .then(store
       .createUpdate()
       .set("state", "uncertain")
       .set("failureReason", "submission_result_unknown")
       .where("state", "sending")
       .lte("nextAttemptTime", now)
-      .execute()
+      .execute())
       .thenMany(
         store
           .createQuery()
@@ -401,6 +336,7 @@ public class FacilityNotifications {
   }
 
   private Mono<Void> send(NotificationEntity row, long now) {
+    if (!"inside".equals(row.getChannel())) return retireChannel(row);
     // A stale recipient/asset cancels before dispatch. A provider rejection is a
     // failed delivery instead, so configuration can be corrected and retried.
     return authorize(row, org.jetlinks.pro.assets.crud.CrudAssetPermission.read)
@@ -550,7 +486,7 @@ public class FacilityNotifications {
       )
       .flatMap(row ->
         authorize(row, org.jetlinks.pro.assets.crud.CrudAssetPermission.save)
-          .then(eligible(row))
+          .then(Mono.defer(() -> !"inside".equals(row.getChannel()) ? retireChannel(row) : eligible(row)
           .then(
             store
               .createUpdate()
@@ -559,9 +495,14 @@ public class FacilityNotifications {
               .set("nextAttemptTime", System.currentTimeMillis())
               .where("id", id)
               .in("state", List.of("failed", "pending"))
-              .execute()
-          )
+              .execute().then()
+          )))
       )
       .then();
+  }
+
+  private Mono<Void> retireChannel(NotificationEntity row) {
+    return store.createUpdate().set("state", "cancelled").set("failureReason", "employee_channel_only")
+      .where("id", row.getId()).in("state", List.of("pending", "failed")).execute().then();
   }
 }

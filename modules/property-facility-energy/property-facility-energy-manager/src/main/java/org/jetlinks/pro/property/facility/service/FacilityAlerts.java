@@ -35,6 +35,7 @@ public class FacilityAlerts {
   private final FacilityScope scope;
   private final FacilityDirectory directory;
   private final FacilityRecords records;
+  private final FacilityAlertEpisodes episodes;
 
   @Transactional
   public Mono<RuleEntity> save(RuleEntity input) {
@@ -113,10 +114,9 @@ public class FacilityAlerts {
       input.getStaleAfterSeconds() != null && input.getStaleAfterSeconds() > 0,
       "invalid_rule"
     );
-    if (Boolean.TRUE.equals(input.getSmsEnabled())) require(
-      input.getSmsNotifierId() != null && input.getSmsTemplateId() != null,
-      "sms_configuration_required"
-    );
+    // 此业务只发员工站内消息，拒绝新增短信配置，避免旧表单绕过渠道边界。
+    require(!Boolean.TRUE.equals(input.getSmsEnabled()), "invalid_rule");
+    if (Set.of("offline", "stale").contains(input.getRuleType())) require(input.getThreshold().signum() > 0, "invalid_rule");
     Mono<Void> refs = directory
       .project(input.getProjectId())
       .then(
@@ -151,8 +151,8 @@ public class FacilityAlerts {
           )
           .then()
       );
-    if ("plan".equals(input.getRuleType())) refs = refs
-      .then(directory.employee(input.getNotifyUserId()))
+    if (input.getNotifyUserId() != null && !input.getNotifyUserId().isBlank()) refs = refs
+      .then(directory.projectEmployee(input.getProjectId(), input.getNotifyUserId()))
       .then();
     return refs.then(scope.current()).flatMap(c -> {
       boolean create = input.getId() == null;
@@ -189,9 +189,9 @@ public class FacilityAlerts {
         row.setNearRatio(input.getNearRatio());
         row.setStaleAfterSeconds(input.getStaleAfterSeconds());
         row.setRepeatHours(input.getRepeatHours());
-        row.setSmsEnabled(input.getSmsEnabled());
-        row.setSmsNotifierId(input.getSmsNotifierId());
-        row.setSmsTemplateId(input.getSmsTemplateId());
+        row.setSmsEnabled(false);
+        row.setSmsNotifierId(null);
+        row.setSmsTemplateId(null);
         row.setEnabled(input.getEnabled());
         return create
           ? records.insert(rules, row, FacilityAssetType.facilityRule)
@@ -320,9 +320,9 @@ public class FacilityAlerts {
       rule,
       device,
       "offline".equals(device.getSourceState())
-        ? BigDecimal.ONE
-        : BigDecimal.ZERO,
-      "state",
+        ? BigDecimal.valueOf(Math.max(0, now - Objects.requireNonNullElse(device.getSourceStateSince(), now)) / 1000)
+        : BigDecimal.valueOf(-1),
+      "seconds",
       now,
       "current"
     );
@@ -490,6 +490,19 @@ public class FacilityAlerts {
       });
   }
 
+  public Mono<AlertEntity> read(String id) {
+    return alerts.findById(id).switchIfEmpty(episodes.find(id).cast(AlertEntity.class))
+      .switchIfEmpty(Mono.error(new org.hswebframework.web.exception.NotFoundException()))
+      .flatMap(row -> authorize(row, false));
+  }
+
+  private Mono<AlertEntity> authorize(AlertEntity row, boolean write) {
+    if (row.getTargetId() != null) return records.read(targets, row.getTargetId(), FacilityAssetType.facilityTarget,
+      write ? CrudAssetPermission.save : CrudAssetPermission.read).flatMap(parent -> records.child(row, parent));
+    return (write ? deviceManager.writable(row.getDeviceId()) : deviceManager.read(row.getDeviceId()))
+      .flatMap(parent -> records.child(row, parent));
+  }
+
   public Mono<AlertEntity> action(
     String id,
     String state,
@@ -522,12 +535,15 @@ public class FacilityAlerts {
                 row.getVersion() == version,
               "invalid_state"
             );
-            String from = row.getState();
-            row.setState(state);
+            require(!"closed".equals(state) || comment != null && !comment.isBlank(), "reason_required");
+            String from = Objects.toString(row.getProcessingState(), "open");
+            require(!"closed".equals(from) && !from.equals(state), "invalid_state");
+            row.setProcessingState(state);
             row.setHandlerId(c.userId());
             row.setComment(comment);
             return records
               .update(alerts, row, version)
+              .flatMap(saved -> episodes.snapshot(saved).thenReturn(saved))
               .flatMap(saved ->
                 records
                   .log(row, "alert", "handle", from, state, comment, List.of())

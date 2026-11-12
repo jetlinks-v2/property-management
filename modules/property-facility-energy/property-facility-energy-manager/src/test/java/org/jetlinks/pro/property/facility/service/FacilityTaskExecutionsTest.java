@@ -16,13 +16,15 @@ import reactor.test.StepVerifier;
 class FacilityTaskExecutionsTest {
   final TaskStore store = mock(TaskStore.class);
   final FacilityRecords records = mock(FacilityRecords.class);
-  final FacilityTaskExecutions executions = spy(new FacilityTaskExecutions(store, records, mock(FacilityScope.class)));
+  final FacilityEmployeeMessages messages = mock(FacilityEmployeeMessages.class);
+  final FacilityTaskExecutions executions = spy(new FacilityTaskExecutions(store, records, mock(FacilityScope.class), messages));
   final TaskEntity parent = row("parent", null, "claimed"), a = row("a", "parent", "review"), b = row("b", "parent", "claimed");
   static TaskEntity row(String id, String parent, String state) {
     var row = new TaskEntity(); row.setId(id); row.setParentTaskId(parent); row.setState(state);
     row.setProjectId("project"); row.setTenantId("tenant"); row.setApplicationId("app"); row.setAssigneeId("worker"); return row;
   }
   @BeforeEach void setup() {
+    when(messages.task(any(), anyString())).thenReturn(Mono.empty());
     parent.setDeviceCount(2); parent.setSubmittedDeviceCount(0);
     when(records.read(store, "parent", FacilityAssetType.facilityTask, CrudAssetPermission.save)).thenReturn(Mono.just(parent));
     when(records.read(store, "parent", FacilityAssetType.facilityTask, CrudAssetPermission.read)).thenReturn(Mono.just(parent));
@@ -34,9 +36,11 @@ class FacilityTaskExecutionsTest {
   }
   @Test void oneDeviceDoesNotSendTaskToReviewButLastDeviceDoes() {
     StepVerifier.create(executions.after(a, "submit")).expectNext(a).verifyComplete();
+    verify(messages, never()).task(any(), eq("review"));
     assertEquals("executing", parent.getState()); assertEquals(1, parent.getSubmittedDeviceCount());
     b.setState("review");
     StepVerifier.create(executions.after(b, "submit")).expectNext(b).verifyComplete();
+    verify(messages).task(parent, "review");
     assertEquals("review", parent.getState()); assertEquals(2, parent.getSubmittedDeviceCount());
     verify(records, times(2)).update(eq(store), same(parent), anyLong());
   }

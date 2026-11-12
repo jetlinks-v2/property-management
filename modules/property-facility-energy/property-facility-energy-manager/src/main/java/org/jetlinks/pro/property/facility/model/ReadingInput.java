@@ -14,12 +14,16 @@ public class ReadingInput {
   private String propertyId;
 
   @NotNull
+  @DecimalMin("0")
+  @Digits(integer = 32, fraction = 12)
   private BigDecimal value;
 
   @NotNull
+  @Positive
   private Long observedTime;
 
   @NotBlank
+  @Size(max = 4000)
   private String reason;
 
   private String replacesId;

@@ -20,7 +20,6 @@ public class FacilityTasks {
 
   private final FacilityFiles files;
   private final TaskStore tasks;
-  private final FaultStore faults;
   private final FacilityScope scope;
   private final FacilityRecords records;
   private final FacilityDirectory directory;
@@ -141,7 +140,6 @@ public class FacilityTasks {
               String from = task.getState();
               long v = task.getVersion();
               Mono<Void> additional = Mono.empty();
-              boolean abnormal = false;
               switch (action) {
                 case "claim" -> {
                   require("open".equals(from), "invalid_state");
@@ -192,7 +190,7 @@ public class FacilityTasks {
                       !command.getSubmissionId().isBlank(),
                     "submission_required"
                   );
-                  abnormal = FacilityRules.results(
+                  FacilityRules.results(
                     task.getStandardSnapshot(),
                     command.getResults()
                   );
@@ -237,7 +235,6 @@ public class FacilityTasks {
                 }
                 default -> require(false, "invalid_action");
               }
-              final boolean fault = abnormal;
               if (submit) additional = additional.then(
                 files.validate(
                   command
@@ -283,7 +280,6 @@ public class FacilityTasks {
                       command.getComment(),
                       List.of()
                     )
-                    .then(fault ? createFault(saved, c) : Mono.empty())
                     .then(executions.after(saved, action))
                 );
             })
@@ -292,24 +288,4 @@ public class FacilityTasks {
       );
   }
 
-  private Mono<Void> createFault(TaskEntity task, FacilityContext c) {
-    String id = FacilityRecords.stableId(task.getId(), "inspection-fault");
-    var fault = FacilityScope.initialize(new FaultEntity(), c);
-    FacilityScope.inherit(fault, task);
-    fault.setId(id);
-    fault.setName(task.getName());
-    fault.setDeviceId(task.getDeviceId());
-    fault.setDeviceName(task.getDeviceName());
-    fault.setSourceType("task");
-    fault.setSourceId(task.getId());
-    fault.setDescription("abnormal-check-result");
-    fault.setState("open");
-    fault.setAssigneeId(task.getAssigneeId());
-    return faults
-      .findById(id)
-      .switchIfEmpty(
-        records.insert(faults, fault, FacilityAssetType.facilityFault)
-      )
-      .then();
-  }
 }

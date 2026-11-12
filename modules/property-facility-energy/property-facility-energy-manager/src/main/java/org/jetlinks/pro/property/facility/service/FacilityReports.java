@@ -77,7 +77,8 @@ public class FacilityReports {
       rows(tasks, FacilityAssetType.facilityTask, "id", projectId),
       rows(faults, FacilityAssetType.facilityFault, "id", projectId),
       bothParents(alerts, projectId),
-      bothParents(notifications, projectId)
+      bothParents(notifications, projectId),
+      scope.current()
     ).map(t -> {
       long now = System.currentTimeMillis();
       var result = new LinkedHashMap<String, Object>();
@@ -100,6 +101,13 @@ public class FacilityReports {
       );
       var work = t.getT2();
       result.put("tasks", work.size());
+      result.put("pendingClaim", work.stream().filter(row -> "open".equals(row.getState())).count());
+      result.put("inProgress", work.stream().filter(row -> Set.of("claimed", "executing", "rectify").contains(row.getState())).count());
+      // 与审批队列一致：资产可见的主任务中，只计当前负责人的待审批。
+      result.put("pendingReview", work.stream().filter(row ->
+        Set.of("review", "external-submitted").contains(row.getState()) &&
+          t.getT6().userId().equals(row.getReviewerId())
+      ).count());
       long dayStart = LocalDate.now(ZoneId.of("Asia/Shanghai"))
         .atStartOfDay(ZoneId.of("Asia/Shanghai"))
         .toInstant()
@@ -183,6 +191,10 @@ public class FacilityReports {
     long to,
     String level
   ) {
+    return energy(projectId, from, to, level, null);
+  }
+
+  private Mono<List<Map<String, Object>>> energy(String projectId, long from, long to, String level, String energyType) {
     require(
       from < to &&
         to - from <= 366L * 86400000 &&
@@ -192,6 +204,7 @@ public class FacilityReports {
     return rows(mappings, FacilityAssetType.facilityMapping, "id", projectId)
       .flatMapMany(Flux::fromIterable)
       .filter(m -> level.equals(m.getMeterLevel()))
+      .filter(m -> energyType == null || energyType.equals(m.getEnergyType()))
       .concatMap(m ->
         Flux.fromIterable(m.getMetrics())
           .filter(
@@ -269,6 +282,11 @@ public class FacilityReports {
         row.put("meters", new ArrayList<Map<String, Object>>());
         periods.add(row);
     }
+    return meterPeriods(projectId, level, null, periods);
+  }
+
+  private Mono<List<Map<String, Object>>> meterPeriods(String projectId, String level, String energyType,
+    List<Map<String, Object>> periods) {
     require(Set.of("master", "submeter", "branch", "other").contains(level), "invalid_period");
     long from = (long) periods.get(0).get("from");
     long to = (long) periods.get(periods.size() - 1).get("to");
@@ -276,6 +294,7 @@ public class FacilityReports {
     return rows(mappings, FacilityAssetType.facilityMapping, "id", projectId)
       .flatMapMany(Flux::fromIterable)
       .filter(mapping -> level.equals(mapping.getMeterLevel()))
+      .filter(mapping -> energyType == null || energyType.equals(mapping.getEnergyType()))
       .concatMap(mapping -> Flux.fromIterable(mapping.getMetrics())
         .filter(metric -> Set.of("counter", "increment").contains(metric.getKind()) &&
           (metric.getPropertyId().equals(mapping.getUsagePropertyId()) ||
@@ -308,6 +327,61 @@ public class FacilityReports {
       .then(Mono.just(periods));
   }
 
+  /** 所选能源、单一层级和原始日期范围共用，缺失历史不会降级成零增长。 */
+  public Mono<Map<String, Object>> energyAnalysis(String projectId, long from, long to, String level,
+    String energyType, String period) {
+    FacilityReportAnalysis.period(from, to);
+    require(Set.of("water", "electricity", "gas").contains(energyType) && Set.of("day", "month").contains(period), "invalid_period");
+    var zone = ZoneId.of("Asia/Shanghai");
+    var date = Instant.ofEpochMilli(from).atZone(zone).toLocalDate();
+    if ("month".equals(period)) date = date.withDayOfMonth(1);
+    var windows = new ArrayList<Map<String, Object>>();
+    while (date.atStartOfDay(zone).toInstant().toEpochMilli() < to) {
+      var end = "day".equals(period) ? date.plusDays(1) : date.plusMonths(1);
+      var row = new LinkedHashMap<String, Object>();
+      row.put("period", date.toString());
+      row.put("from", Math.max(from, date.atStartOfDay(zone).toInstant().toEpochMilli()));
+      row.put("to", Math.min(to, end.atStartOfDay(zone).toInstant().toEpochMilli()));
+      row.put("meters", new ArrayList<Map<String, Object>>()); windows.add(row); date = end;
+    }
+    return Mono.zip(energy(projectId, from, to, level, energyType),
+      energy(projectId, from - (to - from), from, level, energyType),
+      meterPeriods(projectId, level, energyType, windows))
+      .map(data -> FacilityReportEnergyMath.analysis(data.getT1(), data.getT2(), data.getT3(), energyType, from, to));
+  }
+
+  public Mono<org.hswebframework.web.api.crud.entity.PagerResult<Map<String, Object>>> energyDetails(
+    String projectId, long from, long to, String level, String energyType, String deviceId, QueryParamEntity query) {
+    require(Set.of("water", "electricity", "gas").contains(energyType), "invalid_period");
+    query.setPageSize(Math.min(200, Math.max(1, query.getPageSize())));
+    query.setPageIndex(Math.max(0, query.getPageIndex()));
+    return energy(projectId, from, to, level, energyType).map(source -> {
+      var meters = source.stream().filter(m -> deviceId == null || deviceId.equals(m.get("deviceId")))
+        .sorted(Comparator.comparing(m -> Objects.toString(m.get("name"), ""))).toList();
+      int start = (int) Math.min(meters.size(), (long) query.getPageIndex() * query.getPageSize());
+      return org.hswebframework.web.api.crud.entity.PagerResult.of(meters.size(),
+        meters.subList(start, Math.min(meters.size(), start + query.getPageSize())), query);
+    });
+  }
+
+  public Mono<Map<String, Object>> targetAnalysis(String projectId, int year, int month, String energyType) {
+    require(Set.of("water", "electricity", "gas").contains(energyType), "invalid_period");
+    return targetExecution(projectId, year, month).map(source -> {
+      var selected = source.stream().filter(row -> energyType.equals(row.get("energyType"))).toList();
+      BigDecimal target = BigDecimal.ZERO, actual = BigDecimal.ZERO;
+      boolean complete = !selected.isEmpty();
+      for (var row : selected) {
+        target = target.add((BigDecimal) row.get("target")); actual = actual.add((BigDecimal) row.get("actual"));
+        complete &= Boolean.TRUE.equals(row.get("complete"));
+      }
+      var result = new LinkedHashMap<String, Object>();
+      result.put("target", target); result.put("actual", actual); result.put("complete", complete); result.put("count", selected.size());
+      result.put("unit", "electricity".equals(energyType) ? "kWh" : "m³");
+      result.put("executionRate", target.signum() == 0 || !complete ? null : actual.multiply(BigDecimal.valueOf(100)).divide(target, 2, java.math.RoundingMode.HALF_UP));
+      return result;
+    });
+  }
+
   public Mono<Map<String, Object>> operations(
     String projectId,
     long from,
@@ -329,7 +403,7 @@ public class FacilityReports {
           .filter(
             row ->
               kind.equals(row.getKind()) &&
-              row.getScheduledTime() >= from &&
+              row.getScheduledTime() != null && row.getScheduledTime() >= from &&
               row.getScheduledTime() < to &&
               !Set.of("cancelled", "closed").contains(row.getState())
           )
@@ -353,7 +427,7 @@ public class FacilityReports {
         summary.put("completed", completed);
         summary.put("overdue", late);
         summary.put("completionRate", percentage(completed, work.size()));
-        summary.put("overdueRate", percentage(late, work.size()));
+        summary.put("overdueRate", percentage(late, work.stream().filter(row -> row.getDeadline() != null && row.getDeadline() < now).count()));
         summaries.add(summary);
       }
       result.put("tasks", summaries);
