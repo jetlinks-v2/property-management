@@ -82,6 +82,37 @@ public class FacilityReadings {
         })));
   }
 
+  /** 每批最多200条并原子提交，先排除已入库来源；迟到读数仍走原有版本锁校验。 */
+  @Transactional
+  public Flux<ReadingEntity> ingestBatch(
+    MappingEntity mapping, MetricMapping metric, List<DeviceProperty> samples
+  ) {
+    require(samples.size() <= 200, "too_many");
+    if (samples.isEmpty()) return Flux.empty();
+    return devices.read(mapping.getDeviceId()).flatMapMany(device -> {
+      FacilityDevices.requireActive(device);
+      for (var sample : samples) require(
+        device.getCloudDeviceId().equals(sample.getDeviceId()) &&
+          metric.getPropertyId().equals(sample.getProperty()) && sample.getTimestamp() > 0,
+        "invalid_reading"
+      );
+      var ids = samples.stream().map(p -> sourceId(mapping, metric, p)).distinct().toList();
+      return readings.createQuery().where("tenantId", mapping.getTenantId())
+        .and("applicationId", mapping.getApplicationId()).in("id", ids).fetch()
+        .map(ReadingEntity::getId).collect(java.util.stream.Collectors.toSet())
+        .flatMapMany(existing -> Flux.fromIterable(samples)
+          .filter(p -> !existing.contains(sourceId(mapping, metric, p)))
+          .distinct(p -> sourceId(mapping, metric, p))
+          .concatMap(p -> ingest(mapping, metric, p)));
+    });
+  }
+
+  private static String sourceId(MappingEntity mapping, MetricMapping metric, DeviceProperty property) {
+    return FacilityRecords.stableId(mapping.getTenantId(), mapping.getApplicationId(),
+      mapping.getDeviceId(), mapping.getProjectId(), metric.getPropertyId(),
+      Long.toString(property.getTimestamp()), "cloud");
+  }
+
   @Transactional
   public Mono<ReadingEntity> ingest(
     MappingEntity mapping,
@@ -131,17 +162,7 @@ public class FacilityReadings {
         )
       );
       FacilityScope.inherit(row, mapping);
-      row.setId(
-        FacilityRecords.stableId(
-          mapping.getTenantId(),
-          mapping.getApplicationId(),
-          device.getId(),
-          mapping.getProjectId(),
-          metric.getPropertyId(),
-          Long.toString(property.getTimestamp()),
-          "cloud"
-        )
-      );
+      row.setId(sourceId(mapping, metric, property));
       row.setDeviceId(device.getId());
       row.setMappingId(mapping.getId());
       row.setMappingVersion(mapping.getVersion());

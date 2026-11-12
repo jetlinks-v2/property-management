@@ -95,7 +95,8 @@ public class FacilityTelemetry {
               from,
               until
             )
-            .concatMap(p -> readings.ingest(mapping, metric, p))
+            .buffer(200)
+            .concatMap(batch -> readings.ingestBatch(mapping, metric, batch))
         )
         .then(
           mappings
