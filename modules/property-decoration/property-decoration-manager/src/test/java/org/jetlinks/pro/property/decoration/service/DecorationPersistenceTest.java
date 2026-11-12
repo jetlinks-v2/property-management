@@ -42,9 +42,10 @@ import static org.mockito.ArgumentMatchers.*;
 class DecorationPersistenceTest {
     static final Duration WAIT=Duration.ofSeconds(20);
     static final GenericContainer<?> POSTGRES=new GenericContainer<>("postgres:16-alpine")
-        .withEnv("POSTGRES_PASSWORD","test-password").withEnv("POSTGRES_DB","decoration_test").withExposedPorts(5432);
+        .withEnv("POSTGRES_PASSWORD","test-password").withEnv("POSTGRES_DB","decoration_test").withExposedPorts(5432)
+        .waitingFor(org.testcontainers.containers.wait.strategy.Wait.forLogMessage(".*database system is ready to accept connections.*\\n",2));
     @DynamicPropertySource static void database(DynamicPropertyRegistry registry){
-        POSTGRES.start();registry.add("spring.r2dbc.url",()->"r2dbc:postgresql://127.0.0.1:"+POSTGRES.getMappedPort(5432)+"/decoration_test");
+        POSTGRES.start();registry.add("spring.r2dbc.url",()->"r2dbc:postgresql://"+POSTGRES.getHost()+":"+POSTGRES.getMappedPort(5432)+"/decoration_test");
         registry.add("spring.r2dbc.username",()->"postgres");registry.add("spring.r2dbc.password",()->"test-password");
         registry.add("easyorm.dialect",()->"postgres");registry.add("easyorm.default-schema",()->"public");
     }
@@ -1368,6 +1369,24 @@ class DecorationPersistenceTest {
         }
         var or=QueryParamEntity.newQuery().where("id","review").or("applicationId","foreign").getParam();
         assertEquals(1L,dashboard.query(or).contextWrite(auth("admin")).block(WAIT).metrics().stream().filter(m->m.key().equals("pendingReview")).findFirst().orElseThrow().value());
+    }
+
+    @Test void dashboardKeepsAcceptanceAndPendingRefundHousesUntilRefundCompletes(){
+        var base=createSigned(create("dashboard-lifecycle"),false).contextWrite(auth("admin")).block(WAIT);rows.deleteById(base.getId()).block(WAIT);
+        long now=System.currentTimeMillis();
+        var statuses=List.of("permit_issued","pending_second_acceptance","second_acceptance_waiting","second_acceptance_in_progress","second_acceptance_failed","acceptance_passed");
+        for(int index=0;index<statuses.size();index++){
+            var row=overviewRow(base,"lifecycle-"+index,"house-"+index,"residential",now-1000,2,0,1,"100");
+            row.setStatus(statuses.get(index));row.setStartTime(now-2000);
+            var permit=new DecorationModels.Permit();permit.setPrintTime(now-1000);row.setPermit(permit);
+            rows.insert(row).block(WAIT);
+        }
+        var completed=overviewRow(base,"lifecycle-completed","completed-house","residential",now-1000,2,2,1,"100");
+        completed.setStatus("finished");completed.setActualEndTime(now);rows.insert(completed).block(WAIT);
+        var report=dashboard.query(new QueryParamEntity()).contextWrite(auth("admin")).block(WAIT);
+        assertEquals(6L,report.metrics().stream().filter(metric->metric.key().equals("decorating")).findFirst().orElseThrow().value());
+        var query=QueryParamEntity.newQuery().where("id",DecorationOverviewMetricTermBuilder.TYPE,Map.of("metric","decorating","asOf",report.asOf())).getParam();
+        assertEquals(6L,applications.query(query,false).contextWrite(auth("admin")).block(WAIT).getTotal());
     }
 
     @Test void dashboardCountsPrintOrDownloadAsCompletedAndKeepsExtensionPending(){
