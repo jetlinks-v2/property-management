@@ -1477,6 +1477,46 @@ class FacilityPersistenceTest {
   FacilityReadings readingManager;
 
   @Test
+  void replayBatchesSkipExistingReadingsButKeepLateSamplesAndVersionGuard() {
+    String prefix = "batch-backfill";
+    alertFixture(prefix, "usage", "counter");
+    var mapping = mappings.findById(prefix + "-mapping").block();
+    var metric = mapping.getMetrics().get(0);
+    metric.setMultiplier(java.math.BigDecimal.ONE);
+    mappings.save(mapping).block();
+    var first = sample(prefix, 3000L, 10);
+    var late = sample(prefix, 2000L, 12);
+    assertNotNull(as("staff", readingManager.ingest(mapping, metric, first)).block());
+    // Replaying a source must not overwrite its accepted original value.
+    first.setValue(999);
+    var inserted = as("staff", readingManager.ingestBatch(mapping, metric, List.of(first, late, late)).collectList()).block();
+    assertEquals(1, inserted.size());
+    assertEquals(2000L, inserted.get(0).getObservedTime());
+    assertEquals(2, readings.createQuery().where("mappingId", mapping.getId()).count().block());
+    var original = readings.createQuery().where("mappingId", mapping.getId())
+      .and("observedTime", 3000L).fetchOne().block();
+    assertEquals(0, new java.math.BigDecimal("10").compareTo(original.getValue()));
+    assertTrue(as("staff", readingManager.ingestBatch(mapping, metric, List.of(first, late)).collectList())
+      .block().isEmpty());
+    var invalid = sample("another-cloud-device", 4000L, 15);
+    StepVerifier.create(as("staff", readingManager.ingestBatch(mapping, metric, List.of(invalid)).then()))
+      .expectError(BusinessException.class).verify();
+    mappings.createUpdate().set("enabled", false).where("id", mapping.getId()).execute().block();
+    StepVerifier.create(as("staff", readingManager.ingestBatch(mapping, metric, List.of(sample(prefix, 4000L, 15))).then()))
+      .verifyComplete();
+    assertEquals(2, readings.createQuery().where("mappingId", mapping.getId()).count().block());
+  }
+
+  private static org.jetlinks.sdk.server.device.DeviceProperty sample(String cloudId, long time, int value) {
+    var sample = new org.jetlinks.sdk.server.device.DeviceProperty();
+    sample.setDeviceId(cloudId);
+    sample.setProperty("value");
+    sample.setValue(value);
+    sample.setTimestamp(time);
+    return sample;
+  }
+
+  @Test
   void oldBackfillCannotWinDedupeAfterMappingEditOrDisable() {
     String prefix = "mapping-backfill-version";
     alertFixture(prefix, "usage", "counter");
