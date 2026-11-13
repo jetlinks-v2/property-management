@@ -8,6 +8,10 @@ import org.hswebframework.ezorm.rdb.mapping.ReactiveRepository;
 import org.hswebframework.web.authorization.Authentication;
 import org.hswebframework.web.authorization.simple.*;
 import org.jetlinks.pro.assets.*;
+import org.jetlinks.pro.assets.scope.AssetScopeActivation;
+import org.jetlinks.pro.assets.scope.AssetScopeStrategy;
+import org.jetlinks.pro.authorize.BusinessApplicationDimension;
+import java.util.function.Function;
 import org.jetlinks.pro.property.base.command.*;
 import org.jetlinks.pro.property.base.entity.*;
 import org.jetlinks.pro.property.base.organization.OrganizationType;
@@ -206,6 +210,43 @@ class OwnerHousePersistenceTest {
         assertTrue(
                 read(support.current(new QueryCurrentPropertyHousesCommand()), "owner", "tenant-a")
                         .isEmpty());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void applicationScopeAllowsOnlyOwnAuthorizedProjectsAndStillIntersectsTenant() {
+        var holder = mock(AssetsHolder.class);
+        when(holder.getPermissionState(any())).thenReturn(Mono.just(AssetPermissionState.UNKNOWN));
+        when(holder.isScopeIgnored(any())).thenReturn(Mono.just(false));
+        when(holder.isEnabled(any())).thenReturn(Mono.just(true));
+        Set<String> allowed = new HashSet<>(Set.of("project"));
+        when(holder.filter(any(Flux.class), any(AssetType.class), any(Function.class), eq(false),
+                eq(org.jetlinks.pro.assets.crud.CrudAssetPermission.read)))
+                .thenAnswer(call -> {
+                    assertEquals("organization", ((AssetType) call.getArgument(1)).getId());
+                    Function<PropertyOrganizationEntity, String> id = call.getArgument(2);
+                    return ((Flux<PropertyOrganizationEntity>) call.getArgument(0))
+                            .filter(project -> allowed.contains(id.apply(project)));
+                });
+        var authentication = (SimpleAuthentication) auth("owner").get(Authentication.class);
+        var activation = AssetScopeActivation.activate(authentication,
+                SimpleDimension.of("app", "装修", BusinessApplicationDimension.INSTANCE, Map.of()),
+                Map.of("organization", AssetScopeStrategy.IGNORE));
+        var command = new QueryCurrentPropertyHousesCommand();
+        Mono<List<org.jetlinks.pro.property.base.archive.PropertyOwnerHouse>> read = support.current(command)
+                .contextWrite(activation.write())
+                .contextWrite(context -> context.putAll(auth("owner")).put(AssetsHolder.class, holder));
+        assertEquals(1, read.block(OrganizationPersistenceTest.TIMEOUT).size());
+        assertTrue(read.contextWrite(TenantHolder.makeCurrent("tenant-b"))
+                .block(OrganizationPersistenceTest.TIMEOUT).isEmpty());
+        allowed.clear();
+        assertTrue(read.block(OrganizationPersistenceTest.TIMEOUT).isEmpty());
+        verify(holder, atLeastOnce()).filter(any(Flux.class), any(AssetType.class),
+                any(Function.class), eq(false), eq(org.jetlinks.pro.assets.crud.CrudAssetPermission.read));
+        // 无应用或租户上下文不能靠有效本人关系取得房屋。
+        StepVerifier.create(support.current(command).contextWrite(auth("owner")))
+                .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class)
+                .verify();
     }
 
     @Test
