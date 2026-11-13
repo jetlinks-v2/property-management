@@ -31,6 +31,11 @@ public class PatrolRoleService {
     private final PatrolScope scope;
 
     public Mono<PagerResult<PatrolRole>> queryPager(QueryParamEntity request) {
+        return queryPager(request, true);
+    }
+
+    /** 名称回显不读取成员；角色查询仍由认证命令校验当前调用者的角色资产权限。 */
+    public Mono<PagerResult<PatrolRole>> queryPager(QueryParamEntity request, boolean includeMembers) {
         return scope.current().flatMap(current -> {
             var query = request.clone();
             query.setTotal(null);
@@ -47,8 +52,11 @@ public class PatrolRoleService {
                     if (!current.applicationId().equals(role.getApplicationId()))
                         throw new AccessDenyException.NoStackTrace();
                     role.setScopeKey(current.key());
+                    // 不暴露认证角色投影中可能携带的、未经人员资产过滤的成员快照。
+                    role.setUserIds(List.of());
                     return role;
                 }).toList();
+                if (!includeMembers) return Mono.just(PagerResult.of(page.getTotal(), rows, query));
                 return Flux.fromIterable(rows)
                         .flatMapSequential(role -> members(role, current.applicationId()), 4)
                         .collectList()

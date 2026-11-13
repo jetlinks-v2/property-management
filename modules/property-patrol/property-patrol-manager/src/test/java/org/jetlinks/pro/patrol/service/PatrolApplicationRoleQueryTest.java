@@ -157,6 +157,45 @@ class PatrolApplicationRoleQueryTest {
     }
 
     @Test
+    void roleLabelsDoNotReadMembersOrExposeSnapshotAndStillRejectForeignApplications() {
+        for (String application : List.of("patrol-app", "other-app")) {
+            var role = new RoleInfo(); role.setId("inspector"); role.setName("巡更员");
+            role.setExtension("applicationId", application);
+            role.setExtension("userIds", List.of("unfiltered-remote-member"));
+            var service = new PatrolRoleService(new org.jetlinks.pro.patrol.integration.PatrolScope()) {
+                @Override protected Mono<PagerResult<RoleInfo>> execute(QueryPagerCommand<RoleInfo> command) {
+                    return Mono.just(PagerResult.of(1, List.of(role), command.asQueryParam()));
+                }
+                @Override protected Flux<UserInfo> executeMembers(QueryListCommand<UserInfo> command) {
+                    fail("role labels must not read the member directory");
+                    return Flux.empty();
+                }
+            };
+            // 只有应用上下文，没有 user 资产授权，名称查询仍可完成。
+            var result = StepVerifier.create(service.queryPager(new QueryParamEntity(), false)
+                    .contextWrite(context -> context.put(AssetScopeContext.class, applicationScope())));
+            if (application.equals("patrol-app")) {
+                result.assertNext(page -> {
+                    assertEquals("巡更员", page.getData().get(0).getName());
+                    assertTrue(page.getData().get(0).getUserIds().isEmpty());
+                }).verifyComplete();
+            } else result.expectError(AccessDenyException.class).verify();
+        }
+    }
+
+    @Test
+    void roleLabelsPropagateRolePermissionDenial() {
+        var service = new PatrolRoleService(new org.jetlinks.pro.patrol.integration.PatrolScope()) {
+            @Override protected Mono<PagerResult<RoleInfo>> execute(QueryPagerCommand<RoleInfo> command) {
+                return Mono.error(new AccessDenyException.NoStackTrace());
+            }
+        };
+        StepVerifier.create(service.queryPager(new QueryParamEntity(), false)
+                        .contextWrite(context -> context.put(AssetScopeContext.class, applicationScope())))
+                .expectError(AccessDenyException.class).verify();
+    }
+
+    @Test
     void missingApplicationIsDeniedBeforeCallingAuthenticationService() {
         var service = new PatrolRoleService(new org.jetlinks.pro.patrol.integration.PatrolScope()) {
             @Override

@@ -9,6 +9,7 @@ import org.jetlinks.pro.patrol.service.PatrolRoleService;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 
@@ -21,7 +22,8 @@ public class PatrolRoleController {
     private final PatrolRoleService roles;
 
     @PostMapping("/_query")
-    public Mono<PagerResult<PatrolRole>> query(@RequestBody QueryParamEntity query) {
-        return roles.queryPager(query);
+    public Mono<PagerResult<PatrolRole>> query(@RequestBody QueryParamEntity query,
+                                             @RequestParam(name = "includeMembers", defaultValue = "true") boolean includeMembers) {
+        return roles.queryPager(query, includeMembers);
     }
 }
