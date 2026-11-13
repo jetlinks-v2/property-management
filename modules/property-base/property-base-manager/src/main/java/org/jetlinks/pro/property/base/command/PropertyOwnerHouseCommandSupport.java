@@ -10,6 +10,9 @@ import org.hswebframework.web.authorization.exception.UnAuthorizedException;
 import org.jetlinks.core.annotation.command.CommandHandler;
 import org.jetlinks.pro.annotation.command.CommandService;
 import org.jetlinks.pro.assets.AssetManager;
+import org.jetlinks.pro.assets.AssetsHolder;
+import org.jetlinks.pro.assets.scope.AssetScopeContext;
+import org.jetlinks.pro.authorize.BusinessApplicationDimension;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.base.archive.*;
 import org.jetlinks.pro.property.base.entity.*;
@@ -67,43 +70,31 @@ public class PropertyOwnerHouseCommandSupport {
                             if (rows.size() > 1000)
                                 return Mono.error(ArchiveScope.error("too_many", 400));
                             if (rows.isEmpty()) return Mono.just(List.of());
-                            return TenantHolder.currentId()
-                                    .switchIfEmpty(Mono.error(new AccessDenyException()))
-                                    .flatMap(
-                                            tenant ->
-                                                    new TenantAssetsHolder(
-                                                                    List.of(tenant), assetManager)
-                                                            .filter(
-                                                                    organizations
-                                                                            .createQuery()
-                                                                            .in(
-                                                                                    "id",
-                                                                                    rows.stream()
-                                                                                            .map(
-                                                                                                    PropertyCustomerEntity
-                                                                                                            ::getProjectId)
-                                                                                            .distinct()
-                                                                                            .toList())
-                                                                            .and("deleted", false)
-                                                                            .and(
-                                                                                    "organizationType",
-                                                                                    OrganizationType
-                                                                                            .project)
-                                                                            .fetch(),
-                                                                    ArchiveScope.ORGANIZATION,
-                                                                    PropertyOrganizationEntity
-                                                                            ::getId,
-                                                                    false,
-                                                                    CrudAssetPermission.read)
-                                                            .collectMap(
-                                                                    PropertyOrganizationEntity
-                                                                            ::getId)
-                                                            .flatMap(
-                                                                    projects ->
-                                                                            links(
-                                                                                    rows, projects,
-                                                                                    command)));
+                            return readableProjects(rows)
+                                    .collectMap(PropertyOrganizationEntity::getId)
+                                    .flatMap(projects -> links(rows, projects, command));
                         });
+    }
+
+    /** 本人关系仍是前置条件；应用入口按平台 Holder 过滤，显式租户再取交集。 */
+    private Flux<PropertyOrganizationEntity> readableProjects(List<PropertyCustomerEntity> rows) {
+        return Flux.deferContextual(context -> {
+            String tenant = TenantHolder.readTenantId(context);
+            boolean application = AssetScopeContext.current(context)
+                    .contains(BusinessApplicationDimension.TYPE);
+            if (tenant == null && !application) return Flux.error(new AccessDenyException());
+            Flux<PropertyOrganizationEntity> projects = organizations.createQuery()
+                    .in("id", rows.stream().map(PropertyCustomerEntity::getProjectId).distinct().toList())
+                    .and("deleted", false)
+                    .and("organizationType", OrganizationType.project)
+                    .fetch();
+            // 已激活的应用 Scope 不替代原账号资产权限；两者由 AssetsHolder 统一求交。
+            if (application) projects = AssetsHolder.filterAssets(projects, ArchiveScope.ORGANIZATION,
+                    PropertyOrganizationEntity::getId, CrudAssetPermission.read);
+            return tenant == null ? projects : new TenantAssetsHolder(List.of(tenant), assetManager)
+                    .filter(projects, ArchiveScope.ORGANIZATION, PropertyOrganizationEntity::getId,
+                            false, CrudAssetPermission.read);
+        });
     }
 
     private Mono<List<PropertyOwnerHouse>> links(
