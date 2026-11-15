@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.*;
 
-/** 来源设备由 Cloud SDK 裁剪，业务项目由目录与 AssetsHolder 校验；目录本身不是可执行业务的资产。 */
+/** 来源设备由 Cloud SDK 裁剪，项目写入由目录与 AssetsHolder 校验；目录本身不是可执行业务的资产。 */
 @Service
 @RequiredArgsConstructor
 public class FacilityAllocations {
@@ -74,16 +74,15 @@ public class FacilityAllocations {
 
   public Mono<PagerResult<DeviceAllocationEntity>> query(QueryParamEntity query) {
     query.setPaging(true); query.setPageSize(Math.min(100, Math.max(1, query.getPageSize())));
-    return Mono.zip(sources(), scope.current(), directory.projects().collectList()).flatMap(tuple -> {
+    return Mono.zip(sources(), scope.current()).flatMap(tuple -> {
       var context = tuple.getT2();
       var ids = sourceIds(tuple.getT1()).stream()
         .map(id -> FacilityRecords.stableId(context.tenantId(), context.applicationId(), id)).toList();
-      var projects = tuple.getT3().stream().map(p -> p.getId()).collect(java.util.stream.Collectors.toSet());
       if (ids.isEmpty()) return Mono.just(PagerResult.of(0, List.<DeviceAllocationEntity>of(), query));
-      // Unassigned sources use Cloud device authorization; assigned rows additionally require project visibility.
+      // 配置目录按 Cloud 来源授权；项目仅作为显式筛选，不因未归属或旧项目不在候选中隐藏设备。
+      // 重新分配与同步仍分别校验原/新项目的 AssetsHolder 写权限。
       return store.createQuery().where("tenantId", context.tenantId()).and("applicationId", context.applicationId())
         .and("deleted", false).in("id", ids).fetch()
-        .filter(row -> row.getProjectId() == null || projects.contains(row.getProjectId()))
         .map(DeviceAllocationEntity::getId).collectList().flatMap(allowed -> {
           if (allowed.isEmpty()) return Mono.just(PagerResult.of(0, List.<DeviceAllocationEntity>of(), query));
           var scoped = FacilityScope.applicationQuery(query, context).toNestQuery().in("id", allowed).getParam();

@@ -155,6 +155,10 @@ class MeterConfigurationPersistenceTest {
     catalog.save(List.of(new FacilityDevices.Allocation(first,0L,project,null,null,false),
       new FacilityDevices.Allocation(second,0L,other.getId(),null,null,false))).block(WAIT);
     assertNull(devices.findById(first).block(WAIT));
+    // 配置目录必须仍展示全部授权来源，项目下拉仅提供目标候选或显式查询条件。
+    when(directory.projects()).thenReturn(Flux.just(current));
+    assertEquals(2, catalog.query(new org.hswebframework.web.api.crud.entity.QueryParamEntity()).block(WAIT).getTotal());
+    when(directory.projects()).thenReturn(Flux.just(current, other));
     var summary = synchronizer.synchronizeConfigured().block(WAIT);
     assertEquals(2, summary.inserted()); assertEquals(2, summary.projects()); assertEquals(0, summary.failed());
     assertEquals(other.getId(), devices.findById(second).block(WAIT).getProjectId());
