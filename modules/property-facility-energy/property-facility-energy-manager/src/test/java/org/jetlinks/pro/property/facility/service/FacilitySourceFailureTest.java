@@ -97,7 +97,10 @@ class FacilitySourceFailureTest {
     var job = new JobEntity();
     job.setId("job");
     job.setProjectId("project");
-    var sync = new FacilitySync(writer, cloud, directory, mock(FacilityScope.class), devices, jobs, records);
+    var allocations = mock(FacilityAllocations.class);
+    var sourceSnapshot = cloud.snapshot("project").map(rows -> List.of(new FacilitySync.Source("project", "Project", rows)));
+    when(allocations.sources()).thenReturn(sourceSnapshot);
+    var sync = new FacilitySync(writer, cloud, directory, mock(FacilityScope.class), devices, jobs, records, allocations);
 
     StepVerifier.create(sync.run(job))
       .expectError(AccessDenyException.class)

@@ -150,7 +150,7 @@ public class FacilityDevices {
   ) {
     return writable(id).flatMap(row -> {
       require(
-        row.getVersion() == version && !row.getCandidateProjectIds().isEmpty(),
+        row.getVersion() == version,
         "conflict"
       );
       return directory.project(projectId).flatMap(project ->
