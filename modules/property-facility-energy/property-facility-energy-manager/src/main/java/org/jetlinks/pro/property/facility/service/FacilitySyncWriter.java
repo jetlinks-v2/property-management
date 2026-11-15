@@ -20,7 +20,8 @@ public class FacilitySyncWriter {
     Map<String, List<String>> candidates = new HashMap<>();
     for (var source : sources) for (var device : source.devices()) {
       byId.put(device.getId(), device);
-      candidates.computeIfAbsent(device.getId(), k -> new ArrayList<>()).add(source.id());
+      var projects = candidates.computeIfAbsent(device.getId(), k -> new ArrayList<>());
+      if (source.id() != null) projects.add(source.id());
     }
     int[] counts = new int[3];
     var failures = new ArrayList<String>();

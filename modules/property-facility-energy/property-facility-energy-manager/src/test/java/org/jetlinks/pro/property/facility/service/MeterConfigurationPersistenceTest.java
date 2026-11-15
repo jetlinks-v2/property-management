@@ -142,8 +142,7 @@ class MeterConfigurationPersistenceTest {
     var sourceTwo = sourceDevice(UUID.randomUUID().toString());
     var current = sourceProject(project);
     when(directory.projects()).thenReturn(Flux.just(current, other));
-    when(cloud.snapshot(project)).thenReturn(Mono.just(List.of(sourceOne, sourceTwo)));
-    when(cloud.snapshot(other.getId())).thenReturn(Mono.just(List.of()));
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(sourceOne, sourceTwo)));
     assertEquals(2, catalog.refresh().block(WAIT));
     String first = FacilityRecords.stableId("tenant", "app", sourceOne.getId());
     String second = FacilityRecords.stableId("tenant", "app", sourceTwo.getId());
@@ -181,7 +180,7 @@ class MeterConfigurationPersistenceTest {
     var next = sourceProject(UUID.randomUUID().toString());
     var current = sourceProject(project);
     when(directory.projects()).thenReturn(Flux.just(current,next));
-    when(cloud.snapshot(project)).thenReturn(Mono.just(List.of(source))); when(cloud.snapshot(next.getId())).thenReturn(Mono.just(List.of()));
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(source)));
     catalog.refresh().block(WAIT);
     String id = FacilityRecords.stableId("tenant","app",source.getId());
     catalog.save(List.of(new FacilityDevices.Allocation(id,0L,project,null,null,false))).block(WAIT);

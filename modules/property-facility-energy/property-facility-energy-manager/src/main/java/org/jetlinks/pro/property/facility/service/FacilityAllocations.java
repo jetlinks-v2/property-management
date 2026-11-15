@@ -27,12 +27,10 @@ public class FacilityAllocations {
   private final FacilityDeviceMoves moves;
 
   public Mono<List<FacilitySync.Source>> sources() {
-    return directory.projects().take(1001).collectList()
-      .doOnNext(projects -> require(projects.size() <= 1000, "too_many"))
-      .flatMapMany(Flux::fromIterable)
-      .concatMap(project -> cloud.snapshot(project.getId())
-        .map(rows -> new FacilitySync.Source(project.getId(), project.getName(), rows)))
-      .collectList().timeout(Duration.ofMinutes(8))
+    // 应用授权的来源与业务目标项目分离；null 表示来源快照不声明项目归属。
+    return cloud.snapshot(null)
+      .map(rows -> List.of(new FacilitySync.Source(null, null, rows)))
+      .timeout(Duration.ofMinutes(8))
       .doOnNext(rows -> require(sourceIds(rows).size() <= 20000, "too_many"));
   }
 

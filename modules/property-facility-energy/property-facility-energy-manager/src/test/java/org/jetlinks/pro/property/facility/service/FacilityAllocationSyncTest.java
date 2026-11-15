@@ -21,6 +21,18 @@ class FacilityAllocationSyncTest {
     row.setProjectId(project); row.setProjectConfirmed(true); row.setVersion(1L); return row;
   }
 
+  @Test void catalogReadsApplicationDevicesBeforeAnyBusinessProjectAssignment() {
+    var cloud = mock(FacilityCloud.class); var directory = mock(FacilityDirectory.class);
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(source("unassigned"))));
+    var service = new FacilityAllocations(mock(DeviceAllocationStore.class), mock(DeviceStore.class),
+      cloud, directory, mock(FacilityScope.class), mock(FacilityRecords.class), mock(FacilityDeviceMoves.class));
+    StepVerifier.create(service.sources()).assertNext(rows -> {
+      assertEquals(Set.of("unassigned"), FacilityAllocations.sourceIds(rows));
+      assertNull(rows.get(0).id());
+    }).verifyComplete();
+    verifyNoInteractions(directory);
+  }
+
   @Test void freshSourcesRemainUnassignedAndConfirmedLegacyOwnershipIsPreserved() {
     var source = source("water");
     var fresh = FacilityAllocations.imported(context, source, null);

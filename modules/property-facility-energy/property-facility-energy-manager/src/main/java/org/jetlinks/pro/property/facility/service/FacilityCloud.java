@@ -16,7 +16,7 @@ import org.jetlinks.sdk.server.device.cmd.*;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.*;
 
-/** Cloud公开SDK适配器；组织闭包、调用人device资产及当前租户取交集，不返回连接配置或密钥。 */
+/** Cloud公开SDK适配器；应用或组织范围继续与调用人device资产取交集，不返回连接配置或密钥。 */
 @Service
 @RequiredArgsConstructor
 public class FacilityCloud {
@@ -30,7 +30,10 @@ public class FacilityCloud {
   ) {
     return scope.current().flatMap(c -> {
       var dimension = DimensionAssetsTerm.of(
-        List.of(DimensionInfo.of("org", projectId)),
+        // 配置目录先读取当前应用授权设备，不能要求尚未配置的设备已绑定业务项目组织。
+        List.of(projectId == null
+          ? DimensionInfo.of("business_application", c.applicationId())
+          : DimensionInfo.of("org", projectId)),
         "device"
       );
       dimension.setClosure(true);
