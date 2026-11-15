@@ -20,17 +20,18 @@ public class FacilityDeviceMoves {
   private final FacilityRecords records;
 
   public Mono<Void> validate(DeviceEntity device, String projectId) {
-    if (Objects.equals(device.getProjectId(), projectId)) return Mono.empty();
-    return (device.getProjectId() == null ? Mono.<Void>empty() : records.assertProject(device.getProjectId(), CrudAssetPermission.save))
-      .then(records.read(devices, device.getId(), FacilityAssetType.facilityDevice, CrudAssetPermission.save))
-      .then(Mono.zip(
-        tasks.createQuery().where("tenantId", device.getTenantId()).and("applicationId", device.getApplicationId())
-          .and("deleted", false).and("deviceId", device.getId()).notIn("state", List.of("completed", "closed", "cancelled")).count(),
-        faults.createQuery().where("tenantId", device.getTenantId()).and("applicationId", device.getApplicationId())
-          .and("deleted", false).and("deviceId", device.getId()).notIn("state", List.of("closed", "cancelled")).count(),
-        bills.createQuery().where("tenantId", device.getTenantId()).and("applicationId", device.getApplicationId())
-          .and("deleted", false).and("deviceId", device.getId()).not("state", "approved").count()
-      )).doOnNext(counts -> FacilityScope.require(counts.getT1() == 0 && counts.getT2() == 0 && counts.getT3() == 0, "allocation_busy"))
-      .then();
+    return records.read(devices, device.getId(), FacilityAssetType.facilityDevice, CrudAssetPermission.save)
+      .flatMap(current -> {
+        if (Objects.equals(current.getProjectId(), projectId)) return Mono.empty();
+        return records.assertPreviousProject(current.getProjectId()).then(Mono.zip(
+          tasks.createQuery().where("tenantId", current.getTenantId()).and("applicationId", current.getApplicationId())
+            .and("deleted", false).and("deviceId", current.getId()).notIn("state", List.of("completed", "closed", "cancelled")).count(),
+          faults.createQuery().where("tenantId", current.getTenantId()).and("applicationId", current.getApplicationId())
+            .and("deleted", false).and("deviceId", current.getId()).notIn("state", List.of("closed", "cancelled")).count(),
+          bills.createQuery().where("tenantId", current.getTenantId()).and("applicationId", current.getApplicationId())
+            .and("deleted", false).and("deviceId", current.getId()).not("state", "approved").count()
+        )).doOnNext(counts -> FacilityScope.require(counts.getT1() == 0 && counts.getT2() == 0 && counts.getT3() == 0, "allocation_busy"))
+          .then();
+      });
   }
 }

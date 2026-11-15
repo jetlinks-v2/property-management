@@ -78,6 +78,34 @@ class FacilityAllocationSyncTest {
     verify(store,never()).createUpdate();
   }
 
+  @Test void existingDeviceCanRecoverDeletedProjectButCatalogWithoutDeviceCannot() {
+    var store = mock(DeviceAllocationStore.class); var devices = mock(DeviceStore.class);
+    var directory = mock(FacilityDirectory.class); var scope = mock(FacilityScope.class); var records = mock(FacilityRecords.class);
+    var moves = mock(FacilityDeviceMoves.class);
+    var service = spy(new FacilityAllocations(store, devices, mock(FacilityCloud.class), directory, scope, records, moves));
+    var row = allocation("source", "removed"); row.setTenantId(context.tenantId()); row.setApplicationId(context.applicationId());
+    when(scope.current()).thenReturn(Mono.just(context));
+    when(store.findById("source")).thenReturn(Mono.just(row));
+    doReturn(Mono.just(List.of(new FacilitySync.Source(null, null, List.of(source("source")))))).when(service).sources();
+    var target = new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo(); target.setId("new"); target.setName("New");
+    when(directory.project("new")).thenReturn(Mono.just(target));
+    when(records.assertProject("new", org.jetlinks.pro.assets.crud.CrudAssetPermission.save)).thenReturn(Mono.empty());
+    when(records.assertProject("removed", org.jetlinks.pro.assets.crud.CrudAssetPermission.save)).thenReturn(Mono.error(new org.hswebframework.web.authorization.exception.AccessDenyException()));
+    when(records.assertPreviousProject("removed")).thenReturn(Mono.empty());
+    var asset = new DeviceEntity(); asset.setId("source"); asset.setProjectId("removed");
+    when(devices.findById("source")).thenReturn(Mono.just(asset));
+    when(moves.validate(asset, "new")).thenReturn(Mono.empty());
+    when(records.update(store, row, 1L)).thenReturn(Mono.just(row));
+    var input = List.of(new FacilityDevices.Allocation("source", 1L, "new", null, null, false));
+    StepVerifier.create(service.save(input)).assertNext(rows -> assertEquals("new", rows.get(0).getProjectId())).verifyComplete();
+    verify(records, never()).assertProject(eq("removed"), any());
+    verify(moves).validate(asset, "new");
+    row.setProjectId("removed");
+    when(devices.findById("source")).thenReturn(Mono.empty());
+    StepVerifier.create(service.save(input)).expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+    verify(records, times(1)).update(store, row, 1L);
+  }
+
   @Test void syncUsesSavedBusinessProjectEvenWhenCloudOrganizationDiffersAndDoesNotImportUnassignedDevices() {
     var allocations = mock(FacilityAllocations.class);
     var devices = mock(FacilitySyncDevice.class);

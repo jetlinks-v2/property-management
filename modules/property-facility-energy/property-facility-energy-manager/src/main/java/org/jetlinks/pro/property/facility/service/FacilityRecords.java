@@ -152,6 +152,13 @@ public class FacilityRecords {
     );
   }
 
+  /** 调用方必须先校验设备可写；仅缺失旧组织可修复归属，存在但无权及取数失败仍拒绝。 */
+  Mono<Void> assertPreviousProject(String id) {
+    if (id == null) return Mono.empty();
+    return scope.projectExists(id).flatMap(exists -> exists
+      ? assertProject(id, CrudAssetPermission.save) : Mono.empty());
+  }
+
   public static String stableId(String... values) {
     return java.util.UUID.nameUUIDFromBytes(
       String.join(":", values).getBytes(java.nio.charset.StandardCharsets.UTF_8)

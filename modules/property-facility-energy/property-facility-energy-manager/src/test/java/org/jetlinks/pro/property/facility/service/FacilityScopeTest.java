@@ -25,6 +25,19 @@ class FacilityScopeTest {
   final AssetManager assets = mock(AssetManager.class);
   final FacilityScope scope = new FacilityScope(assets);
 
+  @Test
+  void projectExistenceUsesRawAssetMetadataAndPropagatesFailure() {
+    when(assets.getAssets(any(AssetType.class), eq(List.of("old"))))
+      .thenReturn(Flux.just(new DefaultAsset("old", "Old", AssetType.of("organization"))));
+    StepVerifier.create(scope.projectExists("old")).expectNext(true).verifyComplete();
+    when(assets.getAssets(any(AssetType.class), eq(List.of("old")))).thenReturn(Flux.empty());
+    StepVerifier.create(scope.projectExists("old")).expectNext(false).verifyComplete();
+    when(assets.getAssets(any(AssetType.class), eq(List.of("old"))))
+      .thenReturn(Flux.error(new IllegalStateException("metadata unavailable")));
+    StepVerifier.create(scope.projectExists("old")).expectError(IllegalStateException.class).verify();
+    verify(assets, times(3)).getAssets(argThat(type -> "organization".equals(type.getId())), eq(List.of("old")));
+  }
+
   Context access() {
     var user = new SimpleUser();
     user.setId("worker");

@@ -15,6 +15,22 @@ import reactor.test.StepVerifier;
 /** 绑定参数契约；真实组织允许／拒绝对由远程项目工单流程覆盖。 */
 class FacilityRecordOwnershipTest {
   @Test
+  void deletedPreviousProjectCanBeReassignedButExistingDeniedAndLookupFailureRemainDenied() {
+    var scope = mock(FacilityScope.class);
+    var records = spy(new FacilityRecords(scope, null, null));
+    var denied = new org.hswebframework.web.authorization.exception.AccessDenyException();
+    doReturn(Mono.error(denied)).when(records).assertProject(anyString(), any());
+    when(scope.projectExists("removed")).thenReturn(Mono.just(false));
+    StepVerifier.create(records.assertPreviousProject("removed")).verifyComplete();
+    verify(records, never()).assertProject(eq("removed"), any());
+    when(scope.projectExists("existing")).thenReturn(Mono.just(true));
+    StepVerifier.create(records.assertPreviousProject("existing")).expectErrorMatches(error -> error == denied).verify();
+    when(scope.projectExists("failed")).thenReturn(Mono.error(new IllegalStateException("unavailable")));
+    StepVerifier.create(records.assertPreviousProject("failed")).expectError(IllegalStateException.class).verify();
+    StepVerifier.create(records.assertPreviousProject(null)).verifyComplete();
+  }
+
+  @Test
   void bindsValidatedProjectAndApplicationInsteadOfCreatorDefaults() {
     var bindings = mock(AssetBindManager.class);
     var records = new FacilityRecords(null, null, bindings);

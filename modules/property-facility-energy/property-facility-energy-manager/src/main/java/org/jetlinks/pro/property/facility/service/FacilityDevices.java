@@ -154,7 +154,7 @@ public class FacilityDevices {
         "conflict"
       );
       return directory.project(projectId).flatMap(project ->
-        (row.getProjectId() == null ? Mono.<Void>empty() : records.assertProject(row.getProjectId(), CrudAssetPermission.save))
+        records.assertPreviousProject(row.getProjectId())
         .then(records.assertProject(projectId, CrudAssetPermission.save)).then(
           Mono.defer(() -> {
             boolean moved = !projectId.equals(row.getProjectId());

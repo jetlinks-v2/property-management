@@ -115,9 +115,14 @@ public class FacilityAllocations {
               Boolean.TRUE.equals(row.getDeleted()) || !visible.contains(row.getCloudDeviceId())) return Mono.error(new AccessDenyException());
           require(row.getVersion() == input.version(), "conflict");
           return directory.project(input.projectId()).flatMap(project ->
-            (row.getProjectId() == null ? Mono.<Void>empty() : records.assertProject(row.getProjectId(), CrudAssetPermission.save))
-              .then(records.assertProject(project.getId(), CrudAssetPermission.save))
-              .then(devices.findById(row.getId()).flatMap(asset -> moves.validate(asset, project.getId())))
+            records.assertProject(project.getId(), CrudAssetPermission.save)
+              .then(devices.findById(row.getId())
+                .flatMap(asset -> moves.validate(asset, project.getId())
+                  .then(Mono.defer(() -> records.assertPreviousProject(row.getProjectId())))
+                  .thenReturn(true))
+                // 未形成设备资产的配置仍校验原项目，不能借目录刷新绕过原归属写权限。
+                .switchIfEmpty(Mono.defer(() -> (row.getProjectId() == null ? Mono.<Void>empty()
+                  : records.assertProject(row.getProjectId(), CrudAssetPermission.save)).thenReturn(true))))
               .then(Mono.defer(() -> {
                 boolean changed = !Objects.equals(row.getProjectId(), project.getId());
                 row.setProjectId(project.getId()); row.setOrganizationId(project.getId()); row.setProjectName(project.getName());
