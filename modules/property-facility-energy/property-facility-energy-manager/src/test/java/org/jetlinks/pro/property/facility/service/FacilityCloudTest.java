@@ -33,6 +33,8 @@ class FacilityCloudTest {
       assertEquals("device", constraint.getAssetType());
       assertEquals("business_application", constraint.getTargets().iterator().next().getType());
       assertEquals("app", constraint.getTargets().iterator().next().getId());
+      // 应用没有组织闭包记录；使用 closure 会把直接授权设备错误过滤成空。
+      assertEquals(Boolean.FALSE, constraint.getClosure());
       return Mono.error(new AccessDenyException());
     });
     StepVerifier.create(cloud.page(null, 0, 100)).expectError(AccessDenyException.class).verify();

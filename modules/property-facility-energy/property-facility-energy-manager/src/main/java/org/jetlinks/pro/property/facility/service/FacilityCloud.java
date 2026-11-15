@@ -36,7 +36,8 @@ public class FacilityCloud {
           : DimensionInfo.of("org", projectId)),
         "device"
       );
-      dimension.setClosure(true);
+      // 只有组织按下级闭包展开；应用设备是直接绑定，没有组织闭包记录。
+      dimension.setClosure(projectId != null);
       var query = QueryParamEntity.newQuery()
         .accept("id", DimensionAssetsTermBuilder.termType, dimension)
         .orderByAsc("id")
