@@ -39,10 +39,21 @@ public class FacilityReports {
     String field,
     String projectId
   ) {
+    return rowsInProjects(store, type, field, projectList(projectId));
+  }
+
+  private static List<String> projectList(String projectId) {
+    return projectId == null || projectId.isBlank() ? List.of() : List.of(projectId);
+  }
+
+  private <T extends FacilityEntity> Mono<List<T>> rowsInProjects(
+    GenericReactiveCrudService<T, String> store, AssetType type, String field, List<String> projectIds
+  ) {
+    require(projectIds != null && projectIds.size() <= 200, "too_many");
+    // 多选仅追加项目条件，资产授权仍由 scope.query 取交集；不传项目代表全部已授权资产。
     var param = QueryParamEntity.newQuery()
-      .when(projectId != null && !projectId.isBlank(), q ->
-        q.is("projectId", projectId)
-      )
+      .when(projectIds.size() == 1, q -> q.is("projectId", projectIds.get(0)))
+      .when(projectIds.size() > 1, q -> q.in("projectId", projectIds))
       .when("deviceId".equals(field), q -> q.notNull("deviceId"))
       .when("targetId".equals(field), q -> q.notNull("targetId"))
       .when(type == FacilityAssetType.facilityTask, q -> q.isNull("parentTaskId"))
@@ -60,9 +71,15 @@ public class FacilityReports {
     GenericReactiveCrudService<T, String> store,
     String projectId
   ) {
+    return bothParentsInProjects(store, projectList(projectId));
+  }
+
+  private <T extends FacilityEntity> Mono<List<T>> bothParentsInProjects(
+    GenericReactiveCrudService<T, String> store, List<String> projectIds
+  ) {
     return Mono.zip(
-      rows(store, FacilityAssetType.facilityDevice, "deviceId", projectId),
-      rows(store, FacilityAssetType.facilityTarget, "targetId", projectId)
+      rowsInProjects(store, FacilityAssetType.facilityDevice, "deviceId", projectIds),
+      rowsInProjects(store, FacilityAssetType.facilityTarget, "targetId", projectIds)
     ).map(data ->
       java.util.stream.Stream.concat(
         data.getT1().stream(),
@@ -72,12 +89,16 @@ public class FacilityReports {
   }
 
   public Mono<Map<String, Object>> overview(String projectId) {
+    return overviewProjects(projectList(projectId));
+  }
+
+  public Mono<Map<String, Object>> overviewProjects(List<String> projectIds) {
     return Mono.zip(
-      rows(devices, FacilityAssetType.facilityDevice, "id", projectId),
-      rows(tasks, FacilityAssetType.facilityTask, "id", projectId),
-      rows(faults, FacilityAssetType.facilityFault, "id", projectId),
-      bothParents(alerts, projectId),
-      bothParents(notifications, projectId),
+      rowsInProjects(devices, FacilityAssetType.facilityDevice, "id", projectIds),
+      rowsInProjects(tasks, FacilityAssetType.facilityTask, "id", projectIds),
+      rowsInProjects(faults, FacilityAssetType.facilityFault, "id", projectIds),
+      bothParentsInProjects(alerts, projectIds),
+      bothParentsInProjects(notifications, projectIds),
       scope.current()
     ).map(t -> {
       long now = System.currentTimeMillis();
@@ -191,21 +212,26 @@ public class FacilityReports {
     long to,
     String level
   ) {
-    return energy(projectId, from, to, level, null);
+    return energyProjects(projectList(projectId), from, to, level);
   }
 
-  private Mono<List<Map<String, Object>>> energy(String projectId, long from, long to, String level, String energyType) {
+  public Mono<List<Map<String, Object>>> energyProjects(List<String> projectIds, long from, long to, String level) {
+    return energy(projectIds, from, to, level, null);
+  }
+
+  private Mono<List<Map<String, Object>>> energy(List<String> projectIds, long from, long to, String level, String energyType) {
     require(
       from < to &&
         to - from <= 366L * 86400000 &&
         Set.of("master", "submeter", "branch", "other").contains(level),
       "invalid_period"
     );
-    return rows(mappings, FacilityAssetType.facilityMapping, "id", projectId)
+    return rowsInProjects(mappings, FacilityAssetType.facilityMapping, "id", projectIds)
       .flatMapMany(Flux::fromIterable)
       .filter(m -> level.equals(m.getMeterLevel()))
       .filter(m -> energyType == null || energyType.equals(m.getEnergyType()))
-      .concatMap(m ->
+      // 仪表已由统一资产查询授权；最多四表并行，预取一条并按原顺序输出，避免逐表累计等待。
+      .flatMapSequential(m ->
         Flux.fromIterable(m.getMetrics())
           .filter(
             metric ->
@@ -222,7 +248,7 @@ public class FacilityReports {
           )
           .concatMap(metric ->
             readings
-              .usageFor(m, metric.getPropertyId(), from, to)
+              .usageForVisibleMapping(m, metric.getPropertyId(), from, to)
               .map(usage -> {
                 var row = new LinkedHashMap<String, Object>();
                 row.put("deviceId", m.getDeviceId());
@@ -234,8 +260,8 @@ public class FacilityReports {
                 row.put("usage", usage);
                 return (Map<String, Object>) row;
               })
-          )
-      )
+          ),
+        4, 1)
       .collectList();
   }
 
@@ -246,6 +272,10 @@ public class FacilityReports {
     int month,
     String level
   ) {
+    return periodsProjects(projectList(projectId), period, year, month, level);
+  }
+
+  public Mono<List<Map<String, Object>>> periodsProjects(List<String> projectIds, String period, int year, int month, String level) {
     require(
       Set.of("day", "month", "year").contains(period) &&
         year >= 2000 &&
@@ -282,25 +312,25 @@ public class FacilityReports {
         row.put("meters", new ArrayList<Map<String, Object>>());
         periods.add(row);
     }
-    return meterPeriods(projectId, level, null, periods);
+    return meterPeriods(projectIds, level, null, periods);
   }
 
-  private Mono<List<Map<String, Object>>> meterPeriods(String projectId, String level, String energyType,
+  private Mono<List<Map<String, Object>>> meterPeriods(List<String> projectIds, String level, String energyType,
     List<Map<String, Object>> periods) {
     require(Set.of("master", "submeter", "branch", "other").contains(level), "invalid_period");
     long from = (long) periods.get(0).get("from");
     long to = (long) periods.get(periods.size() - 1).get("to");
     // 先由 AssetsHolder 筛选仪表；每个指标读取一次年度／月度序列，避免每个周期重复授权与查库。
-    return rows(mappings, FacilityAssetType.facilityMapping, "id", projectId)
+    return rowsInProjects(mappings, FacilityAssetType.facilityMapping, "id", projectIds)
       .flatMapMany(Flux::fromIterable)
       .filter(mapping -> level.equals(mapping.getMeterLevel()))
       .filter(mapping -> energyType == null || energyType.equals(mapping.getEnergyType()))
-      .concatMap(mapping -> Flux.fromIterable(mapping.getMetrics())
+      .flatMapSequential(mapping -> Flux.fromIterable(mapping.getMetrics())
         .filter(metric -> Set.of("counter", "increment").contains(metric.getKind()) &&
           (metric.getPropertyId().equals(mapping.getUsagePropertyId()) ||
             (mapping.getUsagePropertyId() == null && mapping.getMetrics().stream()
               .filter(value -> Set.of("counter", "increment").contains(value.getKind())).count() == 1)))
-        .concatMap(metric -> readings.seriesFor(mapping, metric.getPropertyId(), from, to)
+        .concatMap(metric -> readings.seriesForVisibleMapping(mapping, metric.getPropertyId(), from, to)
           .map(source -> periods.stream().map(window -> EnergyMath.usage(source,
             (long) window.get("from"), (long) window.get("to"), mapping.getStaleAfterSeconds())).toList())
           // 保留既有单周期五万读数的上限；长区间超过上限时按原周期有界读取。
@@ -309,8 +339,9 @@ public class FacilityReports {
               ? Flux.fromIterable(periods).concatMap(window -> readings.usageFor(mapping,
                   metric.getPropertyId(), (long) window.get("from"), (long) window.get("to"))).collectList()
               : Mono.error(error))
-          .doOnNext(usages -> {
-            for (int i = 0; i < periods.size(); i++) {
+          .map(usages -> {
+            var rows = new ArrayList<Map<String, Object>>();
+            for (var usage : usages) {
               var meter = new LinkedHashMap<String, Object>();
               meter.put("deviceId", mapping.getDeviceId());
               meter.put("projectId", mapping.getProjectId());
@@ -318,12 +349,19 @@ public class FacilityReports {
               meter.put("energyType", mapping.getEnergyType());
               meter.put("unit", metric.getUnit());
               meter.put("propertyId", metric.getPropertyId());
-              meter.put("usage", usages.get(i));
-              @SuppressWarnings("unchecked")
-              var meters = (List<Map<String, Object>>) periods.get(i).get("meters");
-              meters.add(meter);
+              meter.put("usage", usage);
+              rows.add(meter);
             }
-          })))
+            return rows;
+          })), 4, 1)
+      // 顺序消费并行计算结果，避免并发修改各周期的仪表列表。
+      .doOnNext(rows -> {
+        for (int i = 0; i < periods.size(); i++) {
+          @SuppressWarnings("unchecked")
+          var meters = (List<Map<String, Object>>) periods.get(i).get("meters");
+          meters.add(rows.get(i));
+        }
+      })
       .then(Mono.just(periods));
   }
 
@@ -344,9 +382,9 @@ public class FacilityReports {
       row.put("to", Math.min(to, end.atStartOfDay(zone).toInstant().toEpochMilli()));
       row.put("meters", new ArrayList<Map<String, Object>>()); windows.add(row); date = end;
     }
-    return Mono.zip(energy(projectId, from, to, level, energyType),
-      energy(projectId, from - (to - from), from, level, energyType),
-      meterPeriods(projectId, level, energyType, windows))
+    return Mono.zip(energy(projectList(projectId), from, to, level, energyType),
+      energy(projectList(projectId), from - (to - from), from, level, energyType),
+      meterPeriods(projectList(projectId), level, energyType, windows))
       .map(data -> FacilityReportEnergyMath.analysis(data.getT1(), data.getT2(), data.getT3(), energyType, from, to));
   }
 
@@ -355,7 +393,7 @@ public class FacilityReports {
     require(Set.of("water", "electricity", "gas").contains(energyType), "invalid_period");
     query.setPageSize(Math.min(200, Math.max(1, query.getPageSize())));
     query.setPageIndex(Math.max(0, query.getPageIndex()));
-    return energy(projectId, from, to, level, energyType).map(source -> {
+    return energy(projectList(projectId), from, to, level, energyType).map(source -> {
       var meters = source.stream().filter(m -> deviceId == null || deviceId.equals(m.get("deviceId")))
         .sorted(Comparator.comparing(m -> Objects.toString(m.get("name"), ""))).toList();
       int start = (int) Math.min(meters.size(), (long) query.getPageIndex() * query.getPageSize());

@@ -39,7 +39,7 @@ class FacilityPeriodReportTest {
       row.setStatus("accepted"); row.setObservedTime(first + i * 86400000L); row.setCreateTime(row.getObservedTime());
       row.setValue(BigDecimal.valueOf(i * 2)); row.setMeterEpoch(0L); row.setMappingVersion(0L); source.add(row);
     }
-    when(readings.seriesFor(eq(mapping), eq("total"), anyLong(), anyLong())).thenReturn(Mono.just(source));
+    when(readings.seriesForVisibleMapping(eq(mapping), eq("total"), anyLong(), anyLong())).thenReturn(Mono.just(source));
     var result = reports.periods("project", "day", 2026, 11, "master").block();
     assertEquals(30, result.size());
     for (var period : result) {
@@ -48,9 +48,9 @@ class FacilityPeriodReportTest {
       var usage = (EnergyMath.Usage) meters.get(0).get("usage");
       assertEquals(0, BigDecimal.valueOf(2).compareTo(usage.value())); assertTrue(usage.complete());
     }
-    verify(readings, times(1)).seriesFor(mapping, "total", first, first + 30 * 86400000L);
+    verify(readings, times(1)).seriesForVisibleMapping(mapping, "total", first, first + 30 * 86400000L);
     // Full-range overflow must retain the existing per-period capacity instead of rejecting a valid month.
-    when(readings.seriesFor(eq(mapping), eq("total"), anyLong(), anyLong()))
+    when(readings.seriesForVisibleMapping(eq(mapping), eq("total"), anyLong(), anyLong()))
       .thenReturn(Mono.error(new BusinessException("error.facility.too_many", 400)));
     when(readings.usageFor(eq(mapping), eq("total"), anyLong(), anyLong())).thenAnswer(call ->
       Mono.just(EnergyMath.usage(source, call.getArgument(2), call.getArgument(3), 90000)));

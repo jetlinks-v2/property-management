@@ -23,32 +23,40 @@ public class FacilityReportController {
   @GetMapping("/overview")
   @QueryAction
   public Mono<Map<String, Object>> overview(
-    @RequestParam(required = false) String projectId
+    @RequestParam(required = false) String projectId,
+    @RequestParam(required = false) List<String> projectIds
   ) {
-    return reports.overview(projectId);
+    return reports.overviewProjects(selectedProjects(projectId, projectIds));
   }
 
   @GetMapping("/energy")
   @QueryAction
   public Mono<List<Map<String, Object>>> energy(
     @RequestParam(required = false) String projectId,
+    @RequestParam(required = false) List<String> projectIds,
     @RequestParam long from,
     @RequestParam long to,
     @RequestParam(defaultValue = "master") String level
   ) {
-    return reports.energy(projectId, from, to, level);
+    return reports.energyProjects(selectedProjects(projectId, projectIds), from, to, level);
   }
 
   @GetMapping("/periods")
   @QueryAction
   public Mono<List<Map<String, Object>>> periods(
     @RequestParam(required = false) String projectId,
+    @RequestParam(required = false) List<String> projectIds,
     @RequestParam String period,
     @RequestParam int year,
     @RequestParam(defaultValue = "1") int month,
     @RequestParam(defaultValue = "master") String level
   ) {
-    return reports.periods(projectId, period, year, month, level);
+    return reports.periodsProjects(selectedProjects(projectId, projectIds), period, year, month, level);
+  }
+
+  private static List<String> selectedProjects(String projectId, List<String> projectIds) {
+    if (projectIds != null && !projectIds.isEmpty()) return projectIds;
+    return projectId == null || projectId.isBlank() ? List.of() : List.of(projectId);
   }
 
   @GetMapping("/operations")

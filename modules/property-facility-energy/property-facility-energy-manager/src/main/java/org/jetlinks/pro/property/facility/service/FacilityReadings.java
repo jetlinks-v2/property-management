@@ -384,7 +384,6 @@ public class FacilityReadings {
     long to
   ) {
     require(from < to && to - from <= 366L * 86400000, "invalid_period");
-    String deviceId = mapping.getDeviceId();
     return records
       .read(
         mappings,
@@ -393,51 +392,69 @@ public class FacilityReadings {
         CrudAssetPermission.read
       )
       .then(scope.current())
-      .flatMap(c -> {
-        var query = readings
-          .createQuery()
-          .where("tenantId", c.tenantId())
-          .and("applicationId", c.applicationId())
-          .and("projectId", mapping.getProjectId())
-          .and("deviceId", deviceId)
-          .and("propertyId", property)
-          .and("status", "accepted")
-          .gte("observedTime", from)
-          .lte("observedTime", to)
-          .orderBy(
-            org.hswebframework.ezorm.rdb.operator.dml.query.SortOrder.asc(
-              "observedTime"
-            )
-          )
-          .fetch()
-          .take(50001)
-          .collectList()
-          .doOnNext(rows -> require(rows.size() <= 50000, "too_many"));
-        var previous = readings
-          .createQuery()
-          .where("tenantId", c.tenantId())
-          .and("applicationId", c.applicationId())
-          .and("projectId", mapping.getProjectId())
-          .and("deviceId", deviceId)
-          .and("propertyId", property)
-          .and("status", "accepted")
-          .lt("observedTime", from)
-          .orderBy(
-            org.hswebframework.ezorm.rdb.operator.dml.query.SortOrder.desc(
-              "observedTime"
-            )
-          )
-          .fetchOne();
-        return Mono.zip(
-          query,
-          previous.map(Optional::of).defaultIfEmpty(Optional.empty())
-        ).map(t -> {
-          var list = new ArrayList<ReadingEntity>();
-          t.getT2().ifPresent(list::add);
-          list.addAll(t.getT1());
-          return list;
-        });
-      });
+      .flatMap(c -> seriesForScope(mapping, property, from, to, c.tenantId(), c.applicationId()));
+  }
+
+  /** 仅供本包报表消费 scope.query 已授权的仪表快照；不接受外部传入的未授权配置。 */
+  Mono<EnergyMath.Usage> usageForVisibleMapping(MappingEntity mapping, String property, long from, long to) {
+    require(from < to && to - from <= 366L * 86400000, "invalid_period");
+    return seriesForVisibleMapping(mapping, property, from, to)
+      .map(rows -> EnergyMath.usage(rows, from, to, mapping.getStaleAfterSeconds()));
+  }
+
+  /** 与 usageForVisibleMapping 共用已授权仪表边界，不重复逐表读取配置与权限。 */
+  Mono<List<ReadingEntity>> seriesForVisibleMapping(MappingEntity mapping, String property, long from, long to) {
+    require(from < to && to - from <= 366L * 86400000, "invalid_period");
+    return seriesForScope(mapping, property, from, to, mapping.getTenantId(), mapping.getApplicationId());
+  }
+
+  private Mono<List<ReadingEntity>> seriesForScope(MappingEntity mapping, String property,
+    long from, long to, String tenantId, String applicationId) {
+    var query = readings
+      .createQuery()
+      .select("deviceId", "propertyId", "status", "value", "observedTime", "createTime", "metricKind", "meterEpoch", "mappingVersion")
+      .where("tenantId", tenantId)
+      .and("applicationId", applicationId)
+      .and("projectId", mapping.getProjectId())
+      .and("deviceId", mapping.getDeviceId())
+      .and("propertyId", property)
+      .and("status", "accepted")
+      .gte("observedTime", from)
+      .lte("observedTime", to)
+      .orderBy(
+        org.hswebframework.ezorm.rdb.operator.dml.query.SortOrder.asc(
+          "observedTime"
+        )
+      )
+      .fetch()
+      .take(50001)
+      .collectList()
+      .doOnNext(rows -> require(rows.size() <= 50000, "too_many"));
+    var previous = readings
+      .createQuery()
+      .select("deviceId", "propertyId", "status", "value", "observedTime", "createTime", "metricKind", "meterEpoch", "mappingVersion")
+      .where("tenantId", tenantId)
+      .and("applicationId", applicationId)
+      .and("projectId", mapping.getProjectId())
+      .and("deviceId", mapping.getDeviceId())
+      .and("propertyId", property)
+      .and("status", "accepted")
+      .lt("observedTime", from)
+      .orderBy(
+        org.hswebframework.ezorm.rdb.operator.dml.query.SortOrder.desc(
+          "observedTime"
+        )
+      )
+      .fetchOne();
+    return Mono.zip(
+      query,
+      previous.map(Optional::of).defaultIfEmpty(Optional.empty())
+    ).map(t -> {
+      var list = new ArrayList<ReadingEntity>();
+      t.getT2().ifPresent(list::add);
+      list.addAll(t.getT1());
+      return list;
+    });
   }
 
   public Mono<Long> anomalies(

@@ -66,6 +66,18 @@ class FacilityReportMathTest {
     assertEquals(BigDecimal.ZERO, FacilityReportEnergyMath.total(List.of(zero), "kWh").get("value"));
   }
 
+  @Test
+  @SuppressWarnings("unchecked")
+  void currentPeriodAverageExcludesFutureDaysAndFuturePeriodHasNoAverage() {
+    long now = System.currentTimeMillis(), day = 86400000L;
+    var row = meter("one", "kWh", "120", false, 20);
+    var result = FacilityReportEnergyMath.analysis(List.of(row), List.of(), List.of(), "electricity", now - 10 * day, now + 20 * day);
+    var summary = (Map<String, Object>) result.get("summary");
+    assertEquals(12.0, ((BigDecimal) summary.get("dailyAverage")).doubleValue(), 0.001);
+    result = FacilityReportEnergyMath.analysis(List.of(row), List.of(), List.of(), "electricity", now + day, now + 2 * day);
+    assertNull(((Map<String, Object>) result.get("summary")).get("dailyAverage"));
+  }
+
   private static TaskEntity task(String state, long deadline, Long completed) {
     var task = new TaskEntity(); task.setState(state); task.setScheduledTime(FROM); task.setDeadline(deadline); task.setCompletedTime(completed); return task;
   }

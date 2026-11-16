@@ -33,7 +33,9 @@ final class FacilityReportEnergyMath {
     boolean comparable = keys.equals(previous.stream().map(FacilityReportEnergyMath::key).sorted().toList()) &&
       Boolean.TRUE.equals(summary.get("complete")) && Boolean.TRUE.equals(baseline.get("complete")) && base != null && base.signum() != 0;
     summary.put("previousRate", comparable ? value.subtract(base).multiply(BigDecimal.valueOf(100)).divide(base, 2, RoundingMode.HALF_UP) : null);
-    summary.put("dailyAverage", value == null ? null : value.multiply(BigDecimal.valueOf(86400000)).divide(BigDecimal.valueOf(to - from), 3, RoundingMode.HALF_UP));
+    // 当期按已经经过的时间折算日均；历史完整周期维持原口径，未来周期不显示日均。
+    long elapsed = Math.min(to, System.currentTimeMillis()) - from;
+    summary.put("dailyAverage", value == null || elapsed <= 0 ? null : value.multiply(BigDecimal.valueOf(86400000)).divide(BigDecimal.valueOf(elapsed), 3, RoundingMode.HALF_UP));
     summary.put("unit", unit); summary.put("energyType", energyType);
     var trend = periods.stream().map(window -> {
       var row = total((List<Map<String, Object>>) window.get("meters"), unit); row.put("date", window.get("period"));

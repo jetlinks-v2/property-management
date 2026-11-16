@@ -33,15 +33,22 @@ public class FacilityMeterBilling {
       .switchIfEmpty(Mono.error(new org.hswebframework.web.exception.NotFoundException()));
   }
   public Mono<PagerResult<MeterBillEntity>> reviews(String project,String state,QueryParamEntity input) {
+    return records.assertProject(project,CrudAssetPermission.read)
+      .then(reviewsProjects(List.of(project),state,input));
+  }
+
+  /** 跨项目审核列表仍以设备资产授权取交集，不借项目筛选扩大可见账单。 */
+  public Mono<PagerResult<MeterBillEntity>> reviewsProjects(List<String> projects,String state,QueryParamEntity input) {
+    FacilityScope.require(projects != null && projects.size() <= 200,"too_many");
     FacilityScope.require(Set.of("pending","approved","rejected","error","all").contains(state),"invalid_state");
     var q=(input==null?new QueryParamEntity():input).clone(); q.setPaging(true); q.setForUpdate(false);
+    q.setPageSize(Math.min(200,Math.max(1,q.getPageSize())));
     q.toNestQuery(n -> {
-      n.and("projectId",project);
+      if(!projects.isEmpty()) n.in("projectId",projects);
       if("error".equals(state)) n.in("state",List.of("error","failed","processing"));
       else if(!"all".equals(state)) n.and("state",state);
     });
-    return records.assertProject(project,CrudAssetPermission.read)
-      .then(scope.query(q,FacilityAssetType.facilityDevice,"deviceId")).flatMap(bills::queryPager);
+    return scope.query(q,FacilityAssetType.facilityDevice,"deviceId").flatMap(bills::queryPager);
   }
   public Mono<MeterBillEntity> detail(String id) { return drafts.read(id,CrudAssetPermission.read); }
   public Mono<PagerResult<ProcessEntity>> logs(String id,QueryParamEntity input) {

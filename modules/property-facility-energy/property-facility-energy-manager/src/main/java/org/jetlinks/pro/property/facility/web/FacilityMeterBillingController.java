@@ -33,6 +33,10 @@ public class FacilityMeterBillingController {
   @PostMapping("/{projectId}/reviews/_query") @QueryAction
   public Mono<PagerResult<MeterBillEntity>> query(@PathVariable String projectId,@RequestParam(defaultValue="pending") String state,
     @RequestBody QueryParamEntity input) { return billing.reviews(projectId,state,input); }
+  @PostMapping("/reviews/_query") @QueryAction
+  public Mono<PagerResult<MeterBillEntity>> queryProjects(
+    @RequestParam(required=false) List<String> projectIds,@RequestParam(defaultValue="pending") String state,
+    @RequestBody QueryParamEntity input) { return billing.reviewsProjects(projectIds == null ? List.of() : projectIds,state,input); }
   @GetMapping("/reviews/{id}") @ResourceAction(id="detail",name="查看计费明细")
   public Mono<MeterBillEntity> detail(@PathVariable String id) { return billing.detail(id); }
   @PostMapping("/reviews/{id}/logs/_query") @ResourceAction(id="detail",name="查看计费明细")
