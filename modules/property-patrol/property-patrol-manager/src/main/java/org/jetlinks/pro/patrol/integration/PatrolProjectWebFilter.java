@@ -24,6 +24,7 @@ public class PatrolProjectWebFilter implements WebFilter {
     private final PropertyDirectory directory;
     private final PatrolScope scope;
     private final PatrolAssetSupplier assets;
+    private final org.jetlinks.pro.assets.AssetBindManager bindings;
 
     @Override public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         if (!exchange.getRequest().getPath().value().startsWith("/park/patrol/")) return chain.filter(exchange);
@@ -38,7 +39,7 @@ public class PatrolProjectWebFilter implements WebFilter {
                 .flatMap(data -> {
                     var context = new PatrolProjectContext(data.getT1(),
                             exchange.getRequest().getHeaders().getFirst(PatrolProjectContext.HEADER), data.getT2().key());
-                    var holder = new PatrolProjectAssetsHolder(data.getT3(), context, assets);
+                    var holder = new PatrolProjectAssetsHolder(data.getT3(), context, assets, bindings);
                     // 历史归属入口仅处理未归属数据，沿用原资产授权；业务接口没有此豁免。
                     boolean migration = exchange.getRequest().getPath().value().startsWith("/park/patrol/project-migrations/");
                     return chain.filter(exchange).contextWrite(ctx -> ctx.put(PatrolProjectContext.class, context)

@@ -33,6 +33,7 @@ public class PatrolProjectMigrationController {
     private final PatrolTaskService tasks;
     private final PatrolTaskGroupService groups;
     private final PatrolExecutionService executions;
+    private final org.jetlinks.pro.assets.AssetBindManager bindings;
 
     public record Query(PatrolAssetType type, QueryParamEntity query) { }
     public record Assignment(PatrolAssetType type, List<String> ids, String projectId) { }
@@ -79,6 +80,10 @@ public class PatrolProjectMigrationController {
                                     .where("id", id).and("scopeKey", context.scopeKey()).isNull("projectId")
                                     .execute().flatMap(changed -> changed == 1 ? Mono.empty()
                                             : Mono.error(new BusinessException("error.patrol.project_immutable", 400))))
+                            // 显式项目归属同样补齐组织绑定，使用已校验的项目与原平台 holder。
+                            .then(AssetsHolder.currentReactive().flatMap(holder ->
+                                    new org.jetlinks.pro.patrol.asset.PatrolProjectAssetsHolder(holder, context, supplier, bindings)
+                                            .bindAssets(type, List.of(id))))
                             .then(type == PatrolAssetType.patrolPlan ? backfillFacts(id, project, row.getProjectName()) : Mono.empty())
                             .thenReturn(row);
                 }));

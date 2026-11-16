@@ -140,7 +140,7 @@ class PatrolMobileServiceTest {
         record.setTaskId("other-task"); record.setProjectId("other-project"); fixture.executions.insert(record).block();
         var holder = new org.jetlinks.pro.patrol.asset.PatrolProjectAssetsHolder(
                 new org.jetlinks.pro.tenant.assets.TenantAssetsHolder(java.util.Set.of("north"), mock(org.jetlinks.pro.assets.AssetManager.class)),
-                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"), fixture.supplier);
+                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"), fixture.supplier, org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetBindManager.class));
         var identity = fixture.identity.put(org.jetlinks.pro.assets.AssetsHolder.class, holder);
         assertEquals(List.of("task"), mobile.tasks(LocalDate.now()).contextWrite(identity).block().stream()
                 .map(row -> row.task().getId()).toList());
