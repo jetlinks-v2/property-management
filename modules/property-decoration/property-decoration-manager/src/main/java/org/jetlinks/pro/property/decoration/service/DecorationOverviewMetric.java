@@ -32,7 +32,8 @@ public enum DecorationOverviewMetric {
         return switch (this) {
             case totalHouses -> condition(LATEST);
             case decorating -> condition(ACTIVE + " and " + RECEIVED + " and a.start_time<=? and a.status in "
-                + "('pending_permit','permit_issued','first_acceptance_waiting','first_acceptance_in_progress','first_acceptance_failed')", asOf);
+                + "('pending_permit','permit_issued','first_acceptance_waiting','first_acceptance_in_progress','first_acceptance_failed',"
+                + "'pending_second_acceptance','second_acceptance_waiting','second_acceptance_in_progress','second_acceptance_failed','acceptance_passed')", asOf);
             case monthNew -> condition("a.create_time>=? and a.create_time<?", start, next);
             case monthEnded -> condition("a.refund_status=2 and a.actual_end_time>=? and a.actual_end_time<?", start, next);
             case pendingReview -> condition(ACTIVE + " and a.status='reviewing'");

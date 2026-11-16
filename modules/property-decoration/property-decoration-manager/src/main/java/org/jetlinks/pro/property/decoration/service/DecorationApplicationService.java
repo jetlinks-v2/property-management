@@ -123,10 +123,10 @@ public class DecorationApplicationService {
                 details.setDecorationType(input.getDecorationType()); details.setHouseType(home.houseType()); details.setStartTime(input.getStartTime()); details.setCompletionTime(input.getCompletionTime());
                 details.setNoticesAccepted(input.isNoticesAccepted()); details.setSignatureFiles(input.getSignatureFiles());
                 // 业主端冻结逐项答案与整表签字图；服务台保留线下签字后导入的原文件。
-                details.setSelfInspectionItems(mine ? DecorationSelfInspectionForm.snapshot(input) : List.of());
+                details.setSelfInspectionItems(mine ? DecorationSelfInspectionForm.snapshot(input, tuple.getT2().getContent().getSelfInspections()) : List.of());
                 if (mine) details.setSelfInspectionStatus(DecorationSelfInspectionForm.status(details.getSelfInspectionItems()));
                 details.setAgreement(tuple.getT1().getContent().getAgreement());
-                details.setSignedDocuments(DecorationDocuments.freeze(input, home, tuple.getT2().getContent().getMaterials(), ctx, mine));
+                details.setSignedDocuments(DecorationDocuments.freeze(input, home, tuple.getT2().getContent().getMaterials(), tuple.getT2().getContent().getSelfInspections(), ctx, mine));
                 details.setSelfInspectionFiles(mine ? details.getSignedDocuments().stream()
                     .filter(document -> "selfInspection".equals(document.getKind())).map(DecorationModels.SignedDocument::getDocumentFileId).toList() : List.copyOf(input.getSelfInspectionFiles()));
                 details.setSelfInspectionReview(DecorationRules.selfInspectionReview(details.getSelfInspectionFiles()));

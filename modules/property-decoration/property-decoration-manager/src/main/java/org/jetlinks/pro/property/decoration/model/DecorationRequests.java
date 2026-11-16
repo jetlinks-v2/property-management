@@ -30,8 +30,8 @@ public final class DecorationRequests {
         @NotNull private Long startTime;
         @NotNull private Long completionTime;
         @AssertTrue private boolean noticesAccepted;
-        /** 固定九项逐项确认；总结果和归档图片从答案及签署文书生成。 */
-        @NotNull @Valid @Size(max=9) private List<DecorationModels.SelfInspectionItem> selfInspectionItems = new ArrayList<>();
+        /** 按当前资料配置冻结的逐项确认；总结果和归档图片从答案及签署文书生成。 */
+        @NotNull @Valid @Size(max=200) private List<DecorationModels.SelfInspectionItem> selfInspectionItems = new ArrayList<>();
         @Size(max=2000) private String selfInspectionRemark;
         @Min(0) @Max(1) private int selfInspectionStatus;
         @Size(max=20) private List<String> selfInspectionFiles = new ArrayList<>();

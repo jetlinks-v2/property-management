@@ -15,10 +15,13 @@ public final class DecorationDocuments {
     private DecorationDocuments() {}
     public static final Map<String,String> TITLES = Map.of("selfInspection","装修自检表");
     static String content(String kind, DecorationRequests.Create input, PropertyHouseholdInfo home, DecorationModels.Agreement agreement) {
-        return content(kind, input, home, List.of());
+        return content(kind, input, home, List.of(), List.of());
     }
     static String content(String kind, DecorationRequests.Create input, PropertyHouseholdInfo home, List<DecorationModels.MaterialDefinition> definitions) {
-        if ("selfInspection".equals(kind)) return DecorationSelfInspectionForm.content(input, home);
+        return content(kind, input, home, definitions, List.of());
+    }
+    static String content(String kind, DecorationRequests.Create input, PropertyHouseholdInfo home, List<DecorationModels.MaterialDefinition> definitions, List<DecorationModels.SelfInspectionDefinition> selfInspections) {
+        if ("selfInspection".equals(kind)) return DecorationSelfInspectionForm.content(input, home, selfInspections);
         var definition = definitions.stream().filter(item -> item.isEnabled() && "material".equals(item.getKind()) && kind.equals("material:" + item.getId())).findFirst();
         require(definition.isPresent(), "invalid_signed_document");
         var item = definition.orElseThrow();
@@ -29,7 +32,7 @@ public final class DecorationDocuments {
             "负责人证件：" + empty(input.getManagerCertificate()), "资料模板：" + empty(item.getTemplateFileId()));
     }
     static List<DecorationModels.SignedDocument> freeze(DecorationRequests.Create input, PropertyHouseholdInfo home,
-            List<DecorationModels.MaterialDefinition> definitions, DecorationScope.Context ctx, boolean mine) {
+            List<DecorationModels.MaterialDefinition> definitions, List<DecorationModels.SelfInspectionDefinition> selfInspections, DecorationScope.Context ctx, boolean mine) {
         var documents = input.getSignedDocuments();
         if (!mine) {
             require(!input.getSelfInspectionFiles().isEmpty(), "self_inspection_file_required");
@@ -45,7 +48,7 @@ public final class DecorationDocuments {
         require(documents.stream().map(DecorationRequests.SignedDocument::getDocumentFileId).distinct().count() == documents.size(), "invalid_signed_document");
         long time = System.currentTimeMillis();
         return documents.stream().map(document -> {
-            String content = content(document.getKind(), input, home, definitions);
+            String content = content(document.getKind(), input, home, definitions, selfInspections);
             require(content.equals(document.getContent()) && document.getSignatureFileId() != null && !document.getSignatureFileId().isBlank()
                 && document.getDocumentFileId() != null && !document.getDocumentFileId().isBlank()
                 && !document.getDocumentFileId().equals(document.getSignatureFileId()), "invalid_signed_document");
@@ -60,6 +63,10 @@ public final class DecorationDocuments {
             result.setSignedBy(ctx.userId()); result.setSignedName(ctx.userName()); result.setSignedTime(time);
             return result;
         }).toList();
+    }
+    static List<DecorationModels.SignedDocument> freeze(DecorationRequests.Create input, PropertyHouseholdInfo home,
+            List<DecorationModels.MaterialDefinition> definitions, DecorationScope.Context ctx, boolean mine) {
+        return freeze(input, home, definitions, List.of(), ctx, mine);
     }
     private static String empty(String text) { return text == null ? "" : text; }
     private static String date(Long time) { return Instant.ofEpochMilli(time).atZone(java.time.ZoneId.of("Asia/Shanghai")).toLocalDate().toString(); }

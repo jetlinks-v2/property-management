@@ -60,13 +60,13 @@ PC/H5 源码和业务对照文档位于相邻装修管理前端仓库。此目�
 
 PC在线审核使用 `POST /decoration/applications/_query?view=review`，只查询列表标量字段及服务端汇总的 `materialReview`、`drawingReview`，不选择或返回完整 `details`、`permit`、`inspectionPlan`。审核状态沿用自检归入资料、驳回优先、空选填项不占待审的口径；分页、筛选、应用/租户/项目范围与原申请查询一致。打开详情后再请求 `GET /decoration/applications/{id}`；原查询、H5和导出契约保留。
 
-新增申请区分办理来源：PC服务台要求上传业主线下填写签字的自检文件，保存于 `details.selfInspectionFiles`，不提交在线签署文书或结构化答案。业主H5自检沿用原系统九项：电话线、闭路线、宽带线路、可视分机、门磁、其他、厨房排水、主卫排水、生活阳台排水，提交 `selfInspectionItems[{key,value}]`；键不可缺失、重复或替换，汇总结果由服务端计算。H5签署 `selfInspection` 完整自检图片，正文绑定权威房屋、业主、电话和九项答案，不依赖施工信息。H5每份已上传的启用装修资料还必须具有 `material:<itemId>` 签署，正文绑定申请信息与配置模板回执，资料文件必须等于对应完整签字图片；图纸独立上传，不要求签字。PC资料按启用配置上传线下签字文件，无固定四文书要求。两端必填资料/图纸校验、私有回执归属、资产范围和附件消费仍在原创建事务内，无新表或权限。历史正文、说明和附件只读保留，不回填重画，新表单需前后端配套更新。
+新增申请区分办理来源：PC服务台要求上传业主线下填写签字的自检文件，保存于 `details.selfInspectionFiles`，不提交在线签署文书或结构化答案。自检分类与自检项按项目、房屋类型及装修类型配置，原系统九项作为默认内容。保存装修资料配置时，PC按启用分类和自检项生成并上传最新空白PDF，以 `content.selfInspectionTemplateFileId` 绑定本次配置；生成或上传失败不提交配置。表单配置接口返回该文件ID，PC申请直接下载已保存版本，不在下载时生成，也不回落旧静态模板。模板附件沿用同应用、租户、项目及 `template` 用途校验。业主H5按同份配置展示自检内容，提交 `selfInspectionItems[{key,value}]`；键不可缺失、重复或替换，汇总结果由服务端计算。H5签署 `selfInspection` 完整自检图片，正文绑定权威房屋、业主、电话和配置中的逐项答案，不依赖施工信息。H5每份已上传的启用装修资料还必须具有 `material:<itemId>` 签署，正文绑定申请信息与配置模板回执，资料文件必须等于对应完整签字图片；图纸独立上传，不要求签字。PC资料按启用配置上传线下签字文件，无固定四文书要求。两端必填资料/图纸校验、私有回执归属、资产范围和附件消费仍在原创建事务内，无新表或权限。历史正文、说明和附件只读保留，不回填重画，新表单需前后端配套更新。
 
 自检与签署契约由 `DecorationSelfInspectionForm`、`DecorationDocuments` 和申请创建事务共同约束，相关7项规则及持久化测试通过，装修独立服务打包通过。在线资料签署正文按配置项及模板冻结，PC导入与H5在线签署不得混用。
 
 装前自检使用独立 `pd_self_inspection` 记录。与旧系统一致，业主申请创建时在同一事务生成一份自检快照，PC 不单独新增；请求重试不重复生成。PC `/decoration/self-inspections` 提供分页、详情和带版本的逻辑删除，沿用 `decoration-application` 的查询/删除权限及统一项目、应用、租户范围。删除仅隐藏自检记录，不改装修申请、办理轨迹或附件归属；附件回执仍绑定原申请，不用自检 ID 冒充装修 ID。现有申请历史不自动回填为自检记录。验证覆盖业主创建/重试/回滚、PC 不生成、跨范围拒绝、分页筛选、删除后快照与附件保留。新增接口沿用框架HTTP/SQL观测，创建沿用聚合追踪；无常驻状态，不新增MBean。
 
-概况工作台使用 `POST /decoration/applications/_dashboard`，返回统计时刻 `asOf`、`metrics[{key,group,value}]` 及近12个月的 `trend[{month,created,ended}]`。趋势以北京时间自然月分别聚合创建时间、退费完成申请的实际结束时间，半开区间且缺月补零，前端可切换近6个月／近一年；与摘要在同一授权SQL中计算。顶部显示累计装修房屋（项目+房屋去重，最新申请承接明细）、当前在装、本月新增申请、本月退费完成装修；月份采用上海自然月。在装要求已领证、已开工、首验未通过且尚未结束，不以退款状态推断施工状态。统一在线审核只计一次，另列驳回待补资料。物业待办、业主待办、备案到期和延期待换领均按涉及申请数去重，同一申请可出现在不同指标中。新打印不等于领取；延期后按当前版本领取状态判断。单条聚合 SQL 复用 DecorationScope，任务关联同时校验应用、租户、项目和装修ID。
+概况工作台使用 `POST /decoration/applications/_dashboard`，返回统计时刻 `asOf`、`metrics[{key,group,value}]` 及近12个月的 `trend[{month,created,ended}]`。趋势以北京时间自然月分别聚合创建时间、退费完成申请的实际结束时间，半开区间且缺月补零，前端可切换近6个月／近一年；与摘要在同一授权SQL中计算。顶部显示累计装修房屋（项目+房屋去重，最新申请承接明细）、当前在装、本月新增申请、本月退费完成装修；月份采用上海自然月。在装要求当前版本备案证明已打印或下载且已开工；首次验收、二次验收以及二验通过待退款阶段继续计入，二验通过且退款成功后不再计入。统一在线审核只计一次，另列驳回待补资料。物业待办、业主待办、备案到期和延期待换领均按涉及申请数去重，同一申请可出现在不同指标中。新打印不等于领取；延期后按当前版本领取状态判断。单条聚合 SQL 复用 DecorationScope，任务关联同时校验应用、租户、项目和装修ID。
 
 指标明细使用原 `POST /decoration/applications/_query`，追加 `id` 条件 `termType: decoration-overview-metric`，值为 `{metric,asOf}`；固定指标表达式、绑定日期参数、框架分页和原有权限边界保持一致，不全量加载申请详情。旧 `_statistics` 报告继续保留兼容已发布前端，其旧流程分布、退款划分和环比口径不再用于新版概况。
 
@@ -92,8 +92,21 @@ PC在线审核使用 `POST /decoration/applications/_query?view=review`，只查
 
 ## 流程提醒与通知
 
-装修步骤完成后的下一步提示由PC/H5共用流程规则派生，全部资料及保证金通过后才提示缴费。真实状态转移与办理轨迹在同一事务写入 `pd_notification`：申请提交/驳回、全部审核通过、缴费完成、备案完成/延期、首验和二验申请/指派/结果、退款成功。轨迹ID同时作为通知ID，幂等重试不重复入队，业务回滚不产生通知；不回填历史轨迹。收件人只取申请业主账号，不开放任意收件人或批量广播。
+装修步骤完成后的下一步提示由PC/H5共用流程规则派生，全部资料及保证金通过后才提示缴费。真实状态转移与办理轨迹在同一事务写入 `pd_notification`：申请提交/驳回、全部审核通过、缴费完成、备案完成/延期、首验和二验申请/指派/结果、退款成功。轨迹ID同时作为通知ID，幂等重试不重复入队，业务回滚不产生通知；不回填历史轨迹。流程提醒收件人取申请业主账号；任务通知另按可信指派及复核角色展开，不开放任意收件人或批量广播。
 
 `POST /decoration/mobile/applications/_notifications/_query` 沿用业主query权限，叠加本人、可信应用/租户及基础档案已授权项目范围，只返回通知展示字段。点击链接仍由本人详情接口核验资格；通知不授予申请访问权限。链接只带应用、装修ID和步骤，不携带凭据、手机号或附件地址。
 
 后台复用 `notify-core` 的 `SendUserNotificationCommand`，固定 `inside-mail` 通道及 `property-decoration` 通知源；不修改公共服务。默认每5秒读取最多50条已提交记录，CAS租约避免并发发送，20秒命令超时及有上限退避重试；失败不回滚业务，不把入队显示为外部送达。公共命令没有幂等收据，成功应答丢失时属于至少一次投递。`decoration.notifications.enabled=false` 可关闭站内投递，装修自有通知查询仍可使用。JMX `org.jetlinks:type=DecorationNotification,name=Delivery` 提供发送、失败与本轮候选数量；批次span `/property/decoration/notifications` 不记录隐私载荷。微信订阅消息和APP系统通知需现有通道另行接入，不用站内信代替其送达状态。
+
+
+### H5身份与员工通知
+
+`GET /decoration/mobile/identity` 在当前可信应用 Scope 下返回 `{owner,staff}`；分别要求 `decoration-owner:query` 加有效本人房屋、`decoration-task:query` 加有效员工档案。无员工档案仅关闭员工身份，公共目录故障仍传播。双身份选择与切换属于装修 H5，不改变认证、应用成员或租户授权。
+
+员工通知通过 `POST /decoration/tasks/mine/notifications/_query`，要求现有任务查询权限、有效员工、本人与应用/租户/项目范围；角色通知还检查当前角色。新通知记录区分 `recipientSide`、`taskId/taskVersion`、`roleId` 及可信 `dispatcherId`，历史空端别兼容为业主。角色意向不展示为个人通知。
+
+首验/二验指派同事务入队 `firstTaskAssigned/secondTaskAssigned`；巡检不通过或重发整改入队业主 `rectificationRequired`；业主提交或重提整改入队 `rectificationReview`；复核通过/驳回入队业主 `rectificationPassed/rectificationRejected`。复用既有整改状态机和按钮，不创建第二套复核记录。通知失败不回滚业务。
+
+后台以原计划指派人的实时认证和应用资产范围查询启用角色成员，再逐人核验实时应用成员、任务动作权限、有效员工、项目权限和复核角色。Scope本身不作为成员授权证明。不伪造系统管理员、不持久化token、不以业主权限枚举员工。角色事件按人生成稳定通知ID，每人独立重试，角色展开不计为已送达；任务版本、状态、指派人或复核角色变化使旧员工待办取消。角色已移除、员工失效或应用成员撤销不继续投递；目录暂时不可用保留重试。
+
+公共 `SendUserNotificationCommand` 仍使用 `inside-mail`，detail 保留 `applicationId/decorationId/step/url`，增加 `side` 及可选 `taskId`。业主整改为 `step=rectification`；员工任务为 `step=task`。APP宿主应将定位字段转换到装修模块路由，业务详情仍重新鉴权。系统推送及真机送达另由APP通道接入，不能用站内入队/发送状态代替。
