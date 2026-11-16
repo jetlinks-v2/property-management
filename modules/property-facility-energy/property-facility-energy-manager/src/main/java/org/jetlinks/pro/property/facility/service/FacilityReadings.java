@@ -392,7 +392,7 @@ public class FacilityReadings {
         CrudAssetPermission.read
       )
       .then(scope.current())
-      .flatMap(c -> seriesForScope(mapping, property, from, to, c.tenantId(), c.applicationId()));
+      .flatMap(c -> seriesForScope(mapping, property, from, to, c.tenantId(), c.applicationId(), false));
   }
 
   /** 仅供本包报表消费 scope.query 已授权的仪表快照；不接受外部传入的未授权配置。 */
@@ -405,14 +405,12 @@ public class FacilityReadings {
   /** 与 usageForVisibleMapping 共用已授权仪表边界，不重复逐表读取配置与权限。 */
   Mono<List<ReadingEntity>> seriesForVisibleMapping(MappingEntity mapping, String property, long from, long to) {
     require(from < to && to - from <= 366L * 86400000, "invalid_period");
-    return seriesForScope(mapping, property, from, to, mapping.getTenantId(), mapping.getApplicationId());
+    return seriesForScope(mapping, property, from, to, mapping.getTenantId(), mapping.getApplicationId(), true);
   }
 
   private Mono<List<ReadingEntity>> seriesForScope(MappingEntity mapping, String property,
-    long from, long to, String tenantId, String applicationId) {
-    var query = readings
-      .createQuery()
-      .select("deviceId", "propertyId", "status", "value", "observedTime", "createTime", "metricKind", "meterEpoch", "mappingVersion")
+    long from, long to, String tenantId, String applicationId, boolean compact) {
+    var query = readingQuery(compact)
       .where("tenantId", tenantId)
       .and("applicationId", applicationId)
       .and("projectId", mapping.getProjectId())
@@ -430,9 +428,7 @@ public class FacilityReadings {
       .take(50001)
       .collectList()
       .doOnNext(rows -> require(rows.size() <= 50000, "too_many"));
-    var previous = readings
-      .createQuery()
-      .select("deviceId", "propertyId", "status", "value", "observedTime", "createTime", "metricKind", "meterEpoch", "mappingVersion")
+    var previous = readingQuery(compact)
       .where("tenantId", tenantId)
       .and("applicationId", applicationId)
       .and("projectId", mapping.getProjectId())
@@ -455,6 +451,13 @@ public class FacilityReadings {
       list.addAll(t.getT1());
       return list;
     });
+  }
+
+  private org.hswebframework.ezorm.rdb.mapping.ReactiveQuery<ReadingEntity> readingQuery(boolean compact) {
+    var query = readings.createQuery();
+    // 只有报表需要数值投影；状态预警、补录与公开序列接口仍返回完整读数。
+    if (compact) query.select("id", "deviceId", "propertyId", "status", "value", "observedTime", "createTime", "metricKind", "meterEpoch", "mappingVersion");
+    return query;
   }
 
   public Mono<Long> anomalies(
