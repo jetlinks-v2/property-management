@@ -12,6 +12,7 @@ import org.hswebframework.web.api.crud.entity.PagerResult;
 import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.authorization.Authentication;
 import org.hswebframework.web.crud.query.QueryHelper;
+import org.hswebframework.web.i18n.LocaleUtils;
 import org.jetlinks.core.trace.MonoTracer;
 import org.jetlinks.pro.assets.crud.CrudAssetPermission;
 import org.jetlinks.pro.property.finance.calculation.ChargeFormulaParser;
@@ -546,8 +547,9 @@ public class StandardService {
                                                                                     VariableDefinition
                                                                                             ::enabled)
                                                                             .collectList()
-                                                                            .map(
-                                                                                    definitions -> {
+                                                                            // 数据库回调可能切换线程，选项翻译必须使用订阅者的请求语言。
+                                                                            .flatMap(
+                                                                                    definitions -> LocaleUtils.doInReactive(() -> {
                                                                                         var result =
                                                                                                 StandardOptions
                                                                                                         .enums();
@@ -561,7 +563,7 @@ public class StandardService {
                                                                                                 "variables",
                                                                                                 definitions);
                                                                                         return result;
-                                                                                    })));
+                                                                                    }))));
                         });
     }
 

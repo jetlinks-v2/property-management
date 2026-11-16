@@ -102,6 +102,7 @@ class FacilityPersistenceTest {
       .block();
     logs.createDelete().where("targetId", "test").execute().block();
     reset(scope, directory, files, notifier);
+    when(scope.projectExists(anyString())).thenReturn(Mono.just(true));
     reset(faultExecution);
     when(faultExecution.asUser(any(), anyString(), any())).thenAnswer(call -> {
       String user = call.getArgument(1);
@@ -841,6 +842,9 @@ class FacilityPersistenceTest {
 
   @Test
   void movingProjectEndsBindingsPausesMappingsAndKeepsHistory() {
+    when(scope.projectExists("old-project")).thenReturn(Mono.just(false));
+    doReturn(Mono.error(new org.hswebframework.web.authorization.exception.AccessDenyException()))
+      .when(records).assertProject(eq("old-project"), any());
     var c = new FacilityContext("tenant", "app", "admin", "Admin");
     var device = FacilityScope.initialize(new DeviceEntity(), c);
     device.setId("moving-device");

@@ -68,6 +68,12 @@ public class FacilityScope {
     return new TenantAssetsHolder(List.of(c.tenantId()), manager);
   }
 
+  /** 原始资产元数据只判断旧组织是否存在；不能用权限过滤后的项目选项推断删除。 */
+  Mono<Boolean> projectExists(String id) {
+    return manager.getAssets(AssetType.of("organization"), List.of(id))
+      .any(asset -> id.equals(asset.getId()));
+  }
+
   public Mono<QueryParamEntity> query(
     QueryParamEntity query,
     AssetType type,

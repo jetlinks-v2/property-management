@@ -32,6 +32,12 @@ class MeterConfigurationPersistenceTest {
   @Autowired FacilityDevices allocation;
   @Autowired FacilityMappings mappingManager;
   @Autowired FacilityCloud cloud;
+  @Autowired FacilityAllocations catalog;
+  @Autowired DeviceAllocationStore catalogStore;
+  @Autowired FacilitySync synchronizer;
+  @Autowired FacilitySyncDevice syncDevice;
+  @Autowired FaultStore faults;
+  @Autowired MappingStore mappings;
   String project;
   @BeforeEach void setup() {
     project=UUID.randomUUID().toString();
@@ -130,6 +136,82 @@ class MeterConfigurationPersistenceTest {
     StepVerifier.create(mappingManager.save(input)).expectError().verify(WAIT);
     assertEquals("gas",devices.findById(device.getId()).block(WAIT).getMeterType());
   }
-  @Import({FacilityPersistenceTest.Config.class,MeterChargeStore.class,FacilityMeterCharges.class})
+  @Test void sourceCatalogDoesNotCreateAssetsAndConfiguredSyncRoutesTwoProjectsAndPreservesBillingConfiguration() {
+    var other = sourceProject(UUID.randomUUID().toString());
+    var sourceOne = sourceDevice(UUID.randomUUID().toString());
+    var sourceTwo = sourceDevice(UUID.randomUUID().toString());
+    var current = sourceProject(project);
+    when(directory.projects()).thenReturn(Flux.just(current, other));
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(sourceOne, sourceTwo)));
+    assertEquals(2, catalog.refresh().block(WAIT));
+    String first = FacilityRecords.stableId("tenant", "app", sourceOne.getId());
+    String second = FacilityRecords.stableId("tenant", "app", sourceTwo.getId());
+    assertNull(devices.findById(first).block(WAIT)); assertNull(devices.findById(second).block(WAIT));
+    assertNull(catalogStore.findById(first).block(WAIT).getProjectId());
+    // One stale row rolls back the first allocation in the same transaction.
+    StepVerifier.create(catalog.save(List.of(new FacilityDevices.Allocation(first,0L,project,null,null,false),
+      new FacilityDevices.Allocation(second,9L,other.getId(),null,null,false)))).expectError().verify(WAIT);
+    assertNull(catalogStore.findById(first).block(WAIT).getProjectId());
+    catalog.save(List.of(new FacilityDevices.Allocation(first,0L,project,null,null,false),
+      new FacilityDevices.Allocation(second,0L,other.getId(),null,null,false))).block(WAIT);
+    assertNull(devices.findById(first).block(WAIT));
+    // 配置目录必须仍展示全部授权来源，项目下拉仅提供目标候选或显式查询条件。
+    when(directory.projects()).thenReturn(Flux.just(current));
+    assertEquals(2, catalog.query(new org.hswebframework.web.api.crud.entity.QueryParamEntity()).block(WAIT).getTotal());
+    when(directory.projects()).thenReturn(Flux.just(current, other));
+    var summary = synchronizer.synchronizeConfigured().block(WAIT);
+    assertEquals(2, summary.inserted()); assertEquals(2, summary.projects()); assertEquals(0, summary.failed());
+    assertEquals(other.getId(), devices.findById(second).block(WAIT).getProjectId());
+    var asset = devices.findById(first).block(WAIT);
+    asset.setName("本地水表名称"); asset.setSpaceId("room"); asset.setMeterType("water");
+    asset.setAllocationSince(123L); asset.setEnergyEnabled(true); devices.save(asset).block(WAIT);
+    var mapping = FacilityScope.initialize(new MappingEntity(),new FacilityContext("tenant","app","worker","测试员"));
+    mapping.setDeviceId(first); mapping.setEnabled(true); mapping.setProjectId(project); mapping.setId(UUID.randomUUID().toString());
+    mappings.insert(mapping).block(WAIT);
+    var again = synchronizer.synchronizeConfigured().block(WAIT);
+    assertEquals(0,again.inserted()); assertEquals(2,again.updated()); assertEquals(0,again.failed());
+    var retained = devices.findById(first).block(WAIT);
+    assertEquals("本地水表名称",retained.getName()); assertEquals("room",retained.getSpaceId());
+    assertEquals("water",retained.getMeterType()); assertTrue(retained.getEnergyEnabled()); assertEquals(123L,retained.getAllocationSince());
+    assertTrue(mappings.findById(mapping.getId()).block(WAIT).getEnabled());
+    var stale = catalogStore.findById(first).block(WAIT);
+    catalog.save(List.of(new FacilityDevices.Allocation(first,stale.getVersion(),project,null,null,false))).block(WAIT);
+    StepVerifier.create(syncDevice.apply(stale,sourceOne,List.of(project),System.currentTimeMillis())).expectError().verify(WAIT);
+    assertEquals("room",devices.findById(first).block(WAIT).getSpaceId());
+  }
+  @Test void activeFaultBlocksProjectMoveButCancelledFaultAllowsItAndHistoryKeepsOriginalProject() {
+    var source = sourceDevice(UUID.randomUUID().toString());
+    var next = sourceProject(UUID.randomUUID().toString());
+    var current = sourceProject(project);
+    when(directory.projects()).thenReturn(Flux.just(current,next));
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(source)));
+    catalog.refresh().block(WAIT);
+    String id = FacilityRecords.stableId("tenant","app",source.getId());
+    catalog.save(List.of(new FacilityDevices.Allocation(id,0L,project,null,null,false))).block(WAIT);
+    synchronizer.synchronizeConfigured().block(WAIT);
+    var fault = FacilityScope.initialize(new FaultEntity(),new FacilityContext("tenant","app","worker","测试员"));
+    fault.setId(UUID.randomUUID().toString()); fault.setDeviceId(id); fault.setProjectId(project); fault.setState("processing");
+    faults.insert(fault).block(WAIT);
+    var config = catalogStore.findById(id).block(WAIT);
+    var move = new FacilityDevices.Allocation(id,config.getVersion(),next.getId(),null,null,false);
+    StepVerifier.create(catalog.save(List.of(move))).expectError().verify(WAIT);
+    assertEquals(project,catalogStore.findById(id).block(WAIT).getProjectId());
+    fault.setState("cancelled"); faults.save(fault).block(WAIT);
+    catalog.save(List.of(move)).block(WAIT);
+    assertEquals(project,devices.findById(id).block(WAIT).getProjectId());
+    synchronizer.synchronizeConfigured().block(WAIT);
+    assertEquals(next.getId(),devices.findById(id).block(WAIT).getProjectId());
+    assertEquals(project,faults.findById(fault.getId()).block(WAIT).getProjectId());
+  }
+  private PropertyOrganizationInfo sourceProject(String id) {
+    var p = new PropertyOrganizationInfo(); p.setId(id); p.setName(id);
+    when(directory.project(id)).thenReturn(Mono.just(p)); return p;
+  }
+  private org.jetlinks.sdk.server.device.DeviceInfo sourceDevice(String id) {
+    var row = new org.jetlinks.sdk.server.device.DeviceInfo(); row.setId(id); row.setName(id); return row;
+  }
+  @Import({FacilityPersistenceTest.Config.class,MeterChargeStore.class,FacilityMeterCharges.class,
+    FacilityAllocations.class,DeviceAllocationStore.class,FacilitySync.class,FacilitySyncWriter.class,
+    FacilitySyncDevice.class,FacilityDeviceMoves.class,MeterBillStore.class})
   static class Config {}
 }

@@ -126,6 +126,37 @@ class StandardPersistenceTest {
     }
 
     @Test
+    void optionsFollowRequestLocaleAfterDatabaseSchedulerSwitch() {
+        var messages = new org.springframework.context.support.ResourceBundleMessageSource();
+        messages.setBasename("i18n/property-finance-manager/messages");
+        messages.setDefaultEncoding("UTF-8");
+        messages.setFallbackToSystemLocale(false);
+        org.hswebframework.web.i18n.MessageSourceInitializer.init(messages);
+        for (var locale : List.of(Locale.SIMPLIFIED_CHINESE, Locale.ENGLISH, Locale.SIMPLIFIED_CHINESE)) {
+            boolean chinese = locale.getLanguage().equals("zh");
+            StepVerifier.create(service.options(projectId)
+                            .subscribeOn(reactor.core.scheduler.Schedulers.parallel())
+                            .contextWrite(auth().put(Locale.class, locale)))
+                    .assertNext(options -> {
+                        assertOptionText(options, "billingMethods", "AREA", chinese ? "面积" : "Area");
+                        assertOptionText(options, "billingMethods", "WATER", chinese ? "用水量" : "Water usage");
+                        assertOptionText(options, "billingMethods", "ELECTRICITY", chinese ? "用电量" : "Electricity usage");
+                        assertOptionText(options, "billingMethods", "GAS", chinese ? "用气量" : "Gas usage");
+                        assertOptionText(options, "chargeRoundTypes", 2, chinese ? "分" : "Two decimal places");
+                        assertOptionText(options, "mantissas", 0, chinese ? "四舍五入" : "Half up");
+                        assertOptionText(options, "settlementMethods", "MONTHLY", chinese ? "按月" : "Monthly");
+                        assertEquals(subjectId, ((List<SubjectEntity>) options.get("subjects")).get(0).getId());
+                    }).verifyComplete();
+        }
+    }
+
+    private static void assertOptionText(Map<String, Object> options, String group, Object value, String text) {
+        var rows = (List<Map<String, Object>>) options.get(group);
+        assertEquals(text, rows.stream().filter(row -> value.equals(row.get("value")))
+                .findFirst().orElseThrow().get("text"), group + "/" + value);
+    }
+
+    @Test
     void saveFreezesTaxVariablesAndLargePriceWithoutRemoteSyncGate() {
         var variable =
                 variables

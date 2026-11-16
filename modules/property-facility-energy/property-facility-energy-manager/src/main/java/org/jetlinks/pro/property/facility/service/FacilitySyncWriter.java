@@ -1,126 +1,49 @@
 package org.jetlinks.pro.property.facility.service;
 
-import static org.jetlinks.pro.property.facility.service.FacilityScope.require;
-
 import java.util.*;
 import lombok.RequiredArgsConstructor;
-import org.hswebframework.web.api.crud.entity.QueryParamEntity;
-import org.jetlinks.pro.assets.crud.CrudAssetPermission;
-import org.jetlinks.pro.property.facility.asset.FacilityAssetType;
 import org.jetlinks.pro.property.facility.entity.*;
 import org.jetlinks.sdk.server.device.DeviceInfo;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.*;
 
-/** 完整来源快照的事务写入owner；远程查询完成后才进入写事务。 */
+/** 只按已保存的业务归属同步；来源组织和页面筛选均不能决定目标项目。 */
 @Service
 @RequiredArgsConstructor
 public class FacilitySyncWriter {
-
-  private final FacilityScope scope;
-  private final DeviceStore devices;
+  private final FacilityAllocations allocations;
+  private final FacilitySyncDevice devices;
   private final JobStore jobs;
-  private final FacilityRecords records;
 
-  @Transactional
-  public Mono<JobEntity> apply(
-    JobEntity job,
-    List<FacilitySync.Source> sources,
-    long now
-  ) {
+  public Mono<JobEntity> apply(JobEntity job, List<FacilitySync.Source> sources, long now) {
     Map<String, DeviceInfo> byId = new LinkedHashMap<>();
     Map<String, List<String>> candidates = new HashMap<>();
-    Map<String, String> names = new HashMap<>();
-    for (var source : sources) {
-      names.put(source.id(), source.name());
-      for (var d : source.devices()) {
-        byId.put(d.getId(), d);
-        candidates
-          .computeIfAbsent(d.getId(), k -> new ArrayList<>())
-          .add(source.id());
-      }
+    for (var source : sources) for (var device : source.devices()) {
+      byId.put(device.getId(), device);
+      var projects = candidates.computeIfAbsent(device.getId(), k -> new ArrayList<>());
+      if (source.id() != null) projects.add(source.id());
     }
-    var selected = byId
-      .values()
-      .stream()
-      .filter(d -> candidates.get(d.getId()).contains(job.getProjectId()))
-      .toList();
-    return scope.current().flatMap(c ->
-      Flux.fromIterable(selected)
-        .concatMap(d -> {
-          String id = FacilityRecords.stableId(
-            c.tenantId(),
-            c.applicationId(),
-            d.getId()
-          );
-          return devices
-            .findById(id)
-            .flatMap(row -> {
-              long version = row.getVersion();
-              FacilitySync.mergeSource(row, d, candidates.get(d.getId()), now);
-              return records.update(devices, row, version);
-            })
-            .switchIfEmpty(
-              Mono.defer(() -> {
-                var row = FacilityScope.initialize(new DeviceEntity(), c);
-                row.setId(id);
-                row.setCloudDeviceId(d.getId());
-                row.setProjectId(job.getProjectId());
-                row.setOrganizationId(job.getProjectId());
-                row.setProjectName(names.get(job.getProjectId()));
-                row.setName(d.getName());
-                FacilitySync.mergeSource(
-                  row,
-                  d,
-                  candidates.get(d.getId()),
-                  now
-                );
-                return records.insert(
-                  devices,
-                  row,
-                  FacilityAssetType.facilityDevice
-                );
-              })
-            );
-        })
-        .thenMany(
-          devices
-            .createQuery()
-            .where("tenantId", c.tenantId())
-            .and("applicationId", c.applicationId())
-            .and("projectId", job.getProjectId())
-            .and("deleted", false)
-            .fetch()
-        )
-        .concatMap(row -> {
-          if (Boolean.TRUE.equals(row.getProjectConfirmed()) && candidates.containsKey(row.getCloudDeviceId())) return Mono.empty();
-          if (
-            selected
-              .stream()
-              .anyMatch(d -> d.getId().equals(row.getCloudDeviceId()))
-          ) return Mono.empty();
-          // Loss of source visibility is not proof of deletion: retain record and pause, require explicit reconciliation.
-          long v = row.getVersion();
-          row.setSyncState("source-unavailable");
-          row.setCandidateProjectIds(
-            candidates.getOrDefault(row.getCloudDeviceId(), List.of())
-          );
-          return records.update(devices, row, v).then();
-        })
-        .then(
-          jobs
-            .createUpdate()
-            .set("state", "success")
-            .set("lastSuccessTime", now)
-            .set("processed", selected.size())
-            .set("nextRunTime", now + 3600000)
-            .set("leaseUntil", 0L)
-            .setNull("failureReason")
-            .where("id", job.getId())
-            .execute()
-        )
-        .then(jobs.findById(job.getId()))
-    );
+    int[] counts = new int[3];
+    var failures = new ArrayList<String>();
+    return allocations.configured(job.getProjectId()).concatMap(allocation -> Mono.defer(() -> {
+      DeviceInfo source = byId.get(allocation.getCloudDeviceId());
+      FacilityScope.require(source != null, "sync_source_unavailable");
+      return devices.apply(allocation, source, candidates.get(source.getId()), now)
+        .doOnNext(result -> counts[result.created() ? 0 : 1]++).then();
+    }).onErrorResume(error -> {
+      counts[2]++;
+      // Missing visibility is not deletion. Retain the asset and report its failed attempt without disabling billing.
+      failures.add(allocation.getName() + ": " + FacilityMeterDrafts.error(error));
+      return Mono.empty();
+    })).then(Mono.defer(() -> {
+      String reason = String.join("; ", failures);
+      var update = jobs.createUpdate().set("state", counts[2] == 0 ? "success" : "failed")
+        .set("processed", counts[0] + counts[1]).set("inserted", counts[0]).set("updated", counts[1]).set("failed", counts[2])
+        .set("nextRunTime", now + (counts[2] == 0 ? 3600000 : 60000)).set("leaseUntil", 0L);
+      if (counts[2] == 0) update.set("lastSuccessTime", now).setNull("failureReason");
+      else update.set("failureReason", reason.substring(0, Math.min(3900, reason.length())));
+      return update.where("id", job.getId()).and("lastStartTime", now).execute()
+        .then(jobs.findById(job.getId()));
+    }));
   }
 }

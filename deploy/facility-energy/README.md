@@ -11,7 +11,7 @@
 - 后端：`services/property-facility-energy-service/target/application.jar`，Java 17，服务身份 `property-facility-energy-service`。
 - HTTP 8508、集群 18508、RPC 28508；数据库默认 `property_facility_energy`。集群地址需能被 Cloud 和基础服务双向访问。
 - PC：相邻 `saas-runtime-ui/modules/facility-energy-ui/dist`，模块名 `facility-energy-ui`。
-- H5：该模块的 `mobile-h5/dist`，容器示例绑定本机 9502，由正式 HTTPS 入口代理访问。摄像头、离线资源缓存需安全上下文。
+- H5／APP：在 `cloud.jetlinks.mobile/modules/facility-energy-wx-ui` 维护，由统一移动端外壳构建和部署，参见该仓库 `docker-h5/`。摄像头、离线资源缓存需安全上下文。
 - 必须先具备 Cloud SaaS 网关／运行端、设备公开 SDK、通知服务、共享物业基础服务、PostgreSQL、Redis，以及可信的 RPC token、JWT 公钥和集群发现连接。
 - Cloud 设备所属进程须装配 `property-facility-energy-cloud-support` 及 `property-facility-energy-core`，扫描 `org.jetlinks.pro.property.facility.cloud`。它公开 `propertyFacilityCloudService:history/QueryFacilityPropertyPage`，在原认证、租户与资产上下文中调用本地 Cloud 公开设备命令，不读取设备表。当前 Cloud 2.20 的历史查询命令工厂生成的子类 ID 与处理器 ID 不一致，不能直接经原 RPC 工厂查询；此适配器显式保留公开命令 ID、分页条件与响应类型。适配器不得打入设施业务服务。
 - Cloud 通知所有者须包含 `notify-manager` 的应用范围上下文修复：`NotificationCommandSupport.assertTargetAssetPermission` 使用当前 `AssetsHolder.currentReactive()` 校验收件人，保留已激活应用范围，不从单独的认证对象重建。修复不绕过收件人资产校验，也不增加发送人权限；部署到通知命令实际所在进程。未包含此修复的旧包可能返回 `asset_scope_context_missing`，仅更新设施服务无法解决。
@@ -24,16 +24,15 @@
 mvn -pl :property-facility-energy-service,:property-facility-energy-cloud-support,:property-facility-energy-file-support -am verify
 mvn -pl :property-base-service,:property-file-support -am verify
 cp deploy/facility-energy/.env.example deploy/facility-energy/.env
-cp deploy/facility-energy/h5-config.example.json deploy/facility-energy/h5-config.json
 ```
 
-填写 `.env` 的数据库、Redis、RPC、JWT、集群外部地址、Cloud Docker 网络和网关地址；启用短信时再配置短信回执密钥。示例文件没有可用凭据；`.env`、实际 H5 配置和 `application-local.yml` 已忽略。不要将本机密钥放进共享 YAML、制品或日志。
+填写 `.env` 的数据库、Redis、RPC、JWT、集群外部地址、Cloud Docker 网络和网关地址；启用短信时再配置短信回执密钥。示例文件没有可用凭据；`.env` 和 `application-local.yml` 已忽略。不要将本机密钥放进共享 YAML、制品或日志。
 
 `DB_POOL_MAX_SIZE` 默认 16，必须纳入共享 PostgreSQL 的连接预算：所有服务连接池上限总和及运维、恢复预留不能超过数据库 `max_connections`。容量验收同时观察连接数和获取连接超时，不能只增加单服务连接池上限。
 
 ```sh
-docker compose -f deploy/facility-energy/compose.yml --profile web config --quiet
-docker compose -f deploy/facility-energy/compose.yml --profile web up -d --build
+docker compose -f deploy/facility-energy/compose.yml config --quiet
+docker compose -f deploy/facility-energy/compose.yml up -d --build
 ```
 
 不使用 Docker 时，给独立进程注入对应环境变量，或使用本机配置：
@@ -48,18 +47,15 @@ docker compose -f deploy/facility-energy/compose.yml --profile web up -d --build
 
 设施前端源码对应 `git@github.com:jetlinks-v2/device-energy.git`，在运行端工作区挂载为 `modules/facility-energy-ui`，与 `modules/cloud-patrol-ui` 一起编入 Cloud 宿主。右上角语言选择复用 Cloud；页面在宿主路由中原生渲染。开发服务器验证不能替代以下生产包部署。
 
-在相邻 `saas-runtime-ui` 构建宿主与 H5：
+在运行端前端仓库构建 PC 宿主：
 
 ```sh
 pnpm -F jetlinks-web-core build -- --module-name cloud-patrol-ui,facility-energy-ui,property-base-ui
-cd modules/facility-energy-ui/mobile-h5
-npm ci
-npm run build
 ```
 
 宿主输出为运行端根目录 `dist`（多个模块共同构建）；单模块构建的输出为模块自己的 `dist`。正式宿主还需要其他业务模块时，将它们加入同一构建白名单。不要替换正在使用的其他应用宿主或以空白模块覆盖已有菜单。
 
-可以用 `compose.web-artifacts.yml` 部署已构建的只读制品：设置 `CLOUD_WEB_DIST` 为宿主 `dist` 的绝对路径，`H5_WEB_DIST` 为 `mobile-h5/dist` 的绝对路径，填写 `h5-config.json`，并指定 `API_UPSTREAM` 和 `CLOUD_NETWORK`。可用 `WEB_IMAGE` 指定已核验的 Nginx 镜像，`PC_PORT`、`H5_ARTIFACT_PORT` 分别配置监听端口，默认 9508／9509。
+可以用 `compose.web-artifacts.yml` 部署已构建的只读 PC 制品：设置 `CLOUD_WEB_DIST` 为宿主 `dist` 的绝对路径，并指定 `API_UPSTREAM` 和 `CLOUD_NETWORK`。可用 `WEB_IMAGE` 指定已核验的 Nginx 镜像，`PC_PORT` 配置监听端口，默认 9508。移动端改用统一仓库的 `docker-h5/`，不再从 PC 模块构建独立 H5。
 
 ```sh
 docker compose --env-file deploy/facility-energy/.env \
@@ -118,13 +114,13 @@ PC 可见菜单均有真实组件。公共五类基础页面由 `property-base-u
 
 ## H5 与离线
 
-填写 `h5-config.json` 的 `applicationId`、Cloud 项目编码 `tenantDomain`、物业联系电话，`apiBase` 保持同源 `/api`。同一 H5 根据实际权限展示员工或业主入口。可以独立登录，也可由配置在 `allowedHostOrigins` 的受信宿主通过 nonce 握手交接会话；不要把 token 放在 URL。
+员工移动端由 `cloud.jetlinks.mobile` 外壳提供登录与已授权应用上下文，设施模块不再维护独立登录或 `h5-config.json`。按任务、故障和消息权限显示入口，不提供旧业主仪表页面；不要把 token 放在 URL。
 
 员工必须在线接单、下载任务和指导书附件后离线执行。缓存按后端确认的租户、应用与用户隔离，照片先保存在本地，联网补传后用稳定提交键提交。任务已撤回、转派或权限失效时保留本地内容并显示冲突，不能覆盖服务器状态。离线身份有有效期，退出后不能复用旧登录权限。
 
 PC 与 H5 的附件必须通过设施专用文件入口上传，项目来自当前档案、作业标准或下载的任务。文件所有者在持久化前写入租户、应用和项目范围，保留平台上传类型权限；响应只返回文件 ID、名称和大小。通用文件地址、缩略图及压缩下载均在文件 SPI 校验当前应用、租户与 AssetsHolder 组织读权限，知道文件 ID 或访问密钥也不能跨范围读取。业务关联附件时另校验文件属于该业务项目；未受保护的通用上传文件不能直接关联设施记录。其他应用没有设施标记的文件沿用平台行为。首次上线应使用专用入口生成验收附件，不能沿用调试时公开上传的文件。
 
-业主只查询本人有效绑定期间的仪表和消息。历史绑定可查询本人的历史区间；当前业主不能查看前业主记录。H5 提供物业联系方式和缴费提醒，不提供支付。
+客户房屋账单、余额及缴费记录由统一移动端的收费模块提供。
 
 ## 短信与回执
 

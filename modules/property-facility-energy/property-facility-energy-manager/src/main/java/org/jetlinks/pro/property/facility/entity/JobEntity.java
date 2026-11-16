@@ -52,6 +52,15 @@ public class JobEntity extends FacilityEntity {
   @Column
   private Integer processed;
 
+  @Column
+  private Integer inserted;
+
+  @Column
+  private Integer updated;
+
+  @Column
+  private Integer failed;
+
   @Column(length = 4000)
   private String failureReason;
 

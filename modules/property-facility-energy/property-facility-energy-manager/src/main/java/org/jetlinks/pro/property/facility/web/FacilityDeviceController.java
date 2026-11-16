@@ -65,13 +65,19 @@ public class FacilityDeviceController {
     @PathVariable String id,
     @RequestBody ProjectChoice choice
   ) {
-    return devices.confirmProject(id, choice.projectId(), choice.version());
+    return Mono.error(new org.hswebframework.web.exception.ValidationException("error.facility.allocation_use_configuration"));
   }
 
   @PostMapping("/sync/{projectId}")
   @SaveAction
   public Mono<JobEntity> synchronize(@PathVariable String projectId) {
     return sync.synchronize(projectId);
+  }
+
+  @PostMapping("/sync/_configured")
+  @SaveAction
+  public Mono<FacilitySync.SyncSummary> synchronizeConfigured() {
+    return sync.synchronizeConfigured();
   }
 
   @PostMapping("/sync")

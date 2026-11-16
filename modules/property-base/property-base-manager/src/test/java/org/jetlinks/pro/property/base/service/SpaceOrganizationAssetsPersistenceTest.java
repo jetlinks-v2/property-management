@@ -110,6 +110,36 @@ class SpaceOrganizationAssetsPersistenceTest {
     }
 
     @Test
+    void consumerBoundaryUsesCurrentHolderAndRevokesMovedSpaces() {
+        synchronize(snapshot);
+        var boundary = new org.jetlinks.pro.property.base.command.PropertySpaceCommandSupport(
+                new ArchiveScope(organizations, roots, spaces), mock(PropertySpaceService.class));
+        var command = new org.jetlinks.pro.property.base.command.QueryPropertySpaceOrganizationBindingsCommand();
+        command.setSpaceIds(List.of("room", "root-b"));
+        command.setOrganizationIds(List.of("project-a", "project-b"));
+        var holder = new DynamicCustomDimensionAssetsHolder(mock(AssetManager.class), manager,
+                "space", type -> Flux.just(SimpleDimension.of(
+                        "project-a", "甲", OrgDimensionType.org, Map.of())));
+        var auth = new SimpleAuthentication();
+        var user = new SimpleUser(); user.setId("staff-a");
+        auth.setUser(user); auth.setDimensions(List.of()); auth.setPermissions(List.of());
+        var context = reactor.util.context.Context.of(
+                org.hswebframework.web.authorization.Authentication.class, auth,
+                AssetsHolder.class, holder);
+        var rows = boundary.queryOrganizationBindings(command).contextWrite(context).collectList().block(WAIT);
+        assertEquals(List.of("room"), rows.stream().map(
+                org.jetlinks.pro.property.base.space.PropertySpaceOrganizationBinding::spaceId).toList());
+        assertEquals(CrudAssetPermission.all_mask, rows.get(0).permission());
+        ownership.change("root-a", "project-a", "project-b").block(WAIT);
+        assertTrue(boundary.queryOrganizationBindings(command).contextWrite(context).collectList().block(WAIT).isEmpty());
+        StepVerifier.create(boundary.queryOrganizationBindings(command))
+                .expectError().verify();
+        command.setSpaceIds(java.util.Collections.nCopies(20001, "room"));
+        StepVerifier.create(boundary.queryOrganizationBindings(command).contextWrite(context))
+                .expectError().verify();
+    }
+
+    @Test
     void upgradeSqlUsesFrameworkIdsAndIsSafeToRepeat() throws Exception {
         String sql =
                 java.nio.file.Files.readString(

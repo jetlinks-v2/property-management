@@ -29,6 +29,15 @@ class FacilitySyncTest {
   }
 
   @Test
+  void confirmedBusinessProjectDoesNotRequireCloudOrganizationBinding() {
+    var row = new DeviceEntity(); row.setProjectId("business"); row.setProjectConfirmed(true);
+    var source = new DeviceInfo(); source.setId("cloud");
+    FacilitySync.mergeSource(row, source, List.of(), 123);
+    assertEquals("active", row.getSyncState()); assertEquals("business", row.getProjectId());
+    assertEquals(List.of(), row.getCandidateProjectIds());
+  }
+
+  @Test
   void ambiguousAndMigratedProjectsRequireConfirmation() {
     var row = new DeviceEntity();
     row.setProjectId("p");
