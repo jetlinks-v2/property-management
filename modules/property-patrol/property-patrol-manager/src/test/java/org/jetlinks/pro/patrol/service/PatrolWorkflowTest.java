@@ -1447,7 +1447,7 @@ class PatrolWorkflowTest {
         // 生产项目权限使用嵌套计划子查询，不能与执行所属任务子查询复用 SQL 别名。
         var holder = new org.jetlinks.pro.patrol.asset.PatrolProjectAssetsHolder(
                 new TenantAssetsHolder(Set.of("north"), mock(AssetManager.class)),
-                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"), supplier);
+                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"), supplier, org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetBindManager.class));
         var nested = service.aggregate(range).contextWrite(identity.put(org.jetlinks.pro.assets.AssetsHolder.class, holder)).block();
         assertEquals(1, nested.report().total().executed());
         assertEquals("alice", nested.report().people().get(0).userId());
@@ -2665,7 +2665,7 @@ class PatrolWorkflowTest {
                 org.mockito.ArgumentMatchers.eq(false), org.mockito.ArgumentMatchers.any(org.jetlinks.pro.assets.AssetPermission[].class)))
                 .thenAnswer(call -> Flux.fromIterable(call.getArgument(1)));
         var holder = new org.jetlinks.pro.patrol.asset.PatrolProjectAssetsHolder(original,
-                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"), supplier);
+                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"), supplier, org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetBindManager.class));
         var query = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
                 .is("id", "point").or().is("id", hidden.getId()).or().is("id", organizationOwned.getId())
                 .orderByAsc("id").getParam();
@@ -2685,11 +2685,11 @@ class PatrolWorkflowTest {
         var onlyOrganization = new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo();
         onlyOrganization.setId("project"); onlyOrganization.setName("No project label");
         var organizationOnly = new org.jetlinks.pro.patrol.asset.PatrolProjectAssetsHolder(original,
-                new org.jetlinks.pro.patrol.integration.PatrolProjectContext(List.of(onlyOrganization), null, "app"), supplier);
+                new org.jetlinks.pro.patrol.integration.PatrolProjectContext(List.of(onlyOrganization), null, "app"), supplier, org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetBindManager.class));
         assertEquals(0, points.count(organizationOnly.injectQuery(new org.hswebframework.web.api.crud.entity.QueryParamEntity(),
                 "patrolPoint", "id").block()).block());
         var empty = new org.jetlinks.pro.patrol.asset.PatrolProjectAssetsHolder(original,
-                new org.jetlinks.pro.patrol.integration.PatrolProjectContext(List.of(), null, "app"), supplier);
+                new org.jetlinks.pro.patrol.integration.PatrolProjectContext(List.of(), null, "app"), supplier, org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetBindManager.class));
         assertEquals(0, points.count(empty.injectQuery(new org.hswebframework.web.api.crud.entity.QueryParamEntity(),
                 "patrolPoint", "id").block()).block());
     }
@@ -2712,7 +2712,7 @@ class PatrolWorkflowTest {
         var manager = mock(AssetManager.class);
         var original = new TenantAssetsHolder(Set.of("north"), manager);
         var holder = new org.jetlinks.pro.patrol.asset.PatrolProjectAssetsHolder(original,
-                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"), supplier);
+                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"), supplier, org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetBindManager.class));
         // 同项目但无资产权限、同授权但跨项目/应用的事实都不能通过调用者 OR 条件进入结果。
         var query = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
                 .is("id", "task").or("id", "denied-plan-task").or("id", "other-project-plan-task")
@@ -2854,19 +2854,27 @@ class PatrolWorkflowTest {
             var tags = new PatrolTagService(db.repository(org.jetlinks.pro.patrol.entity.PatrolTagEntity.class,
                     org.jetlinks.pro.patrol.entity.PatrolTagEntity::new));
             var controller = new org.jetlinks.pro.patrol.web.PatrolTagController(tags, categoryValidator(), null);
+            var projectSupplier = mock(PatrolAssetSupplier.class);
+            doReturn(tags).when(projectSupplier).service(org.jetlinks.pro.patrol.asset.PatrolAssetType.patrolTag);
+            var scoped = org.jetlinks.pro.assets.AssetsHolder.currentReactive().contextWrite(context).block();
+            context = context.put(org.jetlinks.pro.assets.AssetsHolder.class,
+                    new org.jetlinks.pro.patrol.asset.PatrolProjectAssetsHolder(scoped,
+                            org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"), projectSupplier, bindManager));
             var input = new org.jetlinks.pro.patrol.entity.PatrolTagEntity(); input.setName("Allowed project tag");
             var result = controller.create(input).contextWrite(context).block();
             assertEquals("project", result.getProjectId());
-            assertEquals(1, bindings.size());
+            assertEquals(2, bindings.size());
             assertEquals("business_application", bindings.get(0).getTargetType());
             assertEquals("app", bindings.get(0).getTargetId());
             assertEquals(List.of(result.getId()), bindings.get(0).getAssetIdList());
+            assertEquals("org", bindings.get(1).getTargetType());
+            assertEquals("project", bindings.get(1).getTargetId());
             var denied = new org.jetlinks.pro.patrol.entity.PatrolTagEntity();
             denied.setName("Foreign project tag"); denied.setProjectId("foreign");
             StepVerifier.create(controller.create(denied).contextWrite(context))
                     .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
             assertEquals(1, tags.createQuery().count().block());
-            assertEquals(1, bindings.size());
+            assertEquals(2, bindings.size());
         } finally { materializers.dispose(); }
     }
 
@@ -2886,8 +2894,12 @@ class PatrolWorkflowTest {
                 .thenReturn(Mono.empty());
         var assets = mock(PatrolAssetSupplier.class);
         doReturn(tags).when(assets).service(org.jetlinks.pro.patrol.asset.PatrolAssetType.patrolTag);
+        var projectBindings = mock(org.jetlinks.pro.assets.AssetBindManager.class);
+        when(projectBindings.bindAssets(any(org.reactivestreams.Publisher.class))).thenReturn(Mono.empty());
+        when(holder.bindAssets(org.mockito.ArgumentMatchers.anyString(), anyCollection())).thenReturn(Mono.empty());
         var controller = new org.jetlinks.pro.patrol.web.PatrolProjectMigrationController(assets,
-                categoryValidator(), tasks, new PatrolTaskGroupService(generationRepository, new org.hswebframework.web.crud.query.DefaultQueryHelper(db.operator()), tasks), executions);
+                categoryValidator(), tasks, new PatrolTaskGroupService(generationRepository, new org.hswebframework.web.crud.query.DefaultQueryHelper(db.operator()), tasks), executions,
+                projectBindings);
         var context = Context.of(org.hswebframework.web.authorization.Authentication.class, permissions,
                 org.jetlinks.pro.assets.AssetsHolder.class, holder,
                 org.jetlinks.pro.patrol.integration.PatrolProjectContext.class,

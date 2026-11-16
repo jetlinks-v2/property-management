@@ -72,7 +72,7 @@ public abstract class PatrolConfigController<E extends PatrolConfigEntity>
     @Transactional
     public Mono<E> create(@RequestBody @Valid E entity) {
         // 新 ID、审计和扩展字段由服务端产生；插入与平台自动应用绑定同事务。
-        // 项目权限由授权树校验，不额外跨 Scope 绑定组织，也不改变原资产授权。
+        // 项目权限由授权树校验，巡更 Holder 同时登记项目组织归属，应用与动作授权仍保留。
         entity.setId(UUID.randomUUID().toString());
         entity.setExtensions(new HashMap<>());
         return ReactiveAuthenticationHolder.get()

@@ -115,7 +115,7 @@ class PatrolRecordExportServiceTest {
         query.setIncludes(java.util.Set.of("pointName")); query.setExcludes(java.util.Set.of("id"));
         var response = AssetsHolder.currentReactive().flatMap(original -> controller.export(query)
                 .contextWrite(context -> context.put(AssetsHolder.class, new PatrolProjectAssetsHolder(
-                        original, ProjectTestContexts.project("app"), f.supplier))))
+                        original, ProjectTestContexts.project("app"), f.supplier, org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetBindManager.class)))))
                 .contextWrite(f.identity).block();
         try (var book = new XSSFWorkbook(new ByteArrayInputStream(response.getBody()))) {
             assertEquals(1, book.getSheetAt(0).getLastRowNum());

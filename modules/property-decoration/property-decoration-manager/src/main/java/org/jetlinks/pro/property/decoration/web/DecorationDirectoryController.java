@@ -35,6 +35,10 @@ public class DecorationDirectoryController {
             return gateway.query(projectId,query).switchIfEmpty(Mono.error(DecorationRules.error("charge_directory_unavailable",503)));
         });
     }
+    @GetMapping("/house-types") @QueryAction
+    public Flux<org.jetlinks.pro.property.base.dictionary.PropertyDictionaryItemInfo> houseTypes() {
+        return scope.current().thenMany(scope.dictionaryItems("house-type"));
+    }
     @GetMapping("/projects") @QueryAction
     public Flux<PropertyOrganizationInfo> projects() { return scope.current().thenMany(scope.tree()); }
     @GetMapping("/households/{projectId}") @ResourceAction(id="manage",name="管理端查询房屋关联")
@@ -55,6 +59,7 @@ public class DecorationDirectoryController {
             @RequestParam(defaultValue="true") boolean mine) {
         return scope.current().flatMap(ctx -> (mine ? Mono.empty() : scope.employee().then(Mono.fromRunnable(() -> DecorationRules.require(ctx.authentication().hasPermission("decoration-directory", "manage"), "forbidden")))).then(scope.household(projectId, spaceId, customerId, mine))
             .flatMap(home -> configurations.form(ctx, projectId, home.houseType(), decorationType)
-                .map(form -> Map.<String,Object>of("household", home, "agreement", form.agreement(), "materials", form.materials()))));
+                .map(form -> Map.<String,Object>of("household", home, "agreement", form.agreement(), "materials", form.materials(), "selfInspections", form.selfInspections(),
+                    "selfInspectionTemplateFileId", form.selfInspectionTemplateFileId()))));
     }
 }

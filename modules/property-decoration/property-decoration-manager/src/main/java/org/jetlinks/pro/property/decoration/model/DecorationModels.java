@@ -19,6 +19,15 @@ public final class DecorationModels {
         private boolean enabled = true;
         private int sort;
     }
+    @Getter @Setter public static class SelfInspectionDefinition {
+        private String id;
+        private String group;
+        private String groupTitle;
+        private String optionTitle;
+        private String name;
+        private boolean enabled = true;
+        private int sort;
+    }
     @Getter @Setter public static class Material {
         private MaterialDefinition definition;
         private List<String> fileIds = new ArrayList<>();
@@ -81,6 +90,9 @@ public final class DecorationModels {
     @Getter @Setter public static class Configuration {
         private Agreement agreement;
         private List<MaterialDefinition> materials = new ArrayList<>();
+        private List<SelfInspectionDefinition> selfInspections = new ArrayList<>();
+        /** 随资料配置保存的空白自检表PDF，使用同项目的私有模板附件。 */
+        private String selfInspectionTemplateFileId;
         private List<CheckItem> checks = new ArrayList<>();
         private List<String> eligibleNatures = new ArrayList<>();
         private Integer validityMonths;

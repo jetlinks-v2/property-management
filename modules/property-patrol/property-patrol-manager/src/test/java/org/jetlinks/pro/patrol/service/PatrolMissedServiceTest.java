@@ -75,7 +75,7 @@ class PatrolMissedServiceTest {
         other.setProjectId("other-project"); f.tasks.insert(other).block();
         var holder = new org.jetlinks.pro.patrol.asset.PatrolProjectAssetsHolder(
                 new org.jetlinks.pro.tenant.assets.TenantAssetsHolder(java.util.Set.of("north"), mock(org.jetlinks.pro.assets.AssetManager.class)),
-                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"), f.supplier);
+                org.jetlinks.pro.patrol.integration.ProjectTestContexts.project("app"), f.supplier, org.mockito.Mockito.mock(org.jetlinks.pro.assets.AssetBindManager.class));
         var identity = f.identity.put(org.jetlinks.pro.assets.AssetsHolder.class, holder);
         assertEquals(List.of("task"), missed.mine(LocalDate.now(), LocalDate.now()).contextWrite(identity).block()
                 .stream().map(PatrolMissedItemEntity::getTaskId).toList());

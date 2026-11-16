@@ -37,8 +37,28 @@ public class DecorationTaskService {
         return scope.current().flatMap(ctx -> listStatuses.fill(scope.query(query, ctx)
             .flatMap(q -> QueryHelper.queryPager(q, tasks::createQuery)),
             DecorationTaskEntity::getDecorationId, DecorationTaskEntity::setDecorationStatus)
+            .flatMap(page -> QueryHelper.transformPageResult(Mono.just(page), data -> Flux.fromIterable(data)
+                .flatMap(task -> applications.read(task.getDecorationId(), false)
+                    .map(application -> {
+                        if (missing(task.getProjectName())) task.setProjectName(application.getProjectName());
+                        if (missing(task.getNumber())) task.setNumber(application.getNumber());
+                        if (missing(task.getSpaceName())) task.setSpaceName(application.getSpaceName());
+                        if (missing(task.getOwnerName())) task.setOwnerName(application.getOwnerName());
+                        if (missing(task.getContactPhone())) task.setContactPhone(application.getContactPhone());
+                        if (missing(task.getConstructionUnit())) task.setConstructionUnit(application.getConstructionUnit());
+                        if (missing(task.getConstructionManager())) task.setConstructionManager(application.getConstructionManager());
+                        if (missing(task.getManagerPhone())) task.setManagerPhone(application.getManagerPhone());
+                        if (missing(task.getHouseType())) task.setHouseType(application.getHouseType());
+                        if (missing(task.getDecorationType())) task.setDecorationType(application.getDecorationType());
+                        if (task.getApplicationTime() == null) task.setApplicationTime(application.getCreateTime());
+                        if (task.getDecorationStartTime() == null) task.setDecorationStartTime(application.getStartTime());
+                        if (task.getCompletionTime() == null) task.setCompletionTime(application.getCompletionTime());
+                        return task;
+                    }).onErrorReturn(task))
+                .collectList()))
             .map(page -> handlingAccess(page, ctx)));
     }
+    private static boolean missing(String value) { return value == null || value.isBlank(); }
     /** 个人工作台：可信认证决定执行人/角色，个人条件与统一范围在数据库中AND后分页。 */
     public Mono<PagerResult<DecorationTaskEntity>> mine(QueryParamEntity query) {
         return scope.employee().then(scope.current()).flatMap(ctx -> scope.query(query, ctx).map(q -> {

@@ -1,6 +1,8 @@
 package org.jetlinks.pro.property.decoration.service;
 
 import lombok.RequiredArgsConstructor;
+import org.hswebframework.web.exception.BusinessException;
+import org.hswebframework.web.i18n.LocaleUtils;
 import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.api.crud.entity.PagerResult;
 import org.hswebframework.web.crud.query.QueryHelper;
@@ -36,15 +38,33 @@ public class DecorationConfigurationService {
         return scope.project(project).then(Mono.defer(() -> Mono.zip(
             findEnabled(ctx, project, "agreement", house, "", ""),
             findEnabled(ctx, project, "materials", house, type, ""))
-            .map(tuple -> new FormConfiguration(tuple.getT1().getContent().getAgreement(), tuple.getT2().getContent().getMaterials()))));
+            .map(tuple -> new FormConfiguration(tuple.getT1().getContent().getAgreement(), tuple.getT2().getContent().getMaterials(), tuple.getT2().getContent().getSelfInspections(),
+                Objects.toString(tuple.getT2().getContent().getSelfInspectionTemplateFileId(), "")))));
     }
-    public record FormConfiguration(DecorationModels.Agreement agreement, java.util.List<DecorationModels.MaterialDefinition> materials) {}
+    public record FormConfiguration(DecorationModels.Agreement agreement, java.util.List<DecorationModels.MaterialDefinition> materials,
+                                    java.util.List<DecorationModels.SelfInspectionDefinition> selfInspections, String selfInspectionTemplateFileId) {}
 
     private Mono<DecorationConfigurationEntity> findEnabled(DecorationScope.Context ctx, String project, String kind, String house, String type, String scene) {
         String key = key(ctx.applicationId(), project, kind, house, type, scene);
         return repository.findById(key)
             .filter(row -> !row.getDeleted() && row.getEnabled() && row.getTenantId().equals(ctx.tenantId()))
-            .switchIfEmpty(Mono.error(error("configuration_missing", 409)));
+            .switchIfEmpty(Mono.defer(() -> missingConfiguration(project, kind, house, type, scene)));
+    }
+    /** 仅缺配置时读取展示名称，不给正常匹配增加目录请求；目录故障仍原样返回。 */
+    private Mono<DecorationConfigurationEntity> missingConfiguration(String project, String kind, String house, String type, String scene) {
+        return Mono.zip(scope.project(project), scope.dictionaryItems("house-type")
+                .filter(item -> Objects.equals(item.value(), house)).next()
+                .map(org.jetlinks.pro.property.base.dictionary.PropertyDictionaryItemInfo::text)
+                .defaultIfEmpty(house == null || house.isBlank() ? "—" : house),
+                LocaleUtils.currentReactive().defaultIfEmpty(LocaleUtils.current()))
+            .flatMap(tuple -> {
+                String projectName = Objects.toString(tuple.getT1().getName(), project);
+                var locale = tuple.getT3();
+                String typeName = LocaleUtils.resolveMessage("message.decoration.configuration.type." + type, locale, type);
+                String sceneName = LocaleUtils.resolveMessage("message.decoration.configuration.scene." + scene, locale, scene);
+                String code = house == null || house.isBlank() ? "error.decoration.house_type_missing" : "error.decoration.configuration_missing_" + kind;
+                return Mono.error(new BusinessException.NoStackTrace(code, code, 409, projectName, tuple.getT2(), typeName, sceneName));
+            });
     }
     /** 原系统未配置备案有效期时默认3个月；仅缺配置回落，认证/远程故障不吞掉。 */
     public Mono<Integer> validity(DecorationScope.Context ctx, String project) {
@@ -88,11 +108,13 @@ public class DecorationConfigurationService {
         return UUID.nameUUIDFromBytes(String.join("|", app, project, kind, house, type, scene).getBytes(StandardCharsets.UTF_8)).toString();
     }
     private static java.util.List<String> templateIds(DecorationModels.Configuration content) {
-        return java.util.stream.Stream.concat(content.getMaterials().stream().map(DecorationModels.MaterialDefinition::getTemplateFileId),
-            content.getChecks().stream().map(DecorationModels.CheckItem::getExampleFileId)).filter(Objects::nonNull).toList();
+        return java.util.stream.Stream.concat(java.util.stream.Stream.of(content.getSelfInspectionTemplateFileId()),
+            java.util.stream.Stream.concat(content.getMaterials().stream().map(DecorationModels.MaterialDefinition::getTemplateFileId),
+                content.getChecks().stream().map(DecorationModels.CheckItem::getExampleFileId))).filter(Objects::nonNull).toList();
     }
     static void validate(DecorationRequests.Config input) {
         var content = input.getContent(); require(content.getMaterials().size() <= 200 && content.getChecks().size() <= 200, "too_many");
+        if (content.getSelfInspections() == null) content.setSelfInspections(new java.util.ArrayList<>());
         require(java.util.Set.of("agreement", "materials", "checks", "validity").contains(input.getKind()), "invalid_configuration");
         require(input.getHouseType() != null && input.getDecorationType() != null && input.getScene() != null, "invalid_configuration");
         if (Set.of("agreement", "materials", "checks").contains(input.getKind())) require(!input.getHouseType().isBlank(), "invalid_configuration");
@@ -117,6 +139,12 @@ public class DecorationConfigurationService {
         }
         if ("validity".equals(input.getKind())) require(content.getValidityMonths() != null && content.getValidityMonths() > 0 && content.getValidityMonths() <= 120, "invalid_configuration");
         require(content.getMaterials().stream().map(DecorationModels.MaterialDefinition::getId).distinct().count() == content.getMaterials().size(), "invalid_configuration");
+        require(content.getSelfInspections().size() <= 200, "too_many");
+        require(content.getSelfInspections().stream().map(DecorationModels.SelfInspectionDefinition::getId).filter(Objects::nonNull).distinct().count() == content.getSelfInspections().size(), "invalid_configuration");
+        for (var item : content.getSelfInspections()) require(item.getId() != null && !item.getId().isBlank() && item.getGroup() != null && !item.getGroup().isBlank()
+            && item.getGroupTitle() != null && !item.getGroupTitle().isBlank() && item.getOptionTitle() != null && !item.getOptionTitle().isBlank()
+            && item.getName() != null && !item.getName().isBlank() && item.getSort() > 0, "invalid_configuration");
+        content.getSelfInspections().sort(java.util.Comparator.comparingInt(DecorationModels.SelfInspectionDefinition::getSort));
         for (var item : content.getMaterials()) require(item.getId() != null && item.getName() != null && Set.of("material","drawing").contains(item.getKind()) && Set.of("upload","sign").contains(item.getSource()), "invalid_configuration");
         require(content.getChecks().stream().map(DecorationModels.CheckItem::getId).distinct().count() == content.getChecks().size(), "invalid_configuration");
         for (var item : content.getChecks()) {

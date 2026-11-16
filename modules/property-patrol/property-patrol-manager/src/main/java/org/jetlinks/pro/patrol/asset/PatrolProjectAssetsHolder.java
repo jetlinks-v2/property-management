@@ -6,9 +6,13 @@ import org.hswebframework.ezorm.core.param.Term;
 import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.authorization.exception.AccessDenyException;
 import org.jetlinks.pro.assets.*;
+import org.jetlinks.pro.assets.impl.terms.DimensionAssetsTerm;
+import org.jetlinks.pro.authorize.OrgDimensionType;
 import org.jetlinks.pro.patrol.integration.PatrolProjectContext;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -17,18 +21,63 @@ import java.util.function.Function;
 /**
  * 请求级 AssetsHolder 收窄扩展；保留平台应用、凭证及动作授权，再与基础数据可见项目相交。
  * 所有巡更入口原有 assert/filter/query 都经过同一 owner，不在各个 Controller 手写组织条件。
- * 绑定仍委托原 holder；历史独立授权不能突破项目范围，项目选择头也不能扩大基础树。
+ * 自动绑定保留原 holder 并登记项目组织；历史独立授权不能突破项目范围，项目选择头也不能扩大基础树。
  */
 public final class PatrolProjectAssetsHolder extends ProxyAssetsHolder {
     private final AssetsHolder original;
     private final PatrolProjectContext context;
     private final PatrolAssetSupplier supplier;
+    private final AssetBindManager bindings;
 
-    public PatrolProjectAssetsHolder(AssetsHolder original, PatrolProjectContext context, PatrolAssetSupplier supplier) {
+    public PatrolProjectAssetsHolder(AssetsHolder original, PatrolProjectContext context, PatrolAssetSupplier supplier,
+                                     AssetBindManager bindings) {
         super(original);
         this.original = original;
         this.context = context;
         this.supplier = supplier;
+        this.bindings = bindings;
+    }
+
+    /**
+     * 自动应用绑定之外，登记已校验项目本身的组织归属；不能绑定操作者的上级组织，
+     * 否则同级项目人员可能取得彼此数据。项目只取本地持久化配置并与授权树相交。
+     * 与调用方新增/导入事务一致；保留平台原有应用绑定及动作授权。
+     */
+    @Override public Mono<Void> bindAssets(AssetType type, Collection<?> ids) {
+        return bindAssets(type.getId(), ids);
+    }
+
+    @Override public Mono<Void> bindAssets(String assetType, Collection<?> ids) {
+        var type = type(assetType);
+        if (type == null || ids.isEmpty()) return original.bindAssets(assetType, ids);
+        return supplier.service(type).createQuery()
+                .in("id", ids).and("scopeKey", context.scopeKey()).fetch().collectList()
+                .flatMap(rows -> {
+                    var expected = new HashSet<>(ids);
+                    var actual = new HashSet<String>();
+                    var projects = new LinkedHashMap<String, List<String>>();
+                    for (var row : rows) {
+                        context.requireProject(row.getProjectId());
+                        actual.add(row.getId());
+                        projects.computeIfAbsent(row.getProjectId(), ignored -> new ArrayList<>())
+                                .add(row.getId());
+                    }
+                    // 整批校验后再写绑定，防止混入其他应用或不可见项目时部分成功。
+                    if (!actual.equals(expected)) return Mono.error(new AccessDenyException.NoStackTrace());
+                    var requests = Flux.fromIterable(projects.entrySet()).map(entry -> {
+                        var request = new AssetBindRequest();
+                        request.setTargetType(OrgDimensionType.org.getId());
+                        request.setTargetId(entry.getKey());
+                        request.setAssetType(type.getId());
+                        request.setAssetIdList(entry.getValue());
+                        request.setRelation(AssetRelation.owner);
+                        request.setAllPermission(true);
+                        return request;
+                    });
+                    // 通过业务已验证的项目派生归属，不把组织加入活动 Scope 或放宽原 holder。
+                    return original.bindAssets(assetType, ids)
+                            .then(Mono.defer(() -> bindings.bindAssets(requests)));
+                });
     }
 
     private PatrolAssetType type(String id) {
@@ -130,6 +179,7 @@ public final class PatrolProjectAssetsHolder extends ProxyAssetsHolder {
      */
     private Mono<List<Term>> authorizedExpression(String type, AssetPermission... permissions) {
         return original.injectQuery(new QueryParamEntity(), type, "id", permissions).map(query -> {
+            useAuthorizedOrganizationTargets(query.getTerms());
             query.toNestQuery(q -> {
                 q.and("scopeKey", context.scopeKey());
                 // 空树必须拒绝，不能让 ORM 忽略空 IN 后变成全量。
@@ -138,6 +188,23 @@ public final class PatrolProjectAssetsHolder extends ProxyAssetsHolder {
             });
             return query.getTerms();
         });
+    }
+
+    /**
+     * 平台组织策略已把可见下级展开到 targets；闭包只是平台库的查询优化。
+     * 巡更独立库没有组织闭包副本，改用同一授权快照的精确目标，保留动作掩码、
+     * 关系及其他条件，不自行计算下级、不增加任何组织或放宽应用/项目交集。
+     */
+    private void useAuthorizedOrganizationTargets(List<Term> terms) {
+        for (var term : terms) {
+            if (term.getValue() instanceof DimensionAssetsTerm assets
+                    && Boolean.TRUE.equals(assets.getClosure())
+                    && assets.getTargets() != null && !assets.getTargets().isEmpty()
+                    && assets.getTargets().stream().allMatch(target -> "org".equals(target.getType()))) {
+                assets.setClosure(false);
+            }
+            useAuthorizedOrganizationTargets(term.getTerms());
+        }
     }
 
     private String term(String type) { return "patrol-project-" + type(type).getId(); }
