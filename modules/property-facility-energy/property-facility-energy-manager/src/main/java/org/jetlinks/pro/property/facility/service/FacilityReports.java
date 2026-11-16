@@ -77,15 +77,20 @@ public class FacilityReports {
   private <T extends FacilityEntity> Mono<List<T>> bothParentsInProjects(
     GenericReactiveCrudService<T, String> store, List<String> projectIds
   ) {
-    return Mono.zip(
-      rowsInProjects(store, FacilityAssetType.facilityDevice, "deviceId", projectIds),
-      rowsInProjects(store, FacilityAssetType.facilityTarget, "targetId", projectIds)
+    // 事件快照可能属于设备迁移前的旧项目，不能计入当前目录下的提醒。
+    return directory.projects().map(project -> project.getId()).distinct().collectList().flatMap(visible -> {
+      var selected = projectIds.isEmpty() ? visible : visible.stream().filter(projectIds::contains).toList();
+      if (selected.isEmpty()) return Mono.just(List.<T>of());
+      return Mono.zip(
+      rowsInProjects(store, FacilityAssetType.facilityDevice, "deviceId", selected),
+      rowsInProjects(store, FacilityAssetType.facilityTarget, "targetId", selected)
     ).map(data ->
       java.util.stream.Stream.concat(
         data.getT1().stream(),
         data.getT2().stream()
       ).toList()
     );
+    });
   }
 
   public Mono<Map<String, Object>> overview(String projectId) {

@@ -36,7 +36,10 @@ class FacilityOverviewTest {
       task("review", "someone-else"), task("completed", "reviewer"), task("closed", "reviewer"), task("cancelled", "reviewer")
     );
     when(query.fetch()).thenReturn(Flux.fromIterable(source));
-    var reports = new FacilityReports(devices, tasks, faults, alerts, notifications, null, null, scope, null, null, null);
+    var directory = mock(FacilityDirectory.class);
+    var project = new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo(); project.setId("project");
+    when(directory.projects()).thenReturn(Flux.just(project));
+    var reports = new FacilityReports(devices, tasks, faults, alerts, notifications, null, null, scope, null, null, directory);
     var result = reports.overview("project").block();
     assertNotNull(result);
     assertEquals(1L, result.get("pendingClaim"));

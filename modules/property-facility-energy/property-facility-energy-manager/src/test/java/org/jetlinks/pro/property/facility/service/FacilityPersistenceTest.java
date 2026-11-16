@@ -102,6 +102,7 @@ class FacilityPersistenceTest {
       .block();
     logs.createDelete().where("targetId", "test").execute().block();
     reset(scope, directory, files, notifier);
+    when(directory.projects()).thenReturn(Flux.just(project("p-a"), project("p-b")));
     when(scope.projectExists(anyString())).thenReturn(Mono.just(true));
     reset(faultExecution);
     when(faultExecution.asUser(any(), anyString(), any())).thenAnswer(call -> {

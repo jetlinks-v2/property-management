@@ -28,6 +28,15 @@ public class FacilityQueries {
     return scope.query(query, type, field).flatMap(store::queryPager);
   }
 
+  /** 子记录保留设备/计划资产授权，同时排除已失效或不可见的项目。 */
+  public <T extends FacilityEntity> Mono<PagerResult<T>> childrenInProjects(
+    GenericReactiveCrudService<T, String> store, QueryParamEntity query, AssetType type, String field
+  ) {
+    return directory.projects().map(org -> org.getId()).distinct().collectList().flatMap(ids -> ids.isEmpty()
+      ? Mono.just(PagerResult.of(0, java.util.List.<T>of(), query))
+      : page(store, query.clone().toNestQuery().in("projectId", ids).getParam(), type, field));
+  }
+
   /**
    * Shared organizations live outside this database. Their public directory command owns
    * AssetsHolder filtering, including tenant membership; never expand its asset SQL locally.

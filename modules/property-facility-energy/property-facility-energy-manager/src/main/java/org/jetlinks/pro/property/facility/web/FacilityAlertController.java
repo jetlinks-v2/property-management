@@ -33,7 +33,7 @@ public class FacilityAlertController {
   @PostMapping("/_query")
   @QueryAction
   public Mono<PagerResult<AlertEntity>> query(@RequestBody QueryParamEntity q) {
-    return queries.page(
+    return queries.childrenInProjects(
       alerts,
       q.clone().toNestQuery().notNull("deviceId").getParam(),
       FacilityAssetType.facilityDevice,
@@ -46,7 +46,7 @@ public class FacilityAlertController {
 
   @PostMapping("/history/_query") @QueryAction
   public Mono<PagerResult<AlertEpisodeEntity>> history(@RequestBody QueryParamEntity query) {
-    return queries.page(episodes, query.clone().toNestQuery().notNull("deviceId").getParam(), FacilityAssetType.facilityDevice, "deviceId");
+    return queries.childrenInProjects(episodes, query.clone().toNestQuery().notNull("deviceId").getParam(), FacilityAssetType.facilityDevice, "deviceId");
   }
 
   @GetMapping("/{id}/history") @QueryAction
@@ -75,7 +75,7 @@ public class FacilityAlertController {
   @PostMapping("/plans/_query")
   @QueryAction
   public Mono<PagerResult<AlertEntity>> plans(@RequestBody QueryParamEntity q) {
-    return queries.page(
+    return queries.childrenInProjects(
       alerts,
       q.clone().toNestQuery().notNull("targetId").getParam(),
       FacilityAssetType.facilityTarget,
@@ -88,7 +88,7 @@ public class FacilityAlertController {
   public Mono<PagerResult<NotificationEntity>> planNotifications(
     @RequestBody QueryParamEntity q
   ) {
-    return queries.page(
+    return queries.childrenInProjects(
       notifications,
       q.clone().toNestQuery().notNull("targetId").getParam(),
       FacilityAssetType.facilityTarget,
@@ -110,7 +110,7 @@ public class FacilityAlertController {
   public Mono<PagerResult<NotificationEntity>> notifications(
     @RequestBody QueryParamEntity q
   ) {
-    return queries.page(
+    return queries.childrenInProjects(
       notifications,
       q.clone().toNestQuery().notNull("deviceId").getParam(),
       FacilityAssetType.facilityDevice,
