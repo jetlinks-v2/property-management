@@ -28,19 +28,6 @@ services:
     volumes:
       - facility-data:/app/data
     networks: [cloud]
-  facility-h5:
-    profiles: [web]
-    build:
-      context: ../../../saas-runtime-ui/modules/facility-energy-ui
-      dockerfile: mobile-h5/Dockerfile
-    restart: unless-stopped
-    environment:
-      API_UPSTREAM: ${API_UPSTREAM:?required}
-    volumes:
-      - ./h5-config.json:/usr/share/nginx/html/config.json:ro
-    ports:
-      - "127.0.0.1:${H5_PORT:-9502}:80"
-    networks: [cloud]
 networks:
   cloud:
     external: true

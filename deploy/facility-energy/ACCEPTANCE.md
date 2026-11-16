@@ -25,12 +25,12 @@ pnpm exec vue-tsc --noEmit -p modules/facility-energy-ui/tsconfig.json
 
 PC 类型检查会遍历共享 Web Core。验收时需区分本模块错误与上游已有错误，不能把全量非零退出称为通过。
 
-在 `modules/facility-energy-ui/mobile-h5` 执行：
+在统一移动端仓库 `cloud.jetlinks.mobile` 执行：
 
 ```sh
-npm ci
-npm test
-npm run build
+pnpm --filter facility-energy-wx-ui test
+pnpm --filter facility-energy-wx-ui typecheck
+pnpm build:app facility-app
 ```
 
 移动端测试覆盖账号隔离、稳定提交键、附件补传失败、403／409 冲突保留、指导书缓存隔离及精确会话离线授权。浏览器模拟响应仅用于检查渲染与交互，真实后端链路须执行以下场景。
