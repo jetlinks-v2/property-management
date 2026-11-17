@@ -25,6 +25,7 @@ public class FacilityDevices {
   private final FacilityScope scope;
   private final FacilityRecords records;
   private final FacilityDirectory directory;
+  private final FacilityCloud cloud;
 
   public Mono<DeviceEntity> read(String id) {
     return records.read(
@@ -45,9 +46,39 @@ public class FacilityDevices {
   }
 
   public Mono<PagerResult<DeviceEntity>> query(QueryParamEntity q) {
-    return scope
-      .query(q, FacilityAssetType.facilityDevice, "id")
-      .flatMap(store::queryPager);
+    return currentQuery(q, FacilityAssetType.facilityDevice, "id").flatMap(store::queryPager);
+  }
+
+  /** 当前目录取 Cloud 应用绑定与本地资产权限的交集；历史 read/writable 不受今天解绑影响。 */
+  public Mono<Set<String>> currentIds() {
+    return cloud.snapshot(null).flatMap(source -> {
+      if (source.isEmpty()) return scope.current().thenReturn(Set.<String>of());
+      var param = QueryParamEntity.newQuery().in("cloudDeviceId", source.stream()
+        .map(org.jetlinks.sdk.server.device.DeviceInfo::getId).toList()).noPaging().getParam();
+      return scope.query(param, FacilityAssetType.facilityDevice, "id")
+        .flatMapMany(q -> store.createQuery().setParam(q).fetch()).take(20001).collectList()
+        .doOnNext(rows -> require(rows.size() <= 20000, "too_many"))
+        .map(rows -> rows.stream().map(DeviceEntity::getId).collect(java.util.stream.Collectors.toSet()));
+    });
+  }
+
+  public Mono<QueryParamEntity> currentQuery(QueryParamEntity q, org.jetlinks.pro.assets.AssetType type, String field) {
+    return currentIds().flatMap(ids -> {
+      // 单独嵌套后再 AND，防止调用方 OR 条件绕过当前绑定范围；空集合显式无结果。
+      var active = q.clone().toNestQuery();
+      if (ids.isEmpty()) active.isNull("id"); else active.in(field, ids);
+      return scope.query(active.getParam(), type, "id");
+    });
+  }
+
+  public Mono<Boolean> isBound(DeviceEntity device) {
+    return cloud.snapshot(null).map(source -> source.stream().anyMatch(row -> row.getId().equals(device.getCloudDeviceId())));
+  }
+
+  /** 新配置和新采集必须仍绑定；调用前仍须通过 read/writable 校验原业务资产。 */
+  public Mono<DeviceEntity> requireBound(DeviceEntity device) {
+    return isBound(device).filter(Boolean.TRUE::equals).map(ignore -> device)
+      .switchIfEmpty(Mono.error(new org.hswebframework.web.authorization.exception.AccessDenyException()));
   }
 
   /** Resolve paths once per visible project, without turning forbidden or missing references into a successful blank. */

@@ -23,7 +23,7 @@ class FacilityDeviceWorkTest {
     var store = mock(DeviceStore.class);
     when(records.log(any(), anyString(), anyString(), nullable(String.class), nullable(String.class), nullable(String.class), anyList()))
       .thenReturn(Mono.empty());
-    var manager = new FacilityDevices(new ObjectMapper(), null, null, files, store, null, records, null);
+    var manager = new FacilityDevices(new ObjectMapper(), null, null, files, store, null, records, null, null);
     for (boolean inspection : List.of(false, true)) for (boolean maintenance : List.of(false, true)) {
       var row = new DeviceEntity();
       row.setId("device"); row.setVersion(5L); row.setProjectId("project");
@@ -58,6 +58,7 @@ class FacilityDeviceWorkTest {
     group.setName("设备组"); group.setProjectId("project"); group.setDeviceIds(List.of("device"));
     var device = new DeviceEntity(); device.setProjectId("project");
     when(devices.read("device")).thenReturn(Mono.just(device));
+    when(devices.requireBound(device)).thenReturn(Mono.just(device));
     StepVerifier.create(manager.group(group)).expectErrorMatches(error -> error instanceof BusinessException &&
       error.getMessage().contains("device_work_disabled")).verify();
     verify(records, never()).insert(any(), any(), any());

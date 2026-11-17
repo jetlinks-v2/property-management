@@ -29,6 +29,7 @@ class FacilityPlanSaveTest {
 
   @BeforeEach
   void setup() {
+    when(devices.currentIds()).thenReturn(Mono.just(java.util.Set.of("device")));
     when(directory.project("project")).thenReturn(Mono.just(new PropertyOrganizationInfo()));
     when(directory.projectEmployees("project")).thenReturn(reactor.core.publisher.Flux.just(
       new org.jetlinks.pro.property.base.user.PropertyEmployeeInfo("owner", "项目负责人", null, List.of("project"))));

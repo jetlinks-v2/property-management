@@ -111,8 +111,9 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
         )
         .concatMap(row ->
           execution
-            .asOwner(row, () -> telemetry.collect(row))
-            .thenReturn(row.getId())
+            .asOwner(row, () -> telemetry.collectCurrent(row))
+            .filter(Boolean.TRUE::equals)
+            .map(ignore -> row.getId())
             .doOnNext(v -> collected.incrementAndGet())
             .onErrorResume(e -> failure("telemetry", row.getId(), e))
         )

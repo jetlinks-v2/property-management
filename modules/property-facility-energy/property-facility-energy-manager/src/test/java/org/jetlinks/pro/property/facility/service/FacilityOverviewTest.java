@@ -23,7 +23,14 @@ class FacilityOverviewTest {
     var scope = mock(FacilityScope.class);
     when(scope.current()).thenReturn(Mono.just(new FacilityContext("tenant", "app", "reviewer", "Reviewer")));
     when(scope.query(any(), any(), anyString())).thenAnswer(call -> Mono.just(call.getArgument(0)));
-    bindEmpty(devices);
+    var deviceManager = mock(FacilityDevices.class);
+    when(deviceManager.currentIds()).thenReturn(Mono.just(Set.of("current-0", "current-1", "current-2")));
+    ReactiveQuery<DeviceEntity> deviceQuery = mock(ReactiveQuery.class, RETURNS_SELF);
+    when(devices.createQuery()).thenReturn(deviceQuery);
+    when(deviceQuery.fetch()).thenReturn(Flux.range(0, 10).map(index -> {
+      var device = new DeviceEntity(); device.setId("current-" + index);
+      device.setSourceState(index == 0 ? "online" : "offline"); device.setSyncState("active"); return device;
+    }));
     bindEmpty(faults);
     bindEmpty(alerts);
     bindEmpty(notifications);
@@ -39,9 +46,11 @@ class FacilityOverviewTest {
     var directory = mock(FacilityDirectory.class);
     var project = new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo(); project.setId("project");
     when(directory.projects()).thenReturn(Flux.just(project));
-    var reports = new FacilityReports(devices, tasks, faults, alerts, notifications, null, null, scope, null, null, directory);
+    var reports = new FacilityReports(devices, tasks, faults, alerts, notifications, null, null, scope, null, null, directory, deviceManager);
     var result = reports.overview("project").block();
     assertNotNull(result);
+    assertEquals(3, result.get("devices")); assertEquals(1L, result.get("online"));
+    assertEquals(10, result.get("tasks"));
     assertEquals(1L, result.get("pendingClaim"));
     assertEquals(3L, result.get("inProgress"));
     assertEquals(2L, result.get("pendingReview"));

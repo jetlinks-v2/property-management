@@ -91,6 +91,12 @@ class FacilityPersistenceTest {
   FacilityFiles files;
 
   @Autowired FacilityExecution faultExecution;
+  @Autowired FacilityCloud cloud;
+  final Map<String, org.jetlinks.sdk.server.device.DeviceInfo> boundSources = new LinkedHashMap<>();
+
+  void bindSource(String id) {
+    var source = new org.jetlinks.sdk.server.device.DeviceInfo(); source.setId(id); boundSources.put(id, source);
+  }
 
   @BeforeEach
   void resetData() {
@@ -101,7 +107,9 @@ class FacilityPersistenceTest {
       .execute()
       .block();
     logs.createDelete().where("targetId", "test").execute().block();
-    reset(scope, directory, files, notifier);
+    reset(scope, directory, files, notifier, cloud);
+    boundSources.clear();
+    when(cloud.snapshot(null)).thenAnswer(call -> Mono.fromSupplier(() -> List.copyOf(boundSources.values())));
     when(directory.projects()).thenReturn(Flux.just(project("p-a"), project("p-b")));
     when(scope.projectExists(anyString())).thenReturn(Mono.just(true));
     reset(faultExecution);
@@ -537,6 +545,8 @@ class FacilityPersistenceTest {
     var cloud = mock(FacilityCloud.class);
     var deviceAccess = mock(FacilityDevices.class);
     when(deviceAccess.read(device.getId())).thenReturn(Mono.just(device));
+    when(deviceAccess.requireBound(device)).thenReturn(Mono.just(device));
+    when(deviceAccess.isBound(device)).thenReturn(Mono.just(true));
     var execution = mock(FacilityExecution.class);
     when(execution.asOwnerFlux(any(), any())).thenReturn(Flux.never());
     var telemetry = new FacilityTelemetry(
@@ -563,6 +573,16 @@ class FacilityPersistenceTest {
       var recovered = mappings.findById(mapping.getId()).block();
       assertNull(recovered.getCollectionError());
       assertTrue(recovered.getLastCollectionSuccessTime() >= failed.getLastCollectionTime());
+      when(deviceAccess.isBound(device)).thenReturn(Mono.just(false));
+      StepVerifier.create(telemetry.collectCurrent(recovered)).expectNext(false).verifyComplete();
+      assertEquals(0, telemetry.activeSubscriptions());
+      StepVerifier.create(telemetry.collect(recovered))
+        .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+      assertEquals(recovered.getLastCollectedTime(), mappings.findById(mapping.getId()).block().getLastCollectedTime());
+      assertTrue(mappings.findById(mapping.getId()).block().getEnabled());
+      when(deviceAccess.isBound(device)).thenReturn(Mono.just(true));
+      StepVerifier.create(telemetry.collect(recovered)).verifyComplete();
+      assertEquals(1, telemetry.activeSubscriptions());
       mappings.createUpdate().set("version", recovered.getVersion() + 1)
         .set("collectionError", "CurrentConfigurationFailure")
         .where("id", mapping.getId()).execute().block();
@@ -1267,6 +1287,7 @@ class FacilityPersistenceTest {
     var device = FacilityScope.initialize(new DeviceEntity(), c);
     device.setId(prefix + "-device");
     device.setCloudDeviceId(prefix);
+    bindSource(prefix);
     device.setProjectId(prefix + "-project");
     device.setSyncState("active");
     device.setEnergyEnabled(true);
@@ -1831,6 +1852,7 @@ class FacilityPersistenceTest {
     item.setOptions(List.of("符合", "不符合")); standard.setCheckItems(List.of(item)); standardStore.insert(standard).block();
     var device = FacilityScope.initialize(new DeviceEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
     device.setId("pump-" + suffix); device.setCloudDeviceId("cloud-pump-" + suffix); device.setProjectId("p");
+    bindSource(device.getCloudDeviceId());
     device.setName("消防水泵"); device.setSyncState("active"); device.setInspectionEnabled(true); devices.insert(device).block();
     var group = FacilityScope.initialize(new GroupEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
     group.setId("room-" + suffix); group.setProjectId("p"); group.setDeviceIds(List.of(device.getId(), device.getId())); groupStore.insert(group).block();
@@ -1872,10 +1894,38 @@ class FacilityPersistenceTest {
     assertEquals(0L, cycleStore.findById(plan.getCycleId()).block().getVersion());
   }
 
+  @Test void revokedDeviceStopsNewTasksAndAlertsButKeepsOldWorkAndResumesSameDeviceAfterRebinding() {
+    var plan = cyclicPlan("binding-lifecycle");
+    var first = as("staff", planManager.generate(plan.getId())).block().get(0);
+    long nextSlot = plan.getNextRunTime() - 60000;
+    planStore.createUpdate().set("nextRunTime", nextSlot).where("id", plan.getId()).execute().block();
+    boundSources.clear();
+    assertTrue(as("staff", planManager.generate(plan.getId())).block().isEmpty());
+    assertEquals(2, store.createQuery().where("planId", plan.getId()).count().block());
+    assertEquals(first.getId(), as("staff", manager.read(first.getId())).block().getId());
+    assertNotNull(devices.findById("pump-binding-lifecycle").block());
+    bindSource("cloud-pump-binding-lifecycle");
+    planStore.createUpdate().set("nextRunTime", nextSlot).where("id", plan.getId()).execute().block();
+    var resumed = as("staff", planManager.generate(plan.getId())).block().get(0);
+    assertEquals(1, resumed.getDeviceCount());
+    assertEquals("pump-binding-lifecycle", store.createQuery().where("parentTaskId", resumed.getId()).fetchOne().block().getDeviceId());
+
+    var rule = alertFixture("revoked-offline", "offline", "counter");
+    var device = devices.findById("revoked-offline-device").block(); device.setSourceState("offline");
+    device.setSourceStateSince(System.currentTimeMillis() - 60000); devices.save(device).block();
+    boundSources.remove(device.getCloudDeviceId());
+    as("staff", ruleManager.evaluate(rule)).block();
+    assertEquals(0, alerts.createQuery().where("ruleId", rule.getId()).count().block());
+    bindSource(device.getCloudDeviceId());
+    as("staff", ruleManager.evaluate(rule)).block();
+    assertEquals(1, alerts.createQuery().where("ruleId", rule.getId()).count().block());
+  }
+
   @Test void wholeTaskClaimsAndReviewsAllDevicesButEachDeviceSubmitsIndependently() {
     var plan = cyclicPlan("whole");
     var second = devices.findById("pump-whole").block();
     second.setId("pump-whole-2"); second.setCloudDeviceId("cloud-whole-2"); second.setName("二号水泵");
+    bindSource(second.getCloudDeviceId());
     devices.insert(second).block();
     var group = groupStore.findById("room-whole").block();
     group.setDeviceIds(List.of("pump-whole", second.getId())); groupStore.save(group).block();

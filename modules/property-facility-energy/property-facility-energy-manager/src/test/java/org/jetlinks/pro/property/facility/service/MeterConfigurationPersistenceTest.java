@@ -38,11 +38,16 @@ class MeterConfigurationPersistenceTest {
   @Autowired FacilitySyncDevice syncDevice;
   @Autowired FaultStore faults;
   @Autowired MappingStore mappings;
+  @Autowired FacilityReplacements replacementManager;
+  @Autowired ReplacementStore replacements;
   String project;
   @BeforeEach void setup() {
+    reset(scope, cloud, directory);
     project=UUID.randomUUID().toString();
     when(scope.current()).thenReturn(Mono.just(new FacilityContext("tenant","app","worker","测试员")));
     when(scope.projectExists(anyString())).thenReturn(Mono.just(true));
+    doAnswer(call -> Mono.just(FacilityScope.applicationQuery(call.getArgument(0),
+      new FacilityContext("tenant","app","worker","测试员")))).when(scope).query(any(),any(),anyString());
     when(scope.assertRecord(any(),any(),anyString(),any())).thenReturn(Mono.empty());
     doReturn(Mono.empty()).when(records).assertProject(anyString(),any());
     var p=new PropertyOrganizationInfo(); p.setId(project); p.setName("测试项目"); when(directory.project(project)).thenReturn(Mono.just(p));
@@ -120,6 +125,7 @@ class MeterConfigurationPersistenceTest {
   }
   @Test void energyConfigurationOwnsMeterTypeAndStaleUpdatesCannotChangeIt() {
     var device=device(UUID.randomUUID().toString());
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(sourceDevice(device.getCloudDeviceId()))));
     var metadata=mock(org.jetlinks.core.things.ThingMetadata.class);
     var property=mock(org.jetlinks.core.metadata.PropertyMetadata.class);
     when(property.getId()).thenReturn("total"); when(metadata.getProperties()).thenReturn(List.of(property));
@@ -238,6 +244,91 @@ class MeterConfigurationPersistenceTest {
     assertTrue(retained.getEnergyEnabled()); assertEquals(123L,retained.getAllocationSince());
     assertTrue(mappings.findById(mapping.getId()).block(WAIT).getEnabled());
   }
+  @Test void deviceCandidatesExcludeUnboundAssetsBeforePagingAndDoNotAllowOrFiltersToBypassBinding() {
+    var bound = sourceDevice(UUID.randomUUID().toString());
+    String boundId = FacilityRecords.stableId("tenant","app",bound.getId());
+    var current = device(boundId); current.setCloudDeviceId(bound.getId()); current.setName("当前水表"); devices.save(current).block(WAIT);
+    var historical = device(UUID.randomUUID().toString()); historical.setName("旧水表"); devices.save(historical).block(WAIT);
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(bound)));
+    var query = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
+      .is("id",historical.getId()).or("id",boundId).doPaging(0,1).getParam();
+    var page = allocation.query(query).block(WAIT);
+    assertEquals(1,page.getTotal()); assertEquals(boundId,page.getData().get(0).getId());
+    assertNotNull(allocation.read(historical.getId()).block(WAIT));
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of()));
+    assertEquals(0,allocation.query(query).block(WAIT).getTotal());
+    when(cloud.snapshot(null)).thenReturn(Mono.error(new IllegalStateException("source unavailable")));
+    StepVerifier.create(allocation.query(query)).expectErrorMessage("source unavailable").verify(WAIT);
+    assertNotNull(devices.findById(historical.getId()).block(WAIT));
+  }
+  @Test void mappingSaveRejectsUnboundDeviceEvenWhenItsOldAssetRemainsWritable() {
+    var row=device(UUID.randomUUID().toString());
+    var metadata=mock(org.jetlinks.core.things.ThingMetadata.class);
+    var property=mock(org.jetlinks.core.metadata.PropertyMetadata.class);
+    when(property.getId()).thenReturn("total"); when(metadata.getProperties()).thenReturn(List.of(property));
+    when(cloud.metadata(row.getCloudDeviceId())).thenReturn(Mono.just(metadata));
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of()));
+    var metric=new MetricMapping(); metric.setPropertyId("total"); metric.setKind("counter"); metric.setUnit("m³");
+    metric.setMultiplier(BigDecimal.ONE); metric.setScale(2);
+    var input=new MappingEntity(); input.setDeviceId(row.getId()); input.setEnergyType("water");
+    input.setMeterLevel("submeter"); input.setStaleAfterSeconds(3600L); input.setMetrics(List.of(metric)); input.setEnabled(true);
+    StepVerifier.create(mappingManager.save(input))
+      .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify(WAIT);
+    assertEquals("device",devices.findById(row.getId()).block(WAIT).getMeterType());
+    assertTrue(mappings.createQuery().where("deviceId",row.getId()).fetch().collectList().block(WAIT).isEmpty());
+  }
+  @Test void meterListHidesRevokedDevicesAndRebindingRestoresSameMappingAndReadings() {
+    var one=device(UUID.randomUUID().toString()); var two=device(UUID.randomUUID().toString());
+    var context=new FacilityContext("tenant","app","worker","测试员");
+    var first=FacilityScope.initialize(new MappingEntity(),context); first.setDeviceId(one.getId()); first.setProjectId(project);
+    var second=FacilityScope.initialize(new MappingEntity(),context); second.setDeviceId(two.getId()); second.setProjectId(project);
+    mappings.insert(first).block(WAIT); mappings.insert(second).block(WAIT);
+    var reading=FacilityScope.initialize(new ReadingEntity(),context); reading.setDeviceId(two.getId()); reading.setProjectId(project);
+    reading.setObservedTime(1000L); reading.setPropertyId("total"); reading.setValue(BigDecimal.TEN); reading.setStatus("accepted");
+    readingStore.insert(reading).block(WAIT);
+    var query=org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery().is("deviceId",two.getId())
+      .or("deviceId",one.getId()).doPaging(0,1).getParam();
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(sourceDevice(one.getCloudDeviceId()))));
+    var active=mappingManager.query(query).block(WAIT);
+    assertEquals(1,active.getTotal()); assertEquals(first.getId(),active.getData().get(0).getId());
+    assertEquals(second.getId(),mappingManager.forDevice(two.getId()).block(WAIT).getId());
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of()));
+    assertEquals(0,mappingManager.query(query).block(WAIT).getTotal());
+    assertEquals(0,BigDecimal.TEN.compareTo(readingStore.findById(reading.getId()).block(WAIT).getValue()));
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(sourceDevice(one.getCloudDeviceId()),sourceDevice(two.getCloudDeviceId()))));
+    assertEquals(2,mappingManager.query(query).block(WAIT).getTotal());
+    assertEquals(second.getId(),mappingManager.forDevice(two.getId()).block(WAIT).getId());
+    assertEquals(1,readingStore.createQuery().where("deviceId",two.getId()).count().block(WAIT));
+  }
+  @Autowired ReadingStore readingStore;
+  @Test void historicalReplacementNamesSurviveRevocationWithoutExposingUnauthorizedDevices() {
+    var old=device(UUID.randomUUID().toString()); old.setName("原水表"); devices.save(old).block(WAIT);
+    var next=device(UUID.randomUUID().toString()); next.setName("新水表"); devices.save(next).block(WAIT);
+    var row=FacilityScope.initialize(new ReplacementEntity(),new FacilityContext("tenant","app","worker","测试员"));
+    row.setProjectId(project); row.setOldDeviceId(old.getId()); row.setNewDeviceId(next.getId());
+    row.setState("approved"); replacements.insert(row).block(WAIT);
+    var foreign=FacilityScope.initialize(new ReplacementEntity(),new FacilityContext("tenant","other-app","worker","测试员"));
+    foreign.setProjectId(project); foreign.setOldDeviceId(old.getId()); foreign.setNewDeviceId(next.getId());
+    replacements.insert(foreign).block(WAIT);
+    var query=org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
+      .is("oldDeviceId",old.getId()).doPaging(0,1).getParam();
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of()));
+    var page=replacementManager.page(query).block(WAIT);
+    assertEquals(1,page.getTotal()); assertEquals(row.getId(),page.getData().get(0).getId());
+    assertEquals("原水表",page.getData().get(0).getOldDeviceName());
+    assertEquals("新水表",page.getData().get(0).getNewDeviceName());
+    doAnswer(call -> {
+      org.hswebframework.web.api.crud.entity.QueryParamEntity scoped=FacilityScope.applicationQuery(call.getArgument(0),
+        new FacilityContext("tenant","app","worker","测试员"));
+      return Mono.just("id".equals(call.getArgument(2))
+        ? scoped.toNestQuery().not("id",next.getId()).getParam() : scoped);
+    }).when(scope).query(any(),any(),anyString());
+    var limited=replacementManager.page(query).block(WAIT).getData().get(0);
+    assertEquals("原水表",limited.getOldDeviceName()); assertNull(limited.getNewDeviceName());
+    assertEquals(next.getId(),limited.getNewDeviceId());
+    assertEquals("approved",replacements.findById(row.getId()).block(WAIT).getState());
+    verify(cloud,never()).snapshot(any());
+  }
   @Test void activeFaultBlocksProjectMoveButCancelledFaultAllowsItAndHistoryKeepsOriginalProject() {
     var source = sourceDevice(UUID.randomUUID().toString());
     var next = sourceProject(UUID.randomUUID().toString());
@@ -271,6 +362,6 @@ class MeterConfigurationPersistenceTest {
   }
   @Import({FacilityPersistenceTest.Config.class,MeterChargeStore.class,FacilityMeterCharges.class,
     FacilityAllocations.class,DeviceAllocationStore.class,FacilitySync.class,FacilitySyncWriter.class,
-    FacilitySyncDevice.class,FacilityDeviceMoves.class,MeterBillStore.class})
+    FacilitySyncDevice.class,FacilityDeviceMoves.class,MeterBillStore.class,FacilityReplacements.class})
   static class Config {}
 }

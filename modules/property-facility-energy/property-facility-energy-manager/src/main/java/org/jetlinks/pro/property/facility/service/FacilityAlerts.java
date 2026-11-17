@@ -126,6 +126,7 @@ public class FacilityAlerts {
       refs.then(
         deviceManager
           .read(input.getDeviceId())
+          .flatMap(deviceManager::requireBound)
           .doOnNext(d ->
             require(
               d.getProjectId().equals(input.getProjectId()),
@@ -286,7 +287,7 @@ public class FacilityAlerts {
         FacilityAssetType.facilityRule,
         CrudAssetPermission.read
       )
-      .then(scope.query(param, FacilityAssetType.facilityDevice, "id"))
+      .then(deviceManager.currentQuery(param, FacilityAssetType.facilityDevice, "id"))
       .flatMapMany(q -> devices.createQuery().setParam(q).fetch())
       .take(20001)
       .collectList()

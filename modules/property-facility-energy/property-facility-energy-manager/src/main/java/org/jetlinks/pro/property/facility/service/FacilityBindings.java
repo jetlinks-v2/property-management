@@ -24,7 +24,7 @@ public class FacilityBindings {
 
   @Transactional
   public Mono<BindingEntity> bind(String deviceId, BindingInput input) {
-    return devices.writable(deviceId).flatMap(device -> {
+    return devices.writable(deviceId).flatMap(devices::requireBound).flatMap(device -> {
       require(device.getVersion().equals(input.getVersion()), "conflict");
       FacilityDevices.requireActive(device);
       return directory

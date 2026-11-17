@@ -31,6 +31,12 @@ public class ReplacementEntity extends FacilityEntity {
   @Column(length = 256)
   private String newDeviceId;
 
+  @Transient
+  private String oldDeviceName;
+
+  @Transient
+  private String newDeviceName;
+
   @Column
   private Long effectiveTime;
 

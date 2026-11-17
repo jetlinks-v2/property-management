@@ -94,6 +94,7 @@ public class FacilityPlans {
         );
       })
       .then(resolveDevices(input))
+      .doOnNext(rows -> require(!rows.isEmpty(), "device_unavailable"))
       .then(scope.current())
       .flatMap(c -> {
         boolean create = input.getId() == null;
@@ -186,6 +187,8 @@ public class FacilityPlans {
       .doOnNext(ids ->
         require(!ids.isEmpty() && ids.size() <= 1000, "invalid_plan")
       )
+      // 机房与计划保留原成员；仅为本次新任务选取当前仍绑定的设备。
+      .flatMap(ids -> devices.currentIds().map(bound -> ids.stream().filter(bound::contains).toList()))
       .flatMapMany(Flux::fromIterable)
       .concatMap(devices::read)
       .doOnNext(d -> {
@@ -229,7 +232,9 @@ public class FacilityPlans {
   }
 
   private Mono<List<TaskEntity>> createTasks(PlanEntity plan, StandardEntity standard, FacilityCycleRules.Slot slot) {
-    return resolveDevices(plan).flatMap(resolved -> scope.current().flatMap(context -> {
+    return resolveDevices(plan).flatMap(resolved -> {
+      if (resolved.isEmpty()) return Mono.just(List.<TaskEntity>of());
+      return scope.current().flatMap(context -> {
       var parent = taskSnapshot(plan, standard, slot, context);
       parent.setId(FacilityRecords.stableId(plan.getTenantId(), plan.getApplicationId(), plan.getId(), Long.toString(slot.start()), "execution"));
       parent.setDeviceId("__execution__"); parent.setDeviceName(resolved.size() + "台设备");
@@ -249,7 +254,8 @@ public class FacilityPlans {
             return tasks.findById(task.getId()).doOnNext(existing -> require(saved.getId().equals(existing.getParentTaskId()), "conflict"))
               .switchIfEmpty(records.insert(tasks, task, FacilityAssetType.facilityTask));
           }).then(Mono.just(List.of(saved)))));
-    }));
+      });
+    });
   }
 
   private TaskEntity taskSnapshot(PlanEntity plan, StandardEntity standard, FacilityCycleRules.Slot slot, FacilityContext context) {

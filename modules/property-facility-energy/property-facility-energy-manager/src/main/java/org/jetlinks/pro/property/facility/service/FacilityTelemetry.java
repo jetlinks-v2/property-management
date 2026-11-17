@@ -28,27 +28,35 @@ public class FacilityTelemetry {
   private final Map<String, Long> versions = new ConcurrentHashMap<>();
 
   public Mono<Void> collect(MappingEntity mapping) {
+    return collectCurrent(mapping).filter(Boolean.TRUE::equals)
+      .switchIfEmpty(Mono.error(new org.hswebframework.web.authorization.exception.AccessDenyException())).then();
+  }
+
+  /** 解绑是正常暂停，不推进采集游标、不改启用配置，也不计为后台采集故障。 */
+  public Mono<Boolean> collectCurrent(MappingEntity mapping) {
     return devices
       .read(mapping.getDeviceId())
-      .doOnNext(d -> {
-        FacilityDevices.requireActive(d);
-        FacilityScope.require(
-          Boolean.TRUE.equals(d.getEnergyEnabled()),
-          "device_unavailable"
-        );
-      })
-      .flatMap(device -> {
+      .flatMap(device -> devices.isBound(device).flatMap(bound -> {
+        if (!bound) {
+          var subscription = subscriptions.remove(mapping.getId());
+          if (subscription != null) subscription.dispose();
+          versions.remove(mapping.getId());
+          return Mono.just(false);
+        }
+        FacilityDevices.requireActive(device);
+        FacilityScope.require(Boolean.TRUE.equals(device.getEnergyEnabled()), "device_unavailable");
         return backfill(mapping).then(
           Mono.fromRunnable(() -> subscribe(mapping, device.getCloudDeviceId()))
-        );
-      });
+        ).thenReturn(true);
+      }));
   }
 
   private Mono<Void> backfill(MappingEntity mapping) {
     return collectHistory(mapping)
       .then(recordCollection(mapping, null))
       .onErrorResume(error ->
-        recordCollection(mapping, error).then(Mono.error(error))
+        error instanceof org.hswebframework.web.authorization.exception.AccessDenyException
+          ? Mono.error(error) : recordCollection(mapping, error).then(Mono.error(error))
       )
       .as(MonoTracer.create("/property/facility-energy/energy/collection"));
   }
@@ -72,7 +80,7 @@ public class FacilityTelemetry {
   }
 
   private Mono<Void> collectHistory(MappingEntity mapping) {
-    return devices.read(mapping.getDeviceId()).flatMap(device -> {
+    return devices.read(mapping.getDeviceId()).flatMap(devices::requireBound).flatMap(device -> {
       FacilityDevices.requireActive(device);
       FacilityScope.require(
         Boolean.TRUE.equals(mapping.getEnabled()) &&

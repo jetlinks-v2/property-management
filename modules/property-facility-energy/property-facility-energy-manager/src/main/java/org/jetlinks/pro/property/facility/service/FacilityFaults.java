@@ -50,7 +50,10 @@ public class FacilityFaults {
         : org.hswebframework.web.authorization.Authentication.currentReactive()
           .filter(auth -> auth.hasPermission("facility-fault", "dispatch"))
           .switchIfEmpty(Mono.error(new org.hswebframework.web.authorization.exception.AccessDenyException())).then();
-      return dispatch.then(devices.writable(input.getDeviceId())).flatMap(device -> source(input, device)
+      return dispatch.then(devices.writable(input.getDeviceId()))
+        // 已有任务/预警可继续转故障闭环，手工登记只能选择当前绑定设备。
+        .flatMap(device -> "manual".equals(Objects.toString(input.getSourceType(), "manual")) ? devices.requireBound(device) : Mono.just(device))
+        .flatMap(device -> source(input, device)
         .then(files.validate(input.getAttachments(), device.getProjectId()))
         .then(participant(device, input.getReviewerId(), "review"))
         .flatMap(reviewer -> scope.current().flatMap(context -> {

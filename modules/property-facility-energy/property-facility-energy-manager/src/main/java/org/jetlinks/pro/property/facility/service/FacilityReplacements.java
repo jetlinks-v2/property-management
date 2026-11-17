@@ -4,6 +4,9 @@ import static org.jetlinks.pro.property.facility.service.FacilityScope.require;
 
 import java.util.*;
 import lombok.RequiredArgsConstructor;
+import org.hswebframework.web.api.crud.entity.PagerResult;
+import org.hswebframework.web.api.crud.entity.QueryParamEntity;
+import org.jetlinks.pro.property.facility.asset.FacilityAssetType;
 import org.jetlinks.pro.property.facility.entity.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +26,32 @@ public class FacilityReplacements {
   private final FacilityRecords records;
   private final FacilityScope scope;
 
+  public Mono<PagerResult<ReplacementEntity>> page(QueryParamEntity query) {
+    return scope.query(query, FacilityAssetType.facilityDevice, "oldDeviceId")
+      .flatMap(store::queryPager)
+      .flatMap(page -> {
+        if (page.getData().isEmpty()) return Mono.just(page);
+        var ids = page.getData().stream()
+          .flatMap(row -> java.util.stream.Stream.of(row.getOldDeviceId(), row.getNewDeviceId()))
+          .filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) return Mono.just(page);
+        // 历史名称按当前页批量补齐，沿用设备资产权限；解绑不影响历史回显或扩大新建候选。
+        return scope.query(new QueryParamEntity().toQuery().in("id", ids).getParam(),
+            FacilityAssetType.facilityDevice, "id")
+          .flatMapMany(deviceStore::query)
+          .collectMap(DeviceEntity::getId)
+          .map(names -> {
+            page.getData().forEach(row -> {
+              var old = names.get(row.getOldDeviceId());
+              var next = names.get(row.getNewDeviceId());
+              if (old != null) row.setOldDeviceName(old.getName());
+              if (next != null) row.setNewDeviceName(next.getName());
+            });
+            return page;
+          });
+      });
+  }
+
   @Transactional
   public Mono<ReplacementEntity> create(ReplacementEntity input) {
     require(
@@ -33,7 +62,7 @@ public class FacilityReplacements {
       "invalid_reading"
     );
     return devices.writable(input.getOldDeviceId()).flatMap(old ->
-      devices.writable(input.getNewDeviceId()).flatMap(next -> {
+      devices.writable(input.getNewDeviceId()).flatMap(devices::requireBound).flatMap(next -> {
         require(
           old.getProjectId().equals(next.getProjectId()),
           "project_mismatch"

@@ -91,6 +91,7 @@ public class FacilityConfiguration {
       .thenMany(
         Flux.fromIterable(input.getDeviceIds())
           .concatMap(devices::read)
+          .concatMap(devices::requireBound)
           .doOnNext(d -> {
             require(
               input.getProjectId().equals(d.getProjectId()),

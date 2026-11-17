@@ -32,6 +32,7 @@ public class FacilityReports {
   private final FacilityReadings readings;
   private final FacilityRecords records;
   private final FacilityDirectory directory;
+  private final FacilityDevices deviceManager;
 
   private <T extends FacilityEntity> Mono<List<T>> rows(
     GenericReactiveCrudService<T, String> store,
@@ -99,7 +100,8 @@ public class FacilityReports {
 
   public Mono<Map<String, Object>> overviewProjects(List<String> projectIds) {
     return Mono.zip(
-      rowsInProjects(devices, FacilityAssetType.facilityDevice, "id", projectIds),
+      deviceManager.currentIds().flatMap(ids -> rowsInProjects(devices, FacilityAssetType.facilityDevice, "id", projectIds)
+        .map(rows -> rows.stream().filter(row -> ids.contains(row.getId())).toList())),
       rowsInProjects(tasks, FacilityAssetType.facilityTask, "id", projectIds),
       rowsInProjects(faults, FacilityAssetType.facilityFault, "id", projectIds),
       bothParentsInProjects(alerts, projectIds),

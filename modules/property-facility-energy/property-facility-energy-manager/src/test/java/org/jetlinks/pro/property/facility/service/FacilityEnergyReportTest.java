@@ -26,7 +26,7 @@ class FacilityEnergyReportTest {
   final FacilityScope scope = mock(FacilityScope.class);
   final FacilityRecords records = mock(FacilityRecords.class);
   final FacilityReadings readings = new FacilityReadings(null, store, mappings, null, null, null, scope, records);
-  final FacilityReports reports = new FacilityReports(null, null, null, null, null, mappings, null, scope, readings, records, null);
+  final FacilityReports reports = new FacilityReports(null, null, null, null, null, mappings, null, scope, readings, records, null, null);
   final FacilityContext context = new FacilityContext("tenant", "app", "worker", "员工");
 
   @Test
@@ -39,7 +39,7 @@ class FacilityEnergyReportTest {
       .thenAnswer(call -> Mono.delay(Duration.ofMillis(100)).thenReturn(usage));
     when(reader.usageForVisibleMapping(second, "total", 1000, 2000))
       .thenReturn(Mono.just(usage));
-    var report = new FacilityReports(null, null, null, null, null, mappings, null, scope, reader, records, null);
+    var report = new FacilityReports(null, null, null, null, null, mappings, null, scope, reader, records, null, null);
     StepVerifier.withVirtualTime(() -> report.energy("project", 1000, 2000, "master"))
       .thenAwait(Duration.ofMillis(100))
       .assertNext(rows -> assertEquals(List.of("meter-0", "meter-1"), rows.stream().map(row -> row.get("deviceId")).toList()))
@@ -54,7 +54,7 @@ class FacilityEnergyReportTest {
     when(reader.usageForVisibleMapping(any(), eq("total"), eq(1000L), eq(2000L)))
       .thenAnswer(call -> Mono.<EnergyMath.Usage>never()
         .doOnSubscribe(ignored -> started.incrementAndGet()).doOnCancel(cancelled::incrementAndGet));
-    var report = new FacilityReports(null, null, null, null, null, mappings, null, scope, reader, records, null);
+    var report = new FacilityReports(null, null, null, null, null, mappings, null, scope, reader, records, null, null);
     StepVerifier.create(report.energy("project", 1000, 2000, "master"))
       .then(() -> assertEquals(4, started.get())).thenCancel().verify();
     assertEquals(4, cancelled.get());

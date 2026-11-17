@@ -22,7 +22,7 @@ class FacilityPeriodReportTest {
     when(mappings.createQuery()).thenReturn(query);
     var scope = mock(FacilityScope.class);
     var readings = mock(FacilityReadings.class);
-    var reports = new FacilityReports(null, null, null, null, null, mappings, null, scope, readings, null, null);
+    var reports = new FacilityReports(null, null, null, null, null, mappings, null, scope, readings, null, null, null);
     var metric = new MetricMapping();
     metric.setPropertyId("total"); metric.setKind("counter"); metric.setUnit("kWh");
     var mapping = new MappingEntity();

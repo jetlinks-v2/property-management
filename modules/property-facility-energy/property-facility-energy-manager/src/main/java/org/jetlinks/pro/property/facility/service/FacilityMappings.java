@@ -22,6 +22,12 @@ public class FacilityMappings {
   private final FacilityScope scope;
   private final FacilityRecords records;
 
+  public Mono<org.hswebframework.web.api.crud.entity.PagerResult<MappingEntity>> query(
+    org.hswebframework.web.api.crud.entity.QueryParamEntity query
+  ) {
+    return devices.currentQuery(query, FacilityAssetType.facilityMapping, "deviceId").flatMap(mappings::queryPager);
+  }
+
   @Transactional
   public Mono<MappingEntity> save(MappingEntity input) {
     require(
@@ -57,6 +63,7 @@ public class FacilityMappings {
     );
     return devices
       .writable(input.getDeviceId())
+      .flatMap(devices::requireBound)
       .doOnNext(FacilityDevices::requireActive)
       .flatMap(device ->
         cloud
@@ -162,6 +169,7 @@ public class FacilityMappings {
     require(!parent.equals(device.getId()) && seen.add(parent), "meter_cycle");
     return devices
       .read(parent)
+      .flatMap(devices::requireBound)
       .doOnNext(d ->
         require(
           d.getProjectId().equals(device.getProjectId()),
@@ -202,7 +210,7 @@ public class FacilityMappings {
     List<org.jetlinks.pro.property.facility.model.MetricMapping> metrics
   ) {
     EnergyMath.mapping(metrics);
-    return devices.read(deviceId).flatMap(device ->
+    return devices.read(deviceId).flatMap(devices::requireBound).flatMap(device ->
       cloud.metadata(device.getCloudDeviceId()).flatMap(metadata -> {
         var ids = metadata
           .getProperties()

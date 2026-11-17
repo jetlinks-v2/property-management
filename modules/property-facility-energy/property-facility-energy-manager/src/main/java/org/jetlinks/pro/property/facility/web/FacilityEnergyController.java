@@ -21,11 +21,9 @@ import reactor.core.publisher.*;
 public class FacilityEnergyController {
 
   private final MappingStore store;
-  private final ReplacementStore replacements;
   private final FacilityMappings mappings;
   private final FacilityReadings manager;
   private final FacilityReplacements replacementManager;
-  private final FacilityQueries queries;
   private final FacilityTelemetry telemetry;
 
   public record Review(long version, boolean approve) {}
@@ -35,7 +33,7 @@ public class FacilityEnergyController {
   public Mono<PagerResult<MappingEntity>> mappings(
     @RequestBody QueryParamEntity q
   ) {
-    return queries.page(store, q, FacilityAssetType.facilityMapping, "id");
+    return mappings.query(q);
   }
 
   @PostMapping("/mappings")
@@ -123,12 +121,7 @@ public class FacilityEnergyController {
   public Mono<PagerResult<ReplacementEntity>> replacements(
     @RequestBody QueryParamEntity q
   ) {
-    return queries.page(
-      replacements,
-      q,
-      FacilityAssetType.facilityDevice,
-      "oldDeviceId"
-    );
+    return replacementManager.page(q);
   }
 
   @PostMapping("/replacements")
