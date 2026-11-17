@@ -42,6 +42,7 @@ class MeterConfigurationPersistenceTest {
   @BeforeEach void setup() {
     project=UUID.randomUUID().toString();
     when(scope.current()).thenReturn(Mono.just(new FacilityContext("tenant","app","worker","测试员")));
+    when(scope.projectExists(anyString())).thenReturn(Mono.just(true));
     when(scope.assertRecord(any(),any(),anyString(),any())).thenReturn(Mono.empty());
     doReturn(Mono.empty()).when(records).assertProject(anyString(),any());
     var p=new PropertyOrganizationInfo(); p.setId(project); p.setName("测试项目"); when(directory.project(project)).thenReturn(Mono.just(p));
@@ -178,6 +179,64 @@ class MeterConfigurationPersistenceTest {
     catalog.save(List.of(new FacilityDevices.Allocation(first,stale.getVersion(),project,null,null,false))).block(WAIT);
     StepVerifier.create(syncDevice.apply(stale,sourceOne,List.of(project),System.currentTimeMillis())).expectError().verify(WAIT);
     assertEquals("room",devices.findById(first).block(WAIT).getSpaceId());
+  }
+  @Test void applicationBindingControlsCatalogAllocationAndSyncWithoutRemovingHistoricalConfiguration() {
+    var one = sourceDevice(UUID.randomUUID().toString());
+    var two = sourceDevice(UUID.randomUUID().toString());
+    var unassigned = sourceDevice(UUID.randomUUID().toString());
+    var current = sourceProject(project);
+    var other = sourceProject(UUID.randomUUID().toString());
+    when(directory.projects()).thenReturn(Flux.just(current));
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(one, two)));
+    catalog.refresh().block(WAIT);
+    String first = FacilityRecords.stableId("tenant", "app", one.getId());
+    String second = FacilityRecords.stableId("tenant", "app", two.getId());
+    String pending = FacilityRecords.stableId("tenant", "app", unassigned.getId());
+    catalog.save(List.of(new FacilityDevices.Allocation(first,0L,project,null,null,false),
+      new FacilityDevices.Allocation(second,0L,project,null,null,false))).block(WAIT);
+    assertEquals(2, synchronizer.synchronizeConfigured().block(WAIT).inserted());
+    var historical = devices.findById(first).block(WAIT);
+    historical.setSpaceId("room"); historical.setMeterType("water"); historical.setEnergyEnabled(true);
+    historical.setAllocationSince(123L); devices.save(historical).block(WAIT);
+    var mapping = FacilityScope.initialize(new MappingEntity(),new FacilityContext("tenant","app","worker","测试员"));
+    mapping.setId(UUID.randomUUID().toString()); mapping.setDeviceId(first); mapping.setProjectId(project); mapping.setEnabled(true);
+    mappings.insert(mapping).block(WAIT);
+    var firstConfig = catalogStore.findById(first).block(WAIT);
+    var secondConfig = catalogStore.findById(second).block(WAIT);
+
+    // 应用解绑立即裁剪查询和保存；新绑定但未分配项目的设备不能自动产生资产。
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(two, unassigned)));
+    assertEquals(2, catalog.refresh().block(WAIT));
+    var page = catalog.query(new org.hswebframework.web.api.crud.entity.QueryParamEntity()).block(WAIT);
+    assertEquals(Set.of(second,pending), page.getData().stream().map(DeviceAllocationEntity::getId).collect(java.util.stream.Collectors.toSet()));
+    StepVerifier.create(catalog.save(List.of(
+      new FacilityDevices.Allocation(second,secondConfig.getVersion(),other.getId(),null,null,false),
+      new FacilityDevices.Allocation(first,firstConfig.getVersion(),other.getId(),null,null,false))))
+      .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify(WAIT);
+    assertEquals(project,catalogStore.findById(second).block(WAIT).getProjectId());
+    assertEquals(secondConfig.getVersion(),catalogStore.findById(second).block(WAIT).getVersion());
+    var synced = synchronizer.synchronizeConfigured().block(WAIT);
+    assertEquals(1,synced.updated()); assertEquals(0,synced.inserted()); assertEquals(0,synced.failed());
+    assertNull(devices.findById(pending).block(WAIT));
+    assertEquals(historical.getVersion(),devices.findById(first).block(WAIT).getVersion());
+
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of()));
+    assertEquals(0,catalog.query(new org.hswebframework.web.api.crud.entity.QueryParamEntity()).block(WAIT).getTotal());
+    var empty = synchronizer.synchronizeConfigured().block(WAIT);
+    assertEquals(0,empty.updated()); assertEquals(0,empty.failed());
+    assertEquals(historical.getVersion(),devices.findById(first).block(WAIT).getVersion());
+    assertTrue(mappings.findById(mapping.getId()).block(WAIT).getEnabled());
+
+    // 重新绑定沿用原项目和历史计量配置，不重复创建资产。
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(one,two,unassigned)));
+    catalog.refresh().block(WAIT);
+    assertEquals(project,catalogStore.findById(first).block(WAIT).getProjectId());
+    var rebound = synchronizer.synchronizeConfigured().block(WAIT);
+    assertEquals(2,rebound.updated()); assertEquals(0,rebound.inserted()); assertEquals(0,rebound.failed());
+    var retained = devices.findById(first).block(WAIT);
+    assertEquals("room",retained.getSpaceId()); assertEquals("water",retained.getMeterType());
+    assertTrue(retained.getEnergyEnabled()); assertEquals(123L,retained.getAllocationSince());
+    assertTrue(mappings.findById(mapping.getId()).block(WAIT).getEnabled());
   }
   @Test void activeFaultBlocksProjectMoveButCancelledFaultAllowsItAndHistoryKeepsOriginalProject() {
     var source = sourceDevice(UUID.randomUUID().toString());

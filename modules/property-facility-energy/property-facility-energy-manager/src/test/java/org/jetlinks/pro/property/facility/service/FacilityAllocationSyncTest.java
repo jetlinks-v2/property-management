@@ -130,7 +130,7 @@ class FacilityAllocationSyncTest {
     verify(devices).apply(water, source, List.of("cloud-source"), 42L); verifyNoMoreInteractions(devices);
   }
 
-  @Test void inaccessibleSourceIsReportedAndDoesNotPreventOtherDevicesFromSyncing() {
+  @Test void unboundDevicesAreSkippedAndOnlyBoundConfiguredDevicesSync() {
     var allocations = mock(FacilityAllocations.class); var devices = mock(FacilitySyncDevice.class);
     var jobs = mock(JobStore.class, RETURNS_DEEP_STUBS);
     var job = new JobEntity(); job.setId("job"); job.setProjectId("business");
@@ -145,9 +145,46 @@ class FacilityAllocationSyncTest {
     when(devices.apply(water, source, List.of("source"), 42L)).thenReturn(Mono.just(new FacilitySyncDevice.Result(false)));
     StepVerifier.create(new FacilitySyncWriter(allocations, devices, jobs).apply(job,
       List.of(new FacilitySync.Source("source", "来源", List.of(source))), 42)).assertNext(result -> {
-        assertEquals(1, result.getUpdated()); assertEquals(1, result.getFailed()); assertEquals(1, result.getProcessed());
-        assertEquals("failed", result.getState()); assertTrue(result.getFailureReason().contains("missing"));
+        assertEquals(1, result.getUpdated()); assertEquals(0, result.getFailed()); assertEquals(1, result.getProcessed());
+        assertEquals("success", result.getState());
       }).verifyComplete();
     verify(devices).apply(water, source, List.of("source"), 42L); verifyNoMoreInteractions(devices);
+  }
+
+  @Test void emptyApplicationBindingDoesNotAttemptAnyConfiguredDevice() {
+    var allocations = mock(FacilityAllocations.class); var devices = mock(FacilitySyncDevice.class);
+    var jobs = mock(JobStore.class, RETURNS_DEEP_STUBS);
+    var job = new JobEntity(); job.setId("job"); job.setProjectId("business");
+    var update = jobs.createUpdate();
+    when(update.set(anyString(), any())).thenAnswer(call -> { new BeanWrapperImpl(job).setPropertyValue(call.getArgument(0), call.getArgument(1)); return update; });
+    when(update.setNull(anyString())).thenReturn(update); when(update.where(anyString(), any())).thenReturn(update);
+    when(update.and(anyString(), any())).thenReturn(update); when(update.execute()).thenReturn(Mono.just(1));
+    when(jobs.findById("job")).thenReturn(Mono.just(job));
+    when(allocations.configured("business")).thenReturn(Flux.just(allocation("revoked", "business")));
+    StepVerifier.create(new FacilitySyncWriter(allocations, devices, jobs).apply(job,
+      List.of(new FacilitySync.Source(null, null, List.of())), 42)).assertNext(result -> {
+        assertEquals(0, result.getProcessed()); assertEquals(0, result.getFailed());
+        assertEquals("success", result.getState());
+      }).verifyComplete();
+    verifyNoInteractions(devices);
+  }
+
+  @Test void boundDeviceWriteFailuresRemainVisible() {
+    var allocations = mock(FacilityAllocations.class); var devices = mock(FacilitySyncDevice.class);
+    var jobs = mock(JobStore.class, RETURNS_DEEP_STUBS);
+    var job = new JobEntity(); job.setId("job"); job.setProjectId("business");
+    var update = jobs.createUpdate();
+    when(update.set(anyString(), any())).thenAnswer(call -> { new BeanWrapperImpl(job).setPropertyValue(call.getArgument(0), call.getArgument(1)); return update; });
+    when(update.setNull(anyString())).thenReturn(update); when(update.where(anyString(), any())).thenReturn(update);
+    when(update.and(anyString(), any())).thenReturn(update); when(update.execute()).thenReturn(Mono.just(1));
+    when(jobs.findById("job")).thenReturn(Mono.just(job));
+    var water = allocation("water", "business"); var source = source("water");
+    when(allocations.configured("business")).thenReturn(Flux.just(water));
+    when(devices.apply(water, source, List.of(), 42L)).thenReturn(Mono.error(new IllegalStateException("write rejected")));
+    StepVerifier.create(new FacilitySyncWriter(allocations, devices, jobs).apply(job,
+      List.of(new FacilitySync.Source(null, null, List.of(source))), 42)).assertNext(result -> {
+        assertEquals(0, result.getProcessed()); assertEquals(1, result.getFailed());
+        assertEquals("failed", result.getState()); assertTrue(result.getFailureReason().contains("water"));
+      }).verifyComplete();
   }
 }

@@ -25,14 +25,16 @@ public class FacilitySyncWriter {
     }
     int[] counts = new int[3];
     var failures = new ArrayList<String>();
-    return allocations.configured(job.getProjectId()).concatMap(allocation -> Mono.defer(() -> {
+    // 完整来源快照之外的旧配置不再参与同步，解绑不删除历史资产或计费关联。
+    return allocations.configured(job.getProjectId())
+      .filter(allocation -> byId.containsKey(allocation.getCloudDeviceId()))
+      .concatMap(allocation -> Mono.defer(() -> {
       DeviceInfo source = byId.get(allocation.getCloudDeviceId());
-      FacilityScope.require(source != null, "sync_source_unavailable");
       return devices.apply(allocation, source, candidates.get(source.getId()), now)
         .doOnNext(result -> counts[result.created() ? 0 : 1]++).then();
     }).onErrorResume(error -> {
       counts[2]++;
-      // Missing visibility is not deletion. Retain the asset and report its failed attempt without disabling billing.
+      // 仍在应用来源范围内的设备写入失败必须明确报告。
       failures.add(allocation.getName() + ": " + FacilityMeterDrafts.error(error));
       return Mono.empty();
     })).then(Mono.defer(() -> {
