@@ -20,12 +20,22 @@ public final class DecorationRequests {
         @NotBlank @Size(max=64) private String spaceId;
         @NotBlank @Size(max=64) private String customerId;
         @NotBlank @Pattern(regexp=PHONE_FORMAT,message="{error.decoration.invalid_owner_phone}") @Size(max=64) private String contactPhone;
-        @NotBlank @Size(max=128) private String constructionUnit;
-        @NotBlank @Size(max=128) private String constructionManager;
-        @NotBlank @Pattern(regexp=PHONE_FORMAT,message="{error.decoration.invalid_manager_phone}") @Size(max=64) private String managerPhone;
+        @Size(max=128) private String constructionUnit;
+        @Size(max=128) private String constructionManager;
+        @Size(max=64) private String managerPhone;
         @NotBlank @Pattern(regexp=IDENTITY_FORMAT,message="{error.decoration.invalid_owner_identity}") @Size(max=18) private String ownerCertificate;
-        @NotBlank @Pattern(regexp=IDENTITY_FORMAT,message="{error.decoration.invalid_manager_identity}") @Size(max=18) private String managerCertificate;
+        @Size(max=18) private String managerCertificate;
         @Min(1) @Max(2) private int constructionType;
+        /** 自装无需施工方资料；装修公司仍必须提供完整且格式正确的负责人信息。 */
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        @AssertTrue(message="{error.decoration.contractor_required}")
+        public boolean isContractorValid() {
+            return constructionType == 2 || constructionUnit != null && !constructionUnit.isBlank()
+                && constructionManager != null && !constructionManager.isBlank()
+                && managerPhone != null && managerPhone.matches(PHONE_FORMAT)
+                && managerCertificate != null && managerCertificate.matches(IDENTITY_FORMAT);
+        }
+
         @NotBlank @Size(max=64) private String decorationType;
         @NotNull private Long startTime;
         @NotNull private Long completionTime;

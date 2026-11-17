@@ -72,7 +72,8 @@ public class PatrolExecutionController
             @NotNull @Size(max = 100) @Valid List<@NotNull Answer> answers,
             @Size(max = 1000) String remark,
             @Positive Long collectedTime,
-            PatrolExecutionEntity.NetworkStatus networkStatus) {}
+            PatrolExecutionEntity.NetworkStatus networkStatus,
+            @Valid org.jetlinks.pro.patrol.entity.PatrolLocation.Evidence location) {}
 
     @PostMapping
     @ResourceAction(id = "submit", name = "提交巡更结果")
@@ -84,6 +85,6 @@ public class PatrolExecutionController
                         request.answers(),
                         request.remark(),
                         request.collectedTime(),
-                        request.networkStatus()));
+                        request.networkStatus(), request.location()));
     }
 }

@@ -110,3 +110,5 @@ PC在线审核使用 `POST /decoration/applications/_query?view=review`，只查
 后台以原计划指派人的实时认证和应用资产范围查询启用角色成员，再逐人核验实时应用成员、任务动作权限、有效员工、项目权限和复核角色。Scope本身不作为成员授权证明。不伪造系统管理员、不持久化token、不以业主权限枚举员工。角色事件按人生成稳定通知ID，每人独立重试，角色展开不计为已送达；任务版本、状态、指派人或复核角色变化使旧员工待办取消。角色已移除、员工失效或应用成员撤销不继续投递；目录暂时不可用保留重试。
 
 公共 `SendUserNotificationCommand` 仍使用 `inside-mail`，detail 保留 `applicationId/decorationId/step/url`，增加 `side` 及可选 `taskId`。业主整改为 `step=rectification`；员工任务为 `step=task`。APP宿主应将定位字段转换到装修模块路由，业务详情仍重新鉴权。系统推送及真机送达另由APP通道接入，不能用站内入队/发送状态代替。
+
+申请施工类型 `constructionType=2`（自装）不要求施工单位、负责人、负责人电话及身份证号码，创建时清空这四个施工方字段后冻结快照。`constructionType=1`（装修公司）仍要求完整施工方信息与有效电话、证件格式；业主联系电话及身份证校验不随施工类型变化。PC和H5切换自装时清空施工方草稿并隐藏对应输入。

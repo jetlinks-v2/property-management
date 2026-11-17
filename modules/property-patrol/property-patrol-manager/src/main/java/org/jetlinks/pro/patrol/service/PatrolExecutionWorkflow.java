@@ -55,7 +55,14 @@ public class PatrolExecutionWorkflow {
             List<PatrolExecutionEntity.Answer> answers,
             String remark,
             Long collectedTime,
-            PatrolExecutionEntity.NetworkStatus networkStatus) {}
+            PatrolExecutionEntity.NetworkStatus networkStatus,
+            org.jetlinks.pro.patrol.entity.PatrolLocation.Evidence location) {
+        /** 已发布的无定位提交仍可用，历史/测试调用不凭空生成定位。 */
+        public Submission(String taskId, String requestId, List<PatrolExecutionEntity.Answer> answers,
+                          String remark, Long collectedTime, PatrolExecutionEntity.NetworkStatus networkStatus) {
+            this(taskId, requestId, answers, remark, collectedTime, networkStatus, null);
+        }
+    }
 
     public Mono<PatrolExecutionEntity> submit(Submission submission) {
         return ReactiveAuthenticationHolder.get()
@@ -109,7 +116,8 @@ public class PatrolExecutionWorkflow {
                 || !Objects.equals(record.getAnswers(), submission.answers())
                 || !Objects.equals(record.getRemark(), submission.remark())
                 || !Objects.equals(record.getCollectedTime(), submission.collectedTime())
-                || !Objects.equals(record.getNetworkStatus(), submission.networkStatus()))
+                || !Objects.equals(record.getNetworkStatus(), submission.networkStatus())
+                || !Objects.equals(record.getLocation() == null ? null : record.getLocation().evidence(), submission.location()))
             return Mono.error(new BusinessException("error.patrol.execution.idempotency_conflict", 409));
         return Mono.just(record);
     }
@@ -123,7 +131,14 @@ public class PatrolExecutionWorkflow {
                                 .filter(fileId -> fileId != null && !fileId.isBlank()).toList(),
                         org.jetlinks.pro.patrol.entity.PatrolAttachmentEntity.Purpose.evidence,
                         scopeKey, auth.getUser().getId(), task.getProjectId()))
-                .then(Mono.fromCallable(() -> buildRecord(task, auth, id, submission, now)))
+                .then(points.findById(task.getPointId()))
+                .map(point -> {
+                    var record = buildRecord(task, auth, id, submission, now);
+                    var reference = task.getLocationReference() == null
+                            ? org.jetlinks.pro.patrol.entity.PatrolLocation.reference(point, null) : task.getLocationReference();
+                    record.setLocation(org.jetlinks.pro.patrol.entity.PatrolLocation.snapshot(submission.location(), reference));
+                    return record;
+                })
                 .flatMap(
                         record ->
                                 tasks.createUpdate()

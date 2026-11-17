@@ -114,6 +114,11 @@ public class PatrolTaskEntity extends GenericEntity<String> {
     @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)
     private List<PatrolStandardEntity.CheckItem> standardSnapshot;
 
+    /** 生成时的定位参考快照；历史任务允许缺失。 */
+    @Column @JsonCodec
+    @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)
+    private PatrolLocation.Reference locationReference;
+
     @Column(nullable = false, updatable = false)
     private Long createTime;
 }

@@ -29,8 +29,11 @@ public final class DecorationRules {
         var phone = org.jetlinks.pro.property.decoration.model.DecorationRequests.PHONE_FORMAT;
         var identity = org.jetlinks.pro.property.decoration.model.DecorationRequests.IDENTITY_FORMAT;
         require(input.getContactPhone() != null && input.getContactPhone().matches(phone), "invalid_owner_phone");
-        require(input.getManagerPhone() != null && input.getManagerPhone().matches(phone), "invalid_manager_phone");
         require(input.getOwnerCertificate() != null && input.getOwnerCertificate().matches(identity), "invalid_owner_identity");
+        if (input.getConstructionType() == 2) return;
+        require(input.getConstructionUnit() != null && !input.getConstructionUnit().isBlank()
+            && input.getConstructionManager() != null && !input.getConstructionManager().isBlank(), "contractor_required");
+        require(input.getManagerPhone() != null && input.getManagerPhone().matches(phone), "invalid_manager_phone");
         require(input.getManagerCertificate() != null && input.getManagerCertificate().matches(identity), "invalid_manager_identity");
     }
     /** 当前版本完成打印或下载即完成备案；兼容既有领取记录，不补造任何领取信息。 */

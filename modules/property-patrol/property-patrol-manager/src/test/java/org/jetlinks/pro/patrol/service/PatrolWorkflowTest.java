@@ -795,6 +795,58 @@ class PatrolWorkflowTest {
     }
 
     @Test
+    void locationEvidenceAndReferenceArePersistedAndFrozenOnRetry() {
+        seedTask(3);
+        points.createUpdate().set("longitude", 106.551556).set("latitude", 29.563009)
+                .set("locationAddress", "园区东门").where("id", "point").execute().block();
+        var evidence = new org.jetlinks.pro.patrol.entity.PatrolLocation.Evidence(
+                106.551736, 29.563209, 18.0, System.currentTimeMillis(), "园区东门附近",
+                org.jetlinks.pro.patrol.entity.PatrolLocation.CoordinateSystem.WGS84,
+                org.jetlinks.pro.patrol.entity.PatrolLocation.Source.demo);
+        var request = new PatrolExecutionWorkflow.Submission("task", "location-sample",
+                List.of(new PatrolExecutionEntity.Answer("lock", "normal")), null,
+                evidence.collectedTime(), PatrolExecutionEntity.NetworkStatus.online, evidence);
+        var accepted = workflow.submit(request).contextWrite(identity).block();
+        var saved = executions.findById(accepted.getId()).block();
+        assertEquals(evidence, saved.getLocation().evidence());
+        assertEquals(100, saved.getLocation().reference().rangeMeters());
+        assertTrue(saved.getLocation().withinRange());
+        assertTrue(saved.getLocation().distanceMeters() > 20 && saved.getLocation().distanceMeters() < 40);
+        points.createUpdate().set("latitude", 30.0).where("id", "point").execute().block();
+        assertEquals(saved.getLocation(), workflow.submit(request).contextWrite(identity).block().getLocation());
+        var changed = new org.jetlinks.pro.patrol.entity.PatrolLocation.Evidence(
+                106.0, 29.0, 18.0, evidence.collectedTime(), evidence.address(), evidence.coordinateSystem(), evidence.source());
+        StepVerifier.create(workflow.submit(new PatrolExecutionWorkflow.Submission("task", "location-sample",
+                request.answers(), null, request.collectedTime(), request.networkStatus(), changed)).contextWrite(identity))
+                .expectErrorMatches(error -> error instanceof org.hswebframework.web.exception.BusinessException business
+                        && business.getStatus() == 409).verify();
+    }
+
+    @Test
+    void outsideLocationIsAdvisoryAndCoordinateInputsAreValidated() {
+        var ref = new org.jetlinks.pro.patrol.entity.PatrolLocation.Reference(106.551556, 29.563009, "门岗", 100);
+        var evidence = new org.jetlinks.pro.patrol.entity.PatrolLocation.Evidence(106.551556, 29.565009,
+                150.0, 100L, "附近", org.jetlinks.pro.patrol.entity.PatrolLocation.CoordinateSystem.WGS84,
+                org.jetlinks.pro.patrol.entity.PatrolLocation.Source.device);
+        var snapshot = org.jetlinks.pro.patrol.entity.PatrolLocation.snapshot(evidence, ref);
+        assertTrue(snapshot.distanceMeters() > 200);
+        assertTrue(!snapshot.withinRange());
+        seedTask(2);
+        var request = new PatrolExecutionWorkflow.Submission("task", "outside-location",
+                List.of(new PatrolExecutionEntity.Answer("lock", "normal")), null, 100L,
+                PatrolExecutionEntity.NetworkStatus.online, evidence);
+        assertNotNull(workflow.submit(request).contextWrite(identity).block());
+        try (var factory = jakarta.validation.Validation.buildDefaultValidatorFactory()) {
+            var validator = factory.getValidator();
+            var point = new PatrolPointEntity(); point.setLongitude(106.0);
+            assertTrue(!validator.validateProperty(point, "coordinatePairValid").isEmpty());
+            var invalid = new org.jetlinks.pro.patrol.entity.PatrolLocation.Evidence(190.0, 95.0, -1.0,
+                    0L, null, evidence.coordinateSystem(), evidence.source());
+            assertTrue(validator.validate(invalid).size() >= 4);
+        }
+    }
+
+    @Test
     void collectionMetadataIsImmutableAndQueryableWithoutReplacingServerTime() {
         seedTask(3);
         long collected = System.currentTimeMillis() - 60_000;

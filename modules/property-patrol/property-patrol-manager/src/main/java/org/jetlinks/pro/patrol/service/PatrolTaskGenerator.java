@@ -274,6 +274,7 @@ public class PatrolTaskGenerator {
         task.setCooldownMinutes(occurrence.cooldownMinutes());
         task.setRosterPolicy(plan.getRosterPolicy());
         task.setStandardSnapshot(List.copyOf(standard.getItems()));
+        task.setLocationReference(org.jetlinks.pro.patrol.entity.PatrolLocation.reference(point, standard.getCheckInRange()));
         task.setCreateTime(System.currentTimeMillis());
         return task;
     }

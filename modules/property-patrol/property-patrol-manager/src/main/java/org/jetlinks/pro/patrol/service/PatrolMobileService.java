@@ -47,7 +47,22 @@ public class PatrolMobileService {
                     .flatMapMany(rows -> workflow.listEligibility(rows, auth.getUser().getId(), Instant.now())
                             .flatMapMany(check -> Flux.fromIterable(rows)
                                     .flatMapSequential(task -> inspect(task, check.apply(task), mine), 8)))
-                    .collectList()))
+                    .collectList()
+                    .flatMap(rows -> {
+                        // 旧任务补充已授权任务关联点位，批量读取，避免逐任务查询。
+                        var ids = rows.stream().filter(row -> row.task().getLocationReference() == null)
+                                .map(row -> row.task().getPointId()).distinct().toList();
+                        if (ids.isEmpty()) return Mono.just(rows);
+                        return points.findById(ids).collectMap(point -> point.getId())
+                                .map(index -> {
+                                    for (var row : rows) if (row.task().getLocationReference() == null) {
+                                        var point = index.get(row.task().getPointId());
+                                        if (point != null) row.task().setLocationReference(
+                                                org.jetlinks.pro.patrol.entity.PatrolLocation.reference(point, null));
+                                    }
+                                    return rows;
+                                });
+                    })))
                 .as(MonoTracer.create("/patrol/mobile/tasks"));
     }
 

@@ -78,6 +78,11 @@ public class DecorationApplicationService {
             .orderBy(org.hswebframework.ezorm.rdb.operator.dml.query.SortOrder.asc("version")).fetch());
     }
     public Mono<DecorationApplicationEntity> create(DecorationRequests.Create input, boolean mine) {
+        // 自装不冻结施工公司的隐藏字段；后续列表、文书和幂等摘要均使用同一份规范化输入。
+        if (input.getConstructionType() == 2) {
+            input.setConstructionUnit(""); input.setConstructionManager("");
+            input.setManagerPhone(""); input.setManagerCertificate("");
+        }
         applicationContacts(input);
         require(input.getStartTime() <= input.getCompletionTime(), "invalid_dates");
         return scope.current().flatMap(ctx -> (mine ? Mono.empty() : scope.employee().then())

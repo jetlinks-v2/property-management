@@ -64,6 +64,28 @@ public class PatrolPointEntity extends PatrolConfigEntity {
     @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)
     private List<String> tagIds = List.of();
 
+    /** 点位采集统一使用 WGS84，地址独立于业务位置描述。 */
+    @Column
+    @jakarta.validation.constraints.DecimalMin("-180")
+    @jakarta.validation.constraints.DecimalMax("180")
+    private Double longitude;
+
+    @Column
+    @jakarta.validation.constraints.DecimalMin("-90")
+    @jakarta.validation.constraints.DecimalMax("90")
+    private Double latitude;
+
+    @Column(length = 255)
+    @Size(max = 255)
+    private String locationAddress;
+
+    @jakarta.validation.constraints.AssertTrue(message = "{error.patrol.location.coordinate_pair}")
+    @javax.persistence.Transient
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean isCoordinatePairValid() {
+        return (longitude == null) == (latitude == null);
+    }
+
     @Column(length = 128)
     @Size(max = 128)
     private String nfcCode;
