@@ -93,6 +93,11 @@ public class PatrolExecutionEntity extends GenericEntity<String> {
     @ColumnType(javaType = String.class)
     private NetworkStatus networkStatus;
 
+    /** 执行时的点位、范围及定位样本快照，不随之后点位编辑变化。 */
+    @Column @JsonCodec
+    @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)
+    private PatrolLocation.Snapshot location;
+
     public enum NetworkStatus { online, offline }
 
     @Column(length = 1000, updatable = false)

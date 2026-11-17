@@ -46,6 +46,12 @@ public class PatrolStandardEntity extends PatrolRemovableConfigEntity {
     @Valid
     private List<@NotNull CheckItem> items = new ArrayList<>();
 
+    /** 米；旧记录未配置时使用100米，不等同于设备定位精度。 */
+    @Column
+    @jakarta.validation.constraints.Min(10)
+    @jakarta.validation.constraints.Max(1000)
+    private Integer checkInRange = 100;
+
     public enum ItemType { number, text, choice, image }
 
     /** 历史任务保存完整标准；缺少 type 的已部署选项标准仍按 choice 解释。 */
