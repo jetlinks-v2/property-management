@@ -63,6 +63,12 @@ public class FacilityContextController {
     return directory.spaces(projectId);
   }
 
+  @GetMapping("/employee-accounts/{projectId}")
+  @QueryAction
+  public Flux<org.jetlinks.pro.property.base.user.PropertyUserInfo> employeeAccounts(@PathVariable String projectId) {
+    return directory.projectEmployeeAccounts(projectId);
+  }
+
   @GetMapping("/customers/{projectId}")
   @QueryAction
   public Flux<org.jetlinks.pro.property.base.customer.PropertyCustomerInfo> customers(

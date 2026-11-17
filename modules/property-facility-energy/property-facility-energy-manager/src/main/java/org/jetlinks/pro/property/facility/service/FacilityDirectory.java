@@ -71,6 +71,14 @@ public class FacilityDirectory {
     );
   }
 
+  /** 导入只公开项目有效员工的账号；成员范围与基础用户资产权限取交集。 */
+  public Flux<PropertyUserInfo> projectEmployeeAccounts(String projectId) {
+    return projectEmployees(projectId).map(PropertyEmployeeInfo::id).collectList()
+      .flatMapMany(ids -> ids.isEmpty() ? Flux.empty() : employees()
+        .filter(person -> ids.contains(person.getId()) && person.isEmployee() &&
+          person.getStatus() != null && person.getStatus() == 1));
+  }
+
   private Mono<PagerResult<PropertyEmployeeInfo>> organizationEmployeePage(List<String> organizationIds, int pageIndex) {
     return Mono.defer(() -> {
       var query = QueryParamEntity.newQuery()

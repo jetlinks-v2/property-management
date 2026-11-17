@@ -125,6 +125,8 @@ class FacilityPersistenceTest {
     when(notifier.enqueueTarget(any(), any(), any())).thenReturn(Mono.empty());
     when(directory.taskAssignee(any(), anyString())).thenReturn(Mono.empty());
     when(directory.employeeInfo(anyString())).thenReturn(Mono.empty());
+    when(directory.projectEmployee(anyString(), anyString())).thenAnswer(call -> Mono.just(
+      new org.jetlinks.pro.property.base.user.PropertyEmployeeInfo(call.getArgument(1), "Employee", null, List.of(call.<String>getArgument(0)))));
     when(scope.current()).thenReturn(
       Mono.deferContextual(c -> Mono.just(c.get(FacilityContext.class)))
     );
@@ -1007,6 +1009,7 @@ class FacilityPersistenceTest {
       var row = FacilityScope.initialize(new DeviceEntity(), c);
       row.setId(FacilityRecords.stableId("tenant", "app", cloudId));
       row.setCloudDeviceId(cloudId);
+      bindSource(cloudId); row.setSyncState("active"); row.setResponsibleUserId("employee");
       row.setProjectId("p");
       row.setName("Original");
       row.setManufacturer("Original manufacturer");
@@ -1016,12 +1019,12 @@ class FacilityPersistenceTest {
     var first = new FacilityDevices.ExtensionImport(
       "import-one",
       0L,
-      Map.of("manufacturer", "Changed")
+      Map.of("manufacturer", "Changed", "responsibleUserId", "employee")
     );
     var stale = new FacilityDevices.ExtensionImport(
       "import-two",
       99L,
-      Map.of("manufacturer", "Must not apply")
+      Map.of("manufacturer", "Must not apply", "responsibleUserId", "employee")
     );
     StepVerifier.create(
       as("admin", deviceManager.importExtensions(List.of(first, stale)))
@@ -1039,6 +1042,46 @@ class FacilityPersistenceTest {
     assertEquals("Original", saved.getName());
     assertTrue(saved.getEnergyEnabled());
     assertEquals("import-one", saved.getCloudDeviceId());
+  }
+
+  @Test
+  void extensionPreviewAndImportValidateRequiredProjectOwnerAndPreserveBlankValues() {
+    String cloudId = "profile-import";
+    var row = FacilityScope.initialize(new DeviceEntity(), new FacilityContext("tenant", "app", "admin", "Admin"));
+    row.setId(FacilityRecords.stableId("tenant", "app", cloudId)); row.setCloudDeviceId(cloudId);
+    row.setProjectId("p"); row.setName("原设备"); row.setSyncState("active"); row.setResponsibleUserId("old");
+    row.setManufacturer("原厂商"); row.setLocation("原位置"); row.setEnergyEnabled(true);
+    row.setInspectionEnabled(true); row.setMaintenanceEnabled(true); devices.save(row).block(); bindSource(cloudId);
+    var person = new PropertyUserInfo(); person.setId("employee"); person.setUsername("owner@project");
+    when(directory.projectEmployeeAccounts("p")).thenReturn(Flux.just(person));
+    var space = new org.jetlinks.pro.property.base.space.PropertySpaceInfo(); space.setId("room"); space.setFullName("12栋/201");
+    when(directory.spaces("p")).thenReturn(Flux.just(space));
+    when(directory.space("p", "room")).thenReturn(Mono.just(space));
+    var input = new FacilityDevices.ExtensionImport(cloudId, 0L, Map.of("responsibleAccount", "owner@project",
+      "spacePath", "12栋/201", "manufacturer", "", "location", " ", "workEnabled", false, "energyEnabled", false), 8);
+    var checks = as("admin", deviceManager.previewExtensions(List.of(input))).block();
+    assertEquals(8, checks.get(0).rowNumber()); assertTrue(checks.get(0).valid());
+    assertEquals(0L, devices.findById(row.getId()).block().getVersion());
+    assertEquals(0L, logs.createQuery().where("targetId", row.getId()).count().block().longValue());
+    as("admin", deviceManager.importExtensions(List.of(input))).block();
+    var saved = devices.findById(row.getId()).block();
+    assertEquals("employee", saved.getResponsibleUserId()); assertEquals("room", saved.getSpaceId());
+    assertEquals("原厂商", saved.getManufacturer()); assertEquals("原位置", saved.getLocation());
+    assertFalse(saved.getEnergyEnabled()); assertFalse(saved.getInspectionEnabled()); assertFalse(saved.getMaintenanceEnabled());
+    long version = saved.getVersion();
+    for (var values : List.<Map<String,Object>>of(Map.of("responsibleAccount", ""), Map.of("responsibleAccount", "other"),
+      Map.of("responsibleAccount", "owner@project", "spacePath", "不存在"), Map.of("responsibleUserId", "employee", "purchaseDate", "2026-02-30"),
+      Map.of("responsibleUserId", "employee", "power", -1), Map.of("responsibleUserId", "employee", "energyEnabled", "true"))) {
+      var invalid = new FacilityDevices.ExtensionImport(cloudId, version, values);
+      assertFalse(as("admin", deviceManager.previewExtensions(List.of(invalid))).block().get(0).valid());
+      StepVerifier.create(as("admin", deviceManager.importExtensions(List.of(invalid)))).expectError().verify();
+      assertEquals(version, devices.findById(row.getId()).block().getVersion());
+    }
+    when(directory.projectEmployee("p", "foreign")).thenReturn(Mono.error(new BusinessException("error.facility.project_employee_required")));
+    var foreign = new FacilityDevices.ExtensionImport(cloudId, version, Map.of("responsibleUserId", "foreign"));
+    assertFalse(as("admin", deviceManager.previewExtensions(List.of(foreign))).block().get(0).valid());
+    StepVerifier.create(as("admin", deviceManager.importExtensions(List.of(foreign)))).expectError().verify();
+    assertEquals("employee", devices.findById(row.getId()).block().getResponsibleUserId());
   }
 
   @Test
@@ -1814,17 +1857,21 @@ class FacilityPersistenceTest {
   }
 
   @Test
-  void clearedDeviceAssignmentAndNumericExtensionDoNotKeepPreviousValues() {
+  void requiredDeviceAssignmentIsRetainedAndNumericExtensionCanBeCleared() {
     var rule = alertFixture("clear-device", "usage", "counter");
     var device = devices.findById("clear-device-device").block();
     device.setResponsibleUserId("old-employee");
     device.setPower(java.math.BigDecimal.TEN);
     devices.save(device).block();
     device.setResponsibleUserId(null);
+    StepVerifier.create(as("staff", deviceManager.update(device.getId(), device)))
+      .expectErrorMatches(error -> error.getMessage().contains("device_responsible_required")).verify();
+    assertEquals("old-employee", devices.findById(device.getId()).block().getResponsibleUserId());
+    device.setResponsibleUserId("new-employee");
     device.setPower(null);
     as("staff", deviceManager.update(device.getId(), device)).block();
     var saved = devices.findById(device.getId()).block();
-    assertNull(saved.getResponsibleUserId());
+    assertEquals("new-employee", saved.getResponsibleUserId());
     assertNull(saved.getPower());
     assertEquals(device.getCloudDeviceId(), saved.getCloudDeviceId());
     assertTrue(saved.getEnergyEnabled());

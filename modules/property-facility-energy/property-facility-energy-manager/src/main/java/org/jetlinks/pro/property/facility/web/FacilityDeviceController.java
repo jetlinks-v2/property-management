@@ -152,4 +152,10 @@ public class FacilityDeviceController {
   ) {
     return devices.importExtensions(rows);
   }
+
+  @PostMapping("/extensions/validate")
+  @SaveAction
+  public Mono<List<FacilityDevices.ImportCheck>> validateImport(@RequestBody List<FacilityDevices.ExtensionImport> rows) {
+    return devices.previewExtensions(rows);
+  }
 }

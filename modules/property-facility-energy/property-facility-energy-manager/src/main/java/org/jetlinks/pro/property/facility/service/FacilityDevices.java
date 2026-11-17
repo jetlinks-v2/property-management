@@ -99,19 +99,7 @@ public class FacilityDevices {
   public Mono<DeviceEntity> update(String id, DeviceEntity input) {
     return writable(id).flatMap(row -> {
       require(Objects.equals(row.getVersion(), input.getVersion()), "conflict");
-      Mono<Void> references = files.validate(input.getAttachments(), row.getProjectId());
-      if (
-        input.getSpaceId() != null && !input.getSpaceId().isBlank()
-      ) references = references.then(
-        directory.space(row.getProjectId(), input.getSpaceId()).then()
-      );
-      if (
-        input.getResponsibleUserId() != null &&
-        !input.getResponsibleUserId().isBlank()
-      ) references = references.then(
-        directory.employee(input.getResponsibleUserId()).then()
-      );
-      return references.then(
+      return validateProfile(row.getProjectId(), input).then(
         Mono.defer(() -> {
           long version = row.getVersion();
           row.setName(input.getName());
@@ -300,70 +288,79 @@ public class FacilityDevices {
   public record ExtensionImport(
     String cloudDeviceId,
     Long version,
-    Map<String, Object> values
-  ) {}
+    Map<String, Object> values,
+    Integer rowNumber
+  ) {
+    public ExtensionImport(String cloudDeviceId, Long version, Map<String, Object> values) {
+      this(cloudDeviceId, version, values, null);
+    }
+  }
 
-  private static final Set<String> IMPORT_FIELDS = Set.of(
-    "name",
-    "systemName",
-    "categoryName",
-    "specification",
-    "power",
-    "manufacturer",
-    "purchasePrice",
-    "purchaseDate",
-    "startDate",
-    "warrantyDate",
-    "maintainer",
-    "responsibleUserId",
-    "spaceId",
-    "location",
-    "floor",
-    "remark"
-  );
+  /** 详情与导入共享的引用校验；负责人不能为空且必须是设备项目的有效员工。 */
+  private Mono<Void> validateProfile(String projectId, DeviceEntity input) {
+    require(input.getResponsibleUserId() != null && !input.getResponsibleUserId().isBlank(), "device_responsible_required");
+    Mono<Void> references = directory.projectEmployee(projectId, input.getResponsibleUserId()).then();
+    if (input.getSpaceId() != null && !input.getSpaceId().isBlank())
+      references = references.then(directory.space(projectId, input.getSpaceId()).then());
+    return references.then(files.validate(input.getAttachments(), projectId));
+  }
 
+  public record ImportCheck(int rowNumber, String deviceName, boolean valid, String message) {}
+
+  private static void validateImportRows(List<ExtensionImport> rows) {
+    require(rows != null && !rows.isEmpty() && rows.size() <= 1000, "too_many");
+    require(rows.stream().allMatch(Objects::nonNull), "invalid_import");
+    require(rows.stream().map(ExtensionImport::cloudDeviceId).distinct().count() == rows.size(), "invalid_import");
+  }
+
+  private Mono<DeviceEntity> prepareImport(ExtensionImport input, FacilityContext context, FacilityDeviceImportSupport support, Set<String> boundIds) {
+    return Mono.defer(() -> {
+      require(input.cloudDeviceId() != null && !input.cloudDeviceId().isBlank() && input.version() != null, "invalid_import");
+      String id = FacilityRecords.stableId(context.tenantId(), context.applicationId(), input.cloudDeviceId());
+      return writable(id).flatMap(existing -> {
+        require(boundIds.contains(existing.getCloudDeviceId()), "device_unavailable");
+        require(existing.getVersion().equals(input.version()), "conflict");
+        return support.merge(existing, input).flatMap(merged -> validateProfile(existing.getProjectId(), merged).thenReturn(merged));
+      });
+    });
+  }
+
+  /** 只读校验不写台账或操作记录；错误保留 Excel 行号，提交时仍会重新校验。 */
+  public Mono<List<ImportCheck>> previewExtensions(List<ExtensionImport> rows) {
+    return Mono.defer(() -> {
+      validateImportRows(rows);
+      var support = new FacilityDeviceImportSupport(mapper, directory);
+      return scope.current().zipWith(importBoundIds()).flatMap(context -> Flux.fromIterable(rows).index().concatMap(entry ->
+        prepareImport(entry.getT2(), context.getT1(), support, context.getT2())
+          .map(row -> new ImportCheck(importRowNumber(entry.getT2(), entry.getT1()), row.getName(), true, null))
+          .onErrorResume(error -> Mono.just(new ImportCheck(importRowNumber(entry.getT2(), entry.getT1()), null, false,
+            error instanceof org.hswebframework.web.authorization.exception.AccessDenyException
+              ? org.hswebframework.web.i18n.LocaleUtils.resolveMessage("error.facility.import_forbidden", "error.facility.import_forbidden")
+              : FacilityMeterDrafts.error(error)))))
+        .collectList());
+    });
+  }
+
+  private static int importRowNumber(ExtensionImport row, long index) {
+    return row.rowNumber() != null && row.rowNumber() >= 2 && row.rowNumber() <= 10001 ? row.rowNumber() : (int) index + 2;
+  }
+
+  /** 整批导入处于同一事务；版本冲突、权限或引用错误均回滚本批所有更新。 */
   @Transactional
   public Mono<List<DeviceEntity>> importExtensions(List<ExtensionImport> rows) {
-    require(!rows.isEmpty() && rows.size() <= 1000, "too_many");
-    require(
-      rows.stream().map(ExtensionImport::cloudDeviceId).distinct().count() ==
-        rows.size(),
-      "invalid_import"
-    );
-    return scope.current().flatMap(c ->
-      Flux.fromIterable(rows)
-        .concatMap(input -> {
-          require(
-            input.cloudDeviceId() != null &&
-              !input.cloudDeviceId().isBlank() &&
-              input.version() != null &&
-              input.values() != null &&
-              IMPORT_FIELDS.containsAll(input.values().keySet()),
-            "invalid_import"
-          );
-          String id = FacilityRecords.stableId(
-            c.tenantId(),
-            c.applicationId(),
-            input.cloudDeviceId()
-          );
-          return writable(id).flatMap(existing -> {
-            require(existing.getVersion().equals(input.version()), "conflict");
-            var merged = mapper.convertValue(existing, DeviceEntity.class);
-            try {
-              mapper.updateValue(merged, input.values());
-            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-              return Mono.error(
-                new org.hswebframework.web.exception.BusinessException(
-                  "error.facility.invalid_import",
-                  400
-                )
-              );
-            }
-            return update(id, merged);
-          });
-        })
-        .collectList()
-    );
+    return Mono.defer(() -> {
+      validateImportRows(rows);
+      var support = new FacilityDeviceImportSupport(mapper, directory);
+      return scope.current().zipWith(importBoundIds()).flatMap(context -> Flux.fromIterable(rows)
+        .concatMap(input -> prepareImport(input, context.getT1(), support, context.getT2()).flatMap(merged -> update(merged.getId(), merged)))
+        .collectList());
+    });
+  }
+
+  /** 一批只取一次应用设备绑定快照，避免逐行请求 SaaS；写入仍逐行检查资产和版本。 */
+  private Mono<Set<String>> importBoundIds() {
+    return cloud.snapshot(null).map(rows -> rows.stream().map(org.jetlinks.sdk.server.device.DeviceInfo::getId)
+      .collect(java.util.stream.Collectors.toSet()));
   }
 
   /** One business switch backed by the original columns, including older one-sided records. */

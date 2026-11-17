@@ -23,13 +23,16 @@ class FacilityDeviceWorkTest {
     var store = mock(DeviceStore.class);
     when(records.log(any(), anyString(), anyString(), nullable(String.class), nullable(String.class), nullable(String.class), anyList()))
       .thenReturn(Mono.empty());
-    var manager = new FacilityDevices(new ObjectMapper(), null, null, files, store, null, records, null, null);
+    var directory = mock(FacilityDirectory.class);
+    when(directory.projectEmployee(eq("project"), eq("employee"))).thenReturn(Mono.just(
+      new org.jetlinks.pro.property.base.user.PropertyEmployeeInfo("employee", "员工", null, List.of("project"))));
+    var manager = new FacilityDevices(new ObjectMapper(), null, null, files, store, null, records, directory, null);
     for (boolean inspection : List.of(false, true)) for (boolean maintenance : List.of(false, true)) {
       var row = new DeviceEntity();
       row.setId("device"); row.setVersion(5L); row.setProjectId("project");
       row.setInspectionEnabled(true); row.setMaintenanceEnabled(true);
       var input = new DeviceEntity();
-      input.setVersion(5L); input.setInspectionEnabled(inspection); input.setMaintenanceEnabled(maintenance);
+      input.setResponsibleUserId("employee"); input.setVersion(5L); input.setInspectionEnabled(inspection); input.setMaintenanceEnabled(maintenance);
       when(records.read(store, "device", FacilityAssetType.facilityDevice, CrudAssetPermission.save)).thenReturn(Mono.just(row));
       when(files.validate(anyList(), eq("project"))).thenReturn(Mono.empty());
       when(records.update(eq(store), any(DeviceEntity.class), eq(5L), any(String[].class)))
