@@ -2266,7 +2266,7 @@ class FacilityPersistenceTest {
     var legacy = FacilityScope.initialize(new AlertEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
     legacy.setId("retired-local-alarm"); legacy.setDeviceId(device.getId()); legacy.setProjectId("p-a"); legacy.setRuleType("offline");
     alerts.insert(legacy).block();
-    var controller = new org.jetlinks.pro.property.facility.web.FacilityAlertController(alerts, null, null, null, queries, null, null, null, deviceManager);
+    var controller = new org.jetlinks.pro.property.facility.web.FacilityAlertController(alerts, null, null, null, queries, null, null, null, deviceManager, null, scope);
     var filter = QueryParamEntity.newQuery().is("id", current.getId()).or("id", legacy.getId()).getParam();
     var page = as("admin", controller.query(filter)).block();
     assertEquals(List.of(current.getId()), page.getData().stream().map(AlertEntity::getId).toList());

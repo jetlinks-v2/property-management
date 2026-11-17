@@ -29,6 +29,12 @@ public class FacilityAlertController {
   private final ProcessStore processes;
   private final FacilitySaasAlarms saas;
   private final FacilityDevices devices;
+  private final FacilityCloudAlarms cloud;
+  private final FacilityScope scope;
+
+  /** 沿用本应用告警查询权限，仅返回展示等级；不要求员工持有平台规则配置权限。 */
+  @GetMapping("/levels") @QueryAction
+  public Mono<List<CloudAlarmLevels.Level>> levels() { return scope.current().then(Mono.defer(cloud::levels)); }
 
   /** 刷新只导入调用人当前应用已绑定且可读的设备，人工处理状态保持独立。 */
   @PostMapping("/_sync") @QueryAction
