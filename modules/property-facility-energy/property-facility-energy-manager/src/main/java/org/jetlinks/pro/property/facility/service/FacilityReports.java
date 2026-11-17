@@ -104,7 +104,9 @@ public class FacilityReports {
         .map(rows -> rows.stream().filter(row -> ids.contains(row.getId())).toList())),
       rowsInProjects(tasks, FacilityAssetType.facilityTask, "id", projectIds),
       rowsInProjects(faults, FacilityAssetType.facilityFault, "id", projectIds),
-      bothParentsInProjects(alerts, projectIds),
+      deviceManager.currentIds().flatMap(ids -> bothParentsInProjects(alerts, projectIds)
+        .map(rows -> rows.stream().filter(row -> row.getTargetId() != null ||
+          ids.contains(row.getDeviceId()) && Set.of("saas", "overdue", "dueSoon").contains(Objects.toString(row.getRuleType(), ""))).toList())),
       bothParentsInProjects(notifications, projectIds),
       scope.current()
     ).map(t -> {

@@ -27,18 +27,24 @@ public class FacilityAlertController {
   private final FacilityQueries queries;
   private final AlertEpisodeStore episodes;
   private final ProcessStore processes;
+  private final FacilitySaasAlarms saas;
+  private final FacilityDevices devices;
+
+  /** 刷新只导入调用人当前应用已绑定且可读的设备，人工处理状态保持独立。 */
+  @PostMapping("/_sync") @QueryAction
+  public Mono<Integer> synchronize() { return saas.refresh(); }
 
   public record Action(long version, String state, String comment) {}
 
   @PostMapping("/_query")
   @QueryAction
   public Mono<PagerResult<AlertEntity>> query(@RequestBody QueryParamEntity q) {
-    return queries.childrenInProjects(
-      alerts,
-      q.clone().toNestQuery().notNull("deviceId").getParam(),
-      FacilityAssetType.facilityDevice,
-      "deviceId"
-    );
+    return devices.currentIds().flatMap(ids -> {
+      var current = q.clone().toNestQuery().notNull("deviceId")
+        .in("ruleType", List.of("saas", "overdue", "dueSoon"));
+      if (ids.isEmpty()) current.isNull("id"); else current.in("deviceId", ids);
+      return queries.childrenInProjects(alerts, current.getParam(), FacilityAssetType.facilityDevice, "deviceId");
+    });
   }
 
   @GetMapping("/{id}") @QueryAction

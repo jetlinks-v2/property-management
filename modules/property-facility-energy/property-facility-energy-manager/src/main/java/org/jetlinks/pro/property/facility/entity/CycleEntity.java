@@ -25,5 +25,7 @@ public class CycleEntity extends FacilityEntity {
   @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)
   private CycleRule rule;
   @Column
+  private Boolean remindersMigrated = false;
+  @Column
   private Boolean enabled = true;
 }

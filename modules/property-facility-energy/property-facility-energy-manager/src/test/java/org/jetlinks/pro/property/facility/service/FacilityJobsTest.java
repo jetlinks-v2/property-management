@@ -29,18 +29,18 @@ class FacilityJobsTest {
     final FacilityMeterMonths months = mock(FacilityMeterMonths.class);
     final FacilityJobs polling;
     final RuleEntity rule = new RuleEntity();
+    final ReactiveQuery<RuleEntity> ruleQuery = mock(ReactiveQuery.class, RETURNS_SELF);
 
     RulesFixture() {
       ReactiveQuery<JobEntity> jobQuery = mock(ReactiveQuery.class, RETURNS_SELF);
       ReactiveQuery<PlanEntity> planQuery = mock(ReactiveQuery.class, RETURNS_SELF);
       ReactiveQuery<MappingEntity> mappingQuery = mock(ReactiveQuery.class, RETURNS_SELF);
-      ReactiveQuery<RuleEntity> ruleQuery = mock(ReactiveQuery.class, RETURNS_SELF);
       when(jobs.createQuery()).thenReturn(jobQuery); when(jobQuery.fetch()).thenReturn(Flux.empty());
       when(plans.createQuery()).thenReturn(planQuery); when(planQuery.fetch()).thenReturn(Flux.empty());
       when(mappings.createQuery()).thenReturn(mappingQuery);
       var mapping = new MappingEntity(); mapping.setId("slow-mapping");
       when(mappingQuery.fetch()).thenReturn(Flux.just(mapping));
-      rule.setId("offline-rule");
+      rule.setId("business-rule"); rule.setRuleType("plan");
       when(rules.createQuery()).thenReturn(ruleQuery); when(ruleQuery.fetch()).thenReturn(Flux.just(rule));
       when(execution.asOwner(any(), any())).thenAnswer(call -> {
         Supplier<Mono<?>> work = call.getArgument(1); return Mono.defer(work);
@@ -60,6 +60,7 @@ class FacilityJobsTest {
     try {
       verify(fixture.telemetry).collectCurrent(any());
       verify(fixture.alerts).evaluate(fixture.rule);
+      verify(fixture.ruleQuery).and("ruleType", "plan");
       verify(fixture.notifications).poll();
       StepVerifier.create(fixture.polling.pollRules()).verifyComplete();
       verify(fixture.alerts, times(2)).evaluate(fixture.rule);

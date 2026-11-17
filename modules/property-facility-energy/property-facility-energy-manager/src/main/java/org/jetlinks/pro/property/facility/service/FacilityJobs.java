@@ -73,7 +73,7 @@ public class FacilityJobs implements SmartLifecycle, FacilityJobsMBean {
     return Mono.defer(() -> {
       if (!evaluatingRules.compareAndSet(false, true)) return Mono.empty();
       return Mono.defer(() -> rules.createQuery()
-        .where("enabled", true).and("deleted", false).fetch().limitRate(32)
+        .where("enabled", true).and("deleted", false).and("ruleType", "plan").fetch().limitRate(32)
         .concatMap(row -> execution.asOwner(row, () -> alerts.evaluate(row))
           .onErrorResume(e -> failure("rule", row.getId(), e)))
         .then(Mono.defer(notifications::poll)))

@@ -261,11 +261,11 @@ public class FacilityPlans {
   private TaskEntity taskSnapshot(PlanEntity plan, StandardEntity standard, FacilityCycleRules.Slot slot, FacilityContext context) {
     var task = FacilityScope.initialize(new TaskEntity(), context);
     FacilityScope.inherit(task, plan);
-    task.setName(plan.getName()); task.setPlanId(plan.getId()); task.setKind(plan.getKind());
+    task.setName(plan.getName()); task.setPlanId(plan.getId()); task.setCycleId(plan.getCycleId()); task.setKind(plan.getKind());
     task.setStandardId(standard.getId()); task.setStandardSnapshot(standard.getCheckItems());
     task.setInstructionSnapshot(standard.getInstruction()); task.setInstructionAttachments(standard.getAttachments());
     task.setReviewerId(plan.getReviewerId()); task.setReviewerName(plan.getReviewerName());
-    task.setScheduledTime(slot.start()); task.setDeadline(slot.end()); task.setWarningTime(slot.warningTime()); task.setState("open");
+    task.setScheduledTime(slot.start()); task.setDeadline(slot.end()); task.setWarningTime(null); task.setState("open");
     return task;
   }
 

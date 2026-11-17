@@ -113,6 +113,9 @@ public class FacilityMappings {
               .defaultIfEmpty(Optional.empty())
               .flatMap(existing -> {
                 boolean create = existing.isEmpty();
+                // 停用能源监测的设备不能新建或启用采集配置；允许将原配置停用，历史数据不删除。
+                require(Boolean.TRUE.equals(device.getEnergyEnabled()) ||
+                  !create && Boolean.FALSE.equals(input.getEnabled()), "device_energy_disabled");
                 var row = existing.orElseGet(() ->
                   FacilityScope.initialize(new MappingEntity(), c)
                 );

@@ -18,7 +18,9 @@ class FacilityTaskMessageRulesTest {
     assertDoesNotThrow(() -> FacilityCycleRules.validate(cycle(15d, 2)));
     assertThrows(RuntimeException.class, () -> FacilityCycleRules.validate(cycle(30d, 2)));
     assertDoesNotThrow(() -> FacilityCycleRules.validate(cycle(null, 1)));
-    assertThrows(RuntimeException.class, () -> FacilityCycleRules.requireWarnings(cycle(null, 1)));
+    var cleared = cycle(40d, 1); cleared.setRule(FacilityCycleRules.withoutWarnings(cleared.getRule()));
+    assertNull(cleared.getRule().weekly().get(1).get(0).warningMinutes());
+    assertDoesNotThrow(() -> FacilityCycleRules.validate(cleared));
   }
   @Test void slotCarriesExplicitWarningOffsetAndLegacyStaysUnset() {
     long start = FacilityCycleRulesTest.time("2026-11-09T08:00");
@@ -26,19 +28,48 @@ class FacilityTaskMessageRulesTest {
     assertEquals(start + 2400000, slot.warningTime());
     assertNull(FacilityCycleRules.next(cycle(null, 1), start, start, start + 3600000).warningTime());
   }
-  @Test void onlyActiveWholeTasksProduceOneCurrentCategory() {
+  TaskEntity task() {
     var task = new TaskEntity(); task.setState("open"); task.setScheduledTime(1000L);
-    task.setWarningTime(31000L); task.setDeadline(61000L);
-    assertNull(FacilityTaskMessages.category(task, 999));
-    assertEquals("new", FacilityTaskMessages.category(task, 1000));
-    assertEquals("warning", FacilityTaskMessages.category(task, 31000));
-    assertEquals("overdue", FacilityTaskMessages.category(task, 61000));
-    task.setState("claimed"); assertNull(FacilityTaskMessages.category(task, 1000));
-    assertEquals("warning", FacilityTaskMessages.category(task, 31000));
-    for (String state : List.of("review", "completed", "closed", "external-submitted")) {
-      task.setState(state); assertNull(FacilityTaskMessages.category(task, 100000));
+    task.setWarningTime(31000L); task.setDeadline(61000L); task.setTenantId("t");
+    task.setApplicationId("a"); task.setProjectId("p"); task.setKind("inspection"); return task;
+  }
+  RuleEntity rule(String type) {
+    var rule = new RuleEntity(); rule.setTenantId("t"); rule.setApplicationId("a");
+    rule.setProjectId("p"); rule.setEnabled(true); rule.setRuleType(type); rule.setStaleAfterSeconds(30L); return rule;
+  }
+  @Test void explicitRulesMatchTimeBoundariesAndRespectProjectKindCycleAndEnabled() {
+    var task = task(); var rule = rule("dueSoon");
+    assertFalse(FacilityTaskReminders.matches(rule, task, "cycle", 999));
+    assertFalse(FacilityTaskReminders.matches(rule, task, "cycle", 30999));
+    assertTrue(FacilityTaskReminders.matches(rule, task, "cycle", 31000));
+    assertFalse(FacilityTaskReminders.matches(rule, task, "cycle", 61000));
+    var overdue = rule("overdue");
+    assertFalse(FacilityTaskReminders.matches(overdue, task, "cycle", 60999));
+    assertTrue(FacilityTaskReminders.matches(overdue, task, "cycle", 61000));
+    rule.setTaskKind("maintenance"); assertFalse(FacilityTaskReminders.matches(rule, task, "cycle", 31000));
+    rule.setTaskKind("inspection"); rule.setCycleId("another"); assertFalse(FacilityTaskReminders.matches(rule, task, "cycle", 31000));
+    rule.setCycleId("cycle"); assertTrue(FacilityTaskReminders.matches(rule, task, "cycle", 31000));
+    rule.setEnabled(false); assertFalse(FacilityTaskReminders.matches(rule, task, "cycle", 31000));
+    rule.setEnabled(true); rule.setProjectId("other"); assertFalse(FacilityTaskReminders.matches(rule, task, "cycle", 31000));
+    rule.setProjectId("p"); rule.setApplicationId("other"); assertFalse(FacilityTaskReminders.matches(rule, task, "cycle", 31000));
+    rule.setApplicationId("a"); rule.setTenantId("other"); assertFalse(FacilityTaskReminders.matches(rule, task, "cycle", 31000));
+  }
+  @Test void onlyActiveWholeTasksReceiveReminders() {
+    var task=task(); var rule=rule("overdue");
+    for (String state : List.of("review", "completed", "closed", "external-submitted", "cancelled")) {
+      task.setState(state); assertFalse(FacilityTaskReminders.matches(rule, task, "", 100000));
     }
     task.setState("open"); task.setParentTaskId("root");
-    assertNull(FacilityTaskMessages.category(task, 100000));
+    assertFalse(FacilityTaskReminders.matches(rule, task, "", 100000));
+  }
+  @Test void migratedWindowsKeepExactOldSnapshotsAndComputeFutureTaskTiming() {
+    long start=FacilityCycleRulesTest.time("2026-11-09T08:00");
+    var task=task(); task.setScheduledTime(start); task.setDeadline(start+3600000);
+    var rule=rule("dueSoon"); rule.setLegacySchedule(cycle(40d,1).getRule());
+    task.setWarningTime(start+1800000); // Existing task snapshot wins even if its cycle was edited later.
+    assertTrue(FacilityTaskReminders.matches(rule,task,"",start+1800000));
+    task.setWarningTime(null);
+    assertFalse(FacilityTaskReminders.matches(rule,task,"",start+2399999));
+    assertTrue(FacilityTaskReminders.matches(rule,task,"",start+2400000));
   }
 }

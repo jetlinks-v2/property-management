@@ -16,10 +16,12 @@ import reactor.core.publisher.Mono;
 public class FacilityCycles {
   private final CycleStore cycles;
   private final PlanStore plans;
+  private final RuleStore rules;
   private final FacilityRecords records;
   private final FacilityScope scope;
   private final FacilityDirectory directory;
   private final FacilityQueries queries;
+  private final FacilityReminderMigration migration;
 
   public Mono<CycleEntity> read(String id) {
     require(id != null && !id.isBlank(), "cycle_required");
@@ -43,7 +45,8 @@ public class FacilityCycles {
   public Mono<CycleEntity> save(CycleEntity input) {
     require(input.getName() != null && !input.getName().isBlank() && input.getKind() != null &&
       Set.of("inspection", "maintenance").contains(input.getKind()), "invalid_cycle");
-    FacilityCycleRules.requireWarnings(input);
+    input.setRule(FacilityCycleRules.withoutWarnings(input.getRule()));
+    FacilityCycleRules.validate(input);
     return directory.project(input.getProjectId()).doOnNext(project -> input.setProjectName(project.getName()))
       .then(records.assertProject(input.getProjectId(), CrudAssetPermission.save))
       .then(scope.current())
@@ -54,16 +57,18 @@ public class FacilityCycles {
         boolean create = input.getId() == null;
         require(create || (Objects.equals(row.getVersion(), input.getVersion()) &&
           Objects.equals(row.getProjectId(), input.getProjectId()) && Objects.equals(row.getKind(), input.getKind())), "conflict");
-        long version = row.getVersion();
-        row.setName(input.getName());
-        row.setProjectName(input.getProjectName());
-        row.setProjectId(input.getProjectId());
-        row.setOrganizationId(input.getProjectId());
-        row.setKind(input.getKind());
-        row.setRule(input.getRule());
-        row.setEnabled(Boolean.TRUE.equals(input.getEnabled()));
-        return create ? records.insert(cycles, row, FacilityAssetType.facilityCycle)
-          : records.update(cycles, row, version).flatMap(saved -> wakeConfigurations(saved).thenReturn(saved));
+        return (create ? Mono.just(row) : migration.migrate(row.getId())).flatMap(current -> {
+          long version = current.getVersion(); row.setVersion(version); row.setRemindersMigrated(true);
+          row.setName(input.getName());
+          row.setProjectName(input.getProjectName());
+          row.setProjectId(input.getProjectId());
+          row.setOrganizationId(input.getProjectId());
+          row.setKind(input.getKind());
+          row.setRule(input.getRule());
+          row.setEnabled(Boolean.TRUE.equals(input.getEnabled()));
+          return create ? records.insert(cycles, row, FacilityAssetType.facilityCycle)
+            : records.update(cycles, row, version).flatMap(saved -> wakeConfigurations(saved).thenReturn(saved));
+        });
       });
   }
 
@@ -89,6 +94,9 @@ public class FacilityCycles {
       .flatMap(row -> plans.createQuery().where("cycleId", id)
         .and("tenantId", row.getTenantId()).and("applicationId", row.getApplicationId()).and("deleted", false).count()
         .doOnNext(count -> require(count == 0, "cycle_in_use"))
+        .then(rules.createQuery().where("cycleId", id).and("tenantId", row.getTenantId())
+          .and("applicationId", row.getApplicationId()).and("deleted", false).count()
+          .doOnNext(count -> require(count == 0, "cycle_in_use")))
         .then(queries.remove(cycles, id, version, FacilityAssetType.facilityCycle)));
   }
 }

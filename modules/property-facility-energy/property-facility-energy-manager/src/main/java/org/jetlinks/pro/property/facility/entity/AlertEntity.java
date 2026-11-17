@@ -92,4 +92,15 @@ public class AlertEntity extends FacilityEntity {
 
   @Column(length = 4000)
   private String comment;
+
+  /** 平台来源标识与时间独立保存；本地人工处理不会写回平台信号状态。 */
+  @Column(length = 32) private String source;
+  @Column(length = 256) private String sourceRecordId;
+  @Column(length = 256) private String sourceConfigId;
+  @Column private Integer sourceLevel;
+  @Column(length = 32) private String sourceState;
+  @Column(length = 4000) private String sourceReason;
+  @Column(length = 4000) private String sourceCondition;
+  @Column(length = 256) private String deviceName;
+  @Column(length = 512) private String spaceName;
 }

@@ -27,7 +27,7 @@ public class FacilityAlerts {
   private final AlertStore alerts;
   private final DeviceStore devices;
   private final GroupStore groups;
-  private final TaskStore tasks;
+  private final FacilityCycles cycles;
   private final FacilityDevices deviceManager;
   private final FacilityMappings mappings;
   private final FacilityReadings readings;
@@ -56,6 +56,12 @@ public class FacilityAlerts {
         ).contains(input.getRuleType()),
       "invalid_rule"
     );
+    boolean taskRule = Set.of("dueSoon", "overdue").contains(input.getRuleType());
+    if (taskRule) {
+      input.setThreshold(BigDecimal.ONE); input.setRepeatHours(24);
+      input.setNotifyUserId(null);
+      require(input.getTaskKind() == null || Set.of("inspection", "maintenance").contains(input.getTaskKind()), "invalid_rule");
+    }
     require(
       input.getThreshold() != null &&
         input.getThreshold().signum() >= 0 &&
@@ -93,10 +99,6 @@ public class FacilityAlerts {
     );
     if ("state".equals(input.getRuleType())) require(
       input.getStateValue() != null && !input.getStateValue().isBlank(),
-      "invalid_rule"
-    );
-    if ("dueSoon".equals(input.getRuleType())) require(
-      input.getStaleAfterSeconds() != null && input.getStaleAfterSeconds() > 0,
       "invalid_rule"
     );
     if (input.getNearRatio() != null) require(
@@ -152,6 +154,12 @@ public class FacilityAlerts {
           )
           .then()
       );
+    if (taskRule && input.getCycleId() != null) refs = refs.then(
+      cycles.reference(input.getCycleId())
+        .doOnNext(cycle -> {
+          require(Objects.equals(cycle.getProjectId(), input.getProjectId()), "project_mismatch");
+          require(input.getTaskKind() == null || input.getTaskKind().equals(cycle.getKind()), "invalid_rule");
+        }).then());
     if (input.getNotifyUserId() != null && !input.getNotifyUserId().isBlank()) refs = refs
       .then(directory.projectEmployee(input.getProjectId(), input.getNotifyUserId()))
       .then();
@@ -173,7 +181,16 @@ public class FacilityAlerts {
               row.getProjectId().equals(input.getProjectId())),
           "conflict"
         );
+        // 仅允许保留数据库中的已迁移快照；客户端不能注入另一套分时段规则。
+        var legacy = !create && "dueSoon".equals(input.getRuleType()) && input.getLegacySchedule() != null
+          && Objects.equals(row.getCycleId(), input.getCycleId()) ? row.getLegacySchedule() : null;
+        require(input.getLegacySchedule() == null || legacy != null, "invalid_rule");
+        if ("dueSoon".equals(input.getRuleType())) require(legacy != null ||
+          input.getStaleAfterSeconds() != null && input.getStaleAfterSeconds() > 0, "invalid_rule");
         long v = row.getVersion();
+        row.setTaskKind(taskRule ? input.getTaskKind() : null);
+        row.setCycleId(taskRule ? input.getCycleId() : null);
+        row.setLegacySchedule(legacy);
         row.setProjectId(input.getProjectId());
         row.setOrganizationId(input.getProjectId());
         row.setName(input.getName());
@@ -202,6 +219,9 @@ public class FacilityAlerts {
               v,
               FacilityRecords.nullFields(
                 row,
+                "taskKind",
+                "cycleId",
+                "legacySchedule",
                 "energyType",
                 "deviceId",
                 "groupId",
@@ -221,6 +241,8 @@ public class FacilityAlerts {
   }
 
   public Mono<Void> evaluate(RuleEntity rule) {
+    // 到期/超期只走整项任务消息，停用旧的按设备计数预警，避免同一事件重复通知。
+    if (Set.of("dueSoon", "overdue").contains(rule.getRuleType())) return Mono.empty();
     if ("plan".equals(rule.getRuleType())) return records
       .read(
         rules,
@@ -327,41 +349,6 @@ public class FacilityAlerts {
       now,
       "current"
     );
-    if (Set.of("overdue", "dueSoon").contains(rule.getRuleType())) return tasks
-      .createQuery()
-      .where("tenantId", device.getTenantId())
-      .and("applicationId", device.getApplicationId())
-      .and("deviceId", device.getId())
-      .and("projectId", device.getProjectId())
-      .and("deleted", false)
-      .in(
-        "state",
-        List.of(
-          "open",
-          "claimed",
-          "executing",
-          "rectify",
-          "external-submitted",
-          "review"
-        )
-      )
-      .when("overdue".equals(rule.getRuleType()), q -> q.lt("deadline", now))
-      .when("dueSoon".equals(rule.getRuleType()), q ->
-        q
-          .gte("deadline", now)
-          .lte("deadline", now + rule.getStaleAfterSeconds() * 1000)
-      )
-      .count()
-      .flatMap(n ->
-        writer.record(
-          rule,
-          device,
-          BigDecimal.valueOf(n),
-          "tasks",
-          now,
-          "current"
-        )
-      );
     return mappings
       .forDevice(device.getId())
       .filter(

@@ -32,6 +32,15 @@ public class RuleEntity extends FacilityEntity {
   @Column(length = 256)
   private String ruleType;
 
+  @Column(length = 32)
+  private String taskKind;
+  @Column(length = 256)
+  private String cycleId;
+  /** 已发布周期的分时预警迁移快照；仅迁移器写入，用户可改为统一提前时长。 */
+  @Column @JsonCodec
+  @ColumnType(jdbcType = JDBCType.LONGVARCHAR, javaType = String.class)
+  private CycleRule legacySchedule;
+
   @Column(length = 256)
   private String energyType;
 

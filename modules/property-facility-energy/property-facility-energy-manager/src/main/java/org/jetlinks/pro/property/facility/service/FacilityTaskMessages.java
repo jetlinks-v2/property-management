@@ -25,6 +25,7 @@ public class FacilityTaskMessages {
   private final FacilityDirectory directory;
   private final FacilityRecords records;
   private final FacilityNotificationPolicies policies;
+  private final FacilityTaskReminders reminders;
   private final AtomicBoolean polling = new AtomicBoolean();
 
   public Mono<Void> poll() {
@@ -34,24 +35,12 @@ public class FacilityTaskMessages {
       return tasks.createQuery().isNull("parentTaskId").and("deleted", false)
       .in("state", List.of("open", "claimed", "executing", "rectify"))
       .lte("scheduledTime", now).fetch().limitRate(32)
-      .concatMap(task -> {
-        String type = category(task, now);
-        if (type == null) return Mono.empty();
-        return execution.asOwner(task, () -> enqueue(task, type))
-          .onErrorResume(error -> {
-            log.warn("Task message failed: task={}, type={}", task.getId(), type, error);
-            return Mono.empty();
-          });
-      }).then().doFinally(signal -> polling.set(false));
+      .concatMap(task -> execution.asOwner(task, () -> reminders.category(task, now)
+        .filter(type -> !type.isBlank()).flatMap(type -> enqueue(task, type)))
+        .onErrorResume(error -> {
+          log.warn("Task message failed: task={}", task.getId(), error); return Mono.empty();
+        })).then().doFinally(signal -> polling.set(false));
     }).as(MonoTracer.create("/property/facility-energy/jobs/task-messages"));
-  }
-
-  static String category(TaskEntity task, long now) {
-    if (task.getParentTaskId() != null || task.getScheduledTime() == null || task.getDeadline() == null ||
-        now < task.getScheduledTime() || !Set.of("open", "claimed", "executing", "rectify").contains(task.getState())) return null;
-    if (now >= task.getDeadline()) return "overdue";
-    if (task.getWarningTime() != null && now >= task.getWarningTime()) return "warning";
-    return "open".equals(task.getState()) ? "new" : null;
   }
 
   Mono<Void> enqueue(TaskEntity task, String type) {
@@ -77,11 +66,14 @@ public class FacilityTaskMessages {
         reviewer ? CrudAssetPermission.read : CrudAssetPermission.save))
       .flatMap(current -> {
         // 与实时状态取交集，接单/关闭与轮询并发时，不向旧候选人发送可接单提示。
-        if (!Objects.equals(category(current, System.currentTimeMillis()), type)) return Mono.just(false);
-        if (reviewer) return directory.taskAssignee(current, userId).thenReturn(true);
-        if ("open".equals(current.getState())) return directory.canClaim(current);
-        return Objects.equals(current.getAssigneeId(), userId)
-          ? directory.taskAssignee(current, userId).thenReturn(true) : Mono.just(false);
+        // 配置由任务创建人的授权读取；接收人只须具备任务权限，不要求预警规则管理权限。
+        return execution.asOwner(current, () -> reminders.category(current, System.currentTimeMillis())).flatMap(category -> {
+          if (!Objects.equals(category, type)) return Mono.just(false);
+          if (reviewer) return directory.taskAssignee(current, userId).thenReturn(true);
+          if ("open".equals(current.getState())) return directory.canClaim(current);
+          return Objects.equals(current.getAssigneeId(), userId)
+            ? directory.taskAssignee(current, userId).thenReturn(true) : Mono.just(false);
+        });
       }).defaultIfEmpty(false))
       .onErrorResume(AccessDenyException.class, error -> Mono.just(false))
       .onErrorResume(BusinessException.class, error -> {

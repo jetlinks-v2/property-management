@@ -92,6 +92,8 @@ class FacilityPersistenceTest {
 
   @Autowired FacilityExecution faultExecution;
   @Autowired FacilityCloud cloud;
+  @Autowired FacilitySaasAlarmWriter saasWriter;
+  @Autowired FacilityEmployeeMessages employeeMessages;
   final Map<String, org.jetlinks.sdk.server.device.DeviceInfo> boundSources = new LinkedHashMap<>();
 
   void bindSource(String id) {
@@ -1393,27 +1395,11 @@ class FacilityPersistenceTest {
   }
 
   @Test
-  void dueSoonRulesOnlyCountCurrentProjectActiveTasks() {
+  void taskRulesDoNotEmitDuplicateDeviceAggregateAlerts() {
     var rule = alertFixture("soon", "dueSoon", "counter");
-    for (String project : List.of(rule.getProjectId(), "previous-project")) {
-      var task = FacilityScope.initialize(
-        new TaskEntity(),
-        new FacilityContext("tenant", "app", "staff", "Staff")
-      );
-      task.setId("soon-task-" + project);
-      task.setDeviceId("soon-device");
-      task.setProjectId(project);
-      task.setState("claimed");
-      task.setDeadline(System.currentTimeMillis() + 30000);
-      store.save(task).block();
-    }
     as("staff", ruleManager.evaluate(rule)).block();
-    var alert = alerts
-      .findById(FacilityRecords.stableId(rule.getId(), "soon-device"))
-      .block();
-    assertNotNull(alert);
-    assertEquals(0, java.math.BigDecimal.ONE.compareTo(alert.getValue()));
-    verify(notifier, times(1)).enqueue(any(), any(), any());
+    assertNull(alerts.findById(FacilityRecords.stableId(rule.getId(), "soon-device")).block());
+    verify(notifier, never()).enqueue(any(), any(), any());
   }
 
   @Test
@@ -1881,6 +1867,8 @@ class FacilityPersistenceTest {
   @Autowired PlanStore planStore;
   @Autowired StandardStore standardStore;
   @Autowired GroupStore groupStore;
+  @Autowired FacilityReminderMigration reminderMigration;
+  @Autowired FacilityTaskReminders taskReminders;
   @Autowired FacilityCycles cycleManager;
   @Autowired FacilityPlans planManager;
 
@@ -1923,6 +1911,8 @@ class FacilityPersistenceTest {
     assertEquals(plan.getNextRunTime(), task.getScheduledTime());
     assertEquals(plan.getNextRunTime() + 60000, task.getDeadline());
     assertEquals("open", task.getState());
+    assertEquals(plan.getCycleId(), task.getCycleId());
+    assertNull(task.getWarningTime());
     assertEquals(1, task.getDeviceCount());
     assertEquals(0, task.getSubmittedDeviceCount());
     var child = store.createQuery().where("parentTaskId", task.getId()).fetchOne().block();
@@ -2189,7 +2179,7 @@ class FacilityPersistenceTest {
     });
     var task = task("single"); task.setId("inbox-root"); task.setDeviceCount(3);
     task.setScheduledTime(1000L); task.setDeadline(61000L); task.setProjectId("inbox-project");
-    var writer = new FacilityTaskMessages(store, inboxStore, null, null, null, null);
+    var writer = new FacilityTaskMessages(store, inboxStore, null, null, null, null, null);
     writer.store(task,"new","inbox-worker").block(); writer.store(task,"new","inbox-worker").block();
     Mono.when(writer.store(task,"new","inbox-race"), writer.store(task,"new","inbox-race")).block();
     assertEquals(1,inboxStore.createQuery().where("userId","inbox-race").count().block());
@@ -2219,11 +2209,182 @@ class FacilityPersistenceTest {
     assertNull(inboxStore.findById("inbox-other-app").block().getReadTime());
   }
 
+  @Test void saasAlarmsPersistReplayRecoverAndRebindWithoutResettingManualWork() {
+    var device = FacilityScope.initialize(new DeviceEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
+    device.setId("saas-meter"); device.setCloudDeviceId("cloud-saas-meter"); device.setProjectId("p-a");
+    device.setName("12-201水表"); device.setLocation("12-201"); device.setResponsibleUserId("worker");
+    devices.insert(device).block(); bindSource(device.getCloudDeviceId());
+    clearInvocations(employeeMessages);
+    when(employeeMessages.platformAlert(any(), any())).thenReturn(Mono.empty());
+    var source = new CloudAlarmRecord(); source.setId("cloud-alarm-record"); source.setAlarmConfigId("cloud-rule");
+    source.setSourceType("device"); source.setSourceId(device.getCloudDeviceId()); source.setAlarmName("持续用水告警");
+    source.setAlarmTime(1000L); source.setLastAlarmTime(1500L); source.setLevel(2); source.setState("warning"); source.setActualDesc("持续用水超过30分钟");
+    String id = FacilityRecords.stableId("tenant", "app", device.getId(), "saas", source.getId());
+    as("admin", saasWriter.accept(device, source)).block();
+    var saved = alerts.findById(id).block();
+    assertEquals("saas", saved.getSource()); assertEquals("12-201", saved.getSpaceName());
+    assertEquals("持续用水超过30分钟", saved.getSourceReason()); assertEquals(1, saved.getNotificationSequence());
+    as("admin", saasWriter.accept(device, source)).block();
+    source.setLastAlarmTime(2000L); as("admin", saasWriter.accept(device, source)).block();
+    verify(employeeMessages, times(1)).platformAlert(any(), any());
+    alerts.createUpdate().set("processingState", "closed").set("comment", "阀门已检查").where("id", id).execute().block();
+    source.setState(Map.of("value", "normal")); source.setHandleTime(3000L);
+    as("admin", saasWriter.accept(device, source)).block();
+    saved = alerts.findById(id).block();
+    assertEquals("recovered", saved.getState()); assertEquals(3000, saved.getRecoveredTime());
+    assertEquals("closed", saved.getProcessingState()); assertEquals("阀门已检查", saved.getComment());
+    source.setState("warning"); source.setAlarmTime(4000L); source.setLastAlarmTime(4000L);
+    as("admin", saasWriter.accept(device, source)).block();
+    saved = alerts.findById(id).block(); assertEquals("open", saved.getProcessingState()); assertNull(saved.getComment()); assertNull(saved.getRecoveredTime());
+    assertEquals(2, episodeStore.createQuery().where("episodeId", id).count().block());
+    var old = episodeStore.findById(FacilityRecords.stableId(id, "1000")).block();
+    assertEquals("closed", old.getProcessingState()); assertEquals("阀门已检查", old.getComment());
+    source.setLevel(4); source.setLastAlarmTime(5000L); as("admin", saasWriter.accept(device, source)).block();
+    as("admin", saasWriter.accept(device, source)).block();
+    verify(employeeMessages, times(3)).platformAlert(any(), any());
+    assertEquals(4, alerts.findById(id).block().getSourceLevel());
+    boundSources.remove(device.getCloudDeviceId());
+    StepVerifier.create(as("admin", saasWriter.accept(device, source))).expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+    assertEquals(1, alerts.createQuery().where("id", id).count().block());
+    bindSource(device.getCloudDeviceId()); as("admin", saasWriter.accept(device, source)).block();
+    verify(employeeMessages, times(3)).platformAlert(any(), any());
+    source.setAlarmTime(1000L); as("admin", saasWriter.accept(device, source)).block();
+    assertEquals(4000, alerts.findById(id).block().getFirstTime());
+    source.setId("rollback"); source.setAlarmTime(6000L); source.setLastAlarmTime(6000L);
+    when(employeeMessages.platformAlert(any(), any())).thenReturn(Mono.error(new IllegalStateException("message store unavailable")));
+    StepVerifier.create(as("admin", saasWriter.accept(device, source))).expectError(IllegalStateException.class).verify();
+    assertEquals(0, alerts.createQuery().where("sourceRecordId", "rollback").count().block());
+  }
+
+  @Test void currentAlarmListExcludesRetiredRulesAndUnboundDevicesWithoutDeletingHistory() {
+    var device = FacilityScope.initialize(new DeviceEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
+    device.setId("current-alarm-device"); device.setCloudDeviceId("current-cloud-device"); device.setProjectId("p-a");
+    devices.insert(device).block(); bindSource(device.getCloudDeviceId());
+    var current = FacilityScope.initialize(new AlertEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
+    current.setId("current-platform-alarm"); current.setDeviceId(device.getId()); current.setProjectId("p-a"); current.setRuleType("saas"); current.setSource("saas");
+    alerts.insert(current).block();
+    var legacy = FacilityScope.initialize(new AlertEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
+    legacy.setId("retired-local-alarm"); legacy.setDeviceId(device.getId()); legacy.setProjectId("p-a"); legacy.setRuleType("offline");
+    alerts.insert(legacy).block();
+    var controller = new org.jetlinks.pro.property.facility.web.FacilityAlertController(alerts, null, null, null, queries, null, null, null, deviceManager);
+    var filter = QueryParamEntity.newQuery().is("id", current.getId()).or("id", legacy.getId()).getParam();
+    var page = as("admin", controller.query(filter)).block();
+    assertEquals(List.of(current.getId()), page.getData().stream().map(AlertEntity::getId).toList());
+    boundSources.remove(device.getCloudDeviceId());
+    assertEquals(0, as("admin", controller.query(filter)).block().getTotal());
+    assertNotNull(alerts.findById(current.getId()).block()); assertNotNull(alerts.findById(legacy.getId()).block());
+    bindSource(device.getCloudDeviceId());
+    assertEquals(1, as("admin", controller.query(filter)).block().getTotal());
+  }
+
+  @Test void cycleRemindersMigrateOnceRetainOwnershipAndDeletingRulesDoesNotRecreateThem() {
+    var plan=cyclicPlan("reminder-migration");
+    var original=cycleStore.findById(plan.getCycleId()).block();
+    as("staff",reminderMigration.migrate(plan.getCycleId())).block();
+    var migrated=cycleStore.findById(plan.getCycleId()).block();
+    assertTrue(migrated.getRemindersMigrated());
+    var rows=ruleStore.createQuery().where("cycleId",plan.getCycleId()).fetch().collectList().block();
+    assertEquals(2,rows.size());
+    for(var row:rows) {
+      assertEquals(original.getCreatorId(),row.getCreatorId()); assertEquals(original.getTenantId(),row.getTenantId());
+      assertEquals(original.getApplicationId(),row.getApplicationId()); assertEquals(original.getProjectId(),row.getProjectId());
+      assertEquals("inspection",row.getTaskKind());
+    }
+    var soon=rows.stream().filter(row -> "dueSoon".equals(row.getRuleType())).findFirst().orElseThrow();
+    assertEquals(original.getRule(),soon.getLegacySchedule());
+    ruleStore.createDelete().where("cycleId",plan.getCycleId()).execute().block();
+    as("staff",reminderMigration.migrate(plan.getCycleId())).block();
+    assertEquals(0,ruleStore.createQuery().where("cycleId",plan.getCycleId()).count().block());
+  }
+
+  @Test void migrationRollbackKeepsOriginalCycleAndLeavesNoPartialRules() {
+    var plan=cyclicPlan("reminder-rollback");
+    var collision=FacilityScope.initialize(new RuleEntity(),new FacilityContext("tenant","app","staff","Staff"));
+    collision.setId(FacilityRecords.stableId(plan.getCycleId(),"task-reminder","dueSoon"));
+    ruleStore.insert(collision).block();
+    StepVerifier.create(as("staff",reminderMigration.migrate(plan.getCycleId()))).expectError().verify();
+    assertFalse(Boolean.TRUE.equals(cycleStore.findById(plan.getCycleId()).block().getRemindersMigrated()));
+    assertNull(ruleStore.findById(FacilityRecords.stableId(plan.getCycleId(),"task-reminder","overdue")).block());
+  }
+
+  @Test void centralReminderRulesMatchActiveTasksAndStopAfterDisableWithoutSuppressingNewTaskDispatch() {
+    var task=FacilityScope.initialize(new TaskEntity(),new FacilityContext("tenant","app","staff","Staff"));
+    task.setId("central-reminder-task"); task.setProjectId("central-project"); task.setKind("inspection");
+    task.setState("claimed"); task.setScheduledTime(1000L); task.setDeadline(61000L);
+    assertEquals("",as("staff",taskReminders.category(task,31000)).block());
+    var rule=FacilityScope.initialize(new RuleEntity(),new FacilityContext("tenant","app","staff","Staff"));
+    rule.setProjectId(task.getProjectId()); rule.setRuleType("dueSoon"); rule.setStaleAfterSeconds(30L);
+    rule.setTaskKind("inspection"); rule.setEnabled(true); ruleStore.insert(rule).block();
+    assertEquals("warning",as("staff",taskReminders.category(task,31000)).block());
+    var overlapping=FacilityScope.initialize(new RuleEntity(),new FacilityContext("tenant","app","staff","Staff"));
+    overlapping.setProjectId(task.getProjectId()); overlapping.setRuleType("dueSoon"); overlapping.setStaleAfterSeconds(60L);
+    overlapping.setEnabled(true); ruleStore.insert(overlapping).block();
+    task.setAssigneeId("reminder-worker"); task.setReviewerId("reminder-reviewer");
+    var policies=mock(FacilityNotificationPolicies.class); when(policies.enabled(any(),eq("task"))).thenReturn(Mono.just(true));
+    var messages=spy(new FacilityTaskMessages(store,inboxStore,null,directory,records,policies,taskReminders));
+    doReturn(Mono.just(true)).when(messages).eligible(any(),anyString(),anyString());
+    String type=as("staff",taskReminders.category(task,31000)).block();
+    messages.enqueue(task,type).block(); messages.enqueue(task,type).block();
+    assertEquals(2,inboxStore.createQuery().where("taskId",task.getId()).count().block());
+    overlapping.setEnabled(false); ruleStore.save(overlapping).block();
+    rule.setEnabled(false); ruleStore.save(rule).block();
+    assertEquals("",as("staff",taskReminders.category(task,31000)).block());
+    task.setState("open"); assertEquals("new",as("staff",taskReminders.category(task,31000)).block());
+    task.setState("review"); assertEquals("",as("staff",taskReminders.category(task,31000)).block());
+  }
+
+  @Test void historicalTasksResolveOriginalPlanCycleAndNewTasksUseTheirCycleSnapshot() {
+    var plan=cyclicPlan("historical-reminder");
+    long start=plan.getNextRunTime();
+    var task=FacilityScope.initialize(new TaskEntity(),new FacilityContext("tenant","app","staff","Staff"));
+    task.setId("historical-reminder-task"); task.setProjectId(plan.getProjectId()); task.setKind(plan.getKind());
+    task.setPlanId(plan.getId()); task.setState("claimed"); task.setScheduledTime(start); task.setDeadline(start+60000);
+    task.setWarningTime(start+40000);
+    assertEquals("",as("staff",taskReminders.category(task,start+39999)).block());
+    assertEquals("warning",as("staff",taskReminders.category(task,start+40000)).block());
+    task.setCycleId(plan.getCycleId()); task.setPlanId(null); task.setWarningTime(null);
+    assertEquals("warning",as("staff",taskReminders.category(task,start+30000)).block());
+    assertEquals("overdue",as("staff",taskReminders.category(task,start+60000)).block());
+  }
+
+  @Test void savingCentralRulesChecksCycleProjectKindAndProtectsLegacySnapshots() {
+    when(directory.project(anyString())).thenAnswer(call -> Mono.just(project(call.getArgument(0))));
+    var plan=cyclicPlan("rule-scope");
+    var rule=new RuleEntity(); rule.setName("巡检到期提醒"); rule.setProjectId("p"); rule.setRuleType("dueSoon");
+    rule.setCycleId(plan.getCycleId()); rule.setTaskKind("maintenance"); rule.setStaleAfterSeconds(600L); rule.setEnabled(true);
+    StepVerifier.create(as("staff",ruleManager.save(rule))).expectError(BusinessException.class).verify();
+    rule.setTaskKind("inspection"); rule.setProjectId("p-b");
+    StepVerifier.create(as("staff",ruleManager.save(rule))).expectError(BusinessException.class).verify();
+    rule.setProjectId("p"); rule.setLegacySchedule(cycleStore.findById(plan.getCycleId()).block().getRule());
+    StepVerifier.create(as("staff",ruleManager.save(rule))).expectError(BusinessException.class).verify();
+    rule.setLegacySchedule(null);
+    var saved=as("staff",ruleManager.save(rule)).block();
+    assertEquals("inspection",saved.getTaskKind()); assertEquals(plan.getCycleId(),saved.getCycleId());
+    saved.setCycleId(null); saved.setTaskKind(null);
+    as("staff",ruleManager.save(saved)).block();
+    assertNull(ruleStore.findById(saved.getId()).block().getCycleId());
+    assertNull(ruleStore.findById(saved.getId()).block().getTaskKind());
+  }
+
+  @Test void newCycleHasNoImplicitReminderAndEditingLegacyCyclePreservesRemindersBeforeClearingWarningFields() {
+    when(directory.project(anyString())).thenAnswer(call -> Mono.just(project(call.getArgument(0))));
+    var input=new CycleEntity(); input.setName("每日巡检"); input.setProjectId("p"); input.setKind("inspection");
+    input.setRule(new CycleRule(Map.of(1,List.of(new CycleRule.Window(480,720,60,1,60,"2","2"))),Map.of())); input.setEnabled(true);
+    var saved=as("staff",cycleManager.save(input)).block();
+    assertTrue(saved.getRemindersMigrated());
+    as("staff",reminderMigration.migrate(saved.getId())).block();
+    assertEquals(0,ruleStore.createQuery().where("cycleId",saved.getId()).count().block());
+    var plan=cyclicPlan("cycle-edit-migration"); var old=cycleStore.findById(plan.getCycleId()).block();
+    as("staff",cycleManager.save(old)).block();
+    assertNull(cycleStore.findById(old.getId()).block().getRule().weekly().get(1).get(0).warningMinutes());
+    assertEquals(2,ruleStore.createQuery().where("cycleId",old.getId()).count().block());
+  }
+
   @SpringBootConfiguration
   @EnableTransactionManagement(proxyTargetClass = true)
   @EnableEasyormRepository("org.jetlinks.pro.property.facility.entity")
   @Import({
-    CycleStore.class, PlanStore.class, StandardStore.class, FacilityCycles.class, FacilityPlans.class,
+    CycleStore.class, PlanStore.class, StandardStore.class, FacilityCycles.class, FacilityPlans.class, FacilityReminderMigration.class, FacilityTaskReminders.class,
     TaskStore.class,
     FaultStore.class,
     ProcessStore.class,
@@ -2254,6 +2415,7 @@ class FacilityPersistenceTest {
     RuleStore.class,
     GroupStore.class,
     FacilityAlerts.class,
+    FacilitySaasAlarmWriter.class,
   })
   @ImportAutoConfiguration({
     EasyormConfiguration.class,

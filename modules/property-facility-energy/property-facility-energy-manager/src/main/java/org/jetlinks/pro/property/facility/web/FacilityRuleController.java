@@ -24,11 +24,12 @@ public class FacilityRuleController {
   private final FacilityAlerts manager;
   private final FacilityQueries queries;
   private final FacilityRecords records;
+  private final FacilityReminderMigration migration;
 
   @PostMapping("/_query")
   @QueryAction
   public Mono<PagerResult<RuleEntity>> query(@RequestBody QueryParamEntity q) {
-    return queries.page(store, q, FacilityAssetType.facilityRule, "id");
+    return migration.project(null).then(queries.page(store, q.clone().toNestQuery().in("ruleType", List.of("plan", "overdue", "dueSoon")).getParam(), FacilityAssetType.facilityRule, "id"));
   }
 
   @GetMapping("/{id}")
@@ -45,6 +46,7 @@ public class FacilityRuleController {
   @PostMapping
   @SaveAction
   public Mono<RuleEntity> save(@Valid @RequestBody RuleEntity row) {
+    FacilityScope.require(row.getRuleType() != null && Set.of("plan", "overdue", "dueSoon").contains(row.getRuleType()), "device_rules_managed_by_saas");
     return manager.save(row);
   }
 

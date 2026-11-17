@@ -13,11 +13,18 @@ public final class FacilityCycleRules {
   public record Slot(long start, long end, Long warningTime) {
     public Slot(long start, long end) { this(start, end, null); }
   }
-  /** 历史规则可继续生单；新增、编辑必须显式填写预警，不替用户设置时间。 */
-  public static void requireWarnings(CycleEntity cycle) {
-    validate(cycle);
-    java.util.stream.Stream.concat(cycle.getRule().weekly().values().stream(), cycle.getRule().dates().values().stream())
-      .flatMap(List::stream).forEach(w -> require(w.warningMinutes() != null, "warning_required"));
+  /** 正式排程不再存储提醒配置；历史快照仅供提醒迁移计算使用。 */
+  public static CycleRule withoutWarnings(CycleRule rule) {
+    if (rule == null) return null;
+    require(rule.weekly() != null && rule.dates() != null, "invalid_cycle");
+    return new CycleRule(rule.weekly().entrySet().stream().collect(java.util.stream.Collectors.toMap(
+      Map.Entry::getKey, e -> clearWarnings(e.getValue()))),
+      rule.dates().entrySet().stream().collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, e -> clearWarnings(e.getValue()))));
+  }
+  private static List<CycleRule.Window> clearWarnings(List<CycleRule.Window> windows) {
+    require(windows != null && windows.stream().allMatch(Objects::nonNull), "invalid_cycle");
+    return windows.stream().map(w -> new CycleRule.Window(w.startMinute(), w.endMinute(), w.intervalMinutes(),
+      w.requiredCount(), w.cooldownMinutes(), w.frequencyUnit(), w.cooldownUnit())).toList();
   }
 
   public static void validate(CycleEntity cycle) {

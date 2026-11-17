@@ -52,11 +52,39 @@ public class FacilityEmployeeMessages {
   }
 
   public Mono<Void> alert(AlertEntity alert, RuleEntity rule, DeviceEntity device) {
-    String recipient = device.getResponsibleUserId() == null ? rule.getNotifyUserId() : device.getResponsibleUserId();
-    var row = alertMessage(alert, rule, recipient);
-    row.setDeviceId(device.getId()); row.setTaskName(device.getName());
-    return deliver(alert, row, "facility-alert", "query", () -> records.child(alert, device)
-      .flatMap(parent -> org.jetlinks.pro.assets.AssetsHolder.assertPermission(FacilityAssetType.facilityDevice, device.getId(), CrudAssetPermission.read)).then());
+    return platformAlert(alert, device);
+  }
+
+  /** 负责人失效才退到项目成员；每位接收人均使用自己的当前应用/项目/设备权限。 */
+  public Mono<Void> platformAlert(AlertEntity alert, DeviceEntity device) {
+    return policies.enabled(alert, "alert").filter(Boolean::booleanValue).flatMap(enabled -> {
+      String owner = device.getResponsibleUserId();
+      Mono<Boolean> direct = owner == null || owner.isBlank() ? Mono.just(false) : alertRecipient(alert, device, owner);
+      return direct.flatMap(delivered -> delivered ? Mono.empty() : directory.projectEmployees(device.getProjectId())
+        .map(org.jetlinks.pro.property.base.user.PropertyEmployeeInfo::id).filter(id -> id != null && !id.isBlank())
+        .distinct().filter(id -> !id.equals(owner))
+        .concatMap(id -> alertRecipient(alert, device, id))
+        .switchIfEmpty(Mono.defer(() -> {
+          var missing = initialize(alert, null, "alert", alert.getId() + ":" + alert.getNotificationSequence());
+          missing.setAlertId(alert.getId()); missing.setDeviceId(device.getId()); missing.setTitle("设备异常提醒");
+          return failed(missing, "employee_not_configured").thenReturn(false);
+        })).then());
+    });
+  }
+
+  private Mono<Boolean> alertRecipient(AlertEntity alert, DeviceEntity device, String user) {
+    var row = initialize(alert, user, "alert", alert.getId() + ":" + alert.getNotificationSequence());
+    row.setAlertId(alert.getId()); row.setDeviceId(device.getId()); row.setTaskName(device.getName());
+    row.setTitle("critical".equals(alert.getLevel()) ? "设备严重预警" : "设备异常提醒");
+    row.setMessage(String.join(" · ", Objects.toString(device.getProjectName(), ""), Objects.toString(device.getLocation(), ""),
+      Objects.toString(device.getName(), ""), Objects.toString(alert.getName(), ""), Objects.toString(alert.getSourceReason(), "")));
+    return eligible(alert, row, "facility-alert", "query", () -> records.child(alert, device)
+      .flatMap(parent -> org.jetlinks.pro.assets.AssetsHolder.assertPermission(FacilityAssetType.facilityDevice, device.getId(), CrudAssetPermission.read)).then())
+      .thenReturn(true)
+      .onErrorResume(AccessDenyException.class, error -> failed(row, "recipient_permission_denied").thenReturn(false))
+      .onErrorResume(BusinessException.class, error -> failed(row, "recipient_not_project_employee").thenReturn(false))
+      // Database errors occur after eligibility and must not become a fallback broadcast.
+      .flatMap(allowed -> allowed ? insert(row).thenReturn(true) : Mono.just(false));
   }
 
   public Mono<Void> target(AlertEntity alert, RuleEntity rule, EnergyTargetEntity target) {
@@ -78,15 +106,19 @@ public class FacilityEmployeeMessages {
 
   private Mono<Void> deliverEnabled(FacilityEntity parent, NotificationEntity row, String permission, String action, Supplier<Mono<Void>> authorize) {
     if (row.getUserId() == null || row.getUserId().isBlank()) return failed(row, "employee_not_configured");
+    return eligible(parent, row, permission, action, authorize).thenReturn(true)
+      .onErrorResume(AccessDenyException.class, error -> failed(row, "recipient_permission_denied").thenReturn(false))
+      .onErrorResume(BusinessException.class, error -> failed(row, "recipient_not_project_employee").thenReturn(false))
+      .flatMap(allowed -> allowed ? insert(row) : Mono.empty());
+  }
+
+  private Mono<Void> eligible(FacilityEntity parent, NotificationEntity row, String permission, String action, Supplier<Mono<Void>> authorize) {
     return execution.asUser(parent, row.getUserId(), () -> Authentication.currentReactive()
       .filter(auth -> auth.hasPermission(permission, "query") && auth.hasPermission(permission, action))
       .switchIfEmpty(Mono.error(new AccessDenyException()))
       .flatMap(auth -> directory.projectEmployee(parent.getProjectId(), row.getUserId()))
       .flatMap(person -> authorize.get().thenReturn(true)))
-      .switchIfEmpty(Mono.error(new AccessDenyException()))
-      .onErrorResume(AccessDenyException.class, error -> failed(row, "recipient_permission_denied").thenReturn(false))
-      .onErrorResume(BusinessException.class, error -> failed(row, "recipient_not_project_employee").thenReturn(false))
-      .flatMap(allowed -> allowed ? insert(row) : Mono.empty());
+      .switchIfEmpty(Mono.error(new AccessDenyException())).then();
   }
 
   private Mono<Void> failed(NotificationEntity row, String reason) {

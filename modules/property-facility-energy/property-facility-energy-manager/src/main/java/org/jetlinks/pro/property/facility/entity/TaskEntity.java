@@ -53,6 +53,10 @@ public class TaskEntity extends FacilityEntity {
   @Column(length = 256)
   private String planId;
 
+  /** 周期身份快照，后续任务配置改动不改变提醒规则归属。 */
+  @Column(length = 256)
+  private String cycleId;
+
   @Column(length = 256)
   private String kind;
 

@@ -125,6 +125,7 @@ class MeterConfigurationPersistenceTest {
   }
   @Test void energyConfigurationOwnsMeterTypeAndStaleUpdatesCannotChangeIt() {
     var device=device(UUID.randomUUID().toString());
+    device.setEnergyEnabled(true); devices.save(device).block(WAIT);
     when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(sourceDevice(device.getCloudDeviceId()))));
     var metadata=mock(org.jetlinks.core.things.ThingMetadata.class);
     var property=mock(org.jetlinks.core.metadata.PropertyMetadata.class);
@@ -142,6 +143,32 @@ class MeterConfigurationPersistenceTest {
     input.setVersion(saved.getVersion()-1); input.setEnergyType("electricity");
     StepVerifier.create(mappingManager.save(input)).expectError().verify(WAIT);
     assertEquals("gas",devices.findById(device.getId()).block(WAIT).getMeterType());
+  }
+  @Test void energyMonitoringGatesNewAndEnabledMappingsButRetainsExistingDisabledConfiguration() {
+    var device=device(UUID.randomUUID().toString());
+    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(sourceDevice(device.getCloudDeviceId()))));
+    var metadata=mock(org.jetlinks.core.things.ThingMetadata.class);
+    var property=mock(org.jetlinks.core.metadata.PropertyMetadata.class);
+    when(property.getId()).thenReturn("total"); when(metadata.getProperties()).thenReturn(List.of(property));
+    when(cloud.metadata(device.getCloudDeviceId())).thenReturn(Mono.just(metadata));
+    var metric=new MetricMapping(); metric.setPropertyId("total"); metric.setKind("counter"); metric.setUnit("m³");
+    metric.setMultiplier(BigDecimal.ONE); metric.setScale(2);
+    var input=new MappingEntity(); input.setDeviceId(device.getId()); input.setEnergyType("water");
+    input.setMeterLevel("master"); input.setStaleAfterSeconds(3600L); input.setMetrics(List.of(metric)); input.setEnabled(true);
+    StepVerifier.create(mappingManager.save(input)).expectErrorMessage("error.facility.device_energy_disabled").verify(WAIT);
+    input.setEnabled(false);
+    StepVerifier.create(mappingManager.save(input)).expectErrorMessage("error.facility.device_energy_disabled").verify(WAIT);
+    assertEquals(0,mappings.createQuery().where("deviceId",device.getId()).count().block(WAIT));
+    assertEquals("device",devices.findById(device.getId()).block(WAIT).getMeterType());
+    device.setEnergyEnabled(true); devices.save(device).block(WAIT); input.setEnabled(true);
+    var saved=mappingManager.save(input).block(WAIT);
+    var current=devices.findById(device.getId()).block(WAIT); current.setEnergyEnabled(false); devices.save(current).block(WAIT);
+    StepVerifier.create(mappingManager.save(saved)).expectErrorMessage("error.facility.device_energy_disabled").verify(WAIT);
+    assertTrue(mappings.findById(saved.getId()).block(WAIT).getEnabled());
+    saved.setEnabled(false); var stopped=mappingManager.save(saved).block(WAIT);
+    assertEquals(saved.getId(),stopped.getId()); assertFalse(stopped.getEnabled()); assertEquals(1,stopped.getMetrics().size());
+    assertNotNull(mappingManager.forDevice(device.getId()).block(WAIT));
+    assertFalse(devices.findById(device.getId()).block(WAIT).getEnergyEnabled());
   }
   @Test void sourceCatalogDoesNotCreateAssetsAndConfiguredSyncRoutesTwoProjectsAndPreservesBillingConfiguration() {
     var other = sourceProject(UUID.randomUUID().toString());
