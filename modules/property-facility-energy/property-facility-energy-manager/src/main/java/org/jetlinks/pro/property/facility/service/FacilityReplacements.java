@@ -54,6 +54,7 @@ public class FacilityReplacements {
 
   @Transactional
   public Mono<ReplacementEntity> create(ReplacementEntity input) {
+    validateReadings(input);
     require(
       input.getEffectiveTime() != null &&
         input.getEffectiveTime() <= System.currentTimeMillis() &&
@@ -67,7 +68,7 @@ public class FacilityReplacements {
           old.getProjectId().equals(next.getProjectId()),
           "project_mismatch"
         );
-        return scope.current().flatMap(c -> {
+        return compatibleMappings(old, next).then(scope.current()).flatMap(c -> {
           var row = FacilityScope.initialize(new ReplacementEntity(), c);
           FacilityScope.inherit(row, old);
           row.setOldDeviceId(old.getId());
@@ -111,7 +112,11 @@ public class FacilityReplacements {
             row.setReviewerId(c.userId());
             Mono<Void> boundary = Mono.empty();
             if (approve) {
-              boundary = store
+              validateReadings(row);
+              // 待审期间仪表可能被重新配置，审批前再次校验，不能只依赖提交时的候选列表。
+              boundary = devices.writable(row.getOldDeviceId()).flatMap(old ->
+                devices.writable(row.getNewDeviceId()).flatMap(next -> compatibleMappings(old, next)))
+                .then(store
                 .createQuery()
                 .where("tenantId", row.getTenantId())
                 .and("applicationId", row.getApplicationId())
@@ -130,7 +135,7 @@ public class FacilityReplacements {
                     .gte("observedTime", row.getEffectiveTime())
                     .execute()
                 )
-                .then();
+                .then());
               if (!row.getOldDeviceId().equals(row.getNewDeviceId())) boundary =
                 boundary
                   .then(
@@ -179,5 +184,26 @@ public class FacilityReplacements {
               );
           })
       );
+  }
+
+  private static void validateReadings(ReplacementEntity row) {
+    require(row.getFinalReading() != null && row.getFinalReading().signum() >= 0 &&
+      row.getInitialReading() != null && row.getInitialReading().signum() >= 0, "invalid_reading");
+  }
+
+  /** 换表只连接同项目同能源的启用仪表，历史读数及计量分段仍各自保留。 */
+  private Mono<Void> compatibleMappings(DeviceEntity old, DeviceEntity next) {
+    require(Objects.equals(old.getProjectId(), next.getProjectId()), "project_mismatch");
+    return Mono.zip(mapping(old), mapping(next)).doOnNext(pair -> require(
+      Boolean.TRUE.equals(pair.getT1().getEnabled()) && Boolean.TRUE.equals(pair.getT2().getEnabled()) &&
+        pair.getT1().getEnergyType() != null && Objects.equals(pair.getT1().getEnergyType(), pair.getT2().getEnergyType()),
+      "invalid_mapping")).then();
+  }
+
+  private Mono<MappingEntity> mapping(DeviceEntity device) {
+    String id = FacilityRecords.stableId(device.getTenantId(), device.getApplicationId(),
+      device.getId(), device.getProjectId(), "mapping");
+    return records.read(mappings, id, FacilityAssetType.facilityMapping,
+      org.jetlinks.pro.assets.crud.CrudAssetPermission.read);
   }
 }
