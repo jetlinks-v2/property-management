@@ -151,6 +151,8 @@ springdoc:
     enabled: true
 
 facility:
+  saas-alarm:
+    event-namespace: ${FACILITY_SAAS_ALARM_EVENT_NAMESPACE:_default}
   jobs:
     enabled: ${FACILITY_JOBS_ENABLED:true}
     interval: 30s

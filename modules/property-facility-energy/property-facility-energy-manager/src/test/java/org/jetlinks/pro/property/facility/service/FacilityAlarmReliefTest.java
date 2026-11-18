@@ -61,6 +61,32 @@ class FacilityAlarmReliefTest {
     verifyNoInteractions(writer);
   }
 
+  @Test void topicWinningRecoveryRaceRetriesOnlyLocalTransactionAndStillWritesAudit() {
+    var active = source("warning"); var normal = source("normal"); normal.setHandleTime(2000L);
+    when(cloud.records("cloud-meter")).thenReturn(Mono.just(List.of(active)), Mono.just(List.of(normal)));
+    when(cloud.relieve(active, "checked")).thenReturn(Mono.empty());
+    when(writer.acceptRelief(device, normal, row, "checked")).thenReturn(
+      Mono.error(new org.hswebframework.web.exception.BusinessException("error.facility.conflict", 409)), Mono.empty());
+    StepVerifier.create(service().relieve("local", 4, "checked")).expectNext(row).verifyComplete();
+    verify(cloud, times(1)).relieve(active, "checked");
+    verify(writer, times(2)).acceptRelief(device, normal, row, "checked");
+  }
+
+  @Test void localRecoveryRetryIsBoundedAndOtherFailuresAreNotRetried() {
+    var active = source("warning"); var normal = source("normal");
+    when(cloud.records("cloud-meter")).thenReturn(Mono.just(List.of(active)), Mono.just(List.of(normal)));
+    when(cloud.relieve(active, "checked")).thenReturn(Mono.empty());
+    when(writer.acceptRelief(device, normal, row, "checked")).thenReturn(
+      Mono.error(new org.hswebframework.web.exception.BusinessException("error.facility.conflict", 409)));
+    StepVerifier.create(service().relieve("local", 4, "checked")).expectError().verify();
+    verify(writer, times(3)).acceptRelief(device, normal, row, "checked");
+    clearInvocations(writer);
+    when(cloud.records("cloud-meter")).thenReturn(Mono.just(List.of(active)), Mono.just(List.of(normal)));
+    when(writer.acceptRelief(device, normal, row, "checked")).thenReturn(Mono.error(new IllegalStateException("audit unavailable")));
+    StepVerifier.create(service().relieve("local", 4, "checked")).expectError(IllegalStateException.class).verify();
+    verify(writer, times(1)).acceptRelief(device, normal, row, "checked");
+  }
+
   @Test void alreadyClearedOnlyReconcilesAndNewRoundMustBeRefreshed() {
     var normal = source("normal"); when(cloud.records(anyString())).thenReturn(Mono.just(List.of(normal)));
     StepVerifier.create(service().relieve("local", 4, "reason")).expectNext(row).verifyComplete();

@@ -40,7 +40,13 @@ public class FacilityAlarmRelief {
                 // 命令返回不等于状态已经稳定；若已再次触发或仍告警，不能把本地强制改成已解除。
                 FacilityScope.require(Objects.equals(before.getAlarmTime(), after.getAlarmTime()), "source_changed");
                 FacilityScope.require("normal".equals(after.stateValue()), "alarm_relief_unconfirmed");
-                return writer.acceptRelief(device, after, row, reason).then(alerts.findById(id));
+                // Topic 可能先写入解除状态；只重试本地新事务，远程命令不能随之重发。
+                return Mono.defer(() -> writer.acceptRelief(device, after, row, reason))
+                  .retryWhen(reactor.util.retry.Retry.max(2)
+                    .filter(error -> error instanceof org.hswebframework.web.exception.BusinessException conflict
+                      && "error.facility.conflict".equals(conflict.getI18nCode()))
+                    .onRetryExhaustedThrow((retry, signal) -> signal.failure()))
+                  .then(alerts.findById(id));
               });
             });
           })));

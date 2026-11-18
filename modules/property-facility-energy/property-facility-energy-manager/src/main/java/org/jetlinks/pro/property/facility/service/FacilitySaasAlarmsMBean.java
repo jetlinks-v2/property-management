@@ -7,5 +7,6 @@ public interface FacilitySaasAlarmsMBean {
   long getCompletedTime();
   long getFailureCount();
   long getProcessedCount();
+  int getSubscriptionCount();
   String getLastError();
 }
