@@ -67,7 +67,7 @@ public class PrepayOptionsService {
     Mono<List<Setting>> ownerOptions(PropertyOwnerHouse owner, LocalDate date) {
         var context = owner.context();
         return availableSettings(context.house().projectId(), context.house().spaceId())
-                .flatMap(rows -> choices(context, rows, date, Mono.just(owner.ancestors())));
+                .flatMap(rows -> choices(context, rows.stream().filter(row -> SettingRules.energyType(SettingRules.standard(row.getSnapshotJson())) == null).toList(), date, Mono.just(owner.ancestors())));
     }
 
     private Mono<List<Setting>> choices(
@@ -88,12 +88,13 @@ public class PrepayOptionsService {
                                                                                 row
                                                                                         .getEffectiveEndDate())
                                                                         .isBefore(date))
+                                        .filter(row -> Set.of("MONTHLY", "QUARTERLY").contains(Objects.toString(SettingRules.standard(row.getSnapshotJson()).getSettlementMethod(), "")))
                                         .map(row -> setting(row, context, available))
                                         .filter(row -> !row.payers().isEmpty())
                                         .toList());
     }
 
-    private Mono<List<HouseSettingEntity>> availableSettings(String project, String space) {
+    Mono<List<HouseSettingEntity>> availableSettings(String project, String space) {
         var query = page(201);
         query.toQuery().orderByAsc("createTime").orderByAsc("id");
         return settings.createQuery()
@@ -145,20 +146,6 @@ public class PrepayOptionsService {
                                                                                             .contains(
                                                                                                     row
                                                                                                             .getProjectSubjectId()))
-                                                            .filter(
-                                                                    row ->
-                                                                            Set.of(
-                                                                                            "MONTHLY",
-                                                                                            "QUARTERLY")
-                                                                                    .contains(
-                                                                                            Objects
-                                                                                                    .toString(
-                                                                                                            SettingRules
-                                                                                                                    .standard(
-                                                                                                                            row
-                                                                                                                                    .getSnapshotJson())
-                                                                                                                    .getSettlementMethod(),
-                                                                                                            "")))
                                                             .toList());
                         });
     }

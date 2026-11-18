@@ -349,6 +349,26 @@ class HouseSettingPersistenceTest {
     }
 
     @Test
+    void periodicSwitchPreventsNewBillsButStillRefreshesExistingDebt() {
+        var request = input("no-periodic", "2024-02-01", null);
+        request.setAutoGenerateReceivable(false);
+        var saved = createApproved(project,request,DATE).contextWrite(allowed()).block(WAIT);
+        assertEquals(Boolean.FALSE,saved.setting().getAutoGenerateReceivable());
+        assertEquals(0,saved.generated());
+        generation.generate(project,saved.setting().getId(),DATE.plusMonths(1)).contextWrite(allowed()).block(WAIT);
+        assertEquals(0L,bills.createQuery().where("settingId",saved.setting().getId()).count().block(WAIT).longValue());
+
+        var normal = createApproved(project,input("with-debt","2024-02-01",null),DATE).contextWrite(allowed()).block(WAIT);
+        var bill = bills.createQuery().where("settingId",normal.setting().getId()).fetchOne().block(WAIT);
+        rows.createUpdate().set("autoGenerateReceivable",false).where("id",normal.setting().getId()).execute().block(WAIT);
+        generation.generate(project,normal.setting().getId(),DATE.plusMonths(1)).contextWrite(allowed()).block(WAIT);
+        assertEquals(1L,bills.createQuery().where("settingId",normal.setting().getId()).count().block(WAIT).longValue());
+        var refreshed = bills.findById(bill.getId()).block(WAIT);
+        assertEquals("CLOSED",refreshed.getPeriodStatus());
+        assertEquals(DATE.plusMonths(1).toString(),refreshed.getCalculatedAsOfDate());
+    }
+
+    @Test
     void futureSettingCreatesNoBillAndExpiredCoverageClosesWithLateFee() {
         var future =
                 createApproved(project, input("future", "2024-03-01", null), DATE)

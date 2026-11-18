@@ -28,7 +28,13 @@ public class OwnerFinanceService {
     private final ReactiveRepository<PaymentAllocationEntity, String> lines;
 
     public Mono<BillPage> bills(String project, String space, boolean paid, int page, int size) {
+        return bills(project, space, paid, page, size, null);
+    }
+
+    public Mono<BillPage> bills(String project, String space, boolean paid, int page, int size, String energyType) {
         validatePage(page, size);
+        if (energyType != null && !Set.of("water", "electricity", "gas").contains(energyType))
+            return Mono.error(error("owner_query_invalid",400));
         return houses.require(project, space)
                 .flatMap(
                         owner -> {
@@ -80,6 +86,7 @@ public class OwnerFinanceService {
                                                                                                         .signum()
                                                                                                 > 0)
                                                                 .map(OwnerFinanceService::bill)
+                                                                .filter(row -> energyType == null || energyType.equals(row.energyType()))
                                                                 .toList();
                                                 var selected = page(visible, page, size);
                                                 var totalAmount =
@@ -136,9 +143,20 @@ public class OwnerFinanceService {
                                                                                                     .subtract(
                                                                                                             amount(
                                                                                                                     row
-                                                                                                                            .getRefundReservedAmount())))))
+                                                                                                                            .getRefundReservedAmount()))),
+                                                                                    row.getSubjectId(), row.getSubjectName(), row.getStandardId(), row.getStandardName()))
                                                             .toList();
                                                 }));
+    }
+
+    /** 按房屋及可信付款人核验单账，不能用可猜测的账单ID跨房屋读取。 */
+    public Mono<Bill> bill(String project, String space, String id) {
+        if (id == null || id.isBlank() || id.length() > 64) return Mono.error(error("owner_query_invalid",400));
+        return houses.require(project, space).flatMap(owner -> bills.createQuery()
+            .where("id",id).and("projectId",project).and("spaceId",space).and("deleted",false)
+            .and("reviewState","APPROVED").fetchOne()
+            .filter(row -> !Boolean.TRUE.equals(row.getSplit()) && visible(row, owner.context().customers().get(0).customerId()))
+            .switchIfEmpty(Mono.error(error("owner_bill_not_found",404))).map(OwnerFinanceService::bill));
     }
 
     public Mono<Page<Entry>> entries(
@@ -213,7 +231,7 @@ public class OwnerFinanceService {
                                                                 row.getOccurredAt(),
                                                                 money(row.getAmount()),
                                                                 money(row.getBeforeBalance()),
-                                                                money(row.getAfterBalance())))
+                                                                money(row.getAfterBalance()), row.getSubjectName(), row.getStandardName()))
                                         .collectList()
                                         .map(rows -> new Page<>(total, page, size, rows)));
     }
@@ -332,7 +350,7 @@ public class OwnerFinanceService {
         return value == null ? BigDecimal.ZERO : value;
     }
 
-    private static String money(BigDecimal value) {
+    static String money(BigDecimal value) {
         return amount(value).setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
     }
 
@@ -348,7 +366,18 @@ public class OwnerFinanceService {
                 money(row.getPaidAmount()),
                 money(row.getArrears()),
                 money(row.getFeeReductionAmount()),
-                money(row.getFinalLateFeeAmount()));
+                money(row.getFinalLateFeeAmount()), row.getStandardName(), row.getReceivableDate(), row.getReviewedOn(),
+                row.getSourceType(), meterUsage(row), meterPrice(row), SettingRules.energyType(SettingRules.standard(row.getSnapshotJson())));
+    }
+
+    private static String meterUsage(ReceivableEntity row) {
+        if (!"METER".equals(row.getSourceType())) return null;
+        var quantity = com.alibaba.fastjson.JSON.parseObject(row.getSnapshotJson()).getBigDecimal("quantity");
+        return quantity == null ? null : quantity.toPlainString();
+    }
+
+    private static String meterPrice(ReceivableEntity row) {
+        return "METER".equals(row.getSourceType()) ? money(SettingRules.standard(row.getSnapshotJson()).getPrice()) : null;
     }
 
     public record Page<T>(long total, int pageIndex, int pageSize, List<T> data) {}
@@ -367,9 +396,10 @@ public class OwnerFinanceService {
             String paidAmount,
             String arrears,
             String discount,
-            String lateFee) {}
+            String lateFee, String standardName, String receivableDate, String confirmedDate, String sourceType,
+            String usage, String price, String energyType) {}
 
-    public record Account(String id, String balance, String available) {}
+    public record Account(String id, String balance, String available, String subjectId, String subjectName, String standardId, String standardName) {}
 
     public record Entry(
             String id,
@@ -377,7 +407,7 @@ public class OwnerFinanceService {
             String occurredAt,
             String amount,
             String beforeBalance,
-            String afterBalance) {}
+            String afterBalance, String subjectName, String standardName) {}
 
     public record Record(
             String id,

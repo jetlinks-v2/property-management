@@ -24,6 +24,7 @@ class OwnerFinancePersistenceTest extends PrepayQuotePersistenceTest {
     @Autowired OwnerPrepayService ownerPrepay;
     @Autowired OwnerFinanceService ownerFinance;
     @Autowired OwnerHouseSource ownerHouses;
+    @Autowired OwnerEnergyService ownerEnergy;
     @Autowired ReactiveRepository<FundAccountEntity, String> accounts;
 
     @BeforeEach
@@ -46,6 +47,32 @@ class OwnerFinancePersistenceTest extends PrepayQuotePersistenceTest {
 
     OwnerPrepayService.Request request() {
         return new OwnerPrepayService.Request(settingId, null, 6, 0);
+    }
+
+    @Test
+    void amountDepositUsesTrustedLabelsAndDoesNotPostAnyMoneyOrBill() {
+        var row = settings.findById(settingId).block(WAIT);
+        var snapshot = com.alibaba.fastjson.JSON.parseObject(row.getSnapshotJson());
+        snapshot.getJSONObject("standard").put("billingMethod", "WATER");
+        settings.createUpdate().set("snapshotJson", snapshot.toJSONString()).where("id", settingId).execute().block(WAIT);
+        var beforeBills=bills.createQuery().where("projectId",fixture.project).count().block(WAIT);
+        var beforeAccounts=accounts.createQuery().where("projectId",fixture.project).count().block(WAIT);
+        var quote=run(ownerEnergy.quote(fixture.project,"room",new OwnerEnergyService.DepositInput(settingId,"100.10")));
+        assertEquals("100.10",quote.amount()); assertEquals("龚超",quote.payerName()); assertFalse(quote.paymentAvailable());
+        assertEquals(row.getSubjectName(),quote.subjectName()); assertEquals(row.getStandardName(),quote.standardName());
+        assertEquals(beforeBills,bills.createQuery().where("projectId",fixture.project).count().block(WAIT));
+        assertEquals(beforeAccounts,accounts.createQuery().where("projectId",fixture.project).count().block(WAIT));
+        reject(ownerEnergy.quote(fixture.project,"room",new OwnerEnergyService.DepositInput("foreign-setting","100")),409);
+        reject(ownerEnergy.quote(fixture.project,"someone-else",new OwnerEnergyService.DepositInput(settingId,"100")),403);
+        reject(ownerPrepay.quote(fixture.project,"room",request(),DATE),409);
+    }
+
+    @Test
+    void singleBillRequiresSameRoomAndCurrentPayer() {
+        var bill=run(ownerFinance.bills(fixture.project,"room",false,0,20)).data().get(0);
+        assertEquals(bill,run(ownerFinance.bill(fixture.project,"room",bill.id())));
+        reject(ownerFinance.bill(fixture.project,"someone-else",bill.id()),403);
+        reject(ownerFinance.bill(fixture.project,"room","unknown-bill"),404);
     }
 
     @Test
@@ -265,7 +292,8 @@ class OwnerFinancePersistenceTest extends PrepayQuotePersistenceTest {
         PrepayQuotePersistenceTest.Config.class,
         PrepayOptionsService.class,
         OwnerPrepayService.class,
-        OwnerFinanceService.class
+        OwnerFinanceService.class,
+        OwnerEnergyService.class
     })
     static class Config {
         @Bean

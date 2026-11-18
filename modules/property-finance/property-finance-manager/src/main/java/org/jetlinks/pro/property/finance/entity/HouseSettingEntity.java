@@ -73,6 +73,10 @@ public class HouseSettingEntity extends FinanceEntity {
     @Column(length = 20, nullable = false)
     private String status;
 
+    /** 每条标准独立控制普通周期新账；旧行null按开启处理，历史账刷新及计量出账不受影响。 */
+    @Column
+    private Boolean autoGenerateReceivable = true;
+
     /** 设置审批结果；通过后生成的普通账单直接继承该结果。 */
     @Column(length = 16, nullable = false)
     private String reviewState = "PENDING";

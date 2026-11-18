@@ -69,6 +69,10 @@ public class PrepayQuoteSource {
     Mono<PrepayQuoteSnapshot> prepareOwner(
             String project, PrepayQuoteInput input, LocalDate date, PropertyOwnerHouse owner) {
         return setting(project, input.settingId(), false)
+                .doOnNext(setting -> {
+                    if (SettingRules.energyType(SettingRules.standard(setting.getSnapshotJson())) != null)
+                        throw error("owner_deposit_setting_unavailable",409);
+                })
                 .flatMap(
                         setting ->
                                 resolve(

@@ -19,4 +19,5 @@ public class SettingInput {
     private Map<String, String> variableValues;
     private String remark;
     private Long version;
+    private Boolean autoGenerateReceivable;
 }

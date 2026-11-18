@@ -20,6 +20,16 @@ public final class SettingRules {
 
     private SettingRules() {}
 
+    /** 能源分类来自标准计费方式，不用科目名称或前端传值推断。 */
+    public static String energyType(StandardEntity standard) {
+        return switch (Objects.toString(standard.getBillingMethod(), "")) {
+            case "WATER" -> "water";
+            case "ELECTRICITY" -> "electricity";
+            case "GAS" -> "gas";
+            default -> null;
+        };
+    }
+
     public static LocalDate date(String input, boolean required) {
         if (input == null || input.isBlank()) {
             if (required) throw error("setting_invalid_dates", 400);
@@ -104,6 +114,7 @@ public final class SettingRules {
         row.setEffectiveStartDate(start.toString());
         row.setEffectiveEndDate(end == null ? null : end.toString());
         row.setStatus("ACTIVE");
+        row.setAutoGenerateReceivable(!Boolean.FALSE.equals(input.getAutoGenerateReceivable()));
         row.setRemark(input.getRemark());
         var frozen = new LinkedHashMap<String, Object>();
         frozen.put("standard", standard);

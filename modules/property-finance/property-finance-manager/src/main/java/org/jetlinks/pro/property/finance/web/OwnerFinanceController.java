@@ -22,6 +22,7 @@ public class OwnerFinanceController {
     private final OwnerFinanceService finance;
     private final OwnerPrepayService prepay;
     private final BillingJobProperties properties;
+    private final OwnerEnergyService energy;
 
     /** 供H5选择/恢复应用时核验；不返回其他成员、权限或内部配置。 */
     @GetMapping("/context")
@@ -59,8 +60,24 @@ public class OwnerFinanceController {
             @PathVariable String space,
             @RequestParam(defaultValue = "false") boolean paid,
             @RequestParam(defaultValue = "0") int pageIndex,
-            @RequestParam(defaultValue = "20") int pageSize) {
-        return finance.bills(project, space, paid, pageIndex, pageSize);
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(required = false) String energyType) {
+        return finance.bills(project, space, paid, pageIndex, pageSize, energyType);
+    }
+
+    @GetMapping("/projects/{project}/spaces/{space}/bills/{id}")
+    public Mono<OwnerFinanceService.Bill> bill(@PathVariable String project, @PathVariable String space, @PathVariable String id) {
+        return finance.bill(project, space, id);
+    }
+
+    @GetMapping("/projects/{project}/spaces/{space}/energy")
+    public Mono<OwnerEnergyService.Overview> energy(@PathVariable String project, @PathVariable String space, @RequestParam String month) {
+        return energy.overview(project, space, month);
+    }
+
+    @PostMapping("/projects/{project}/spaces/{space}/prepay/deposit/quote")
+    public Mono<OwnerEnergyService.DepositQuote> deposit(@PathVariable String project, @PathVariable String space, @RequestBody OwnerEnergyService.DepositInput input) {
+        return energy.quote(project, space, input);
     }
 
     @GetMapping("/projects/{project}/spaces/{space}/accounts")

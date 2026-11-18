@@ -205,6 +205,8 @@ public class ReceivableGenerationService {
                                 () -> {
                                     if (kind != BillingTaskKind.GENERATE
                                             && kind != BillingTaskKind.ALL) return Mono.empty();
+                                    // 开关只控制创建缺失周期账；已存在的账仍走上方刷新、关期及逾期计算。
+                                    if (Boolean.FALSE.equals(setting.getAutoGenerateReceivable())) return Mono.just(false);
                                     var row = newBill(setting, period, standard, auth);
                                     // 在新开放期执行也不能补写已结日期的缺失账；保留原身份的账走上方分支。
                                     return periodGate

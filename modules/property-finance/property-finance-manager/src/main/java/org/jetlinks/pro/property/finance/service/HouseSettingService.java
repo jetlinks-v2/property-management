@@ -390,6 +390,7 @@ public class HouseSettingService {
                         "customerName",
                         "effectiveStartDate",
                         "effectiveEndDate",
+                        "autoGenerateReceivable",
                         "remark",
                         "snapshotJson")) {
             Object value = wrapper.getPropertyValue(field);
