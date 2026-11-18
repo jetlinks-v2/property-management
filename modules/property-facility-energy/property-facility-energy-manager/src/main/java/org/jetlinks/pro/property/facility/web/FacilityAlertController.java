@@ -31,6 +31,7 @@ public class FacilityAlertController {
   private final FacilityDevices devices;
   private final FacilityCloudAlarms cloud;
   private final FacilityScope scope;
+  private final FacilityAlarmRelief relief;
 
   /** 沿用本应用告警查询权限，仅返回展示等级；不要求员工持有平台规则配置权限。 */
   @GetMapping("/levels") @QueryAction
@@ -41,6 +42,15 @@ public class FacilityAlertController {
   public Mono<Integer> synchronize() { return saas.refresh(); }
 
   public record Action(long version, String state, String comment) {}
+
+  public record Relief(long version, @jakarta.validation.constraints.NotBlank
+    @jakarta.validation.constraints.Size(max = 4000) String comment) {}
+
+  /** 主动解除平台告警与本地处理完成独立；服务内按关联设备可写权限及当前绑定再次校验。 */
+  @PostMapping("/{id}/relieve") @SaveAction
+  public Mono<AlertEntity> relieve(@PathVariable String id, @Valid @RequestBody Relief input) {
+    return relief.relieve(id, input.version(), input.comment());
+  }
 
   @PostMapping("/_query")
   @QueryAction

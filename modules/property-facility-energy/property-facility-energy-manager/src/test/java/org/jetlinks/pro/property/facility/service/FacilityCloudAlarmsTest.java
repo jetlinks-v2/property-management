@@ -13,10 +13,53 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 class FacilityCloudAlarmsTest {
+  @Test void reliefUsesOfficialCommandAndRuleAlarmServiceWithCallerContext() {
+    var support = mock(CommandSupport.class); var source = new FacilityCloudAlarms();
+    var record = new CloudAlarmRecord(); record.setId("record"); record.setAlarmConfigId("rule");
+    record.setTargetType("device"); record.setTargetId("meter"); record.setSourceType("device"); record.setSourceId("meter");
+    record.setAlarmTime(1000L);
+    var result = new org.jetlinks.pro.command.rule.data.RelieveResult(); result.setRecordId("record"); result.setRelieved(true);
+    var auth = mock(org.hswebframework.web.authorization.Authentication.class);
+    when(support.execute(any(org.jetlinks.pro.command.rule.RelievedAlarmCommand.class))).thenAnswer(call ->
+      Mono.deferContextual(context -> {
+        assertSame(auth, context.get(org.hswebframework.web.authorization.Authentication.class));
+        var command = (org.jetlinks.pro.command.rule.RelievedAlarmCommand) call.getArgument(0);
+        var info = command.getRelieveInfo();
+        assertEquals("rule", info.getAlarmConfigId()); assertEquals("device", info.getTargetType());
+        assertEquals("meter", info.getTargetId()); assertEquals("meter", info.getSourceId());
+        assertEquals(1000L, info.getAlarmTime()); assertEquals("user", info.getAlarmRelieveType());
+        assertEquals("checked", info.getDescribe()); assertEquals("checked", info.getRelieveReason());
+        assertNull(info.getBindings()); assertNull(info.getSourceCreatorId());
+        return Mono.just(result);
+      }));
+    try (var providers = mockStatic(org.jetlinks.pro.command.CommandSupportManagerProviders.class)) {
+      providers.when(() -> org.jetlinks.pro.command.CommandSupportManagerProviders.getCommandSupport(
+        org.jetlinks.pro.command.InternalSdkServices.ruleService, org.jetlinks.pro.command.rule.RuleCommandServices.alarm))
+        .thenReturn(Mono.just(support));
+      StepVerifier.create(source.relieve(record, "checked").contextWrite(c -> c.put(org.hswebframework.web.authorization.Authentication.class, auth)))
+        .verifyComplete();
+    }
+  }
+
+  @Test void reliefRejectsFalseEmptyMismatchedAndFailedCommandResponses() {
+    var support = mock(CommandSupport.class); var source = spy(new FacilityCloudAlarms());
+    doReturn(Mono.just(support)).when(source).reliefSupport();
+    var record = new CloudAlarmRecord(); record.setId("record");
+    var result = new org.jetlinks.pro.command.rule.data.RelieveResult(); result.setRecordId("record");
+    when(support.execute(any(org.jetlinks.pro.command.rule.RelievedAlarmCommand.class))).thenReturn(Mono.just(result));
+    StepVerifier.create(source.relieve(record, "checked")).expectError().verify();
+    result.setRelieved(true); result.setRecordId("different");
+    StepVerifier.create(source.relieve(record, "checked")).expectError().verify();
+    when(support.execute(any(org.jetlinks.pro.command.rule.RelievedAlarmCommand.class))).thenReturn(Mono.empty());
+    StepVerifier.create(source.relieve(record, "checked")).expectError().verify();
+    when(support.execute(any(org.jetlinks.pro.command.rule.RelievedAlarmCommand.class))).thenReturn(Mono.error(new IllegalStateException("RPC down")));
+    StepVerifier.create(source.relieve(record, "checked")).expectError(IllegalStateException.class).verify();
+  }
+
   @Test void levelEndpointRequiresAnApplicationContextBeforeReadingPlatformConfiguration() {
     var cloud = mock(FacilityCloudAlarms.class); var scope = mock(FacilityScope.class);
     var controller = new org.jetlinks.pro.property.facility.web.FacilityAlertController(
-      null, null, null, null, null, null, null, null, null, cloud, scope);
+      null, null, null, null, null, null, null, null, null, cloud, scope, null);
     when(scope.current()).thenReturn(Mono.error(new IllegalStateException("missing application")));
     StepVerifier.create(controller.levels()).expectError(IllegalStateException.class).verify();
     verifyNoInteractions(cloud);

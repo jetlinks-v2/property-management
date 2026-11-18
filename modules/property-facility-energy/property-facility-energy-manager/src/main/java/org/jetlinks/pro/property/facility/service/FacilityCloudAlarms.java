@@ -7,6 +7,8 @@ import org.hswebframework.web.api.crud.entity.*;
 import org.jetlinks.core.command.CommandSupport;
 import org.jetlinks.pro.command.*;
 import org.jetlinks.pro.command.rule.RuleCommandServices;
+import org.jetlinks.pro.command.rule.RelievedAlarmCommand;
+import org.jetlinks.pro.command.rule.data.RelieveInfo;
 import org.jetlinks.pro.property.facility.model.CloudAlarmRecord;
 import org.jetlinks.pro.property.facility.model.CloudAlarmLevels;
 import org.jetlinks.sdk.server.commons.cmd.QueryPagerCommand;
@@ -16,6 +18,29 @@ import reactor.core.publisher.*;
 /** 使用平台已注册的告警命令；保留调用者身份，仅查询已授权设备的来源/目标记录。 */
 @Service
 public class FacilityCloudAlarms {
+  private static org.hswebframework.web.exception.BusinessException unavailable() {
+    return new org.hswebframework.web.exception.BusinessException("error.facility.alarm_source_unavailable", 503);
+  }
+
+  /** 调用正式解除命令，沿用请求身份；平台从原记录恢复绑定上下文，不借用设备创建人身份。 */
+  public Mono<Void> relieve(CloudAlarmRecord source, String reason) {
+    return Mono.defer(() -> {
+      var info = new RelieveInfo();
+      info.setAlarmConfigId(source.getAlarmConfigId()); info.setTargetType(source.getTargetType());
+      info.setTargetId(source.getTargetId()); info.setSourceType(source.getSourceType()); info.setSourceId(source.getSourceId());
+      info.setAlarmTime(source.getAlarmTime()); info.setAlarmRelieveType("user");
+      info.setRelieveReason(reason); info.setDescribe(reason);
+      return reliefSupport().flatMap(s -> s.execute(new RelievedAlarmCommand().setRelieveInfo(info)))
+        .switchIfEmpty(Mono.error(unavailable())).doOnNext(result -> FacilityScope.require(
+          result.isRelieved() && source.getId().equals(result.getRecordId()), "alarm_relief_failed")).then();
+    });
+  }
+
+  Mono<CommandSupport> reliefSupport() {
+    return CommandSupportManagerProviders.getCommandSupport(InternalSdkServices.ruleService, RuleCommandServices.alarm)
+      .switchIfEmpty(Mono.error(unavailable()));
+  }
+
   /** 平台现有 QueryAlarmLevel 命令只读默认等级，保留调用上下文，不依赖规则引擎内部类。 */
   public Mono<List<CloudAlarmLevels.Level>> levels() {
     return levelSupport().flatMap(s -> s.executeToMono("QueryAlarmLevel", Map.of()))

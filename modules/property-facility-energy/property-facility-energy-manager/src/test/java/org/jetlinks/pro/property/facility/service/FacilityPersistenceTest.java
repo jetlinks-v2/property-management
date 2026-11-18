@@ -2229,7 +2229,10 @@ class FacilityPersistenceTest {
     verify(employeeMessages, times(1)).platformAlert(any(), any());
     alerts.createUpdate().set("processingState", "closed").set("comment", "阀门已检查").where("id", id).execute().block();
     source.setState(Map.of("value", "normal")); source.setHandleTime(3000L);
-    as("admin", saasWriter.accept(device, source)).block();
+    as("admin", saasWriter.acceptRelief(device, source, saved, "现场确认已排除异常")).block();
+    var reliefLog = logs.createQuery().where("targetId", id).and("action", "relieve").fetchOne().block();
+    assertNotNull(reliefLog); assertEquals("admin", reliefLog.getCreatorId());
+    assertEquals("现场确认已排除异常", reliefLog.getComment()); assertEquals("recovered", reliefLog.getToState());
     saved = alerts.findById(id).block();
     assertEquals("recovered", saved.getState()); assertEquals(3000, saved.getRecoveredTime());
     assertEquals("closed", saved.getProcessingState()); assertEquals("阀门已检查", saved.getComment());
@@ -2250,10 +2253,34 @@ class FacilityPersistenceTest {
     verify(employeeMessages, times(3)).platformAlert(any(), any());
     source.setAlarmTime(1000L); as("admin", saasWriter.accept(device, source)).block();
     assertEquals(4000, alerts.findById(id).block().getFirstTime());
+    StepVerifier.create(as("admin", saasWriter.acceptRelief(device, source, saved, "过期轮次"))).expectError().verify();
+    assertEquals(1, logs.createQuery().where("targetId", id).and("action", "relieve").count().block());
     source.setId("rollback"); source.setAlarmTime(6000L); source.setLastAlarmTime(6000L);
     when(employeeMessages.platformAlert(any(), any())).thenReturn(Mono.error(new IllegalStateException("message store unavailable")));
     StepVerifier.create(as("admin", saasWriter.accept(device, source))).expectError(IllegalStateException.class).verify();
     assertEquals(0, alerts.createQuery().where("sourceRecordId", "rollback").count().block());
+  }
+
+  @Test void reliefAuditFailureRollsBackLocalRecoveryAndKeepsHandlingState() {
+    var device = FacilityScope.initialize(new DeviceEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
+    device.setId("relief-rollback-device"); device.setCloudDeviceId("relief-rollback-cloud"); device.setProjectId("p-a");
+    devices.insert(device).block(); bindSource(device.getCloudDeviceId());
+    when(employeeMessages.platformAlert(any(), any())).thenReturn(Mono.empty());
+    var source = new CloudAlarmRecord(); source.setId("relief-rollback-source"); source.setSourceType("device");
+    source.setSourceId(device.getCloudDeviceId()); source.setAlarmTime(1000L); source.setState("warning");
+    as("admin", saasWriter.accept(device, source)).block();
+    String id = FacilityRecords.stableId("tenant", "app", device.getId(), "saas", source.getId());
+    alerts.createUpdate().set("processingState", "closed").set("comment", "已检查").where("id", id).execute().block();
+    var before = alerts.findById(id).block();
+    source.setState("normal"); source.setHandleTime(2000L);
+    doReturn(Mono.error(new IllegalStateException("audit unavailable"))).when(records)
+      .log(argThat(row -> row != null && id.equals(row.getId())), eq("alert"), eq("relieve"), anyString(), anyString(), anyString(), anyList());
+    StepVerifier.create(as("admin", saasWriter.acceptRelief(device, source, before, "异常已排除")))
+      .expectError(IllegalStateException.class).verify();
+    var after = alerts.findById(id).block();
+    assertEquals("open", after.getState()); assertEquals("closed", after.getProcessingState()); assertEquals("已检查", after.getComment());
+    assertNull(after.getRecoveredTime()); assertEquals(before.getVersion(), after.getVersion());
+    assertEquals(0, logs.createQuery().where("targetId", id).count().block());
   }
 
   @Test void currentAlarmListExcludesRetiredRulesAndUnboundDevicesWithoutDeletingHistory() {
@@ -2266,7 +2293,7 @@ class FacilityPersistenceTest {
     var legacy = FacilityScope.initialize(new AlertEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
     legacy.setId("retired-local-alarm"); legacy.setDeviceId(device.getId()); legacy.setProjectId("p-a"); legacy.setRuleType("offline");
     alerts.insert(legacy).block();
-    var controller = new org.jetlinks.pro.property.facility.web.FacilityAlertController(alerts, null, null, null, queries, null, null, null, deviceManager, null, scope);
+    var controller = new org.jetlinks.pro.property.facility.web.FacilityAlertController(alerts, null, null, null, queries, null, null, null, deviceManager, null, scope, null);
     var filter = QueryParamEntity.newQuery().is("id", current.getId()).or("id", legacy.getId()).getParam();
     var page = as("admin", controller.query(filter)).block();
     assertEquals(List.of(current.getId()), page.getData().stream().map(AlertEntity::getId).toList());

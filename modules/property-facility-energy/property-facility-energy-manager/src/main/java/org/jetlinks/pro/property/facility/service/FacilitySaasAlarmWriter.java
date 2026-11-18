@@ -20,6 +20,19 @@ public class FacilitySaasAlarmWriter {
   private final FacilityScope scope;
   private final FacilityDirectory directory;
 
+  /** SaaS 已成功解除后的本地状态与审计共同提交；远程命令已在本事务外执行。 */
+  @Transactional
+  public Mono<Void> acceptRelief(DeviceEntity device, CloudAlarmRecord source, AlertEntity previous, String reason) {
+    return accept(device, source).then(Mono.defer(() -> alerts.findById(previous.getId())))
+      .switchIfEmpty(Mono.error(new org.hswebframework.web.exception.NotFoundException()))
+      .flatMap(current -> {
+        // 同步期间若已有新一轮告警，不得把旧轮次的解除审计写到当前告警上。
+        FacilityScope.require(Objects.equals(current.getFirstTime(), source.getAlarmTime()), "source_changed");
+        FacilityScope.require("recovered".equals(current.getState()), "alarm_relief_unconfirmed");
+        return records.log(current, "alert", "relieve", "open", "recovered", reason, List.of());
+      });
+  }
+
   @Transactional
   public Mono<Void> accept(DeviceEntity expected, CloudAlarmRecord source) {
     FacilityScope.require(source.getId() != null && !source.getId().isBlank() && source.belongsTo(expected.getCloudDeviceId())
