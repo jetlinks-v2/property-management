@@ -82,6 +82,22 @@ class ContractReportHttpTest extends ContractReportPersistenceTest {
     }
 
     @Test
+    void excelKeepsAmountsBeyondExcelPrecisionAsText() throws Exception {
+        contract("C01");
+        bill("C01", "9999999999999999.99", "2024-02-01", "2024-02-29");
+        var bytes = client(allowed).post().uri(ROOT + "/_export/excel")
+                .bodyValue(input("2024-02")).exchange().expectStatus().isOk()
+                .expectBody(byte[].class).returnResult().getResponseBody();
+        try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new ByteArrayInputStream(bytes))) {
+            for (int row : List.of(1, 2)) {
+                var cell = book.getSheetAt(0).getRow(row).getCell(9);
+                assertEquals(org.apache.poi.ss.usermodel.CellType.STRING, cell.getCellType());
+                assertEquals("9999999999999999.99", cell.getStringCellValue());
+            }
+        }
+    }
+
+    @Test
     void excelAndPdfContainChineseHeadersExactAmountsSummaryAndSafeLiteralText() throws Exception {
         var c = contract("C01");
         contracts
@@ -117,8 +133,10 @@ class ContractReportHttpTest extends ContractReportPersistenceTest {
                     s.getRow(1).getCell(1).getCellType());
             assertEquals(
                     "=SUM(1,2)<script>evil</script>", s.getRow(1).getCell(1).getStringCellValue());
-            assertEquals("100.01", s.getRow(1).getCell(9).getStringCellValue());
-            assertEquals("100.01", s.getRow(2).getCell(9).getStringCellValue());
+            var formatter = new org.apache.poi.ss.usermodel.DataFormatter(Locale.CHINA);
+            assertEquals(org.apache.poi.ss.usermodel.CellType.NUMERIC, s.getRow(1).getCell(9).getCellType());
+            assertEquals("100.01", formatter.formatCellValue(s.getRow(1).getCell(9)));
+            assertEquals("100.01", formatter.formatCellValue(s.getRow(2).getCell(9)));
             assertTrue(s.getRow(3).getCell(0).getStringCellValue().contains("2024-02"));
         }
         var pdf =

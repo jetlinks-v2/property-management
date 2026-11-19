@@ -218,6 +218,7 @@ class AccountingWorkspaceHttpTest extends MonthClosingPersistenceTest {
         MonthClosingRecords.class,
         AccountingPeriodController.class,
         MonthClosingController.class,
+        MonthClosingBatchService.class,
         BillingJobProperties.class
     })
     static class Config {}
