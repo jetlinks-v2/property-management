@@ -14,4 +14,4 @@ docker run -d --name property-facility-mqtt-simulator --restart on-failure:3 --n
     --mount "type=bind,source=$resolvedConfig,target=/config/config.json,readonly" `
     --mount "type=bind,source=$statePath,target=/state" property-facility-mqtt-simulator:local
 if ($LASTEXITCODE -ne 0) { throw '启动失败' }
-Write-Output '已启动，每30秒上报。查看日志：docker logs --tail 20 property-facility-mqtt-simulator'
+Write-Output '已启动，普通读数每小时上报，故障变化在30秒内上报。查看日志：docker logs --tail 20 property-facility-mqtt-simulator'

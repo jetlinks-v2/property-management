@@ -61,20 +61,21 @@ class FaultCycle:
         self.devices = [device["id"] for device in devices]
         self.path, self.rng = path, rng or random.Random()
         self.last_device = None
-        self.normal_seconds = self.settings.get("normalSeconds", [600, 1200])
-        self.fault_seconds = self.settings.get("faultSeconds", [30, 90])
+        self.normal_seconds = self.settings.get("normalSeconds", [3600, 7200])
+        self.fault_seconds = self.settings.get("faultSeconds", [540, 660])
         for key, bounds in (("normalSeconds", self.normal_seconds), ("faultSeconds", self.fault_seconds)):
             if len(bounds) != 2 or not 30 <= bounds[0] <= bounds[1] <= 86400:
                 raise ValueError(f"Invalid fault simulation duration: {key}")
-        if path.exists():
-            self.state = json.loads(path.read_text())
-        else:
-            delay = self.settings.get("firstDelaySeconds")
+        self.schedule = {"normalSeconds": self.normal_seconds, "faultSeconds": self.fault_seconds}
+        self.state = json.loads(path.read_text()) if path.exists() else None
+        # Old persisted short cycles must not override a newly configured low frequency.
+        if self.state is None or self.state.get("schedule") != self.schedule:
+            delay = self.settings.get("firstDelaySeconds") if self.state is None else None
             if delay is None:
                 delay = self.rng.uniform(*self.normal_seconds)
             if not isinstance(delay, (int, float)) or not math.isfinite(delay) or not 0 <= delay <= 86400:
                 raise ValueError("Invalid fault simulation duration: firstDelaySeconds")
-            self.state = {"device": None, "until": 0, "nextAt": now + delay}
+            self.state = {"device": None, "until": 0, "nextAt": now + delay, "schedule": self.schedule}
             if self.enabled:
                 checkpoint(path, self.state)
 
@@ -83,15 +84,19 @@ class FaultCycle:
             return None
         if self.state["device"] and (self.state["device"] not in self.devices or now >= self.state["until"]):
             log("fault_recovered", device=self.state["device"])
+            next_at = self.state["nextAt"]
+            if next_at <= now:
+                next_at = now + self.rng.uniform(*self.normal_seconds)
             self.state = {"device": None, "until": 0,
-                          "nextAt": now + self.rng.uniform(*self.normal_seconds)}
+                          "nextAt": next_at, "schedule": self.schedule}
             checkpoint(self.path, self.state)
         if not self.state["device"] and now >= self.state["nextAt"]:
             choices = [device for device in self.devices if device != self.last_device] or self.devices
             device = self.rng.choice(choices)
             self.last_device = device
             self.state = {"device": device, "until": now + self.rng.uniform(
-                *self.fault_seconds), "nextAt": 0}
+                *self.fault_seconds), "nextAt": now + self.rng.uniform(*self.normal_seconds),
+                "schedule": self.schedule}
             checkpoint(self.path, self.state)
             log("fault_started", device=device, recoverAt=self.state["until"])
         return self.state["device"]
@@ -143,7 +148,7 @@ class Connection:
             raise RuntimeError(f"MQTT connection failed: {self.device['id']}")
 
     def publish(self, properties):
-        self.properties = properties
+        self.properties.update(properties)
         payload = report(properties, int(time.time() * 1000))
         sent = self.client.publish(self.prefix + "/report", json.dumps(payload), qos=1, retain=False)
         deadline = time.monotonic() + 10
@@ -158,11 +163,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="/config/config.json")
     parser.add_argument("--state", default="/state/readings.json")
-    parser.add_argument("--interval", type=float, default=30)
+    parser.add_argument("--interval", type=float, default=3600)
     parser.add_argument("--rounds", type=int, default=0, help="0 means continue until stopped")
     parser.add_argument("--only", help="Run one configured device for verification")
     args = parser.parse_args()
-    if args.interval < 1 or args.rounds < 0:
+    if not math.isfinite(args.interval) or args.interval < 1 or args.rounds < 0:
         parser.error("interval must be >= 1 and rounds must be >= 0")
     config = json.loads(Path(args.config).read_text(encoding="utf-8-sig"))
     devices = [d for d in config["devices"] if not args.only or d["id"] == args.only]
@@ -185,11 +190,13 @@ def main():
         for connection in connections:
             connection.connect()
         last = time.monotonic() - args.interval
+        last_check = time.monotonic() - 30
         rounds = 0
         while running and (not args.rounds or rounds < args.rounds):
             now = time.monotonic()
-            if now - last >= args.interval:
-                elapsed = min(now - last, args.interval * 2)
+            full_report = now - last >= args.interval
+            if full_report or now - last_check >= 30:
+                elapsed = min(now - last, args.interval * 2) if rounds else 0
                 faulty_device = faults.active(time.time())
                 for connection in connections:
                     if not running:
@@ -206,13 +213,22 @@ def main():
                                     raise
                                 time.sleep(2)
                     key = connection.device["id"]
-                    values = advance(states.get(key, {}), connection.device, elapsed, time.time())
-                    values["fault"] = int(key == faulty_device)
+                    fault = int(key == faulty_device)
+                    if full_report:
+                        values = advance(states.get(key, {}), connection.device, elapsed, time.time())
+                        values["fault"] = fault
+                    elif states.get(key, {}).get("fault", 0) != fault:
+                        # Fault transitions must not resend the last hourly consumption increment.
+                        values = {"fault": fault}
+                    else:
+                        continue
                     connection.publish(values)
-                    states[key] = values
+                    states.setdefault(key, {}).update(values)
                     checkpoint(path, states)
-                last = now
-                rounds += 1
+                last_check = now
+                if full_report:
+                    last = now
+                    rounds += 1
             for connection in connections:
                 connection.client.loop(timeout=0.01)
             time.sleep(0.05)
