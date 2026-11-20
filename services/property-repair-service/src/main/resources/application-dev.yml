@@ -1,4 +1,0 @@
-logging:
-  level:
-    org.jetlinks.pro.smartpark.repair: debug
-    org.jetlinks.pro.property: debug

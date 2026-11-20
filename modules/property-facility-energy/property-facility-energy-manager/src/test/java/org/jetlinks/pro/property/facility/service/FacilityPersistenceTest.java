@@ -1881,7 +1881,7 @@ class FacilityPersistenceTest {
     for (int day = 1; day <= 7; day++) weekly.put(day, List.of(new CycleRule.Window(0, 0, 1, 1, 1, "1", "1", 0.5d, "1")));
     cycle.setRule(new CycleRule(weekly, Map.of()));
     cycleStore.insert(cycle).block();
-    var standard = FacilityScope.initialize(new StandardEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
+    var standard = FacilityScope.initialize(new FacilityStandardEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
     standard.setId("standard-" + suffix); standard.setProjectId("p"); standard.setKind("inspection"); standard.setEnabled(true);
     var item = new CheckItem(); item.setId("pressure"); item.setName("水泵压力正常"); item.setKind("choice");
     item.setOptions(List.of("符合", "不符合")); standard.setCheckItems(List.of(item)); standardStore.insert(standard).block();

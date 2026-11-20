@@ -19,16 +19,16 @@
 检查导入端点为 `GET /decoration/configurations/checks/import-template`、`POST /decoration/configurations/checks/import?requestId=...`（multipart `file`）和只读 `GET /decoration/configurations/checks/import-result/{requestId}`，均使用配置保存权限并要求有效员工。请求号最多64字符，按应用、租户和操作者隔离；同键不同文件拒绝。先捕获所有现有配置版本、完成整批合并预检，再上传私有模板图片，配置与 `pd_configuration_import` 成功收据同事务保存。版本冲突或任一保存失败整批回滚，已知临时图片在事务结束后补偿删除；不能确认外部上传结果时不自动重试。外部上传/写库开始后的有限操作不随浏览器断线取消，客户端可凭原请求号查询结果。同请求竞争先回滚失败事务，再核对赢家收据，防止重复增加配置版本。结果读取重验当前项目权限，不重新执行导入。成功收据不保留原始工作簿。
 
 ```sh
-mvn -pl :property-decoration-service -am verify
+mvn -pl :property-management-service -am verify
 ```
 
-使用 Java 17，行为测试通过 Testcontainers 创建隔离 PostgreSQL，不读写业务库。发布产物为 `services/property-decoration-service/target/application.jar`，只包含本系统 manager 和公共 core；本地 application-local.yml 不打入产物。
+使用 Java 17，行为测试通过 Testcontainers 创建隔离 PostgreSQL，不读写业务库。发布产物为 `services/property-management-service/target/application.jar`，包含八个业务 manager 和公共 core；本地 application-local.yml 不打入产物。
 
 业务接口仅提供受控动作，不开放通用实体保存或物理删除。项目范围来自基础组织树命令的 AssetsHolder 授权结果，只接受显式标注为项目的节点；平台直属应用允许无技术租户，仍须具备平台激活的应用 Scope。`decoration.directory.server-id` 可将基础命令固定到指定公共节点（默认使用集群选择）；装修 SQL 再固定可信应用与租户边界。分页、详情、附件、统计、导出及动作使用同一边界。创建通过唯一房屋占用与稳定请求键防并发；动作通过聚合行锁、版本与轨迹原子提交。超时核对端点只读查询；同键不同内容拒绝。
 
-附件内容通过 SDK 已有 `fileService` 流式上传、下载和删除命令访问公共文件服务；通过平台 `CommandServices.getReactive(fileService)` 发现实际提供方，与巡更保持一致，不再使用 `decoration.files.server-id` 固定节点。独立启动关闭 `file.manager.command.enabled`，避免本机默认文件实现优先于集群公共提供方。服务不可用或命令缺失时拒绝操作，不退回本机文件存储。装修库仅保存私有业务回执和公共文件 ID，浏览器读取仍经过装修项目、应用和租户范围校验，不暴露通用文件访问地址。上传或补偿删除均不自动重试，避免未知结果时重复写入。 文件ID属于既有公共HTTP存储、集群文件提供方无法解析该ID时，可显式配置 `decoration.files.gateway-url` 和可选 `gateway-service-id`，通过既有 `/file/{id}` 接口读取，上传同步使用该入口的 `/file/upload`，避免跨节点存储不一致；上传不设置公开访问选项。仅转发当前请求的登录令牌、应用范围及租户域，网关地址和服务选择来自服务端配置，不接受客户端URL或路由头。不记录凭据、不开放通用代理，未携带当前认证时拒绝读取。
+附件内容通过 SDK 已有 `fileService` 流式上传、下载和删除命令访问公共文件服务；通过平台 `CommandServices.getReactive(fileService)` 发现实际提供方，与巡更保持一致，不再使用 `decoration.files.server-id` 固定节点。统一启动关闭 `file.manager.command.enabled`，避免本机默认文件实现优先于集群公共提供方。服务不可用或命令缺失时拒绝操作，不退回本机文件存储。装修库仅保存私有业务回执和公共文件 ID，浏览器读取仍经过装修项目、应用和租户范围校验，不暴露通用文件访问地址。上传或补偿删除均不自动重试，避免未知结果时重复写入。 文件ID属于既有公共HTTP存储、集群文件提供方无法解析该ID时，可显式配置 `decoration.files.gateway-url` 和可选 `gateway-service-id`，通过既有 `/file/{id}` 接口读取，上传同步使用该入口的 `/file/upload`，避免跨节点存储不一致；上传不设置公开访问选项。仅转发当前请求的登录令牌、应用范围及租户域，网关地址和服务选择来自服务端配置，不接受客户端URL或路由头。不记录凭据、不开放通用代理，未携带当前认证时拒绝读取。
 
-独立服务关闭原始 `file.manager.upload-filter` 自动注册，改为装饰同一公共过滤器：保留公共后缀策略，并恢复其 multipart 请求重建后请求头的大小写无关读取。此适配不从客户端推断租户，也不替代平台租户检测和认证。
+统一服务关闭原始 `file.manager.upload-filter` 自动注册，改为装饰同一公共过滤器：保留公共后缀策略，并恢复其 multipart 请求重建后请求头的大小写无关读取。此适配不从客户端推断租户，也不替代平台租户检测和认证。
 
 验收申请使用 `AcceptanceRequest`，必须提供申请验收日期；提交时间、申请人和来源由聚合事务从可信上下文生成。人员指派仅使用 `Acceptance`，不得修改已提交的日期或申请人。任务保留创建时的装修和本轮验收申请快照，后续轮次不覆盖历史；旧任务未记录字段返回空值，不根据任务创建时间推算申请日期。
 PC 首验、二验各使用一个列表合并验收办理与记录，显示已具备前置条件的待发起装修及实际发起过的验收。待发起记录没有申请日期、人员和轮次，不创建虚构任务；发起、失败重提、指派和查看详情均在行内进入。同一装修的首次、二次验收各汇总一行，失败后重新发起仍更新该行，人员任务与每轮反馈完整保留在详情和操作轨迹。业主首次申请和失败后重提均进入待指派，由物业使用员工权限核验并指派本轮验收人，不在业主请求中自动沿用旧验收人或读取员工目录。记录查询为 `POST /decoration/tasks/acceptance/{kind}/_query`（`kind=firstAcceptance|secondAcceptance`），`includeEligible=true` 在数据库分页前同时纳入满足当前备案/首验门槛的装修；默认 false 保持仅查询已申请记录的原契约。`requestAllowed` 仅表示PC来源及业务资格，按钮权限和提交资格仍独立校验。先汇总最新轮次再按 QueryParam 筛选、分页，沿用装修任务查询权限及申请的应用、租户和授权项目范围；待指派也计入记录，多人未全部反馈时维持待验收。列表不返回附件及任务正文。该汇总使用现有 PostgreSQL 业务库聚合函数；跨数据库迁移时需替换姓名聚合。个人任务与详情任务接口继续逐人、逐轮次返回。

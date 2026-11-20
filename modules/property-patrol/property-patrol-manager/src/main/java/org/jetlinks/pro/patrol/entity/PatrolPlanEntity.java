@@ -1,5 +1,6 @@
 package org.jetlinks.pro.patrol.entity;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -69,11 +70,13 @@ public class PatrolPlanEntity extends PatrolConfigEntity {
     @Column(length = 10)
     @DateTimeCodec(format = "yyyy-MM-dd")
     @ColumnType(javaType = String.class)
+    @JsonFormat(shape = JsonFormat.Shape.STRING)
     private LocalDate effectiveFrom;
 
     @Column(length = 10)
     @DateTimeCodec(format = "yyyy-MM-dd")
     @ColumnType(javaType = String.class)
+    @JsonFormat(shape = JsonFormat.Shape.STRING)
     private LocalDate effectiveTo;
 
     @Column

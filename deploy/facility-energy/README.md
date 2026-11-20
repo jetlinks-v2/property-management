@@ -1,6 +1,8 @@
 # 设施设备部署
 
-本应用包含独立后端服务、SaaS PC 模块以及共用同一业务后端的员工／业主 H5。设备仅从 Cloud 同步，物业共享组织、人员、空间、房屋和客户档案由基础服务维护。本版没有支付、计费、充值、远程断供、仓库耗材或旧系统历史导入。
+> 后端启动方式已调整：八个业务模块由 `property-management-service` 统一运行并共用一个数据库。本文保留应用模板、授权及业务迁移说明；旧独立服务的端口、库名、身份和启动部署命令不再适用。统一构建、连接配置及切换步骤以[根目录说明](../../README.md)为准。
+
+本应用后端由物业统一服务承载，包含、SaaS PC 模块以及共用同一业务后端的员工／业主 H5。设备仅从 Cloud 同步，物业共享组织、人员、空间、房屋和客户档案由基础服务维护。本版没有支付、计费、充值、远程断供、仓库耗材或旧系统历史导入。
 
 ## 已有数据库升级
 
@@ -8,40 +10,19 @@
 
 ## 制品与运行前置
 
-- 后端：`services/property-facility-energy-service/target/application.jar`，Java 17，服务身份 `property-facility-energy-service`。
+- 后端：`services/property-management-service/target/application.jar`，Java 17，服务身份 `property-facility-energy-service`。
 - HTTP 8508、集群 18508、RPC 28508；数据库默认 `property_facility_energy`。集群地址需能被 Cloud 和基础服务双向访问。
 - PC：相邻 `saas-runtime-ui/modules/facility-energy-ui/dist`，模块名 `facility-energy-ui`。
 - H5／APP：在 `cloud.jetlinks.mobile/modules/facility-energy-wx-ui` 维护，由统一移动端外壳构建和部署，参见该仓库 `docker-h5/`。摄像头、离线资源缓存需安全上下文。
 - 必须先具备 Cloud SaaS 网关／运行端、设备公开 SDK、通知服务、共享物业基础服务、PostgreSQL、Redis，以及可信的 RPC token、JWT 公钥和集群发现连接。
 - Cloud 设备所属进程须装配 `property-facility-energy-cloud-support` 及 `property-facility-energy-core`，扫描 `org.jetlinks.pro.property.facility.cloud`。它公开 `propertyFacilityCloudService:history/QueryFacilityPropertyPage`，在原认证、租户与资产上下文中调用本地 Cloud 公开设备命令，不读取设备表。当前 Cloud 2.20 的历史查询命令工厂生成的子类 ID 与处理器 ID 不一致，不能直接经原 RPC 工厂查询；此适配器显式保留公开命令 ID、分页条件与响应类型。适配器不得打入设施业务服务。
 - Cloud 通知所有者须包含 `notify-manager` 的应用范围上下文修复：`NotificationCommandSupport.assertTargetAssetPermission` 使用当前 `AssetsHolder.currentReactive()` 校验收件人，保留已激活应用范围，不从单独的认证对象重建。修复不绕过收件人资产校验，也不增加发送人权限；部署到通知命令实际所在进程。未包含此修复的旧包可能返回 `asset_scope_context_missing`，仅更新设施服务无法解决。
-- 共享基础服务须发布本版 `property-base-core` 客户只读契约与 `PropertyCustomerCommandSupport`；业务服务不装配 `property-base-manager`，不跨库读取共享基础表。
+- 统一服务内的基础模块须包含本版 `property-base-core` 客户只读契约与 `PropertyCustomerCommandSupport`；基础 manager 由统一启动工程装配，设施业务仍通过公开命令读取基础资料。
 - 设施附件由 `property-facility-energy-file-support` 提供，须与同版本设施 core 装配在实际持有 `FileManager` 的 Cloud 文件进程，扫描 `org.jetlinks.pro.property.facility.file` 并启用 Spring AOP。该适配器提供 `propertyFacilityCloudService:files/AssertFacilityFiles` 公开命令与 `/file/facility/upload?projectId=...` 上传入口；不装进设施或基础档案服务。设备与文件进程分开部署时，分别安装历史适配器和文件适配器，避免把命令注册到错误进程。
 
-先构建独立服务，再准备配置；不会自动创建应用、导入菜单或修改已有环境。
+后端统一构建、Docker 与本机启动步骤见[根目录说明](../../README.md)，不再发布设施独立服务。Cloud 历史与文件适配器仍分别构建并安装到实际提供设备历史和文件能力的 SaaS 进程。
 
-```sh
-mvn -pl :property-facility-energy-service,:property-facility-energy-cloud-support,:property-facility-energy-file-support -am verify
-mvn -pl :property-base-service,:property-file-support -am verify
-cp deploy/facility-energy/.env.example deploy/facility-energy/.env
-```
-
-填写 `.env` 的数据库、Redis、RPC、JWT、集群外部地址、Cloud Docker 网络和网关地址；启用短信时再配置短信回执密钥。示例文件没有可用凭据；`.env` 和 `application-local.yml` 已忽略。不要将本机密钥放进共享 YAML、制品或日志。
-
-`DB_POOL_MAX_SIZE` 默认 16，必须纳入共享 PostgreSQL 的连接预算：所有服务连接池上限总和及运维、恢复预留不能超过数据库 `max_connections`。容量验收同时观察连接数和获取连接超时，不能只增加单服务连接池上限。
-
-```sh
-docker compose -f deploy/facility-energy/compose.yml config --quiet
-docker compose -f deploy/facility-energy/compose.yml up -d --build
-```
-
-不使用 Docker 时，给独立进程注入对应环境变量，或使用本机配置：
-
-```sh
-./deploy/start-service.sh facility-energy /absolute/path/application-local.yml
-```
-
-生产网关应将 `/property/facility-energy/**` 转发至本服务，共享 `/property/**` 其余路径转发至基础服务，并保留认证、租户和应用资产范围。服务内置 `route/property-facility-energy.json`，以 `order: -20` 优先于基础服务 `order: -10` 的兜底路由，同时发布受认证保护的接口文档路由。文件上传和下载复用 Cloud `/file/**`。H5 的 `/api` 代理须经过同一网关，不能直接绕过身份链路。
+统一服务使用 `route/property-management.json` 发布 `/property/facility-energy/**` 及其他业务路由；前端继续经过 SaaS 网关，保留原认证、租户与应用资产范围。切换时停止旧实例并更新服务身份及订阅，不保留重复调度。
 
 ### Cloud 内嵌生产包
 

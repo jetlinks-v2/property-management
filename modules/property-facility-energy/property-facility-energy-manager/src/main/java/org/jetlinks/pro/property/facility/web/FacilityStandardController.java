@@ -27,7 +27,7 @@ public class FacilityStandardController {
 
   @PostMapping("/_query")
   @QueryAction
-  public Mono<PagerResult<StandardEntity>> query(
+  public Mono<PagerResult<FacilityStandardEntity>> query(
     @RequestBody QueryParamEntity q
   ) {
     return queries.page(store, q, FacilityAssetType.facilityStandard, "id");
@@ -35,7 +35,7 @@ public class FacilityStandardController {
 
   @GetMapping("/{id}")
   @QueryAction
-  public Mono<StandardEntity> read(@PathVariable String id) {
+  public Mono<FacilityStandardEntity> read(@PathVariable String id) {
     return records.read(
       store,
       id,
@@ -46,7 +46,7 @@ public class FacilityStandardController {
 
   @PostMapping
   @SaveAction
-  public Mono<StandardEntity> save(@Valid @RequestBody StandardEntity row) {
+  public Mono<FacilityStandardEntity> save(@Valid @RequestBody FacilityStandardEntity row) {
     return manager.standard(row);
   }
 

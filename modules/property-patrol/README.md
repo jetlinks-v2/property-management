@@ -1,6 +1,6 @@
 # 智能巡更后端
 
-本仓库是巡更后端的唯一开发入口。巡更是独立的 JetLinks SaaS 业务服务，装配自己的 manager/core，并通过 property-base-core 公开只读命令读取组织和有效员工，不装配 base-manager、不调用财务业务，不在门禁服务内实现巡更，不复制 SaaS 的登录、用户、组织或授权角色。面向 PC 管理端和后续执行端，业务时间统一为 `Asia/Shanghai`。
+本仓库是巡更后端的唯一开发入口。巡更由物业统一启动工程装配自己的 manager/core，与其他模块共进程共库，并通过 property-base-core 公开只读命令读取组织和有效员工，不直接依赖 base-manager、不调用财务业务，不在门禁服务内实现巡更，不复制 SaaS 的登录、用户、组织或授权角色。面向 PC 管理端和后续执行端，业务时间统一为 `Asia/Shanghai`。
 
 本人巡更资格校验 SaaS 已认证身份中的当前业务应用成员维度，入口 Scope 不是成员凭据；配置其他人员使用有效员工、SaaS当前应用成员及 user 资产范围的交集。普通巡更人员无需因此取得系统用户查询权限。任务执行仍受计划资产、业务角色和排班约束。无真实时段的生成封印保留防重，但不进入 PC 任务组列表、计数、详情或导出。
 
@@ -10,7 +10,7 @@
 | --- | --- |
 | `property-patrol-core` | 无 I/O 的规则展开、跨天冲突检查、执行资格策略 |
 | `property-patrol-manager` | 配置资产、计划、应用角色引用、排班、任务与执行事务、检查判定、受控附件、人员 SDK 适配、查询与统计 |
-| `services/property-patrol-service` | SaaS 微服务启动、认证与发现、PostgreSQL/R2DBC、Redis |
+| `services/property-management-service` | SaaS 微服务启动、认证与发现、PostgreSQL/R2DBC、Redis |
 
 PC 模块位于 SaaS 的 `runtime-ui/modules/cloud-patrol-ui`，前端仍独立维护。配置包括分类、点位、检查标准、应用角色指派、人员排班和巡更计划；PC 沿原菜单组织，单点/批量角色及规则指派、月模板下载与导入统一从点位管理进入；角色及成员在当前应用角色管理中维护；内部计划和时段任务不设独立菜单。记录按任务组分页，详情查看真实时段，统计统一为巡更履行总览，原统计接口继续兼容。在线执行接口由 H5 消费，PC 不冒充移动打卡终端。
 
@@ -133,17 +133,17 @@ PC 模块位于 SaaS 的 `runtime-ui/modules/cloud-patrol-ui`，前端仍独立�
 以下命令从仓库根目录执行。需要 JDK17、Maven 及目标 SaaS 对应的 JetLinks `2.20.0-SNAPSHOT` 制品和仓库访问配置。不要仅凭版本字符串判断 SNAPSHOT 内容完全一致。
 
 ```bash
-mvn -B -ntp -pl :property-patrol-service -am test
-mvn -B -ntp -pl :property-patrol-service -am verify
+mvn -B -ntp -pl :property-management-service -am test
+mvn -B -ntp -pl :property-management-service -am verify
 ```
 
-可执行产物：`services/property-patrol-service/target/application.jar`。macOS 中文路径环境若系统 locale 不可用，可在 Maven 命令前设置 `LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8`，并显式选择 JDK17。
+可执行产物：`services/property-management-service/target/application.jar`。macOS 中文路径环境若系统 locale 不可用，可在 Maven 命令前设置 `LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8`，并显式选择 JDK17。
 
 测试使用隔离的 R2DBC H2 与生产相同的 EasyORM 注解、SQL 执行器、事务管理器和租户资产实现，覆盖规则、生成封印、快照、并发、防重、回滚、排班、权限和统计；认证 SDK 的网络边界采用测试替身。H2 的 CLOB 编码在并发测试中隔离到 `boundedElastic`，生产链路不因此切换线程。上线前仍需真实 PostgreSQL、网关及 SaaS 项目/应用权限验收。
 
 ## SaaS 接入与运行配置
 
-使用 `deploy/patrol/patrol.env.example` 准备环境变量，不包含真实密码。数据库默认名为 `cloud_patrol`，建议分配独立业务库和账号，避免误用平台测试库；由部署方先创建数据库。持久化表由平台 EasyORM 初始化机制管理。HTTP 默认8502、集群18502、RPC28502，端口均可覆盖；多实例必须配置不同 `SERVER_ID`。
+使用 `deploy/patrol/patrol.env.example` 准备环境变量，不包含真实密码。所有模块使用统一 `DB_DATABASE` / `DB_SCHEMA`，由部署方预先准备；旧分库数据须另行迁移。持久化表由平台 EasyORM 初始化机制管理。HTTP 默认8500、集群18500、RPC28500，端口均可覆盖；多实例必须配置不同 `SERVER_ID`。
 
 ```bash
 # 仅在接入环境准备完毕后执行，不属于平台部署脚本。
@@ -160,16 +160,16 @@ java \
   --add-opens=java.base/java.text=ALL-UNNAMED \
   --add-opens=java.base/java.math=ALL-UNNAMED \
   --add-opens=java.scripting/javax.script=ALL-UNNAMED \
-  -jar services/property-patrol-service/target/application.jar
+  -jar services/property-management-service/target/application.jar
 ```
 
 JDK17/21 下沿用平台启动脚本的模块开放参数，供现有 Redis/FST 序列化组件使用。缺少这些参数可能在集群节点写入 Redis 时触发 `InaccessibleObjectException`；不要通过关闭集群或替换公共序列化格式绕过。
 
-必须和平台对齐集群种子、RPC token、JWT 公钥、网络可达的广播地址及 Redis 配置。业务库保持独立；不要复制参考项目里的默认密码，也不要为巡更另起一个认证系统。
+必须和平台对齐集群种子、RPC token、JWT 公钥、网络可达的广播地址及 Redis 配置。业务库由统一工程配置；不要复制参考项目里的默认密码，也不要为巡更另起一个认证系统。
 
 应用装配顺序：
 
-1. 启动巡更服务并确认发现与网关路由能够到达 `/park/patrol/**`。服务名为 `cloud-patrol-service`；反向代理/外部前缀需由部署方与 PC 的宿主请求路径对齐。
+1. 启动巡更服务并确认发现与网关路由能够到达 `/park/patrol/**`。服务名为 `property-management-service`；反向代理/外部前缀需由部署方与 PC 的宿主请求路径对齐。
 2. 将 PC 模块接入 runtime-ui，**增量**导入巡更菜单，不全量覆盖其他应用菜单。
 3. 将 `deploy/patrol/authentication-patrol-application.yml` 作为认证服务的外部配置加载，不能加载到巡更服务代替认证装配。模板初始化关联已有菜单；已存在同 code 的模板不会靠重启自动覆写。
 4. 在项目中创建启用 `CloudPatrol` 应用，分配成员、菜单/按钮权限并关联获准使用的用户资产。新建巡更配置资产为 `SELECT_AND_BIND`，平台用户为 `SELECT`。既有资产需要显式关联应用。
@@ -181,7 +181,7 @@ PC 模板不默认授予执行提交权限；未来执行端需要独立装配�
 
 三类统计补充接口：`POST /park/patrol/statistics/{points|people}/report` 返回周期、分组与总计；`POST /park/patrol/statistics/{points|people}/export?qualification=false` 导出XLSX，`qualification=true`导出时段完成合格率。均沿用 `patrol-report:query` 与计划资产 read，原列表接口保留给已部署调用。
 
-项目与员工接入需同时验证应用 Scope、项目内查询、兄弟项目列表/详情拒绝、普通编辑禁止改归属，以及等级等配置必须归属项目、组织配置不可作为共享引用；员工执行需分别验证指定角色任务的角色及排班交集、全员任务及漏检申报的角色或班次条件。本地接入使用独立基础服务的公开只读命令；远端上线需同步发布基础服务的新员工契约，不能仅更新巡更 JAR。历史无归属数据仍须显式审查分配，不自动迁移。
+项目与员工接入需同时验证应用 Scope、项目内查询、兄弟项目列表/详情拒绝、普通编辑禁止改归属，以及等级等配置必须归属项目、组织配置不可作为共享引用；员工执行需分别验证指定角色任务的角色及排班交集、全员任务及漏检申报的角色或班次条件。基础目录继续使用公开只读命令，由统一进程内的基础模块提供；发布使用统一 JAR。历史无归属数据仍须显式审查分配，不自动迁移。
 
 ## 应用角色与执行资格
 
@@ -193,12 +193,7 @@ PC 模板不默认授予执行提交权限；未来执行端需要独立装配�
 
 ## 组织资产权限兼容
 
-巡更独立服务的 `PatrolAssetsConfiguration` 通过原 Bean 名替换组织及上下级权限提供者。
-当前公共组件在账号具有多个应用维度但没有有效组织维度时，会生成目标为空的资产查询条件。
-`EmptySafeOrgIncludeParentAssetsAccessSupport` 只对空组织的查询分支使用恒假条件，
-保留其他租户、应用和创建人授权分支；有组织及写入操作继续使用公共组件行为。
-该配置属于巡更启动服务，不要求将基础 manager 打入巡更，也不修改公共组件仓库。
-公共组件修复后可以移除此兼容实现；回归须覆盖零个及多个非组织维度、有效组织和同名 Bean 替换。
+统一工程通过 `PropertyOrganizationAssetsConfiguration` 注册唯一一组组织上下级权限提供者，复用现有的展开组织查询及空范围保护，并保留品质模块的专用读写规则。巡更不再单独注册 `PatrolAssetsConfiguration`。空组织范围不放开查询，仍保留其他合法授权分支；回归需验证普通账号的项目、应用及上下级读写边界。
 
 ## 巡更履行统计
 

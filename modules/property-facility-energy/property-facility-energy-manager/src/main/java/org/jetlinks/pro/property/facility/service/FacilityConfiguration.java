@@ -25,7 +25,7 @@ public class FacilityConfiguration {
   private final FacilityFiles files;
 
   @Transactional
-  public Mono<StandardEntity> standard(StandardEntity input) {
+  public Mono<FacilityStandardEntity> standard(FacilityStandardEntity input) {
     require(
       input.getName() != null &&
         !input.getName().isBlank() &&
@@ -42,9 +42,9 @@ public class FacilityConfiguration {
       )
       .then(scope.current())
       .flatMap(c -> {
-        Mono<StandardEntity> old =
+        Mono<FacilityStandardEntity> old =
           input.getId() == null
-            ? Mono.just(FacilityScope.initialize(new StandardEntity(), c))
+            ? Mono.just(FacilityScope.initialize(new FacilityStandardEntity(), c))
             : records.read(
                 standards,
                 input.getId(),
