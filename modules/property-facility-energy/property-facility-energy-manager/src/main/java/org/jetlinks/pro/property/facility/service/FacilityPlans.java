@@ -27,7 +27,7 @@ public class FacilityPlans {
   private final FacilityDirectory directory;
   private final FacilityDevices devices;
 
-  public Mono<PlanEntity> read(String id) {
+  public Mono<FacilityPlanEntity> read(String id) {
     return records.read(
       plans,
       id,
@@ -37,7 +37,7 @@ public class FacilityPlans {
   }
 
   @Transactional
-  public Mono<PlanEntity> save(PlanEntity input) {
+  public Mono<FacilityPlanEntity> save(FacilityPlanEntity input) {
     require(
       input.getName() != null &&
         !input.getName().isBlank() &&
@@ -100,7 +100,7 @@ public class FacilityPlans {
         boolean create = input.getId() == null;
         return (
           create
-            ? Mono.just(FacilityScope.initialize(new PlanEntity(), c))
+            ? Mono.just(FacilityScope.initialize(new FacilityPlanEntity(), c))
             : records.read(
                 plans,
                 input.getId(),
@@ -160,7 +160,7 @@ public class FacilityPlans {
       });
   }
 
-  private Mono<List<DeviceEntity>> resolveDevices(PlanEntity plan) {
+  private Mono<List<DeviceEntity>> resolveDevices(FacilityPlanEntity plan) {
     require(
       plan.getGroupIds() != null && !plan.getGroupIds().isEmpty() && plan.getGroupIds().size() <= 1000,
       "too_many"
@@ -231,7 +231,7 @@ public class FacilityPlans {
       });
   }
 
-  private Mono<List<TaskEntity>> createTasks(PlanEntity plan, FacilityStandardEntity standard, FacilityCycleRules.Slot slot) {
+  private Mono<List<TaskEntity>> createTasks(FacilityPlanEntity plan, FacilityStandardEntity standard, FacilityCycleRules.Slot slot) {
     return resolveDevices(plan).flatMap(resolved -> {
       if (resolved.isEmpty()) return Mono.just(List.<TaskEntity>of());
       return scope.current().flatMap(context -> {
@@ -258,7 +258,7 @@ public class FacilityPlans {
     });
   }
 
-  private TaskEntity taskSnapshot(PlanEntity plan, FacilityStandardEntity standard, FacilityCycleRules.Slot slot, FacilityContext context) {
+  private TaskEntity taskSnapshot(FacilityPlanEntity plan, FacilityStandardEntity standard, FacilityCycleRules.Slot slot, FacilityContext context) {
     var task = FacilityScope.initialize(new TaskEntity(), context);
     FacilityScope.inherit(task, plan);
     task.setName(plan.getName()); task.setPlanId(plan.getId()); task.setCycleId(plan.getCycleId()); task.setKind(plan.getKind());
@@ -270,7 +270,7 @@ public class FacilityPlans {
   }
 
   /** 仅按到期游标生成，逾期时恢复有效期内已到期的时隙，不新增周期外任务。 */
-  static long generationTime(PlanEntity plan, long now) {
+  static long generationTime(FacilityPlanEntity plan, long now) {
     require(Boolean.TRUE.equals(plan.getEnabled()), "plan_disabled");
     require(plan.getStartTime() != null && plan.getEndTime() != null &&
       plan.getNextRunTime() != null, "invalid_plan");

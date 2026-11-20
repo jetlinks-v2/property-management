@@ -56,6 +56,11 @@
     <dependencies>
         <dependency>
             <groupId>org.jetlinks.pro</groupId>
+            <artifactId>property-runtime-support</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetlinks.pro</groupId>
             <artifactId>test-component</artifactId>
             <scope>test</scope>
         </dependency>

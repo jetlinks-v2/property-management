@@ -32,6 +32,7 @@
         <module>modules/property-quality</module>
         <module>modules/property-facility-energy</module>
         <module>modules/property-handover</module>
+        <module>modules/property-runtime-support</module>
         <module>services/property-management-service</module>
     </modules>
 

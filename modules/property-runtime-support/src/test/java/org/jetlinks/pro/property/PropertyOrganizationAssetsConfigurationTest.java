@@ -76,6 +76,31 @@ class PropertyOrganizationAssetsConfigurationTest {
         }
     }
 
+    @Test
+    void parkAssetsKeepTheirExistingPlatformQueryAndWriteRules() {
+        var unified = new PropertyOrganizationAssetsConfiguration();
+        for (var type : List.of("park", "parkingLot", "doorPoint", "workOrder")) {
+            for (var permission : List.of(CrudAssetPermission.read, CrudAssetPermission.save)) {
+                var auth = new SimpleAuthentication();
+                auth.setDimensions(List.of(Dimension.of("east", "东园", OrgDimensionType.org)));
+                var actual = QueryParamEntity.of();
+                var expected = QueryParamEntity.of();
+                actual.toNestQuery(n -> unified.orgIncludeParentAssetsAccessSupport(manager)
+                        .injectConditional0(n.nest(), auth, type, "id", permission).block());
+                expected.toNestQuery(n -> new OrgIncludeParentAssetsAccessSupport(manager)
+                        .injectConditional0(n.nest(), auth, type, "id", permission).block());
+                assertEquals(JSON.toJSONString(expected), JSON.toJSONString(actual), type + permission);
+                actual = QueryParamEntity.of();
+                expected = QueryParamEntity.of();
+                actual.toNestQuery(n -> unified.orgIncludeChildrenAssetsAccessSupport(manager)
+                        .injectConditional0(n.nest(), auth, type, "id", permission).block());
+                expected.toNestQuery(n -> new OrgIncludeChildrenAssetsAccessSupport(manager)
+                        .injectConditional0(n.nest(), auth, type, "id", permission).block());
+                assertEquals(JSON.toJSONString(expected), JSON.toJSONString(actual), type + permission);
+            }
+        }
+    }
+
     private List<Term> leaves(List<Term> terms) {
         return terms.stream().flatMap(term -> term.getTerms().isEmpty()
                 ? java.util.stream.Stream.of(term) : leaves(term.getTerms()).stream()).toList();

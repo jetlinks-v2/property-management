@@ -5,7 +5,7 @@
 - 业务保持在 `modules/property-*/property-*-manager`。仅保留 `services/property-management-service` 一个启动工程、`PropertyManagementApplication` 一个启动类，统一装配八个业务模块；不再新增各模块独立启动类。
 - manager 承载接口、应用服务、持久化、权限和国际化；有跨模块共享的 DTO、命令、事件、SPI 契约时再增加 core。core 不依赖 manager。
 - 所有业务模块共用统一 R2DBC 数据源和一个 PostgreSQL 数据库/schema，不自动创建模块独立数据库。基础模块持有基础表；业务模块继续通过 core 公开命令访问基础能力，保留认证和资产权限，不直接注入其他模块内部 Service/Repository。
-- 先读相邻代码和对应业务设计，最小修改；manager 可以依赖公共 core，不互相依赖。统一启动工程集中依赖八个 manager，文件及 Cloud 专用适配器仍由 SaaS 装配。
+- 先读相邻代码和对应业务设计，最小修改；manager 可以依赖公共 core，不互相依赖。统一启动工程集中依赖八个 manager；跨模块权限装配位于 modules/property-runtime-support，由本仓开发入口和 UAT applications-service 复用，不放进宿主启动工程。文件及 Cloud 专用适配器仍由 SaaS 装配。
 - 使用框架现有响应式 CRUD、查询与事务能力，运行时链路不调用 `block()` 或阻塞 I/O。
 - 登录复用 SaaS 网关。读取 `TenantHolder` 不代表取得业务授权，项目数据通过统一 `AssetsHolder` 体系校验；详情、批量、导入导出不能绕过权限。
 - 删除遵循业务设计，统一逻辑删除；不开放框架通用物理删除入口。

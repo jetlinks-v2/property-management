@@ -3,12 +3,12 @@ package org.jetlinks.pro.property.facility.service;
 import static org.junit.jupiter.api.Assertions.*;
 
 import org.hswebframework.web.exception.BusinessException;
-import org.jetlinks.pro.property.facility.entity.PlanEntity;
+import org.jetlinks.pro.property.facility.entity.FacilityPlanEntity;
 import org.junit.jupiter.api.Test;
 
 class FacilityPlanGenerationTest {
-  private PlanEntity plan() {
-    var plan = new PlanEntity();
+  private FacilityPlanEntity plan() {
+    var plan = new FacilityPlanEntity();
     plan.setEnabled(true);
     plan.setStartTime(1000L);
     plan.setEndTime(5000L);
@@ -16,7 +16,7 @@ class FacilityPlanGenerationTest {
     return plan;
   }
 
-  private void rejects(PlanEntity plan, long now, String code) {
+  private void rejects(FacilityPlanEntity plan, long now, String code) {
     var error = assertThrows(BusinessException.class,
       () -> FacilityPlans.generationTime(plan, now));
     assertEquals("error.facility." + code, error.getMessage());

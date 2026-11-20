@@ -15,6 +15,13 @@ import org.springframework.context.annotation.Configuration;
 import reactor.core.publisher.Mono;
 
 import java.util.Set;
+import java.util.Arrays;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import org.jetlinks.pro.patrol.asset.PatrolAssetType;
+import org.jetlinks.pro.property.facility.asset.FacilityAssetType;
+import org.jetlinks.pro.smartpark.repair.asset.RepairAssetType;
+import org.jetlinks.pro.smartpark.handover.asset.HandoverAssetType;
 
 /**
  * 统一进程只注册一组组织上下级权限提供者，避免原独立服务的同名 Bean 相互覆盖。
@@ -29,17 +36,26 @@ public class PropertyOrganizationAssetsConfiguration {
     private static final Set<String> QUALITY_TYPES =
             Set.of("qualityConfiguration", "qualityTask", "qualityWorkOrder");
 
+    // 只替换物业资产的查询实现，其他应用继续使用平台原规则。
+    private static final Set<String> PROPERTY_TYPES = Stream.concat(Stream.of("space"),
+            Stream.of(PatrolAssetType.values(), FacilityAssetType.values(),
+                      RepairAssetType.values(), HandoverAssetType.values())
+                    .flatMap(Arrays::stream).map(Enum::name)).collect(Collectors.toUnmodifiableSet());
+
     @Bean
     public OrgIncludeParentAssetsAccessSupport orgIncludeParentAssetsAccessSupport(AssetManager manager) {
         var quality = new QualityOrganizationAssetsConfiguration().orgIncludeParentAssetsAccessSupport(manager);
-        return new RepairOrgIncludeParentAssetsAccessSupport(manager) {
+        var propertySupport = new RepairOrgIncludeParentAssetsAccessSupport(manager);
+        return new OrgIncludeParentAssetsAccessSupport(manager) {
             @Override
             public <T extends Conditional<T>> Mono<NestConditional<T>> injectConditional0(
                     NestConditional<T> conditional, Authentication authentication, String assetType,
                     String property, AssetPermission... permissions) {
                 return QUALITY_TYPES.contains(assetType)
                         ? quality.injectConditional0(conditional, authentication, assetType, property, permissions)
-                        : super.injectConditional0(conditional, authentication, assetType, property, permissions);
+                        : PROPERTY_TYPES.contains(assetType)
+                            ? propertySupport.injectConditional0(conditional, authentication, assetType, property, permissions)
+                            : super.injectConditional0(conditional, authentication, assetType, property, permissions);
             }
         };
     }
@@ -47,14 +63,17 @@ public class PropertyOrganizationAssetsConfiguration {
     @Bean
     public OrgIncludeChildrenAssetsAccessSupport orgIncludeChildrenAssetsAccessSupport(AssetManager manager) {
         var quality = new QualityOrganizationAssetsConfiguration().orgIncludeChildrenAssetsAccessSupport(manager);
-        return new RepairOrgIncludeChildrenAssetsAccessSupport(manager) {
+        var propertySupport = new RepairOrgIncludeChildrenAssetsAccessSupport(manager);
+        return new OrgIncludeChildrenAssetsAccessSupport(manager) {
             @Override
             public <T extends Conditional<T>> Mono<NestConditional<T>> injectConditional0(
                     NestConditional<T> conditional, Authentication authentication, String assetType,
                     String property, AssetPermission... permissions) {
                 return QUALITY_TYPES.contains(assetType)
                         ? quality.injectConditional0(conditional, authentication, assetType, property, permissions)
-                        : super.injectConditional0(conditional, authentication, assetType, property, permissions);
+                        : PROPERTY_TYPES.contains(assetType)
+                            ? propertySupport.injectConditional0(conditional, authentication, assetType, property, permissions)
+                            : super.injectConditional0(conditional, authentication, assetType, property, permissions);
             }
         };
     }

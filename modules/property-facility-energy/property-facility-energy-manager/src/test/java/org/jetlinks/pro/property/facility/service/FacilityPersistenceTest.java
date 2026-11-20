@@ -1872,7 +1872,7 @@ class FacilityPersistenceTest {
   @Autowired FacilityCycles cycleManager;
   @Autowired FacilityPlans planManager;
 
-  PlanEntity cyclicPlan(String suffix) {
+  FacilityPlanEntity cyclicPlan(String suffix) {
     long now = System.currentTimeMillis() / 60000 * 60000;
     var cycle = FacilityScope.initialize(new CycleEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
     cycle.setId("cycle-" + suffix); cycle.setName("水泵巡检周期"); cycle.setProjectId("p"); cycle.setOrganizationId("p");
@@ -1891,7 +1891,7 @@ class FacilityPersistenceTest {
     device.setName("消防水泵"); device.setSyncState("active"); device.setInspectionEnabled(true); devices.insert(device).block();
     var group = FacilityScope.initialize(new GroupEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
     group.setId("room-" + suffix); group.setProjectId("p"); group.setDeviceIds(List.of(device.getId(), device.getId())); groupStore.insert(group).block();
-    var plan = FacilityScope.initialize(new PlanEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
+    var plan = FacilityScope.initialize(new FacilityPlanEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
     plan.setId("config-" + suffix); plan.setName("消防水泵任务配置"); plan.setProjectId("p"); plan.setOrganizationId("p");
     plan.setCycleId(cycle.getId()); plan.setStandardId(standard.getId()); plan.setKind("inspection"); plan.setMode("single");
     plan.setGroupIds(List.of(group.getId(), group.getId())); plan.setReviewerId("reviewer"); plan.setEnabled(true);
@@ -2056,12 +2056,12 @@ class FacilityPersistenceTest {
 
   @Test void cycleGenerationRollsBackTasksWhenCursorCannotAdvance() {
     var plan = cyclicPlan("rollback");
-    doReturn(Mono.error(new BusinessException("cursor-conflict"))).when(records).update(eq(planStore), any(PlanEntity.class), anyLong());
+    doReturn(Mono.error(new BusinessException("cursor-conflict"))).when(records).update(eq(planStore), any(FacilityPlanEntity.class), anyLong());
     try {
       StepVerifier.create(as("staff", planManager.generate(plan.getId()))).expectError(BusinessException.class).verify();
       assertEquals(0, store.createQuery().where("planId", plan.getId()).count().block());
       assertEquals(plan.getNextRunTime(), planStore.findById(plan.getId()).block().getNextRunTime());
-    } finally { doCallRealMethod().when(records).update(eq(planStore), any(PlanEntity.class), anyLong()); }
+    } finally { doCallRealMethod().when(records).update(eq(planStore), any(FacilityPlanEntity.class), anyLong()); }
   }
 
   @Test void concurrentGenerationCommitsOnlyOneTaskAndOneCursorStep() {

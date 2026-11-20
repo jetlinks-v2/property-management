@@ -33,7 +33,7 @@ class FacilityJobsTest {
 
     RulesFixture() {
       ReactiveQuery<JobEntity> jobQuery = mock(ReactiveQuery.class, RETURNS_SELF);
-      ReactiveQuery<PlanEntity> planQuery = mock(ReactiveQuery.class, RETURNS_SELF);
+      ReactiveQuery<FacilityPlanEntity> planQuery = mock(ReactiveQuery.class, RETURNS_SELF);
       ReactiveQuery<MappingEntity> mappingQuery = mock(ReactiveQuery.class, RETURNS_SELF);
       when(jobs.createQuery()).thenReturn(jobQuery); when(jobQuery.fetch()).thenReturn(Flux.empty());
       when(plans.createQuery()).thenReturn(planQuery); when(planQuery.fetch()).thenReturn(Flux.empty());
@@ -121,7 +121,7 @@ class FacilityJobsTest {
     var alerts = mock(FacilityAlerts.class);
     var notifications = mock(FacilityNotifications.class);
     ReactiveQuery<JobEntity> jobQuery = mock(ReactiveQuery.class, RETURNS_SELF);
-    ReactiveQuery<PlanEntity> planQuery = mock(ReactiveQuery.class, RETURNS_SELF);
+    ReactiveQuery<FacilityPlanEntity> planQuery = mock(ReactiveQuery.class, RETURNS_SELF);
     ReactiveQuery<MappingEntity> mappingQuery = mock(ReactiveQuery.class, RETURNS_SELF);
     ReactiveQuery<RuleEntity> ruleQuery = mock(ReactiveQuery.class, RETURNS_SELF);
     when(jobs.createQuery()).thenReturn(jobQuery);
@@ -182,7 +182,7 @@ class FacilityJobsTest {
     var telemetry = mock(FacilityTelemetry.class);
     var notifications = mock(FacilityNotifications.class);
     ReactiveQuery<JobEntity> jobQuery = mock(ReactiveQuery.class, RETURNS_SELF);
-    ReactiveQuery<PlanEntity> planQuery = mock(ReactiveQuery.class, RETURNS_SELF);
+    ReactiveQuery<FacilityPlanEntity> planQuery = mock(ReactiveQuery.class, RETURNS_SELF);
     ReactiveQuery<MappingEntity> mappingQuery = mock(ReactiveQuery.class, RETURNS_SELF);
     ReactiveQuery<RuleEntity> ruleQuery = mock(ReactiveQuery.class, RETURNS_SELF);
     when(rules.createQuery()).thenReturn(ruleQuery);
@@ -191,7 +191,7 @@ class FacilityJobsTest {
     when(plans.createQuery()).thenReturn(planQuery);
     when(mappings.createQuery()).thenReturn(mappingQuery);
     when(jobQuery.fetch()).thenReturn(Flux.empty());
-    var plan = new PlanEntity(); plan.setId("due-plan");
+    var plan = new FacilityPlanEntity(); plan.setId("due-plan");
     when(planQuery.fetch()).thenReturn(Flux.just(plan));
     var mapping = new MappingEntity(); mapping.setId("slow-mapping");
     when(mappingQuery.fetch()).thenReturn(Flux.just(mapping));

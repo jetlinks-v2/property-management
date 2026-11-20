@@ -26,7 +26,7 @@ import org.jetlinks.pro.property.facility.model.*;
     unique = false
   )
 )
-public class PlanEntity extends FacilityEntity {
+public class FacilityPlanEntity extends FacilityEntity {
 
   @Column(length = 256)
   private String name;

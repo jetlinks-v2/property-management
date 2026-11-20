@@ -56,12 +56,12 @@ class FacilityPlanSaveTest {
     device.setSyncState("active");
     device.setInspectionEnabled(true);
     when(devices.read("device")).thenReturn(Mono.just(device));
-    when(records.insert(eq(store), any(PlanEntity.class), eq(FacilityAssetType.facilityPlan)))
+    when(records.insert(eq(store), any(FacilityPlanEntity.class), eq(FacilityAssetType.facilityPlan)))
       .thenAnswer(call -> Mono.just(call.getArgument(1)));
   }
 
-  private PlanEntity plan(String mode) {
-    var plan = new PlanEntity();
+  private FacilityPlanEntity plan(String mode) {
+    var plan = new FacilityPlanEntity();
     plan.setName("plan");
     plan.setProjectId("project");
     plan.setKind("inspection");

@@ -27,13 +27,13 @@ public class FacilityPlanController {
 
   @PostMapping("/_query")
   @QueryAction
-  public Mono<PagerResult<PlanEntity>> query(@RequestBody QueryParamEntity q) {
+  public Mono<PagerResult<FacilityPlanEntity>> query(@RequestBody QueryParamEntity q) {
     return queries.page(store, q, FacilityAssetType.facilityPlan, "id");
   }
 
   @GetMapping("/{id}")
   @QueryAction
-  public Mono<PlanEntity> read(@PathVariable String id) {
+  public Mono<FacilityPlanEntity> read(@PathVariable String id) {
     return records.read(
       store,
       id,
@@ -44,7 +44,7 @@ public class FacilityPlanController {
 
   @PostMapping
   @SaveAction
-  public Mono<PlanEntity> save(@Valid @RequestBody PlanEntity row) {
+  public Mono<FacilityPlanEntity> save(@Valid @RequestBody FacilityPlanEntity row) {
     return manager.save(row);
   }
 

@@ -12,7 +12,7 @@ import org.jetlinks.pro.property.base.command.QueryPropertyOrganizationTreeComma
 import org.jetlinks.pro.property.base.organization.OrganizationType;
 import org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo;
 import org.jetlinks.pro.property.facility.web.FacilityContextController;
-import org.jetlinks.pro.property.facility.entity.PlanEntity;
+import org.jetlinks.pro.property.facility.entity.FacilityPlanEntity;
 import org.jetlinks.pro.property.base.user.PropertyUserInfo;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
