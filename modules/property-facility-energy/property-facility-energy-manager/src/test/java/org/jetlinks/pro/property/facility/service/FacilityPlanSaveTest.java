@@ -42,7 +42,7 @@ class FacilityPlanSaveTest {
     cycle.setKind("inspection");
     cycle.setEnabled(true);
     when(cycles.reference("cycle")).thenReturn(Mono.just(cycle));
-    var standard = new StandardEntity();
+    var standard = new FacilityStandardEntity();
     standard.setProjectId("project");
     standard.setKind("inspection");
     standard.setEnabled(true);
@@ -159,7 +159,7 @@ class FacilityPlanSaveTest {
       StepVerifier.create(plans.save(plan))
         .expectErrorMatches(e -> e instanceof BusinessException && "error.facility.invalid_cycle".equals(e.getMessage())).verify();
       cycle.setKind(kind);
-      var standard = new StandardEntity(); standard.setProjectId("project"); standard.setKind(other); standard.setEnabled(true);
+      var standard = new FacilityStandardEntity(); standard.setProjectId("project"); standard.setKind(other); standard.setEnabled(true);
       when(records.read(standards, "standard", FacilityAssetType.facilityStandard, CrudAssetPermission.read)).thenReturn(Mono.just(standard));
       StepVerifier.create(plans.save(plan))
         .expectErrorMatches(e -> e instanceof BusinessException && "error.facility.invalid_standard".equals(e.getMessage())).verify();

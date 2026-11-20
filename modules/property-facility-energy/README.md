@@ -14,11 +14,11 @@ H5 任务详情显示设备清单及已提交数，扫码携带当前任务上�
 相应任务权限，无须规则管理权限。同一整项任务、消息类型及接收人只生成一次；个人收件箱的分页、未读及已读操作按账号和任务
 资产权限隔离，不改变任务版本。
 
-独立 Cloud 应用，业务由 property-facility-energy-manager 承载，property-facility-energy-service 装配。默认端口8508/18508/28508，库property_facility_energy，接口/property/facility-energy。共享基础数据仅通过property-base-core公开命令访问。
+业务由 property-facility-energy-manager 承载，统一 property-management-service 装配；与其他模块共用一组端口和数据库，接口保持 /property/facility-energy。共享基础数据仅通过property-base-core公开命令访问。
 
 业务设计：[设施设备能源管理系统设计](../../../设计文档/设施设备能源管理系统设计.md)。PC与移动端位于独立facility-energy-ui；部署菜单、应用模板及环境示例位于deploy/facility-energy。
 
-构建：`mvn -pl :property-facility-energy-service -am verify`。不要将base-manager、repair-manager、quality-manager或patrol-manager加入本服务。上线须独立验收SaaS应用、角色资产范围、Cloud设备、短信通知器及回执，不以打包成功代替联调。
+构建：`mvn -pl :property-management-service -am verify`。不要将base-manager、repair-manager、quality-manager或patrol-manager加入本服务。上线须独立验收SaaS应用、角色资产范围、Cloud设备、短信通知器及回执，不以打包成功代替联调。
 
 设备巡检、维保使用同一个业务开关，沿用原有 `inspectionEnabled`、`maintenanceEnabled` 列，任一为真即视为已启用；设备资料保存时同步两列。设备组保存只接受同项目且已启用巡检维保的设备，任务配置及生成使用相同启用判断，停用后阻止后续生成，不删除已有工单。
 

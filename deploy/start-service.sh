@@ -1,24 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Each executable JAR contains only its own business system and platform libraries.
-system_name="${1:-patrol}"
-case "$system_name" in
-  base|finance|patrol|repair|quality|facility-energy) ;;
-  *) echo 'Usage: start-service.sh {base|finance|patrol|repair|quality|facility-energy} [application-local.yml]' >&2; exit 2 ;;
-esac
+# One executable JAR loads all property modules on one configured database.
+if [[ "$#" -gt 1 ]]; then
+  echo 'Usage: start-service.sh [application-local.yml]' >&2
+  exit 2
+fi
 repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-service_jar="$repository_root/services/property-$system_name-service/target/application.jar"
+service_jar="$repository_root/services/property-management-service/target/application.jar"
 if [[ ! -f "$service_jar" ]]; then
-  echo "Missing JAR. Build first: mvn -pl :property-$system_name-service -am verify" >&2
+  echo 'Missing JAR. Build first: mvn -pl :property-management-service -am verify' >&2
   exit 1
 fi
-if [[ -n "${2:-}" ]]; then
-  if [[ ! -f "$2" ]]; then
-    echo "Local configuration does not exist: $2" >&2
+if [[ -n "${1:-}" ]]; then
+  if [[ ! -f "$1" ]]; then
+    echo "Local configuration does not exist: $1" >&2
     exit 1
   fi
-  local_config="$(cd -- "$(dirname -- "$2")" && pwd)/$(basename -- "$2")"
+  local_config="$(cd -- "$(dirname -- "$1")" && pwd)/$(basename -- "$1")"
   set -- "--spring.config.additional-location=file:$local_config"
 else
   set --

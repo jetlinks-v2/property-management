@@ -231,7 +231,7 @@ public class FacilityPlans {
       });
   }
 
-  private Mono<List<TaskEntity>> createTasks(PlanEntity plan, StandardEntity standard, FacilityCycleRules.Slot slot) {
+  private Mono<List<TaskEntity>> createTasks(PlanEntity plan, FacilityStandardEntity standard, FacilityCycleRules.Slot slot) {
     return resolveDevices(plan).flatMap(resolved -> {
       if (resolved.isEmpty()) return Mono.just(List.<TaskEntity>of());
       return scope.current().flatMap(context -> {
@@ -258,7 +258,7 @@ public class FacilityPlans {
     });
   }
 
-  private TaskEntity taskSnapshot(PlanEntity plan, StandardEntity standard, FacilityCycleRules.Slot slot, FacilityContext context) {
+  private TaskEntity taskSnapshot(PlanEntity plan, FacilityStandardEntity standard, FacilityCycleRules.Slot slot, FacilityContext context) {
     var task = FacilityScope.initialize(new TaskEntity(), context);
     FacilityScope.inherit(task, plan);
     task.setName(plan.getName()); task.setPlanId(plan.getId()); task.setCycleId(plan.getCycleId()); task.setKind(plan.getKind());

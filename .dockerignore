@@ -1,0 +1,5 @@
+**
+!services/
+!services/property-management-service/
+!services/property-management-service/target/
+!services/property-management-service/target/application.jar

@@ -1,0 +1,221 @@
+# 物业统一进程：八个业务模块共享一个数据源，权限和任务配置按原模块合并。
+server:
+  port: ${SERVER_PORT:8500}
+  error:
+    include-message: always
+  max-http-request-header-size: 200KB
+spring:
+  profiles:
+    include: default
+  application:
+    name: property-management-service
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    serialization:
+      WRITE_DATES_AS_TIMESTAMPS: true
+    default-property-inclusion: non_null
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    pool:
+      max-size: ${DB_POOL_MAX_SIZE:32}
+      max-idle-time: 60s
+      max-life-time: 1m
+      max-acquire-time: 10s
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      timeout: 20s
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+  jmx:
+    enabled: true
+easyorm:
+  default-schema: ${DB_SCHEMA:public}
+  dialect: postgres
+hsweb:
+  webflux:
+    response-wrapper:
+      enabled: true
+      excludes:
+      - org.springdoc
+  authorize:
+    auto-parse: true
+  cache:
+    type: redis
+    redis:
+      local-cache-type: caffeine
+jetlinks:
+  server-id: ${SERVER_ID:${spring.application.name}:${server.port}}
+  cluster:
+    id: ${jetlinks.server-id}
+    name: ${spring.application.name}
+    port: ${CLUSTER_PORT:18500}
+    external-host: ${CLUSTER_EXTERNAL_HOST:127.0.0.1}
+    external-port: ${CLUSTER_EXTERNAL_PORT:${jetlinks.cluster.port}}
+    rpc-port: ${RPC_PORT:28500}
+    rpc-external-host: ${RPC_EXTERNAL_HOST:${jetlinks.cluster.external-host}}
+    rpc-external-port: ${RPC_EXTERNAL_PORT:${jetlinks.cluster.rpc-port}}
+    rpc-token: ${RPC_TOKEN}
+    seeds: ${CLUSTER_SEEDS:127.0.0.1:18800}
+    event-namespace: property-management
+    config-storage-namespace: property-management
+    namespace: default,property-management,property-base,property-finance,property-decoration,cloud-patrol,smart-park-repair,property-quality,property-facility-energy,smart-park-handover
+  microservice:
+    discovery:
+      enabled: true
+    token:
+      jwt:
+        decode-key: ${JWT_PUBLIC_KEY}
+  tenant:
+    assets:
+      asset-tables:
+        s_space_info: space
+        s_space_type: space_type
+        fe_device: facilityDevice
+        fe_group: facilityGroup
+        fe_standard: facilityStandard
+        fe_plan: facilityPlan
+        fe_task: facilityTask
+        fe_fault: facilityFault
+        fe_mapping: facilityMapping
+        fe_rule: facilityRule
+        fe_energy_target: facilityTarget
+  assets:
+    direct:
+      enabled: true
+      tables:
+        fe_device:
+          asset-type: facilityDevice
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_group:
+          asset-type: facilityGroup
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_standard:
+          asset-type: facilityStandard
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_plan:
+          asset-type: facilityPlan
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_task:
+          asset-type: facilityTask
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_fault:
+          asset-type: facilityFault
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_mapping:
+          asset-type: facilityMapping
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_rule:
+          asset-type: facilityRule
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        fe_energy_target:
+          asset-type: facilityTarget
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        pq_configuration:
+          asset-type: qualityConfiguration
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        pq_task:
+          asset-type: qualityTask
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        pq_work_order:
+          asset-type: qualityWorkOrder
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        sp_repair_order:
+          asset-type: repairOrder
+          dimension-column:
+            org: organizationId
+            business_application: applicationId
+        sp_repair_configuration:
+          asset-type: repairConfiguration
+          dimension-column:
+            org: businessProjectId
+            business_application: applicationId
+logging:
+  file:
+    name: ./data/logs/${spring.application.name}_${server.port}.log
+    path: ./data/logs
+springdoc:
+  group-configs:
+  - group: property-base-service
+    display-name: 基础档案
+    packages-to-scan:
+    - org.jetlinks.pro.property.base
+  - group: property-decoration-service
+    display-name: 装修管理
+    packages-to-scan:
+    - org.jetlinks.pro.property.decoration
+  - group: property-facility-energy-service
+    display-name: 设施设备能源
+    packages-to-scan:
+    - org.jetlinks.pro.property.facility.web
+  - group: property-finance-service
+    display-name: 财务收费
+    packages-to-scan:
+    - org.jetlinks.pro.property.finance
+  - group: smart-park-handover-service
+    display-name: 承接查验
+    packages-to-scan:
+    - org.jetlinks.pro.smartpark.handover.web
+  - group: cloud-patrol
+    packages-to-scan:
+    - org.jetlinks.pro.patrol.web
+  - group: property-quality-service
+    display-name: 品质核查
+    packages-to-scan:
+    - org.jetlinks.pro.property.quality.web
+  - group: smart-park-repair-service
+    display-name: 报事报修
+    packages-to-scan:
+    - org.jetlinks.pro.smartpark.repair.web
+  security:
+    enabled: true
+facility:
+  saas-alarm:
+    event-namespace: ${FACILITY_SAAS_ALARM_EVENT_NAMESPACE:_default}
+  jobs:
+    enabled: ${FACILITY_JOBS_ENABLED:true}
+    interval: 30s
+  sms:
+    receipt-secret: ${FACILITY_SMS_RECEIPT_SECRET:}
+  telemetry:
+    batch-size: 100
+    max-history-days: 7
+file:
+  manager:
+    command:
+      enabled: false
+    upload-filter:
+      enabled: false
+property:
+  finance:
+    billing-job:
+      zone: Asia/Shanghai
+      close-enabled: false

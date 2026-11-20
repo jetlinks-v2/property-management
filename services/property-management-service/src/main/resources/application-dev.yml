@@ -1,0 +1,5 @@
+logging:
+  level:
+    org.jetlinks.pro.property: debug
+    org.jetlinks.pro.patrol: debug
+    org.jetlinks.pro.smartpark: debug

@@ -1,5 +1,6 @@
 package org.jetlinks.pro.patrol.service;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.AllArgsConstructor;
 import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.exception.BusinessException;
@@ -25,7 +26,8 @@ public class PatrolStatisticsService {
         }
     }
     /** 总计在同一授权任务流中计算，点位去重，百分比由分子分母重算。 */
-    public record Report(LocalDate from, LocalDate to, List<Row> rows, Row total) {}
+    public record Report(@JsonFormat(shape = JsonFormat.Shape.STRING) LocalDate from,
+                         @JsonFormat(shape = JsonFormat.Shape.STRING) LocalDate to, List<Row> rows, Row total) {}
     private static final class Accumulator {
         private record Key(String projectId, String id) {}
         final Map<Key, Count> groups = new TreeMap<>(Comparator.comparing(Key::projectId).thenComparing(Key::id));

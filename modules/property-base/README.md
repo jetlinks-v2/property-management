@@ -6,9 +6,9 @@
 
 基础服务与报修服务的 JVM 时区应与业务时区一致；中国本地部署可设置容器 `TZ=Asia/Shanghai` 或 `JAVA_OPTS=-Duser.timezone=Asia/Shanghai`。Excel 日期按 JVM 时区解析，仅设置 Jackson 的 `time-zone` 不会改变 Excel 日期含义。
 
-`property-base-manager` 承载本领域 Controller、Service、Entity、Repository、权限及国际化，由独立的 `property-base-service` 装配。从仓库根目录执行 `mvn -pl :property-base-service -am verify`，只构建基础系统及其依赖。
+`property-base-manager` 承载本领域 Controller、Service、Entity、Repository、权限及国际化，由统一的 `property-management-service` 装配。从仓库根目录执行 `mvn -pl :property-management-service -am verify`，构建统一启动工程及八个业务模块。
 
-`property-base-core` 提供公共 DTO、组织类型枚举、组织树及基础目录查询命令，不依赖 manager，不包含数据库实体或 CRUD。基础服务必须独立运行；报修、巡更等业务服务按需运行，读取基础数据时只依赖 core 并执行公开命令，不装配本 manager。各应用统一加载前端公共模块 `property-base-ui`，由该模块唯一提供组织、用户、空间、客户和字典菜单及页面，经网关调用同一套 `/property/**`。收费、巡更和装修不再维护基础页面副本。已初始化的旧业务基础菜单需按应用清理，并给原角色授权公共 `charging/*` 菜单，不能全量重建其他系统菜单。
+`property-base-core` 提供公共 DTO、组织类型枚举、组织树及基础目录查询命令，不依赖 manager，不包含数据库实体或 CRUD。基础 manager 与其他业务 manager 在统一进程中运行；业务模块读取基础资料时仍只依赖 core 并执行公开命令，不直接依赖本 manager。各应用统一加载前端公共模块 `property-base-ui`，由该模块唯一提供组织、用户、空间、客户和字典菜单及页面，经网关调用同一套 `/property/**`。收费、巡更和装修不再维护基础页面副本。已初始化的旧业务基础菜单需按应用清理，并给原角色授权公共 `charging/*` 菜单，不能全量重建其他系统菜单。
 
 ## 客户房屋关系、房屋类型与项目章
 
@@ -163,4 +163,4 @@ return CommandSupportManagerProviders
 
 空间关联项目时，基础模块通过 `AssetBindManager` 为整棵空间树登记 `org` 归属。解除关联、来源节点删除或跨根移动会撤销旧归属；空间同步会幂等补齐已有关系。空间与房屋接口仍执行原有 `AssetsHolder` 权限校验。
 
-旧版本升级可以在基础模块业务库执行 `modules/property-base/sql/backfill-space-organization-assets.sql`，即时补齐缺失的组织资产关系；脚本可重复执行，不覆盖既有授权。重启基础服务后，首次空间同步也会自动补齐。独立数据库部署应在基础服务业务库执行，不在收费业务库执行。
+旧版本升级可以在基础模块业务库执行 `modules/property-base/sql/backfill-space-organization-assets.sql`，即时补齐缺失的组织资产关系；脚本可重复执行，不覆盖既有授权。重启基础服务后，首次空间同步也会自动补齐。共库部署在统一业务库执行；不要在尚未迁移的旧分库间混用脚本。

@@ -1,5 +1,6 @@
 package org.jetlinks.pro.patrol.service.statistics;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import org.jetlinks.pro.patrol.entity.PatrolExecutionEntity;
@@ -46,7 +47,8 @@ public final class PatrolOverview {
     public record PointDay(String id, String projectId, String projectName, String pointId, String pointName,
                            String date, List<String> categoryNames, List<String> levelNames, List<String> groupIds,
                            String state, Counts counts) {}
-    public record Report(LocalDate from, LocalDate to, long generatedAt, Counts total,
+    public record Report(@JsonFormat(shape = JsonFormat.Shape.STRING) LocalDate from,
+                         @JsonFormat(shape = JsonFormat.Shape.STRING) LocalDate to, long generatedAt, Counts total,
                          List<Project> projects, List<Day> days, List<Person> people) {}
     public record Detail(List<PatrolTaskEntity> periods, List<PatrolExecutionEntity> executions) {}
 }

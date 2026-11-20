@@ -1,0 +1,43 @@
+services:
+  property-management:
+    image: ${PROPERTY_IMAGE:-property-management:local}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      DB_HOST: ${DB_HOST:?required}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_DATABASE: ${DB_DATABASE:?required}
+      DB_SCHEMA: ${DB_SCHEMA:-public}
+      DB_USERNAME: ${DB_USERNAME:?required}
+      DB_PASSWORD: ${DB_PASSWORD:?required}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-32}
+      REDIS_HOST: ${REDIS_HOST:?required}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DATABASE: ${REDIS_DATABASE:-0}
+      SERVER_ID: ${SERVER_ID:-property-management-service:8500}
+      RPC_TOKEN: ${RPC_TOKEN:?required}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:?required}
+      CLUSTER_SEEDS: ${CLUSTER_SEEDS:?required}
+      CLUSTER_EXTERNAL_HOST: ${CLUSTER_EXTERNAL_HOST:?required}
+      CLUSTER_EXTERNAL_PORT: ${CLUSTER_EXTERNAL_PORT:-18500}
+      RPC_EXTERNAL_HOST: ${RPC_EXTERNAL_HOST:?required}
+      RPC_EXTERNAL_PORT: ${RPC_EXTERNAL_PORT:-28500}
+      FACILITY_SMS_RECEIPT_SECRET: ${FACILITY_SMS_RECEIPT_SECRET:-}
+      FACILITY_JOBS_ENABLED: ${FACILITY_JOBS_ENABLED:-true}
+      FACILITY_SAAS_ALARM_EVENT_NAMESPACE: ${FACILITY_SAAS_ALARM_EVENT_NAMESPACE:-_default}
+    ports:
+      - "${HTTP_BIND:-127.0.0.1}:8500:8500"
+      - "18500:18500"
+      - "28500:28500"
+    volumes:
+      - property-data:/app/data
+    networks: [cloud]
+networks:
+  cloud:
+    external: true
+    name: ${CLOUD_NETWORK:?required}
+volumes:
+  property-data:

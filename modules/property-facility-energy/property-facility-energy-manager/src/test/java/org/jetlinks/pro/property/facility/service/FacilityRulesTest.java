@@ -13,7 +13,7 @@ class FacilityRulesTest {
 
   @Test
   void standardsRequireWorkTypeAndValidDistinctChoiceOptions() {
-    var standard = new org.jetlinks.pro.property.facility.entity.StandardEntity();
+    var standard = new org.jetlinks.pro.property.facility.entity.FacilityStandardEntity();
     standard.setName("standard");
     var configuration = new FacilityConfiguration(null, null, null, null, null, null, null);
     assertThrows(BusinessException.class, () -> configuration.standard(standard));

@@ -1,0 +1,92 @@
+[
+  {
+    "path": "/property/**",
+    "authorize": true,
+    "order": -10
+  },
+  {
+    "path": "/v3/api-docs/property-base-service",
+    "authorize": true,
+    "order": -10
+  },
+  {
+    "path": "/property/facility-energy/**",
+    "authorize": true,
+    "order": -20
+  },
+  {
+    "path": "/v3/api-docs/property-facility-energy-service",
+    "authorize": true,
+    "order": -20
+  },
+  {
+    "path": "/property/finance/**",
+    "authorize": true,
+    "order": -20
+  },
+  {
+    "path": "/v3/api-docs/property-finance-service",
+    "authorize": true,
+    "order": -20
+  },
+  {
+    "path": "/property/handover/**",
+    "authorize": true,
+    "order": -20
+  },
+  {
+    "path": "/v3/api-docs/smart-park-handover-service",
+    "authorize": true,
+    "order": -10
+  },
+  {
+    "path": "/repair/public/qr/**",
+    "authorize": false,
+    "order": -20
+  },
+  {
+    "path": "/repair/**",
+    "authorize": true,
+    "order": -10
+  },
+  {
+    "path": "/v3/api-docs/smart-park-repair-service",
+    "authorize": true,
+    "order": -10
+  },
+  {
+    "path": "/park/patrol/**",
+    "authorize": true,
+    "order": -20
+  },
+  {
+    "path": "/quality/**",
+    "authorize": true,
+    "order": -20
+  },
+  {
+    "path": "/decoration/**",
+    "authorize": true,
+    "order": -20
+  },
+  {
+    "path": "/v3/api-docs/property-management-service",
+    "authorize": true,
+    "order": -20
+  },
+  {
+    "path": "/v3/api-docs/cloud-patrol",
+    "authorize": true,
+    "order": -20
+  },
+  {
+    "path": "/v3/api-docs/property-quality-service",
+    "authorize": true,
+    "order": -20
+  },
+  {
+    "path": "/v3/api-docs/property-decoration-service",
+    "authorize": true,
+    "order": -20
+  }
+]

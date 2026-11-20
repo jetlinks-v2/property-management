@@ -2,7 +2,7 @@
 
 Excel 导入模板、暂存与审批、数据防重及升级操作见 [收费导入部署与使用](../../deploy/finance/IMPORT.md)。
 
-业务由独立 services/property-finance-service 装配，使用 JetLinks 2.20 响应式服务、SaaS登录和菜单动作权限。项目业务同时检查 organization 资产；基础数据只通过 property-base-core 的公开命令读取，不依赖基础 manager 或跨表访问。
+业务由统一 services/property-management-service 装配，使用 JetLinks 2.20 响应式服务、SaaS登录和菜单动作权限。项目业务同时检查 organization 资产；基础数据只通过 property-base-core 的公开命令读取，不依赖基础 manager 或跨表访问。
 
 操作人、修改人、收款员及审核人姓名保存操作当时认证用户的姓名，未维护姓名时回退为登录账号；身份与授权仍使用用户 ID。历史记录保留原姓名快照，用户后续改名不会批量改写审计记录。
 
@@ -11,7 +11,7 @@ Excel 导入模板、暂存与审批、数据防重及升级操作见 [收费导
 ## 本地与部署初始化
 
 1. 按物业仓库说明配置被忽略的 application-local.yml，启动后由 EasyORM 创建业务表。
-2. 在独立基础服务使用的 PostgreSQL 执行 `../property-base/sql/init-property-dictionaries.sql`，再在同一基础字典数据库执行本模块 `sql/init-finance-dictionaries.sql`（UTF-8）。如使用非 public schema，统一替换脚本中的 public.。
+2. 在统一 PostgreSQL 数据库执行 `../property-base/sql/init-property-dictionaries.sql`，再在同一基础字典数据库执行本模块 `sql/init-finance-dictionaries.sql`（UTF-8）。如使用非 public schema，统一替换脚本中的 public.。
 3. SQL 只补缺项，可重复执行，不覆盖已有名称、启停、排序和逻辑删除状态。收费来源、支付方式、费用类型来自旧代码真实枚举；欠费等级分类初始为空，应先在字典管理维护实际等级，再维护欠费通知等级配置。
 4. 前端初始化 charging-management-ui 菜单和按钮权限，按职责分配计费管理权限及项目组织资产。税号为共享主档，项目通过独立关系使用公司；项目关联不会授予全局公司维护权。
 
@@ -281,7 +281,7 @@ psql -h <数据库地址> -p <端口> -U <用户名> -d <收费数据库> -W -v 
 
 反月结恢复本轮改变的关闭标记及前一期截止日期，保留原月结审计和来源记录；共用交账已经被前一期关闭时不会提前解锁。新开放期间已发生的合法收款、退款、余额消费和红冲全部保留，不以反结回滚资金。成功原请求始终恢复当时结果，换内容复用请求号明确冲突；来源损坏、过期预览、并发版本或末尾审计失败均不留下部分变更。会计目录、月结及规则通过下述HTTP接口开放。自动月结复用同一核对、权限和事务边界。
 
-`FinancialPeriodGate` 提供租户、项目唯一的持久事务门闩，必须由已完成项目授权的业务入口在真实响应式事务中调用。收费库锁序为财务期间、公司及业务来源，锁保持到收费事务结束；基础资料通过独立服务读取，只在提供方本次读取事务内持锁。框架无覆盖 upsert 负责首次并发初始化，不覆盖已结日期。控制行不开放 HTTP 维护或删除。普通收款、退款、预收/押金存入退回划转冲抵、反冲抵、撤销存入、实收转预存、临时收费和预缴确认，以输入的实际资金业务日期校验 `closedThrough`。开放账期仍可缴纳历史已结应收；原成功请求优先恢复原结果并重新检查资产权限，等待期间锁后再次查询成功结果，再校验新操作的日期和来源版本。预缴恢复须重新读取报价，不能重用等待前的状态。
+`FinancialPeriodGate` 提供租户、项目唯一的持久事务门闩，必须由已完成项目授权的业务入口在真实响应式事务中调用。收费库锁序为财务期间、公司及业务来源，锁保持到收费事务结束；基础资料通过公开命令读取，锁的有效期以实际调用事务为准；共库不自动改变命令事务边界。框架无覆盖 upsert 负责首次并发初始化，不覆盖已结日期。控制行不开放 HTTP 维护或删除。普通收款、退款、预收/押金存入退回划转冲抵、反冲抵、撤销存入、实收转预存、临时收费和预缴确认，以输入的实际资金业务日期校验 `closedThrough`。开放账期仍可缴纳历史已结应收；原成功请求优先恢复原结果并重新检查资产权限，等待期间锁后再次查询成功结果，再校验新操作的日期和来源版本。预缴恢复须重新读取报价，不能重用等待前的状态。
 
 自动结转在锁计划之前取得同一期间锁，包含只减免、不发生余额消费的路径；嵌套调用资金服务沿用本事务锁，不倒置计划、应收和期间的锁序。预览和候选查询不写控制行；失败操作回滚控制行初始化及其业务资金、余额和审计。锁链路使用平台追踪，无新增常驻任务。
 
@@ -461,12 +461,12 @@ HTTP入口为 `POST /property/finance/reports/contracts/_query`、`POST /propert
 
 跨模块消费者依赖 `property-finance-core` 中的请求、结果及 `QueryFinanceContractReportCommand`、`QueryFinanceContractReportDetailsCommand`，通过命令服务 `financeService:finance-contract-report` 查询，不能引用 manager 内部服务或表。命令和HTTP共用同一权限与事务入口，不接受后台特权身份。Excel与PDF使用完整筛选范围数据和合计，包含项目名称及统计月份；金额保持文本精度，用户文本不执行公式或HTML，PDF禁止访问外部资源。文件排版在只读数据事务结束后的 `boundedElastic` 上执行，不长时间占用数据库事务。
 
-## 独立基础服务依赖
+## 统一启动与模块边界
 
-基础管理继续由 property-base-service 提供，收费服务只打包 property-base-core 公共契约，不打包 base-manager 或兄弟业务。新增房屋、当前客户、项目和字典只读命令适配，不替换现有 directory 命令，不合入旧基础档案业务。启动收费前先启动基础服务并对齐 SaaS RPC/租户上下文。基础读取在提供方自己的事务内完成，收费保存版本快照；两个独立数据库不具备共同事务，基础项目锁不会延续至收费事务结束。
+基础管理、收费和其他物业模块由 property-management-service 统一装配，使用同一个数据库/schema。收费继续通过 property-base-core 公开命令读取基础资料，不直接依赖基础 manager。公开命令保留调用者认证、应用与资产范围；事务边界由现有业务契约决定，不因共进程共库假定跨命令原子性。
 
 ```bash
-mvn -pl :property-finance-service -am verify
+mvn -pl :property-management-service -am verify
 ```
 
 ### 收费设置审批
