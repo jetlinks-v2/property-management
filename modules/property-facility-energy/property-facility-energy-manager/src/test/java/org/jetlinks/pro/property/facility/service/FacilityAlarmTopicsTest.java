@@ -60,6 +60,26 @@ class FacilityAlarmTopicsTest {
     assertTrue(row.belongsTo("meter"));
   }
 
+  @Test void sharedNamespaceUsesInjectedFactoryWithoutRegisteringAnotherRpcBus() {
+    var shared = mock(EventBus.class);
+    when(shared.subscribe(any(Subscription.class), eq(CloudAlarmRecord.class))).thenReturn(Flux.never());
+    var beanFactory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+    var definition = new org.springframework.beans.factory.support.RootBeanDefinition();
+    definition.setTargetType(org.springframework.core.ResolvableType.forClassWithGenerics(
+      java.util.function.Function.class, String.class, EventBus.class));
+    definition.setInstanceSupplier(() -> (java.util.function.Function<String, EventBus>) name -> shared);
+    beanFactory.registerBeanDefinition("factory", definition);
+    var rpc = mock(RpcManager.class);
+    var cluster = mock(ClusterManager.class);
+    var topics = new FacilityAlarmTopics(mock(EventBus.class), rpc, cluster, "_default", "business",
+      beanFactory.getBeanProvider(org.springframework.core.ResolvableType.forClassWithGenerics(
+        java.util.function.Function.class, String.class, EventBus.class)));
+    StepVerifier.create(topics.watch(Set.of("meter"))).thenCancel().verify();
+    topics.close();
+    verify(shared).subscribe(any(Subscription.class), eq(CloudAlarmRecord.class));
+    verifyNoInteractions(rpc, cluster);
+  }
+
   @Test void sameNamespaceReusesPrimaryBusAndNeverShutsItDown() {
     var bus = mock(EventBus.class);
     when(bus.subscribe(any(Subscription.class), eq(CloudAlarmRecord.class))).thenReturn(Flux.never());

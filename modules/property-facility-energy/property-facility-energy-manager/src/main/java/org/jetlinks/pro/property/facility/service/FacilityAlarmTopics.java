@@ -9,6 +9,10 @@ import org.jetlinks.pro.cluster.ClusterManager;
 import org.jetlinks.pro.property.facility.model.CloudAlarmRecord;
 import org.jetlinks.pro.topic.Topics;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.ObjectProvider;
+import java.util.function.Function;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
@@ -24,13 +28,24 @@ public class FacilityAlarmTopics {
   public FacilityAlarmTopics(EventBus business, RpcManager rpc, ClusterManager cluster,
       @Value("${facility.saas-alarm.event-namespace:_default}") String namespace,
       @Value("${jetlinks.cluster.event-namespace:_default}") String businessNamespace) {
-    if (Objects.equals(namespace, businessNamespace)) {
+    this(business, rpc, cluster, namespace, businessNamespace, null);
+  }
+
+  /** 聚合部署可注入统一命名空间工厂；独立部署仍拥有并释放自己的专用总线。 */
+  @Autowired
+  public FacilityAlarmTopics(EventBus business, RpcManager rpc, ClusterManager cluster,
+      @Value("${facility.saas-alarm.event-namespace:_default}") String namespace,
+      @Value("${jetlinks.cluster.event-namespace:_default}") String businessNamespace,
+      @Qualifier("namespacedEventBusFactory") ObjectProvider<Function<String, EventBus>> factories) {
+    var factory = factories == null ? null : factories.getIfAvailable();
+    if (factory != null) {
+      bus = factory.apply(namespace); owned = null;
+    } else if (Objects.equals(namespace, businessNamespace)) {
       bus = business; owned = null;
     } else {
       owned = new ClusterEventBus(namespace, rpc, cluster); bus = owned;
     }
   }
-
   /** 设备集合由调用方在当前身份/应用资产范围内解析；每条消息仍须回查绑定与授权后才落库。 */
   public Flux<CloudAlarmRecord> watch(Set<String> devices) {
     return Flux.defer(() -> {

@@ -92,3 +92,5 @@ docker compose --env-file /absolute/path/to/property.env -f deploy/compose.yml u
 结构变更需验证八个 manager 同时打包、同进程共库启动、Repository 注册、组织权限提供者及受保护路由。构建和启动检查不替代真实 SaaS 的登录、应用授权与业务流程验收。临时验证日志与本地备份放在被 Git 忽略的 `.agent-runtime/`。
 
 聚合 UAT 环境通过其已有 `applications-service` 装配物业 manager 与 `property-runtime-support`，不复制本仓启动工程。跨模块权限装配代码集中在 `modules/property-runtime-support`，不放入宿主启动工程或基础 manager。
+
+聚合运行时，`property-runtime-support` 通过限定名 `namespacedEventBusFactory` 的 `Function<String, EventBus>` 提供同命名空间单例总线。告警消费者可选接入；单独部署时未接入该工厂仍使用原路径。专用总线由工厂关闭，消费者只释放订阅，主业务总线仍由平台管理，沿用 `ClusterEventBus` 监控。
