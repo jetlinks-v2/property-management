@@ -5,6 +5,8 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import java.time.Duration;
 import java.util.*;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import org.jetlinks.core.event.*;
 import org.jetlinks.core.rpc.RpcManager;
 import org.jetlinks.pro.cluster.*;
@@ -52,12 +54,14 @@ class FacilityAlarmTopicsTest {
     }
   }
 
-  @Test void portablePlatformEntityProjectsDeviceAndRecordIdentity() {
+  @Test void portableAlarmPayloadProjectsDeviceAndRecordIdentity() {
     var safe = org.jetlinks.core.utils.SerializeUtils.convertToSafelySerializable(signal("record", "meter"), true);
     assertInstanceOf(Map.class, safe);
     var row = org.hswebframework.web.bean.FastBeanCopier.copy(safe, new CloudAlarmRecord());
     assertEquals("record", row.getId());
     assertTrue(row.belongsTo("meter"));
+    assertEquals("rule", row.getAlarmConfigId());
+    assertEquals(1000L, row.getAlarmTime());
   }
 
   @Test void sharedNamespaceUsesInjectedFactoryWithoutRegisteringAnotherRpcBus() {
@@ -115,10 +119,18 @@ class FacilityAlarmTopicsTest {
     assertEquals(0, signals.currentSubscriberCount());
   }
 
-  static org.jetlinks.pro.rule.engine.entity.AlarmHistoryInfo signal(String id, String device) {
-    // 平台实际发送内部实体，不能用 Map 掩盖跨服务类加载与安全序列化问题。
-    var row = new org.jetlinks.pro.rule.engine.entity.AlarmHistoryInfo();
-    row.setId(id); row.setTargetType("device"); row.setTargetId(device);
-    row.setAlarmConfigId("rule"); row.setAlarmTime(1000L); return row;
+  private static AlarmPayload signal(String id, String device) {
+    return new AlarmPayload(id, "device", device, "rule", 1000L);
+  }
+
+  /** 模拟发送端私有 JavaBean，保留安全序列化覆盖，接收端只依赖字段契约。 */
+  @Getter
+  @RequiredArgsConstructor
+  public static class AlarmPayload {
+    private final String id;
+    private final String targetType;
+    private final String targetId;
+    private final String alarmConfigId;
+    private final long alarmTime;
   }
 }

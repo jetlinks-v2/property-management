@@ -55,11 +55,6 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.jetlinks.pro</groupId>
-            <artifactId>rule-engine-manager</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-test</artifactId>
             <scope>test</scope>
