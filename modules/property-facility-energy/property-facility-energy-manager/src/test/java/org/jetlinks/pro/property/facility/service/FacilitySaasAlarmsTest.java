@@ -10,6 +10,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 import org.hswebframework.ezorm.rdb.mapping.ReactiveQuery;
+import org.jetlinks.core.event.EventBus;
+import org.jetlinks.pro.plugin.context.ClusterPluginScheduler;
 import org.jetlinks.pro.property.facility.entity.DeviceEntity;
 import org.jetlinks.pro.property.facility.model.CloudAlarmRecord;
 
@@ -142,6 +144,30 @@ class FacilitySaasAlarmsTest {
 
   static CloudAlarmRecord signal(String deviceId) {
     var signal = new CloudAlarmRecord(); signal.setTargetType("device"); signal.setTargetId(deviceId); return signal;
+  }
+
+  @Test @SuppressWarnings("unchecked") void differentEventNamespacesKeepOnlyTheExistingPollingJob() {
+    try (var schedulers = mockConstruction(ClusterPluginScheduler.class, (mock, context) ->
+      when(mock.interval(anyString(), any(), any(Duration.class), anyBoolean()))
+        .thenAnswer(call -> reactor.core.Disposables.single()))) {
+      var bus = mock(EventBus.class);
+      var topics = new FacilityAlarmTopics(bus, "_default", "jetlinks-smart-park");
+      var service = spy(new FacilitySaasAlarms(mock(DeviceStore.class), mock(FacilityDevices.class), execution(),
+        mock(FacilityCloudAlarms.class), mock(FacilitySaasAlarmWriter.class), topics));
+      doReturn(Mono.empty()).when(service).poll();
+      try {
+        service.start();
+        org.mockito.ArgumentCaptor<Mono<Void>> pollTask = org.mockito.ArgumentCaptor.forClass(Mono.class);
+        var scheduler = schedulers.constructed().get(0);
+        verify(scheduler).interval(eq("facility-saas-alarms"), pollTask.capture(), eq(Duration.ofMinutes(5)), eq(true));
+        verifyNoMoreInteractions(scheduler);
+        StepVerifier.create(pollTask.getValue()).verifyComplete();
+        verify(service).poll();
+        verifyNoInteractions(bus);
+      } finally {
+        service.stop();
+      }
+    }
   }
 
   @Test @SuppressWarnings("unchecked") void pollingRestoresEachApplicationIdentityAndContinuesAfterFailure() {

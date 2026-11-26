@@ -175,10 +175,15 @@ public class FacilitySaasAlarms implements SmartLifecycle, FacilitySaasAlarmsMBe
   public synchronized void start() {
     if (running || !jobsEnabled) return;
     running = true;
-    task = Disposables.composite(
-      scheduler.interval("facility-saas-alarm-subscriptions", Mono.defer(this::maintain), Duration.ofSeconds(30), true),
-      scheduler.interval("facility-saas-alarms", Mono.defer(this::poll), Duration.ofMinutes(5), true),
-      scheduler.interval("facility-saas-alarm-lease", Mono.fromRunnable(this::expireSubscriptions), Duration.ofSeconds(30), false));
+    var jobs = Disposables.composite();
+    task = jobs;
+    jobs.add(scheduler.interval("facility-saas-alarms", Mono.defer(this::poll), Duration.ofMinutes(5), true));
+    if (topics.isRealtimeAvailable()) {
+      jobs.add(scheduler.interval("facility-saas-alarm-subscriptions", Mono.defer(this::maintain), Duration.ofSeconds(30), true));
+      jobs.add(scheduler.interval("facility-saas-alarm-lease", Mono.fromRunnable(this::expireSubscriptions), Duration.ofSeconds(30), false));
+    } else {
+      log.warn("Facility SaaS alarm event namespace differs from the platform bus namespace; syncing alarms every 5 minutes");
+    }
     try {
       objectName = new ObjectName("org.jetlinks:type=PropertyFacilityEnergy,name=SaasAlarms");
       ManagementFactory.getPlatformMBeanServer().registerMBean(new StandardMBean(this, FacilitySaasAlarmsMBean.class), objectName);

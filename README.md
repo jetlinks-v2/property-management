@@ -93,4 +93,4 @@ docker compose --env-file /absolute/path/to/property.env -f deploy/compose.yml u
 
 聚合 UAT 环境通过其已有 `applications-service` 装配物业 manager 与 `property-runtime-support`，不复制本仓启动工程。跨模块权限装配代码集中在 `modules/property-runtime-support`，不放入宿主启动工程或基础 manager。
 
-聚合运行时，`property-runtime-support` 通过限定名 `namespacedEventBusFactory` 的 `Function<String, EventBus>` 提供同命名空间单例总线。告警消费者可选接入；单独部署时未接入该工厂仍使用原路径。专用总线由工厂关闭，消费者只释放订阅，主业务总线仍由平台管理，沿用 `ClusterEventBus` 监控。
+设施告警使用平台装配的 EventBus，平台总线与 SaaS 告警源处于同一事件命名空间时启用实时订阅，否则按周期同步。聚合运行时，`property-runtime-support` 继续提供 `namespacedEventBusFactory`，供已接入该工厂的园区版本使用。
