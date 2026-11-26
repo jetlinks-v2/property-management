@@ -18,6 +18,16 @@ import reactor.core.publisher.*;
 @Service
 @RequiredArgsConstructor
 public class FacilityAllocations {
+  private static final int CLOUD_BATCH_SIZE = 100;
+
+  public record Cursor(long createTime, String id) {
+    static Cursor at(DeviceAllocationEntity row) {
+      return new Cursor(row.getCreateTime(), row.getId());
+    }
+  }
+
+  public record Slice(List<DeviceAllocationEntity> data, Cursor nextCursor) {}
+
   private final DeviceAllocationStore store;
   private final DeviceStore devices;
   private final FacilityCloud cloud;
@@ -99,22 +109,68 @@ public class FacilityAllocations {
       .and("deleted", false).and("projectConfirmed", true).and("projectId", projectId).fetch());
   }
 
+  public Mono<Slice> slice(QueryParamEntity query, Cursor after) {
+    require(after == null || after.createTime() >= 0 && after.id() != null
+      && !after.id().isBlank() && after.id().length() <= 256, "invalid_device_catalog_cursor");
+    int size = Math.min(CLOUD_BATCH_SIZE, Math.max(1, query.getPageSize()));
+    return scope.current().flatMapMany(context -> visibleCandidates(FacilityScope.applicationQuery(query, context), after))
+      .take(size + 1L).collectList().flatMap(found -> {
+        var rows = List.copyOf(found.subList(0, Math.min(size, found.size())));
+        var next = found.size() > size ? Cursor.at(rows.get(rows.size() - 1)) : null;
+        if (rows.isEmpty()) return Mono.just(new Slice(rows, null));
+        return devices.createQuery().in("id", rows.stream().map(DeviceAllocationEntity::getId).toList())
+          .and("deleted", false).fetch().collectMap(DeviceEntity::getId).map(assets -> {
+            for (var row : rows) {
+              var asset = assets.get(row.getId());
+              if (asset != null) row.setAssetProjectId(asset.getProjectId());
+            }
+            return new Slice(rows, next);
+          });
+      });
+  }
+
+  private Flux<DeviceAllocationEntity> visibleCandidates(QueryParamEntity scoped, Cursor after) {
+    return Flux.defer(() -> {
+      var query = scoped.clone().doNotSort().toNestQuery();
+      if (after != null) {
+        query.nest().lt("createTime", after.createTime())
+          .orNest().is("createTime", after.createTime()).lt("id", after.id()).end().end();
+      }
+      var page = query.orderByDesc("createTime").orderByDesc("id").doPaging(0, CLOUD_BATCH_SIZE).getParam();
+      return store.createQuery().setParam(page).fetch().collectList().flatMapMany(batch -> {
+        if (batch.isEmpty()) return Flux.empty();
+        var ids = batch.stream().map(DeviceAllocationEntity::getCloudDeviceId)
+          .collect(java.util.stream.Collectors.toSet());
+        var visible = cloud.boundDeviceIds(ids).flatMapMany(allowed -> Flux.fromIterable(batch)
+          .filter(row -> allowed.contains(row.getCloudDeviceId())));
+        // The cursor returned to the caller stays on the last displayed row, including when this batch has more matches.
+        return batch.size() < CLOUD_BATCH_SIZE ? visible : visible.concatWith(
+          Flux.defer(() -> visibleCandidates(scoped, Cursor.at(batch.get(batch.size() - 1)))));
+      });
+    });
+  }
+
   @Transactional
   public Mono<List<DeviceAllocationEntity>> save(List<FacilityDevices.Allocation> inputs) {
     require(inputs != null && !inputs.isEmpty() && inputs.size() <= 200, "too_many");
     require(inputs.stream().allMatch(input -> input != null && input.id() != null && !input.id().isBlank()
       && input.projectId() != null && !input.projectId().isBlank()), "invalid_import");
     require(inputs.stream().map(FacilityDevices.Allocation::id).distinct().count() == inputs.size(), "invalid_import");
-    return Mono.zip(sources(), scope.current()).flatMap(tuple -> {
-      var context = tuple.getT2();
-      var visible = sourceIds(tuple.getT1());
-      return Flux.fromIterable(inputs).concatMap(input -> store.findById(input.id())
+    return scope.current().flatMap(context -> Flux.fromIterable(inputs).concatMap(input -> store.findById(input.id())
         .switchIfEmpty(Mono.error(new NotFoundException()))
-        .flatMap(row -> {
+        .doOnNext(row -> {
           if (!context.tenantId().equals(row.getTenantId()) || !context.applicationId().equals(row.getApplicationId()) ||
-              Boolean.TRUE.equals(row.getDeleted()) || !visible.contains(row.getCloudDeviceId())) return Mono.error(new AccessDenyException());
+              Boolean.TRUE.equals(row.getDeleted()) || row.getCloudDeviceId() == null) throw new AccessDenyException();
           require(row.getVersion() == input.version(), "conflict");
-          return directory.project(input.projectId()).flatMap(project ->
+        })).collectMap(DeviceAllocationEntity::getId).flatMap(rows ->
+          Flux.fromIterable(inputs).map(input -> rows.get(input.id()).getCloudDeviceId()).distinct()
+            .buffer(CLOUD_BATCH_SIZE).concatMap(batch -> cloud.boundDeviceIds(Set.copyOf(batch))
+              .doOnNext(allowed -> {
+                if (!allowed.containsAll(batch)) throw new AccessDenyException();
+              }))
+            .thenMany(Flux.fromIterable(inputs).concatMap(input -> {
+              var row = rows.get(input.id());
+              return directory.project(input.projectId()).flatMap(project ->
             records.assertProject(project.getId(), CrudAssetPermission.save)
               .then(devices.findById(row.getId())
                 .flatMap(asset -> moves.validate(asset, project.getId())
@@ -130,7 +186,6 @@ public class FacilityAllocations {
                 if (changed || row.getAllocationSince() == null) row.setAllocationSince(System.currentTimeMillis());
                 return records.update(store, row, input.version());
               })));
-        })).collectList();
-    });
+            })).collectList()));
   }
 }

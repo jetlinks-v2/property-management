@@ -12,8 +12,10 @@ import org.hswebframework.web.crud.annotation.EnableEntityEvent;
 @Getter
 @Setter
 @EnableEntityEvent
-@Table(name = "fe_device_allocation", indexes = @Index(name = "idx_fe_allocation_source",
-  columnList = "tenantId,applicationId,cloudDeviceId", unique = true))
+@Table(name = "fe_device_allocation", indexes = {
+  @Index(name = "idx_fe_allocation_source", columnList = "tenantId,applicationId,cloudDeviceId", unique = true),
+  @Index(name = "idx_fe_allocation_page", columnList = "tenantId,applicationId,deleted,createTime,id")
+})
 public class DeviceAllocationEntity extends FacilityEntity {
   @Column(length = 256)
   private String cloudDeviceId;

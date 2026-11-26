@@ -20,6 +20,28 @@ import reactor.test.StepVerifier;
 class FacilityCloudTest {
 
   @Test
+  void bindingLookupQueriesOnlyRequestedDevicesInTheCurrentApplication() {
+    var scope = mock(FacilityScope.class);
+    when(scope.current()).thenReturn(Mono.just(new FacilityContext("tenant", "app", "user", "User")));
+    var cloud = spy(new FacilityCloud(scope));
+    var provider = mock(CommandSupport.class);
+    doReturn(Mono.just(provider)).when(cloud).support();
+    var device = new org.jetlinks.sdk.server.device.DeviceInfo();
+    device.setId("meter");
+    when(provider.execute(any(QueryPagerCommand.class))).thenAnswer(invocation -> {
+      QueryPagerCommand<?> command = invocation.getArgument(0);
+      var query = command.asQueryParam();
+      assertEquals(1, query.getPageSize());
+      assertEquals(Set.of("meter"), query.getTerms().get(1).getValue());
+      var binding = assertInstanceOf(DimensionAssetsTerm.class, query.getTerms().get(0).getValue());
+      assertEquals("app", binding.getTargets().iterator().next().getId());
+      return Mono.just(new PagerResult<>(1, List.of(device)));
+    });
+    StepVerifier.create(cloud.boundDeviceIds(Set.of("meter"))).expectNext(Set.of("meter")).verifyComplete();
+    verify(provider).execute(any(QueryPagerCommand.class));
+  }
+
+  @Test
   void unassignedCatalogUsesCurrentApplicationAssetsWithoutOrganizationConstraint() {
     var scope = mock(FacilityScope.class);
     when(scope.current()).thenReturn(Mono.just(new FacilityContext("tenant", "app", "user", "User")));

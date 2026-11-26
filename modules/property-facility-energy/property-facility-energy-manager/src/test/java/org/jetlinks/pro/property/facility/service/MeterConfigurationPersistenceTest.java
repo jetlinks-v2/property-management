@@ -43,6 +43,11 @@ class MeterConfigurationPersistenceTest {
   String project;
   @BeforeEach void setup() {
     reset(scope, cloud, directory);
+    when(cloud.boundDeviceIds(anySet())).thenAnswer(call -> {
+      Set<String> requested = call.getArgument(0);
+      return cloud.snapshot(null).map(rows -> rows.stream().map(org.jetlinks.sdk.server.device.DeviceInfo::getId)
+        .filter(requested::contains).collect(java.util.stream.Collectors.toSet()));
+    });
     project=UUID.randomUUID().toString();
     when(scope.current()).thenReturn(Mono.just(new FacilityContext("tenant","app","worker","测试员")));
     when(scope.projectExists(anyString())).thenReturn(Mono.just(true));
@@ -271,6 +276,47 @@ class MeterConfigurationPersistenceTest {
     assertTrue(retained.getEnergyEnabled()); assertEquals(123L,retained.getAllocationSince());
     assertTrue(mappings.findById(mapping.getId()).block(WAIT).getEnabled());
   }
+  @Test void catalogPaginationResumesAtLastVisibleRowAndRechecksCurrentCloudPermissions() {
+    var prefix = UUID.randomUUID().toString();
+    var group = new FacilityContext("tenant", "app", "worker", "测试员");
+    Flux.range(1, 106).concatMap(i -> {
+      var row = FacilityScope.initialize(new DeviceAllocationEntity(), group);
+      row.setId(prefix + String.format("%03d", i));
+      row.setCloudDeviceId(row.getId());
+      row.setName(prefix);
+      row.setCreateTime(1000L);
+      return catalogStore.insert(row);
+    }).then().block(WAIT);
+    var calls = new ArrayList<Set<String>>();
+    var revoked = new HashSet<String>();
+    var maxVisible = new java.util.concurrent.atomic.AtomicInteger(106);
+    doAnswer(call -> {
+      Set<String> ids = call.getArgument(0);
+      calls.add(Set.copyOf(ids));
+      return Mono.just(ids.stream().filter(id -> Integer.parseInt(id.substring(prefix.length())) <= maxVisible.get())
+        .filter(id -> !revoked.contains(id)).collect(java.util.stream.Collectors.toSet()));
+    }).when(cloud).boundDeviceIds(anySet());
+    var query = org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery()
+      .is("name", prefix).doPaging(0, 2).getParam();
+    assertNotNull(catalog.slice(query, null).block(WAIT).nextCursor());
+    assertEquals(List.of(100), calls.stream().map(Set::size).toList());
+    calls.clear();
+    maxVisible.set(6);
+    var first = catalog.slice(query, null).block(WAIT);
+    assertEquals(List.of(prefix + "006", prefix + "005"), first.data().stream().map(DeviceAllocationEntity::getId).toList());
+    assertNotNull(first.nextCursor());
+    assertEquals(List.of(100, 6), calls.stream().map(Set::size).toList());
+    calls.clear();
+    revoked.add(prefix + "004");
+    var second = catalog.slice(query, first.nextCursor()).block(WAIT);
+    assertEquals(List.of(prefix + "003", prefix + "002"), second.data().stream().map(DeviceAllocationEntity::getId).toList());
+    assertEquals(Set.of(prefix + "001", prefix + "002", prefix + "003", prefix + "004"), calls.get(0));
+    var last = catalog.slice(query, second.nextCursor()).block(WAIT);
+    assertEquals(List.of(prefix + "001"), last.data().stream().map(DeviceAllocationEntity::getId).toList());
+    assertNull(last.nextCursor());
+    verify(cloud, never()).snapshot(any());
+  }
+
   @Test void deviceCandidatesExcludeUnboundAssetsBeforePagingAndDoNotAllowOrFiltersToBypassBinding() {
     var bound = sourceDevice(UUID.randomUUID().toString());
     String boundId = FacilityRecords.stableId("tenant","app",bound.getId());

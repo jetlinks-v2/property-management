@@ -54,19 +54,19 @@ class FacilityAllocationSyncTest {
   @Test void allocationRejectsForeignTenantInvisibleSourceStaleVersionAndForbiddenProjectBeforeWriting() {
     var store = mock(DeviceAllocationStore.class); var devices = mock(DeviceStore.class);
     var directory = mock(FacilityDirectory.class); var scope = mock(FacilityScope.class); var records = mock(FacilityRecords.class);
-    var service = spy(new FacilityAllocations(store,devices,mock(FacilityCloud.class),directory,scope,records,mock(FacilityDeviceMoves.class)));
+    var cloud = mock(FacilityCloud.class);
+    var service = new FacilityAllocations(store, devices, cloud, directory, scope, records, mock(FacilityDeviceMoves.class));
     when(scope.current()).thenReturn(Mono.just(context));
     var row = allocation("source","old"); row.setTenantId(context.tenantId()); row.setApplicationId(context.applicationId());
     when(store.findById("source")).thenReturn(Mono.just(row));
-    var snapshots = List.of(new FacilitySync.Source("cloud","Cloud",List.of(source("source"))));
-    doReturn(Mono.just(snapshots)).when(service).sources();
+    when(cloud.boundDeviceIds(Set.of("source"))).thenReturn(Mono.just(Set.of("source")));
     var input = List.of(new FacilityDevices.Allocation("source",1L,"new",null,null,false));
     row.setTenantId("foreign");
     StepVerifier.create(service.save(input)).expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
     row.setTenantId(context.tenantId());
-    doReturn(Mono.just(List.of())).when(service).sources();
+    when(cloud.boundDeviceIds(Set.of("source"))).thenReturn(Mono.just(Set.of()));
     StepVerifier.create(service.save(input)).expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
-    doReturn(Mono.just(snapshots)).when(service).sources(); row.setVersion(2L);
+    when(cloud.boundDeviceIds(Set.of("source"))).thenReturn(Mono.just(Set.of("source"))); row.setVersion(2L);
     StepVerifier.create(service.save(input)).expectError(org.hswebframework.web.exception.BusinessException.class).verify();
     row.setVersion(1L);
     var target = new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo(); target.setId("new");
@@ -76,17 +76,19 @@ class FacilityAllocationSyncTest {
     StepVerifier.create(service.save(input)).expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
     verify(records,never()).update(any(),any(),anyLong());
     verify(store,never()).createUpdate();
+    verify(cloud, never()).snapshot(any());
   }
 
   @Test void existingDeviceCanRecoverDeletedProjectButCatalogWithoutDeviceCannot() {
     var store = mock(DeviceAllocationStore.class); var devices = mock(DeviceStore.class);
     var directory = mock(FacilityDirectory.class); var scope = mock(FacilityScope.class); var records = mock(FacilityRecords.class);
     var moves = mock(FacilityDeviceMoves.class);
-    var service = spy(new FacilityAllocations(store, devices, mock(FacilityCloud.class), directory, scope, records, moves));
+    var cloud = mock(FacilityCloud.class);
+    var service = new FacilityAllocations(store, devices, cloud, directory, scope, records, moves);
     var row = allocation("source", "removed"); row.setTenantId(context.tenantId()); row.setApplicationId(context.applicationId());
     when(scope.current()).thenReturn(Mono.just(context));
     when(store.findById("source")).thenReturn(Mono.just(row));
-    doReturn(Mono.just(List.of(new FacilitySync.Source(null, null, List.of(source("source")))))).when(service).sources();
+    when(cloud.boundDeviceIds(Set.of("source"))).thenReturn(Mono.just(Set.of("source")));
     var target = new org.jetlinks.pro.property.base.organization.PropertyOrganizationInfo(); target.setId("new"); target.setName("New");
     when(directory.project("new")).thenReturn(Mono.just(target));
     when(records.assertProject("new", org.jetlinks.pro.assets.crud.CrudAssetPermission.save)).thenReturn(Mono.empty());

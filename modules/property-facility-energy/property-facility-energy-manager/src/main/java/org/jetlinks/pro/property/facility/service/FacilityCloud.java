@@ -28,6 +28,10 @@ public class FacilityCloud {
     int page,
     int size
   ) {
+    return page(projectId, page, size, Set.of());
+  }
+
+  private Mono<PagerResult<DeviceInfo>> page(String projectId, int page, int size, Set<String> ids) {
     return scope.current().flatMap(c -> {
       var dimension = DimensionAssetsTerm.of(
         // 配置目录先读取当前应用授权设备，不能要求尚未配置的设备已绑定业务项目组织。
@@ -39,18 +43,28 @@ public class FacilityCloud {
       // 只有组织按下级闭包展开；应用设备是直接绑定，没有组织闭包记录。
       dimension.setClosure(projectId != null);
       var query = QueryParamEntity.newQuery()
-        .accept("id", DimensionAssetsTermBuilder.termType, dimension)
-        .orderByAsc("id")
-        .doPaging(page, size)
-        .getParam();
+        .accept("id", DimensionAssetsTermBuilder.termType, dimension);
+      if (!ids.isEmpty()) query.in("id", ids);
       // Cloud's AssetsQueryCommandHandler owns device permission injection. Local
       // tenant/organization tables and query contexts belong to the facility service.
       return support().flatMap(s -> {
         var command = QueryPagerCommand.of(DeviceInfo.class);
-        command.withQueryParam(query);
+        command.withQueryParam(query.orderByAsc("id").doPaging(page, size).getParam());
         return s.execute(command);
       });
     });
+  }
+
+  Mono<Set<String>> boundDeviceIds(Set<String> ids) {
+    if (ids.isEmpty()) return Mono.just(Set.of());
+    return page(null, 0, ids.size(), ids)
+      .switchIfEmpty(Mono.error(new IllegalStateException("Device binding query returned no page")))
+      .map(result -> {
+        var bound = result.getData().stream().map(DeviceInfo::getId)
+          .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        FacilityScope.require(result.getTotal() == bound.size() && ids.containsAll(bound), "source_incomplete");
+        return bound;
+      });
   }
 
   public Mono<List<DeviceInfo>> snapshot(String projectId) {
