@@ -14,10 +14,11 @@ import org.jetlinks.pro.io.file.FileManager;
 import org.jetlinks.pro.smartpark.handover.api.*;
 import org.jetlinks.pro.smartpark.handover.entity.*;
 import org.jetlinks.pro.smartpark.handover.service.*;
+import org.springframework.context.SmartLifecycle;
 import org.springframework.core.io.buffer.*;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -34,8 +35,9 @@ import java.util.concurrent.atomic.AtomicLong;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class HandoverExportService {
+public class HandoverExportService implements SmartLifecycle {
     static final Duration LEASE = Duration.ofMinutes(2), HEARTBEAT = Duration.ofSeconds(20);
+    private static final Duration POLL_DELAY = Duration.ofSeconds(5);
     private final HandoverExportRepository tasks;
     private final HandoverScope scope;
     private final HandoverExportScope authorization;
@@ -47,6 +49,7 @@ public class HandoverExportService {
             failed = new AtomicLong(),
             claimed = new AtomicLong();
     private volatile String lastError = "";
+    private volatile Disposable worker;
 
     static <T> Mono<T> io(Callable<T> action) {
         return Mono.fromCallable(action).subscribeOn(Schedulers.boundedElastic());
@@ -179,16 +182,7 @@ public class HandoverExportService {
                                                 task ->
                                                         authorization.execute(
                                                                 c,
-                                                                () ->
-                                                                        ("ledger".equals(task.getKind()) && !HandoverRules.hasText(task.getProjectId())
-                                                                                ? rows.selector(task.getRequest(), 0, null).then()
-                                                                                : scope.project(
-                                                                                        task
-                                                                                                .getProjectId(),
-                                                                                        CrudAssetPermission
-                                                                                                .read))
-                                                                                .thenReturn(
-                                                                                        task))));
+                                                                () -> assertTaskScope(task).thenReturn(task))));
     }
 
     public Mono<HandoverExportEntity> retry(String id) {
@@ -213,10 +207,35 @@ public class HandoverExportService {
                         });
     }
 
-    @Scheduled(fixedDelay = 5000)
-    public Mono<Void> tick() {
-        // Spring 6 subscribes repeatedly to the returned Publisher: defer every mutable DB read.
-        return Mono.defer(() -> candidates().concatMap(this::claimAndRun, 1).then())
+    @Override
+    public synchronized void start() {
+        if (isRunning()) return;
+        // 组件拥有唯一消费循环；共享 Spring 调度线程无需等待导出或租约续期。
+        worker = Mono.delay(POLL_DELAY)
+                .then(Mono.defer(this::tick).onErrorResume(error -> Mono.empty()))
+                .repeat()
+                .subscribe();
+    }
+
+    @Override
+    public synchronized void stop() {
+        if (worker != null) worker.dispose();
+        worker = null;
+    }
+
+    @Override
+    public boolean isRunning() {
+        var current = worker;
+        return current != null && !current.isDisposed();
+    }
+
+    Mono<Void> tick() {
+        // 先消费完有限的候选结果，释放查询连接，再串行领取和执行长任务。
+        return Mono.defer(() -> candidates().collectList())
+                .timeout(Duration.ofSeconds(10))
+                .flatMapMany(Flux::fromIterable)
+                .concatMap(this::claimAndRun, 1)
+                .then()
                 .doOnError(
                         error -> {
                             lastError = message(error);
@@ -230,19 +249,18 @@ public class HandoverExportService {
                         .where("status", "pending")
                         .and("deleted", false)
                         .orderByAsc("createTime")
+                        .doPaging(0, 4)
                         .getParam();
-        pending.setPageSize(4);
         QueryParamEntity expired =
                 QueryParamEntity.newQuery()
                         .where("status", "running")
                         .and("leaseUntil", "lt", System.currentTimeMillis())
                         .and("deleted", false)
                         .orderByAsc("leaseUntil")
+                        .doPaging(0, 4)
                         .getParam();
-        expired.setPageSize(4);
-        return Flux.concat(
-                tasks.createQuery().setParam(expired).fetch(),
-                tasks.createQuery().setParam(pending).fetch());
+        return tasks.createQuery().setParam(expired).fetch()
+                .concatWith(Flux.defer(() -> tasks.createQuery().setParam(pending).fetch()));
     }
 
     Mono<Boolean> claim(HandoverExportEntity task) {
@@ -367,52 +385,46 @@ public class HandoverExportService {
     }
 
     private Mono<Void> generate(HandoverExportEntity task) {
+        var rendering = authorization.session(creator(task));
         return Mono.usingWhen(
                 io(() -> new HandoverExportWorkbook(task.getKind())),
                 book ->
-                        writeRows(task, book)
+                        writeRows(task, book, rendering)
                                 .then(runIo(book::finish))
-                                .then(verifyLocalManifest(task, book.manifest))
                                 .then(authorization.execute(creator(task), () -> save(task, book))),
                 book -> runIo(book::close),
                 (book, error) -> runIo(book::close),
                 book -> runIo(book::close));
     }
 
-    private Mono<Void> writeRows(HandoverExportEntity task, HandoverExportWorkbook book) {
-        // A one-page prefetch bounds entities in memory. Avoid accumulating recursive page chains
-        // for million-row exports; a short last page cancels the index publisher immediately.
+    private Mono<Void> writeRows(
+            HandoverExportEntity task, HandoverExportWorkbook book,
+            HandoverExportScope.Session session) {
+        // 按页授权并顺序写入；当前页处理完才查询下一页。
         return Flux.range(0, Integer.MAX_VALUE)
                 .concatMap(
-                        page ->
-                                authorization.execute(
-                                        creator(task), () -> rows.page(task.getRequest(), page)),
+                        page -> session.execute(() -> rows.page(task.getRequest(), page))
+                                .flatMap(batch -> Flux.fromIterable(batch)
+                                        .concatMap(row -> writeRow(book, row, session), 1)
+                                        .then(Mono.just(batch.size()))),
                         1)
-                .takeUntil(batch -> batch.size() < HandoverExportRows.PAGE_SIZE)
-                .concatMap(
-                        batch ->
-                                Flux.fromIterable(batch)
-                                        .concatMap(row -> writeRow(task, book, row), 1),
-                        1)
+                .takeUntil(size -> size < HandoverExportRows.PAGE_SIZE)
                 .then();
     }
 
     private Mono<Void> writeRow(
-            HandoverExportEntity task, HandoverExportWorkbook book, HandoverEntity row) {
+            HandoverExportWorkbook book, HandoverEntity row,
+            HandoverExportScope.Session session) {
         Mono<Void> content =
-                rows.values(row).flatMap(values -> runIo(() -> book.row(row.getId(), values)));
+                session.execute(() -> rows.values(row))
+                        .flatMap(values -> runIo(() -> book.row(row.getId(), values)));
         if (row instanceof HandoverProblemEntity) {
             content =
                     content.thenMany(
                                     rows.photos(row)
                                             .concatMap(
-                                                    photo ->
-                                                            photo(
-                                                                    task,
-                                                                    book,
-                                                                    row.getId(),
-                                                                    photo.getFileId(),
-                                                                    photo.getPhotoType()),
+                                                    photo -> session.execute(() -> photo(
+                                                            book, photo.getFileId(), photo.getPhotoType())),
                                                     1))
                             .then()
                             .thenMany(
@@ -453,47 +465,24 @@ public class HandoverExportService {
                                                                     Objects.requireNonNullElse(
                                                                             ref.getSortIndex(), 0)))
                                             .concatMap(
-                                                    ref -> attachment(task, book, row.getId(), ref),
+                                                    ref -> session.execute(() -> attachment(book, ref)),
                                                     1))
                             .then();
         }
         return content;
     }
 
-    private Mono<Void> attachment(
-            HandoverExportEntity task,
-            HandoverExportWorkbook book,
-            String sourceId,
-            FileRef reference) {
+    private Mono<Void> attachment(HandoverExportWorkbook book, FileRef reference) {
         // FileRef.type is optional and client supplied; storage metadata decides whether to embed.
         // A missing attachment is an explicit task failure, never a silently omitted photograph.
-        return authorization.execute(
-                creator(task),
-                () ->
-                        files.getFile(reference.getFileId())
-                                .switchIfEmpty(
-                                        Mono.error(
-                                                new IOException(
-                                                        "Attachment is missing: "
-                                                                + reference.getFileId())))
-                                .flatMap(
-                                        info ->
-                                                "image".equals(info.mediaType().getType())
-                                                        ? photo(
-                                                                task,
-                                                                book,
-                                                                sourceId,
-                                                                reference.getFileId(),
-                                                                reference.getPhotoType())
-                                                        : Mono.empty()));
+        return files.getFile(reference.getFileId())
+                .switchIfEmpty(Mono.error(new IOException("Attachment is missing: " + reference.getFileId())))
+                .flatMap(info -> "image".equals(info.mediaType().getType())
+                        ? photo(book, reference.getFileId(), reference.getPhotoType())
+                        : Mono.empty());
     }
 
-    private Mono<Void> photo(
-            HandoverExportEntity task,
-            HandoverExportWorkbook book,
-            String sourceId,
-            String id,
-            String type) {
+    private Mono<Void> photo(HandoverExportWorkbook book, String id, String type) {
         Path image = book.directory.resolve("source-image");
         AtomicLong size = new AtomicLong();
         // No accumulated byte[]: each file is streamed, bounded and removed before requesting the
@@ -508,19 +497,11 @@ public class HandoverExportService {
                                         sink.error(new IOException("Photo exceeds 32 MiB: " + id));
                                     } else sink.next(buffer);
                                 });
-        return authorization
-                .execute(
-                        creator(task),
-                        () ->
-                                rows.verify(task.getRequest(), List.of(sourceId))
-                                        .then(
-                                                DataBufferUtils.write(
-                                                        data,
-                                                        image,
-                                                        StandardOpenOption.CREATE,
-                                                        StandardOpenOption.TRUNCATE_EXISTING))
-                                        .then(runIo(() -> book.picture(image, type)))
-                                        .timeout(Duration.ofSeconds(60)))
+        // 只读取已授权记录中保存的文件引用，发布前还会按来源清单复核记录权限。
+        return DataBufferUtils.write(
+                        data, image, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)
+                .then(runIo(() -> book.picture(image, type)))
+                .timeout(Duration.ofSeconds(60))
                 .onErrorMap(
                         error ->
                                 new IOException(
@@ -550,7 +531,7 @@ public class HandoverExportService {
                                 .flatMap(
                                         manifest -> {
                                             saved.manifest = manifest.getId();
-                                            return complete(task, saved);
+                                            return complete(task, saved, book.manifest);
                                         })
                                 .doOnSuccess(ignore -> saved.committed = true),
                 saved -> compensate(saved),
@@ -571,39 +552,37 @@ public class HandoverExportService {
                 .then();
     }
 
-    private Mono<Void> complete(HandoverExportEntity task, SavedFiles saved) {
-        return authorization
-                .execute(
-                        creator(task),
-                        () ->
-                                scope.project(task.getProjectId(), CrudAssetPermission.read)
-                                        .then(
-                                                tasks.createUpdate()
-                                                        .set("status", "completed")
-                                                        .set("fileId", saved.workbook)
-                                                        .set("manifestFileId", saved.manifest)
-                                                        .set(
-                                                                "finishTime",
-                                                                System.currentTimeMillis())
-                                                        .set("leaseUntil", 0L)
-                                                        .where("id", task.getId())
-                                                        .and("status", "running")
-                                                        .and("leaseOwner", owner)
-                                                        .and("version", task.getVersion())
-                                                        .execute())
-                                        .flatMap(
-                                                n ->
-                                                        n == 1
-                                                                ? Mono.<Void>empty()
-                                                                : Mono.error(
-                                                                        new IllegalStateException(
-                                                                                "Export completion"
-                                                                                    + " lost its"
-                                                                                    + " lease"))))
+    private Mono<Void> complete(HandoverExportEntity task, SavedFiles saved, Path manifest) {
+        // 文件上传可能很慢，上传后以新授权复核全部来源，再将私有文件关联到可下载任务。
+        var session = authorization.session(creator(task));
+        return session.execute(() -> assertTaskScope(task))
+                .then(verifyLocalManifest(task, manifest, session))
+                .then(session.execute(() -> tasks.createUpdate()
+                        .set("status", "completed")
+                        .set("fileId", saved.workbook)
+                        .set("manifestFileId", saved.manifest)
+                        .set("finishTime", System.currentTimeMillis())
+                        .set("leaseUntil", 0L)
+                        .where("id", task.getId())
+                        .and("status", "running")
+                        .and("leaseOwner", owner)
+                        .and("version", task.getVersion())
+                        .execute()))
+                .flatMap(n -> n == 1
+                        ? Mono.<Void>empty()
+                        : Mono.error(new IllegalStateException("Export completion lost its lease")))
                 .doOnSuccess(ignore -> completed.incrementAndGet());
     }
 
-    private Mono<Void> verifyLocalManifest(HandoverExportEntity task, Path path) {
+    private Mono<Void> assertTaskScope(HandoverExportEntity task) {
+        if ("ledger".equals(task.getKind()) && !HandoverRules.hasText(task.getProjectId())) {
+            return rows.selector(task.getRequest(), 0, null).then();
+        }
+        return scope.project(task.getProjectId(), CrudAssetPermission.read);
+    }
+
+    private Mono<Void> verifyLocalManifest(
+            HandoverExportEntity task, Path path, HandoverExportScope.Session session) {
         return Flux.using(
                         () -> Files.lines(path),
                         stream -> Flux.fromStream(stream),
@@ -611,9 +590,7 @@ public class HandoverExportService {
                 .subscribeOn(Schedulers.boundedElastic())
                 .buffer(HandoverExportRows.PAGE_SIZE)
                 .concatMap(
-                        ids ->
-                                authorization.execute(
-                                        creator(task), () -> rows.verify(task.getRequest(), ids)),
+                        ids -> session.execute(() -> rows.verify(task.getRequest(), ids)),
                         1)
                 .then();
     }
@@ -636,7 +613,8 @@ public class HandoverExportService {
                                                             files.read(task.getManifestFileId()),
                                                             path,
                                                             StandardOpenOption.TRUNCATE_EXISTING)
-                                                    .then(verifyLocalManifest(task, path))
+                                                    .then(verifyLocalManifest(
+                                                            task, path, authorization.session(creator(task))))
                                                     .thenReturn(task),
                                     path -> runIo(() -> Files.deleteIfExists(path)),
                                     (path, error) -> runIo(() -> Files.deleteIfExists(path)),

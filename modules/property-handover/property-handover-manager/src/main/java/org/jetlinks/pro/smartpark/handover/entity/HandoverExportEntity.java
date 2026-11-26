@@ -24,7 +24,9 @@ import javax.persistence.Table;
         indexes = {
             @Index(
                     name = "idx_ho_export_scope",
-                    columnList = "tenantId,applicationId,projectId,deleted")
+                    columnList = "tenantId,applicationId,projectId,deleted"),
+            @Index(name = "idx_ho_export_pending", columnList = "status,deleted,createTime"),
+            @Index(name = "idx_ho_export_lease", columnList = "status,deleted,leaseUntil")
         })
 public class HandoverExportEntity extends HandoverEntity {
     @Column(length = 32, nullable = false)

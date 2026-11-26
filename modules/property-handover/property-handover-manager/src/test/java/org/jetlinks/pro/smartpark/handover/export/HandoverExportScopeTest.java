@@ -17,9 +17,33 @@ import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 
 class HandoverExportScopeTest {
+    @Test
+    void phaseReusesAuthorizationUntilExpiryThenRejectsRevocation() {
+        var context = new HandoverContext("tenant", "application", "employee", "员工");
+        var service = spy(new HandoverExportScope(null));
+        var active = mock(AssetScopeActivation.class);
+        when(active.replace()).thenReturn(ctx -> ctx);
+        doReturn(Mono.just(active), Mono.error(new AccessDenyException()))
+                .when(service).resolve(context);
+
+        StepVerifier.withVirtualTime(() -> {
+                    var phase = service.session(context);
+                    return phase.execute(TenantHolder::currentId)
+                            .concatWith(phase.execute(TenantHolder::currentId))
+                            .concatWith(Mono.delay(HandoverExportScope.REFRESH_INTERVAL.plusMillis(1))
+                                    .then(phase.execute(() -> Mono.just("must never execute"))));
+                })
+                .expectNext("tenant", "tenant")
+                .thenAwait(HandoverExportScope.REFRESH_INTERVAL.plus(Duration.ofSeconds(1)))
+                .expectError(AccessDenyException.class)
+                .verify(Duration.ofSeconds(5));
+        verify(service, times(2)).resolve(context);
+    }
+
     @Test
     void eachAttemptUsesAuthoritativeIdentityAndActivatesApplicationAndTenant() {
         var context = new HandoverContext("tenant", "application", "employee", "员工");

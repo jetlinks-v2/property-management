@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import org.hswebframework.web.authorization.exception.AccessDenyException;
+import org.jetlinks.pro.assets.scope.AssetScopeActivation;
 import org.jetlinks.pro.io.file.FileInfo;
 import org.jetlinks.pro.io.file.FileManager;
 import org.jetlinks.pro.smartpark.handover.api.ExportRequest;
@@ -20,7 +21,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import reactor.core.publisher.*;
 
 import java.util.*;
-import java.util.function.Supplier;
 
 @SpringBootTest(
         classes = HandoverPersistenceFixture.Config.class,
@@ -39,15 +39,14 @@ class HandoverExportPersistenceTest {
     HandoverExportService service;
 
     @BeforeEach
-    @SuppressWarnings({"rawtypes", "unchecked"})
     void prepare() {
         tasks.createDelete().where("tenantId", "tenant").execute().block(WAIT);
-        authorization = mock(HandoverExportScope.class);
+        authorization = spy(new HandoverExportScope(null));
         rows = mock(HandoverExportRows.class);
         files = mock(FileManager.class);
-        doAnswer(call -> ((Supplier<Mono>) call.getArgument(1)).get())
-                .when(authorization)
-                .execute(any(), any());
+        var active = mock(AssetScopeActivation.class);
+        when(active.replace()).thenReturn(context -> context);
+        doReturn(Mono.just(active)).when(authorization).resolve(any());
         service = new HandoverExportService(tasks, scope, authorization, rows, files);
     }
 
@@ -189,6 +188,7 @@ class HandoverExportPersistenceTest {
                 100,
                 ((Number) selector.getValue().getFilters().get("inspectionTimeFrom")).longValue());
         verify(rows, times(3)).verify(any(), anyList());
+        verify(authorization, times(3)).resolve(HandoverExportService.creator(task));
     }
 
     @Test
@@ -228,6 +228,7 @@ class HandoverExportPersistenceTest {
                 .expectError(AccessDenyException.class)
                 .verify(WAIT);
         verify(rows, times(3)).verify(any(), anyList());
+        verify(authorization, times(2)).resolve(HandoverExportService.creator(task));
         verify(files, never()).read("xlsx");
     }
 
@@ -270,7 +271,9 @@ class HandoverExportPersistenceTest {
     void optionalClientMimeTypeDoesNotSilentlyDropLedgerPictures() throws Exception {
         var task = insert("ledger-images");
         task.setKind("ledger");
+        task.setProjectId("");
         task.getRequest().setKind("ledger");
+        task.getRequest().setProjectId(null);
         tasks.updateById(task.getId(), task).block(WAIT);
         var ledger = new HandoverLedgerEntity();
         ledger.setId("ledger");
@@ -278,6 +281,8 @@ class HandoverExportPersistenceTest {
         ref.setFileId("optional-type-image");
         ledger.setFiles(List.of(ref));
         when(rows.page(any(), eq(0))).thenReturn(Mono.just(List.of(ledger)));
+        when(rows.selector(any(), eq(0), isNull()))
+                .thenReturn(Mono.just(new org.hswebframework.web.api.crud.entity.QueryParamEntity()));
         when(rows.values(ledger)).thenReturn(Mono.just(Map.of("title", "有图台账")));
         when(rows.verify(any(), anyList())).thenReturn(Mono.empty());
         var metadata = new FileInfo();
@@ -311,5 +316,56 @@ class HandoverExportPersistenceTest {
         var saved = tasks.findById(task.getId()).block(WAIT);
         assertEquals("completed", saved.getStatus(), saved.getError());
         verify(files).read(ref.getFileId());
+        verify(authorization, times(3)).resolve(HandoverExportService.creator(task));
+    }
+
+    @Test
+    void revocationDuringRenderingPreventsPublishingTheWorkbook() {
+        var task = insert("revoked-during-export");
+        var row = new HandoverCategoryEntity();
+        row.setId("visible-before-revocation");
+        when(rows.page(any(), eq(0))).thenReturn(Mono.just(List.of(row)));
+        var active = mock(AssetScopeActivation.class);
+        when(active.replace()).thenReturn(context -> context);
+        doReturn(Mono.just(active), Mono.error(new AccessDenyException()))
+                .when(authorization).resolve(HandoverExportService.creator(task));
+        when(rows.values(row)).thenReturn(Mono.just(Map.of("name", "分类")));
+
+        service.tick()
+                .contextWrite(HandoverPersistenceFixture.access("creator", Set.of("project")))
+                .block(WAIT);
+
+        assertEquals("failed", tasks.findById(task.getId()).block(WAIT).getStatus());
+        verify(files, never()).saveFile(anyString(), any(Flux.class));
+    }
+
+    @Test
+    void revocationAfterUploadDeletesPrivateFilesAndLeavesNoDownload() {
+        var task = insert("revoked-after-upload");
+        var row = new HandoverCategoryEntity();
+        row.setId("former-visible-row");
+        when(rows.page(any(), eq(0))).thenReturn(Mono.just(List.of(row)));
+        when(rows.values(row)).thenReturn(Mono.just(Map.of("name", "分类")));
+        when(rows.verify(any(), eq(List.of(row.getId()))))
+                .thenReturn(Mono.error(new AccessDenyException()));
+        when(files.delete(anyString())).thenReturn(Mono.empty());
+        when(files.saveFile(anyString(), any(Flux.class))).thenAnswer(call -> {
+            String name = call.getArgument(0);
+            Flux<DataBuffer> data = call.getArgument(1);
+            var file = new FileInfo();
+            file.setId(name.endsWith(".xlsx") ? "revoked-workbook" : "revoked-manifest");
+            return data.doOnNext(DataBufferUtils::release).then(Mono.just(file));
+        });
+
+        service.tick()
+                .contextWrite(HandoverPersistenceFixture.access("creator", Set.of("project")))
+                .block(WAIT);
+
+        var failed = tasks.findById(task.getId()).block(WAIT);
+        assertEquals("failed", failed.getStatus());
+        assertNull(failed.getFileId());
+        assertNull(failed.getManifestFileId());
+        verify(files).delete("revoked-workbook");
+        verify(files).delete("revoked-manifest");
     }
 }
