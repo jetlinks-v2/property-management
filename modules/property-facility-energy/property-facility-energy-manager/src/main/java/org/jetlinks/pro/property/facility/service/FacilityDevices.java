@@ -72,7 +72,17 @@ public class FacilityDevices {
   }
 
   public Mono<Boolean> isBound(DeviceEntity device) {
-    return cloud.snapshot(null).map(source -> source.stream().anyMatch(row -> row.getId().equals(device.getCloudDeviceId())));
+    String cloudId = device.getCloudDeviceId();
+    if (cloudId == null || cloudId.isBlank()) return Mono.just(false);
+    return cloud.boundDeviceIds(Set.of(cloudId)).map(ids -> ids.contains(cloudId));
+  }
+
+  Mono<QueryParamEntity> currentDeviceQuery(QueryParamEntity query, Set<String> cloudIds) {
+    return cloud.boundDeviceIds(cloudIds).flatMap(ids -> {
+      var current = query.clone().toNestQuery();
+      if (ids.isEmpty()) current.isNull("id"); else current.in("cloudDeviceId", ids);
+      return scope.query(current.getParam(), FacilityAssetType.facilityDevice, "id");
+    });
   }
 
   /** 新配置和新采集必须仍绑定；调用前仍须通过 read/writable 校验原业务资产。 */

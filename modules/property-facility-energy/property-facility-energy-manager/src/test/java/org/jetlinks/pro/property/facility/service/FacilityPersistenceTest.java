@@ -112,6 +112,11 @@ class FacilityPersistenceTest {
     reset(scope, directory, files, notifier, cloud);
     boundSources.clear();
     when(cloud.snapshot(null)).thenAnswer(call -> Mono.fromSupplier(() -> List.copyOf(boundSources.values())));
+    when(cloud.boundDeviceIds(anySet())).thenAnswer(call -> {
+      Set<String> requested = call.getArgument(0);
+      return Mono.fromSupplier(() -> requested.stream().filter(boundSources::containsKey)
+        .collect(java.util.stream.Collectors.toSet()));
+    });
     when(directory.projects()).thenReturn(Flux.just(project("p-a"), project("p-b")));
     when(scope.projectExists(anyString())).thenReturn(Mono.just(true));
     reset(faultExecution);
@@ -532,6 +537,9 @@ class FacilityPersistenceTest {
     var context = new FacilityContext("tenant", "app", "collector", "Collector");
     var mapping = FacilityScope.initialize(new MappingEntity(), context);
     mapping.setId("collection-status-mapping");
+    long hour = java.time.Duration.ofHours(1).toMillis();
+    long overlap = java.time.Duration.ofMinutes(10).toMillis();
+    mapping.setCreateTime(System.currentTimeMillis() - 4 * hour);
     mapping.setDeviceId("collection-status-device");
     mapping.setProjectId("p");
     mapping.setEnabled(true);
@@ -551,50 +559,67 @@ class FacilityPersistenceTest {
     when(deviceAccess.read(device.getId())).thenReturn(Mono.just(device));
     when(deviceAccess.requireBound(device)).thenReturn(Mono.just(device));
     when(deviceAccess.isBound(device)).thenReturn(Mono.just(true));
-    var execution = mock(FacilityExecution.class);
-    when(execution.asOwnerFlux(any(), any())).thenReturn(Flux.never());
-    var telemetry = new FacilityTelemetry(
-      cloud, mock(FacilityReadings.class), deviceAccess, mappings, execution
-    );
-    try {
-      when(cloud.history(anyString(), anyString(), anyLong(), anyLong()))
-        .thenReturn(Flux.empty());
-      StepVerifier.create(telemetry.collect(mapping)).verifyComplete();
-      var success = mappings.findById(mapping.getId()).block();
-      assertNotNull(success.getLastCollectionSuccessTime());
-      assertNull(success.getCollectionError());
-      when(cloud.history(anyString(), anyString(), anyLong(), anyLong()))
-        .thenReturn(Flux.error(new IllegalStateException("private payload")));
-      StepVerifier.create(telemetry.collect(success))
-        .expectError(IllegalStateException.class).verify();
-      var failed = mappings.findById(mapping.getId()).block();
-      assertEquals(success.getLastCollectedTime(), failed.getLastCollectedTime());
-      assertEquals(success.getLastCollectionSuccessTime(), failed.getLastCollectionSuccessTime());
-      assertEquals("IllegalStateException", failed.getCollectionError());
-      when(cloud.history(anyString(), anyString(), anyLong(), anyLong()))
-        .thenReturn(Flux.empty());
-      StepVerifier.create(telemetry.collect(failed)).verifyComplete();
-      var recovered = mappings.findById(mapping.getId()).block();
-      assertNull(recovered.getCollectionError());
-      assertTrue(recovered.getLastCollectionSuccessTime() >= failed.getLastCollectionTime());
-      when(deviceAccess.isBound(device)).thenReturn(Mono.just(false));
-      StepVerifier.create(telemetry.collectCurrent(recovered)).expectNext(false).verifyComplete();
-      assertEquals(0, telemetry.activeSubscriptions());
-      StepVerifier.create(telemetry.collect(recovered))
-        .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
-      assertEquals(recovered.getLastCollectedTime(), mappings.findById(mapping.getId()).block().getLastCollectedTime());
-      assertTrue(mappings.findById(mapping.getId()).block().getEnabled());
-      when(deviceAccess.isBound(device)).thenReturn(Mono.just(true));
-      StepVerifier.create(telemetry.collect(recovered)).verifyComplete();
-      assertEquals(1, telemetry.activeSubscriptions());
-      mappings.createUpdate().set("version", recovered.getVersion() + 1)
-        .set("collectionError", "CurrentConfigurationFailure")
-        .where("id", mapping.getId()).execute().block();
-      StepVerifier.create(telemetry.collect(recovered)).verifyComplete();
-      assertEquals("CurrentConfigurationFailure", mappings.findById(mapping.getId()).block().getCollectionError());
-    } finally {
-      telemetry.stop();
-    }
+    var telemetry = new FacilityTelemetry(cloud, mock(FacilityReadings.class), deviceAccess, mappings);
+    when(cloud.history(anyString(), anyString(), anyLong(), anyLong()))
+      .thenReturn(Flux.empty());
+    StepVerifier.create(telemetry.collect(mapping)).verifyComplete();
+    var success = mappings.findById(mapping.getId()).block();
+    assertEquals(mapping.getCreateTime() + hour, success.getLastCollectedTime());
+    verify(cloud).history(device.getCloudDeviceId(), "total", mapping.getCreateTime(), success.getLastCollectedTime());
+    assertNotNull(success.getLastCollectionSuccessTime());
+    assertNull(success.getCollectionError());
+    when(cloud.history(anyString(), anyString(), anyLong(), anyLong()))
+      .thenReturn(Flux.error(new IllegalStateException("private payload")));
+    StepVerifier.create(telemetry.collect(success))
+      .expectError(IllegalStateException.class).verify();
+    var failed = mappings.findById(mapping.getId()).block();
+    assertEquals(success.getLastCollectedTime(), failed.getLastCollectedTime());
+    assertEquals(success.getLastCollectionSuccessTime(), failed.getLastCollectionSuccessTime());
+    assertEquals("IllegalStateException", failed.getCollectionError());
+    when(cloud.history(anyString(), anyString(), anyLong(), anyLong()))
+      .thenReturn(Flux.empty());
+    StepVerifier.create(telemetry.collect(failed)).verifyComplete();
+    var recovered = mappings.findById(mapping.getId()).block();
+    assertEquals(success.getLastCollectedTime() + hour, recovered.getLastCollectedTime());
+    verify(cloud, times(2)).history(device.getCloudDeviceId(), "total",
+      success.getLastCollectedTime() - overlap, recovered.getLastCollectedTime());
+    assertNull(recovered.getCollectionError());
+    assertTrue(recovered.getLastCollectionSuccessTime() >= failed.getLastCollectionTime());
+    long missingFrom = mapping.getCreateTime() + 1;
+    long missingUntil = missingFrom + 1000;
+    StepVerifier.create(telemetry.collect(recovered, missingFrom, missingUntil)).verifyComplete();
+    verify(cloud).history(device.getCloudDeviceId(), "total", missingFrom, missingUntil);
+    assertEquals(recovered.getLastCollectedTime(), mappings.findById(mapping.getId()).block().getLastCollectedTime());
+    when(deviceAccess.isBound(device)).thenReturn(Mono.just(false));
+    StepVerifier.create(telemetry.collectCurrent(recovered)).expectNext(false).verifyComplete();
+    StepVerifier.create(telemetry.collect(recovered))
+      .expectError(org.hswebframework.web.authorization.exception.AccessDenyException.class).verify();
+    assertEquals(recovered.getLastCollectedTime(), mappings.findById(mapping.getId()).block().getLastCollectedTime());
+    assertTrue(mappings.findById(mapping.getId()).block().getEnabled());
+    when(deviceAccess.isBound(device)).thenReturn(Mono.just(true));
+    StepVerifier.create(telemetry.collect(recovered)).verifyComplete();
+    mappings.createUpdate().set("version", recovered.getVersion() + 1)
+      .set("collectionError", "CurrentConfigurationFailure")
+      .where("id", mapping.getId()).execute().block();
+    StepVerifier.create(telemetry.collect(recovered)).verifyComplete();
+    assertEquals("CurrentConfigurationFailure", mappings.findById(mapping.getId()).block().getCollectionError());
+  }
+
+  @Test void alarmCursorPersistsAndStaleDeviceEditsCannotRewindIt() {
+    var row = FacilityScope.initialize(new DeviceEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
+    row.setId("alarm-cursor-device");
+    row.setCloudDeviceId("cloud-alarm-cursor-device");
+    row.setSyncState("active");
+    devices.insert(row).block();
+    var stale = devices.findById(row.getId()).block();
+    assertEquals(1, devices.advanceAlarmCursor(stale, 2000L).block());
+    assertEquals(0, devices.advanceAlarmCursor(stale, 1000L).block());
+    stale.setSaasAlarmSyncedThrough(1000L);
+    stale.setName("编辑设备名称");
+    assertEquals(1, devices.createUpdate().set(stale).where("id", stale.getId()).execute().block());
+    var current = devices.findById(stale.getId()).block();
+    assertEquals("编辑设备名称", current.getName());
+    assertEquals(2000L, current.getSaasAlarmSyncedThrough());
   }
 
   @Autowired
@@ -2236,6 +2261,9 @@ class FacilityPersistenceTest {
     saved = alerts.findById(id).block();
     assertEquals("recovered", saved.getState()); assertEquals(3000, saved.getRecoveredTime());
     assertEquals("closed", saved.getProcessingState()); assertEquals("阀门已检查", saved.getComment());
+    source.setState("warning");
+    as("admin", saasWriter.accept(device, source)).block();
+    assertEquals("recovered", alerts.findById(id).block().getState());
     source.setState("warning"); source.setAlarmTime(4000L); source.setLastAlarmTime(4000L);
     as("admin", saasWriter.accept(device, source)).block();
     saved = alerts.findById(id).block(); assertEquals("open", saved.getProcessingState()); assertNull(saved.getComment()); assertNull(saved.getRecoveredTime());

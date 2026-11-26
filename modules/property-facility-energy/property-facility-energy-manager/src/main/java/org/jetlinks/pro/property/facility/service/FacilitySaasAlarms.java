@@ -1,6 +1,7 @@
 package org.jetlinks.pro.property.facility.service;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.*;
 import java.time.Duration;
 import java.lang.management.ManagementFactory;
@@ -30,6 +31,8 @@ import reactor.util.retry.Retry;
 @Slf4j
 @RequiredArgsConstructor
 public class FacilitySaasAlarms implements SmartLifecycle, FacilitySaasAlarmsMBean {
+  private static final long LOOKBACK = Duration.ofMinutes(10).toMillis();
+  private static final long RECOVERY_WINDOW = Duration.ofHours(1).toMillis();
   private final DeviceStore store;
   private final FacilityDevices devices;
   private final FacilityExecution execution;
@@ -41,6 +44,7 @@ public class FacilitySaasAlarms implements SmartLifecycle, FacilitySaasAlarmsMBe
   private final ClusterPluginScheduler scheduler = new ClusterPluginScheduler("property-facility-energy");
   private final Map<List<String>, Disposable.Swap> subscriptions = new HashMap<>();
   private final Map<List<String>, Set<String>> subscribedDevices = new HashMap<>();
+  private final Set<String> reconciling = ConcurrentHashMap.newKeySet();
   private record Selection(DeviceEntity owner, Set<String> devices) {}
   private volatile long maintained;
   private volatile boolean running;
@@ -52,28 +56,65 @@ public class FacilitySaasAlarms implements SmartLifecycle, FacilitySaasAlarmsMBe
   private boolean jobsEnabled = true;
 
   public Mono<Integer> refresh() {
-    var query = QueryParamEntity.newQuery().is("syncState", "active").notNull("projectId").noPaging().getParam();
-    return refresh(query);
+    return reconcile(null);
+  }
+
+  Mono<Integer> reconcile(DeviceEntity owner) {
+    var query = QueryParamEntity.newQuery().is("syncState", "active").notNull("projectId").noPaging();
+    if (owner != null) query.and("creatorId", owner.getCreatorId());
+    return devices.currentQuery(query.getParam(), FacilityAssetType.facilityDevice, "id")
+      .flatMapMany(this::selectedDevices)
+      .concatMap(device -> {
+        var refresh = reconcileDevice(device, owner != null);
+        return owner == null ? refresh : refresh.onErrorResume(error -> {
+          failure(device, error);
+          return Mono.empty();
+        });
+      })
+      .reduce(0, Integer::sum).doOnNext(processed::addAndGet)
+      .as(MonoTracer.create("/property/facility-energy/alerts/sync"));
+  }
+
+  Mono<Integer> reconcileDevice(DeviceEntity device, boolean advance) {
+    return Mono.defer(() -> {
+      if (!reconciling.add(device.getId())) return Mono.just(0);
+      long now = System.currentTimeMillis();
+      Long cursor = device.getSaasAlarmSyncedThrough();
+      boolean initial = cursor == null;
+      long from = initial || !advance ? now - RECOVERY_WINDOW : cursor - LOOKBACK;
+      long until = initial || !advance ? now : Math.min(now, cursor + RECOVERY_WINDOW);
+      var changed = Mono.defer(() -> cloud.changes(device.getCloudDeviceId(), from, until, initial))
+        .flatMapMany(Flux::fromIterable)
+        .concatMap(source -> writer.accept(device, source).thenReturn(1))
+        .reduce(0, Integer::sum);
+      // Only the scheduled owner can advance this cursor. A user's manual refresh can see fewer records.
+      return changed.flatMap(count -> advance && (initial || until > cursor)
+        ? store.advanceAlarmCursor(device, until).thenReturn(count) : Mono.just(count))
+        .doFinally(signal -> reconciling.remove(device.getId()));
+    });
   }
 
   Mono<Integer> refresh(CloudAlarmRecord signal) {
+    String id = signal.getAlarmRecordId() == null ? signal.getId() : signal.getAlarmRecordId();
+    if (id == null || id.isBlank()) return Mono.just(0);
     var ids = new HashSet<String>();
     if ("device".equals(signal.getSourceType()) && signal.getSourceId() != null) ids.add(signal.getSourceId());
     if ("device".equals(signal.getTargetType()) && signal.getTargetId() != null) ids.add(signal.getTargetId());
     if (ids.isEmpty()) return Mono.just(0);
     var query = QueryParamEntity.newQuery().is("syncState", "active").notNull("projectId")
       .in("cloudDeviceId", ids).noPaging().getParam();
-    return refresh(query);
+    return devices.currentDeviceQuery(query, ids)
+      .flatMapMany(this::selectedDevices)
+      .concatMap(device -> cloud.record(device.getCloudDeviceId(), id)
+        .flatMap(source -> writer.accept(device, source).thenReturn(1)))
+      .reduce(0, Integer::sum).doOnNext(processed::addAndGet)
+      .as(MonoTracer.create("/property/facility-energy/alerts/event"));
   }
 
-  private Mono<Integer> refresh(QueryParamEntity query) {
-    return devices.currentQuery(query, FacilityAssetType.facilityDevice, "id")
-      .flatMapMany(q -> store.createQuery().setParam(q).fetch()).take(20001).collectList()
+  private Flux<DeviceEntity> selectedDevices(QueryParamEntity query) {
+    return store.createQuery().setParam(query).fetch().take(20001).collectList()
       .doOnNext(rows -> FacilityScope.require(rows.size() <= 20000, "too_many"))
-      .flatMapMany(Flux::fromIterable).concatMap(device -> cloud.records(device.getCloudDeviceId())
-        .flatMapMany(Flux::fromIterable).concatMap(source -> writer.accept(device, source).thenReturn(1)))
-      .reduce(0, Integer::sum).doOnNext(processed::addAndGet)
-      .as(MonoTracer.create("/property/facility-energy/alerts/sync"));
+      .flatMapMany(Flux::fromIterable);
   }
 
   private Flux<DeviceEntity> identities() {
@@ -135,7 +176,7 @@ public class FacilitySaasAlarms implements SmartLifecycle, FacilitySaasAlarmsMBe
       var signals = topics.watch(ids).concatWith(Flux.error(new IllegalStateException("SaaS alarm subscription closed")));
       var catchup = new CloudAlarmRecord();
       return Flux.merge(signals, Flux.just(catchup)).concatMap(signal -> execution.asOwner(row,
-        () -> signal == catchup ? refresh() : refresh(signal)).onErrorResume(error -> {
+        () -> signal == catchup ? reconcile(row) : refresh(signal)).onErrorResume(error -> {
           failure(row, error); return Mono.empty();
         }), 1);
     }).doOnError(error -> failure(row, error))
@@ -160,7 +201,7 @@ public class FacilitySaasAlarms implements SmartLifecycle, FacilitySaasAlarmsMBe
     return Mono.defer(() -> {
       if (!polling.compareAndSet(false, true)) return Mono.empty();
       return identities()
-        .concatMap(row -> execution.asOwner(row, this::refresh).onErrorResume(error -> {
+        .concatMap(row -> execution.asOwner(row, () -> reconcile(row)).onErrorResume(error -> {
           failures.incrementAndGet(); lastError = error.getClass().getSimpleName();
           log.warn("Facility SaaS alarm sync failed: application={}, type={}", row.getApplicationId(), lastError);
           return Mono.empty();

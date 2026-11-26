@@ -4,6 +4,7 @@ import java.util.*;
 import lombok.RequiredArgsConstructor;
 import org.hswebframework.web.api.crud.entity.*;
 import org.jetlinks.core.metadata.*;
+import org.jetlinks.core.trace.MonoTracer;
 import org.jetlinks.core.things.ThingMetadata;
 import org.jetlinks.pro.assets.*;
 import org.jetlinks.pro.assets.impl.terms.*;
@@ -141,7 +142,9 @@ public class FacilityCloud {
     int page
   ) {
     return CommandServices.getReactive(QueryFacilityPropertyPageCommand.SERVICE_ID)
-      .flatMap(s -> s.execute(historyCommand(id, property, from, to, page)));
+      .flatMap(s -> s.execute(historyCommand(id, property, from, to, page)))
+      .switchIfEmpty(Mono.error(new IllegalStateException("Device history query returned no page")))
+      .as(MonoTracer.create("/property/facility-energy/energy/source-page"));
   }
 
   static QueryFacilityPropertyPageCommand historyCommand(
@@ -159,20 +162,6 @@ public class FacilityCloud {
         .getParam()
     );
     return cmd;
-  }
-
-  public Flux<DevicePropertyProperties> subscribe(
-    List<String> ids,
-    List<String> properties
-  ) {
-    // The public subscription command applies the same Cloud-owned asset permissions.
-    return support().flatMapMany(s ->
-      s.execute(
-        new SubscribeDevicePropertiesCommand()
-          .setDeviceIds(ids)
-          .setPropertyIds(properties)
-      )
-    );
   }
 
   Mono<org.jetlinks.core.command.CommandSupport> support() {

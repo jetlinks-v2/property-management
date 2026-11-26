@@ -5,6 +5,7 @@ import java.util.Map;
 import org.hswebframework.web.bean.FastBeanCopier;
 import org.hswebframework.web.api.crud.entity.*;
 import org.jetlinks.core.command.CommandSupport;
+import org.jetlinks.core.trace.MonoTracer;
 import org.jetlinks.pro.command.*;
 import org.jetlinks.pro.command.rule.RuleCommandServices;
 import org.jetlinks.pro.command.rule.RelievedAlarmCommand;
@@ -54,11 +55,20 @@ public class FacilityCloudAlarms {
       .switchIfEmpty(Mono.error(new org.hswebframework.web.exception.BusinessException("error.facility.alarm_source_unavailable", 503)));
   }
 
-  public Mono<List<CloudAlarmRecord>> records(String deviceId) {
-    return page(deviceId, 0).flatMap(first -> {
+  public Mono<CloudAlarmRecord> record(String deviceId, String recordId) {
+    var query = deviceQuery(deviceId).toNestQuery().is("id", recordId).doPaging(0, 1).getParam();
+    return page(query).doOnNext(pager -> FacilityScope.require(
+        pager.getTotal() == pager.getData().size(), "source_incomplete"))
+      .flatMapMany(pager -> Flux.fromIterable(pager.getData()))
+      .singleOrEmpty().doOnNext(record -> FacilityScope.require(
+        recordId.equals(record.getId()) && record.belongsTo(deviceId), "invalid_alarm_source"));
+  }
+
+  public Mono<List<CloudAlarmRecord>> changes(String deviceId, long from, long until, boolean initial) {
+    return page(changesQuery(deviceId, from, until, initial, 0)).flatMap(first -> {
       FacilityScope.require(first.getTotal() <= 20000, "too_many");
       return Flux.range(1, Math.max(0, (int) ((first.getTotal() + 199) / 200) - 1))
-        .concatMap(index -> page(deviceId, index).doOnNext(next ->
+        .concatMap(index -> page(changesQuery(deviceId, from, until, initial, index)).doOnNext(next ->
           FacilityScope.require(next.getTotal() == first.getTotal(), "source_changed")))
         .startWith(first).concatMapIterable(PagerResult::getData).collectList()
         .doOnNext(rows -> FacilityScope.require(rows.size() == first.getTotal()
@@ -66,17 +76,27 @@ public class FacilityCloudAlarms {
     });
   }
 
-  private Mono<PagerResult<CloudAlarmRecord>> page(String deviceId, int index) {
+  private Mono<PagerResult<CloudAlarmRecord>> page(QueryParamEntity query) {
     return support().flatMap(s -> s.execute(QueryPagerCommand.of(CloudAlarmRecord.class)
-      .withQueryParam(query(deviceId, index))))
-      .switchIfEmpty(Mono.error(new org.hswebframework.web.exception.BusinessException("error.facility.alarm_source_unavailable", 503)));
+      .withQueryParam(query)))
+      .switchIfEmpty(Mono.error(FacilityCloudAlarms::unavailable))
+      .as(MonoTracer.create("/property/facility-energy/alerts/source-page"));
   }
 
-  static QueryParamEntity query(String deviceId, int page) {
+  private static QueryParamEntity deviceQuery(String deviceId) {
     return QueryParamEntity.newQuery()
       .nest().is("sourceType", "device").and("sourceId", deviceId).end()
       .orNest().is("targetType", "device").and("targetId", deviceId).end()
-      .orderByAsc("id").doPaging(page, 200).getParam();
+      .getParam();
+  }
+
+  static QueryParamEntity changesQuery(String deviceId, long from, long until, boolean initial, int page) {
+    var query = deviceQuery(deviceId).toNestQuery().nest();
+    query.nest().gte("alarmTime", from).lt("alarmTime", until).end()
+      .orNest().gte("lastAlarmTime", from).lt("lastAlarmTime", until).end()
+      .orNest().gte("handleTime", from).lt("handleTime", until).end();
+    if (initial) query.or("state", "warning");
+    return query.end().orderByAsc("id").doPaging(page, 200).getParam();
   }
 
   Mono<CommandSupport> support() {

@@ -1,59 +1,66 @@
 package org.jetlinks.pro.property.facility.service;
 
 import java.time.Duration;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.jetlinks.core.trace.MonoTracer;
 import org.jetlinks.pro.property.facility.entity.*;
-import org.jetlinks.sdk.server.device.DeviceProperty;
 import org.springframework.stereotype.Service;
-import reactor.core.*;
 import reactor.core.publisher.*;
 
-/** 后台采集先补历史再订阅实时，生命周期归Job统一管理；失败不推进游标。 */
+/** 按历史来源的采样时间增量采集，全部指标成功后才推进游标。 */
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class FacilityTelemetry {
 
+  private static final long LATE_ARRIVAL_WINDOW = Duration.ofMinutes(10).toMillis();
+  private static final long RECOVERY_WINDOW = Duration.ofHours(1).toMillis();
   private final FacilityCloud cloud;
   private final FacilityReadings readings;
   private final FacilityDevices devices;
   private final MappingStore mappings;
-  private final FacilityExecution execution;
-  private final Map<String, Disposable> subscriptions =
-    new ConcurrentHashMap<>();
-  private final Map<String, Long> versions = new ConcurrentHashMap<>();
 
   public Mono<Void> collect(MappingEntity mapping) {
     return collectCurrent(mapping).filter(Boolean.TRUE::equals)
       .switchIfEmpty(Mono.error(new org.hswebframework.web.authorization.exception.AccessDenyException())).then();
   }
 
-  /** 解绑是正常暂停，不推进采集游标、不改启用配置，也不计为后台采集故障。 */
-  public Mono<Boolean> collectCurrent(MappingEntity mapping) {
-    return devices
-      .read(mapping.getDeviceId())
-      .flatMap(device -> devices.isBound(device).flatMap(bound -> {
-        if (!bound) {
-          var subscription = subscriptions.remove(mapping.getId());
-          if (subscription != null) subscription.dispose();
-          versions.remove(mapping.getId());
-          return Mono.just(false);
-        }
-        FacilityDevices.requireActive(device);
-        FacilityScope.require(Boolean.TRUE.equals(device.getEnergyEnabled()), "device_unavailable");
-        return backfill(mapping).then(
-          Mono.fromRunnable(() -> subscribe(mapping, device.getCloudDeviceId()))
-        ).thenReturn(true);
-      }));
+  /** 补采单个缺失时段时不跨过常规采集尚未完成的时间段。 */
+  public Mono<Void> collect(MappingEntity mapping, long from, long until) {
+    return Mono.defer(() -> {
+      FacilityScope.require(from >= mapping.getCreateTime() && from < until
+        && until <= System.currentTimeMillis() && until - from <= RECOVERY_WINDOW, "invalid_period");
+      return devices.read(mapping.getDeviceId()).flatMap(devices::requireBound).flatMap(device ->
+        recordResult(mapping, collectHistory(mapping, device, from, until)));
+    });
   }
 
-  private Mono<Void> backfill(MappingEntity mapping) {
-    return collectHistory(mapping)
-      .then(recordCollection(mapping, null))
+  /** 解绑是正常暂停，不推进游标。 */
+  public Mono<Boolean> collectCurrent(MappingEntity mapping) {
+    return devices.read(mapping.getDeviceId()).flatMap(device ->
+      devices.isBound(device).flatMap(bound -> bound
+        ? recordResult(mapping, collectIncrement(mapping, device)).thenReturn(true)
+        : Mono.just(false)));
+  }
+
+  private Mono<Void> collectIncrement(MappingEntity mapping, DeviceEntity device) {
+    var previous = mapping.getLastCollectedTime();
+    long cursor = previous == null ? mapping.getCreateTime() : previous;
+    long from = Math.max(mapping.getCreateTime(), cursor - LATE_ARRIVAL_WINDOW);
+    long until = Math.min(System.currentTimeMillis(), cursor + RECOVERY_WINDOW);
+    if (from >= until) return Mono.empty();
+    return collectHistory(mapping, device, from, until).then(Mono.defer(() -> {
+      if (until <= cursor) return Mono.empty();
+      var update = mappings.createUpdate().set("lastCollectedTime", until)
+        .where("id", mapping.getId()).and("version", mapping.getVersion())
+        .and("enabled", true).and("deleted", false);
+      // Manual and scheduled runs can overlap. An older result cannot overwrite a newer cursor.
+      if (previous == null) update.isNull("lastCollectedTime"); else update.and("lastCollectedTime", previous);
+      return update.execute();
+    })).then();
+  }
+
+  private Mono<Void> recordResult(MappingEntity mapping, Mono<Void> collection) {
+    return collection.then(recordCollection(mapping, null))
       .onErrorResume(error ->
         error instanceof org.hswebframework.web.authorization.exception.AccessDenyException
           ? Mono.error(error) : recordCollection(mapping, error).then(Mono.error(error))
@@ -79,106 +86,17 @@ public class FacilityTelemetry {
     });
   }
 
-  private Mono<Void> collectHistory(MappingEntity mapping) {
-    return devices.read(mapping.getDeviceId()).flatMap(devices::requireBound).flatMap(device -> {
+  private Mono<Void> collectHistory(MappingEntity mapping, DeviceEntity device, long from, long until) {
+    return Mono.defer(() -> {
       FacilityDevices.requireActive(device);
       FacilityScope.require(
         Boolean.TRUE.equals(mapping.getEnabled()) &&
           Boolean.TRUE.equals(device.getEnergyEnabled()),
         "device_unavailable"
       );
-      long until = System.currentTimeMillis(),
-        from = Math.max(
-          mapping.getCreateTime(),
-          mapping.getLastCollectedTime() == null
-            ? mapping.getCreateTime()
-            : mapping.getLastCollectedTime() - 7L * 86400000
-        );
-      return Flux.fromIterable(mapping.getMetrics())
-        .concatMap(metric ->
-          cloud
-            .history(
-              device.getCloudDeviceId(),
-              metric.getPropertyId(),
-              from,
-              until
-            )
-            .buffer(200)
-            .concatMap(batch -> readings.ingestBatch(mapping, metric, batch))
-        )
-        .then(
-          mappings
-            .createUpdate()
-            .set("lastCollectedTime", until)
-            .where("id", mapping.getId())
-            .and("version", mapping.getVersion())
-            .execute()
-        )
-        .then();
+      return Flux.fromIterable(mapping.getMetrics()).concatMap(metric ->
+        cloud.history(device.getCloudDeviceId(), metric.getPropertyId(), from, until)
+          .buffer(200).concatMap(batch -> readings.ingestBatch(mapping, metric, batch))).then();
     });
-  }
-
-  private void subscribe(MappingEntity mapping, String cloudId) {
-    String key = mapping.getId();
-    var current = subscriptions.get(key);
-    if (
-      current != null &&
-      !current.isDisposed() &&
-      Objects.equals(versions.get(key), mapping.getVersion())
-    ) return;
-    if (current != null) current.dispose();
-    versions.put(key, mapping.getVersion());
-    // Only this lifecycle boundary subscribes. Each asynchronous sample restores current application authorization.
-    var disposable = execution
-      .asOwnerFlux(mapping, () ->
-        cloud.subscribe(
-          List.of(cloudId),
-          mapping
-            .getMetrics()
-            .stream()
-            .map(m -> m.getPropertyId())
-            .toList()
-        )
-      )
-      // The SDK notification omits original timestamp/message ID. Use it as a wakeup,
-      // re-read canonical historical samples; never invent receive-time increment IDs.
-      .concatMap(values ->
-        execution.asOwner(mapping, () ->
-          mappings.findById(mapping.getId()).flatMap(this::backfill)
-        )
-      )
-      .timeout(Duration.ofHours(2))
-      .doOnError(e ->
-        log.warn(
-          "Facility subscription stopped: mapping={}, type={}",
-          key,
-          e.getClass().getSimpleName()
-        )
-      )
-      .subscribe(v -> {}, e -> {});
-    subscriptions.put(key, disposable);
-  }
-
-  public void reconcile(Set<String> active) {
-    subscriptions.keySet().removeIf(id -> {
-      if (active.contains(id)) return false;
-      subscriptions.get(id).dispose();
-      versions.remove(id);
-      return true;
-    });
-  }
-
-  public void stop() {
-    subscriptions.values().forEach(Disposable::dispose);
-    subscriptions.clear();
-    versions.clear();
-  }
-
-  public int activeSubscriptions() {
-    return (int) subscriptions
-      .values()
-      .stream()
-      .filter(d -> !d.isDisposed())
-      .count();
   }
 }

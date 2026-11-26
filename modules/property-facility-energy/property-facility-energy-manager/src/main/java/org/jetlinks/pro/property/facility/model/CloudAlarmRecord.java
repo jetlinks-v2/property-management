@@ -9,6 +9,8 @@ import lombok.Setter;
 @Setter
 public class CloudAlarmRecord {
   private String id, alarmConfigId, alarmName, sourceType, sourceId, targetType, targetId;
+  // Platform Topic bodies are history entries. Their own id is not the current record id.
+  private String alarmRecordId;
   private String description, triggerDesc, actualDesc;
   private Long alarmTime, lastAlarmTime, handleTime;
   private Integer level;

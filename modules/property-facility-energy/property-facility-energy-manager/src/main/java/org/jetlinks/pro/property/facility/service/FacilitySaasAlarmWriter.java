@@ -49,10 +49,12 @@ public class FacilitySaasAlarmWriter {
         String id = FacilityRecords.stableId(context.tenantId(), context.applicationId(), device.getId(), "saas", source.getId());
         return alerts.findById(id).map(Optional::of).defaultIfEmpty(Optional.empty()).flatMap(previous -> {
           var row = previous.orElseGet(() -> FacilityScope.initialize(new AlertEntity(), context));
-          if (previous.isPresent() && (row.getFirstTime() > source.getAlarmTime()
-            || Objects.equals(row.getFirstTime(), source.getAlarmTime()) && row.getLastTime() > lastTime(source))) return Mono.empty();
-          boolean create = previous.isEmpty(), round = create || !Objects.equals(row.getFirstTime(), source.getAlarmTime());
+          boolean sameRound = Objects.equals(row.getFirstTime(), source.getAlarmTime());
           boolean active = "warning".equals(source.stateValue());
+          if (previous.isPresent() && (row.getFirstTime() > source.getAlarmTime()
+            || sameRound && (row.getLastTime() > lastTime(source)
+              || active && "normal".equals(row.getSourceState())))) return Mono.empty();
+          boolean create = previous.isEmpty(), round = create || !Objects.equals(row.getFirstTime(), source.getAlarmTime());
           boolean levelChanged = !round && !Objects.equals(row.getSourceLevel(), source.getLevel());
           boolean send = active && (round || levelChanged);
           if (!round && !levelChanged && Objects.equals(row.getSourceState(), source.stateValue())

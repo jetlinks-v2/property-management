@@ -99,12 +99,13 @@ class FacilityJobsTest {
     fixture.polling.start();
     try {
       verify(scheduler).interval(eq("facility-rule-jobs"), any(), eq(java.time.Duration.ofSeconds(30)), eq(true));
+      verify(scheduler).interval(eq("facility-jobs"), any(), eq(java.time.Duration.ofSeconds(30)), eq(true));
+      verify(scheduler).interval(eq("facility-energy-collection"), any(), eq(java.time.Duration.ofMinutes(5)), eq(true));
       verify(fixture.alerts).evaluate(fixture.rule);
       assertTrue(fixture.polling.isRunning()); assertTrue(fixture.polling.isPolling());
     } finally { fixture.polling.stop(); }
     assertTrue(cancelled.get()); assertTrue(subscriptions.stream().allMatch(reactor.core.Disposable::isDisposed));
     assertFalse(fixture.polling.isRunning()); assertFalse(fixture.polling.isPolling());
-    verify(fixture.telemetry).stop();
     when(fixture.alerts.evaluate(any())).thenReturn(Mono.empty());
     StepVerifier.create(fixture.polling.pollRules()).verifyComplete();
     verify(fixture.alerts, times(2)).evaluate(fixture.rule);
@@ -165,8 +166,6 @@ class FacilityJobsTest {
     verify(telemetry, times(1004)).collectCurrent(any());
     verify(alerts, times(1004)).evaluate(any());
     verify(execution, times(2008)).asOwner(any(), any());
-    verify(telemetry).reconcile(argThat(ids -> ids.size() == 1002
-      && ids.contains("mapping-1003") && !ids.contains("mapping-1") && !ids.contains("mapping-2")));
     assertEquals(1, polling.getFailureCount());
     assertEquals(1002, polling.getCollectionCount());
     assertFalse(polling.isPolling());

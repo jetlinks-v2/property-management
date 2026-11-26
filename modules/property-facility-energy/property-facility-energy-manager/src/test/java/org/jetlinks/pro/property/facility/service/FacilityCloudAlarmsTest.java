@@ -93,7 +93,7 @@ class FacilityCloudAlarmsTest {
   }
 
   @Test void queryIsScopedToDeviceSourceAndTargetAndRetainsBothStates() {
-    var query = FacilityCloudAlarms.query("meter-12-201", 2);
+    var query = FacilityCloudAlarms.changesQuery("meter-12-201", 1000L, 2000L, false, 2);
     assertEquals(2, query.getPageIndex()); assertEquals(200, query.getPageSize());
     var terms = new HashMap<String, Object>();
     var pending = new ArrayDeque<>(query.getTerms());
@@ -103,6 +103,9 @@ class FacilityCloudAlarmsTest {
     }
     assertEquals("device", terms.get("sourceType")); assertEquals("meter-12-201", terms.get("sourceId"));
     assertEquals("device", terms.get("targetType")); assertEquals("meter-12-201", terms.get("targetId"));
+    assertEquals(2000L, terms.get("alarmTime"));
+    assertEquals(2000L, terms.get("lastAlarmTime"));
+    assertEquals(2000L, terms.get("handleTime"));
     assertFalse(terms.containsKey("state"));
   }
 
@@ -112,7 +115,7 @@ class FacilityCloudAlarmsTest {
     var alarm = new CloudAlarmRecord(); alarm.setId("alarm");
     var first = new PagerResult<CloudAlarmRecord>(); first.setTotal(201); first.setData(List.of(alarm));
     when(support.execute(any(QueryPagerCommand.class))).thenReturn(Mono.just(first));
-    StepVerifier.create(source.records("meter")).expectError().verify();
+    StepVerifier.create(source.changes("meter", 1, 2, false)).expectError().verify();
   }
 
   @Test void sourceStateAndSeverityAreNotInventedFromUsageValues() {
@@ -126,7 +129,7 @@ class FacilityCloudAlarmsTest {
     var support = mock(CommandSupport.class);
     var source = spy(new FacilityCloudAlarms()); doReturn(Mono.just(support)).when(source).support();
     when(support.execute(any(QueryPagerCommand.class))).thenReturn(Mono.empty());
-    StepVerifier.create(source.records("meter"))
+    StepVerifier.create(source.changes("meter", 1, 2, false))
       .expectError(org.hswebframework.web.exception.BusinessException.class).verify();
   }
 }

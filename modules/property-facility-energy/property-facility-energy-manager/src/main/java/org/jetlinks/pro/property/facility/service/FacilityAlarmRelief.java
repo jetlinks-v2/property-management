@@ -55,9 +55,8 @@ public class FacilityAlarmRelief {
   }
 
   private Mono<CloudAlarmRecord> source(DeviceEntity device, AlertEntity row) {
-    return cloud.records(device.getCloudDeviceId()).flatMapMany(reactor.core.publisher.Flux::fromIterable)
-      .filter(source -> row.getSourceRecordId().equals(source.getId()))
-      .singleOrEmpty().switchIfEmpty(Mono.error(new NotFoundException()))
+    return cloud.record(device.getCloudDeviceId(), row.getSourceRecordId())
+      .switchIfEmpty(Mono.error(new NotFoundException()))
       .doOnNext(source -> FacilityScope.require(source.belongsTo(device.getCloudDeviceId())
         && "device".equals(source.getTargetType()) && device.getCloudDeviceId().equals(source.getTargetId())
         && row.getSourceConfigId() != null && row.getSourceConfigId().equals(source.getAlarmConfigId()), "invalid_alarm_source"));

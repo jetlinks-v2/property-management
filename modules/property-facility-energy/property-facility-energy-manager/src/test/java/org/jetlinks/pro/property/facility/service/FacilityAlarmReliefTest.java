@@ -42,17 +42,17 @@ class FacilityAlarmReliefTest {
 
   @Test void sendsPlatformCommandThenVerifiesStateAndKeepsLocalHandlingSeparate() {
     var active = source("warning"); var normal = source("normal"); normal.setHandleTime(2000L);
-    when(cloud.records("cloud-meter")).thenReturn(Mono.just(List.of(active)), Mono.just(List.of(normal)));
+    when(cloud.record("cloud-meter", "platform-record")).thenReturn(Mono.just(active), Mono.just(normal));
     when(cloud.relieve(active, "valve checked")).thenReturn(Mono.empty());
     StepVerifier.create(service().relieve("local", 4, " valve checked ")).expectNext(row).verifyComplete();
     var order = inOrder(cloud, writer);
-    order.verify(cloud).records("cloud-meter"); order.verify(cloud).relieve(active, "valve checked");
-    order.verify(cloud).records("cloud-meter"); order.verify(writer).acceptRelief(device, normal, row, "valve checked");
+    order.verify(cloud).record("cloud-meter", "platform-record"); order.verify(cloud).relieve(active, "valve checked");
+    order.verify(cloud).record("cloud-meter", "platform-record"); order.verify(writer).acceptRelief(device, normal, row, "valve checked");
     assertEquals("closed", row.getProcessingState()); assertEquals("kept", row.getComment());
   }
 
   @Test void platformFailureAndUnconfirmedStateNeverWriteLocalSuccess() {
-    var active = source("warning"); when(cloud.records(anyString())).thenReturn(Mono.just(List.of(active)));
+    var active = source("warning"); when(cloud.record(anyString(), anyString())).thenReturn(Mono.just(active));
     when(cloud.relieve(any(), anyString())).thenReturn(Mono.error(new IllegalStateException("SaaS unavailable")));
     StepVerifier.create(service().relieve("local", 4, "reason")).expectError(IllegalStateException.class).verify();
     verifyNoInteractions(writer);
@@ -63,7 +63,7 @@ class FacilityAlarmReliefTest {
 
   @Test void topicWinningRecoveryRaceRetriesOnlyLocalTransactionAndStillWritesAudit() {
     var active = source("warning"); var normal = source("normal"); normal.setHandleTime(2000L);
-    when(cloud.records("cloud-meter")).thenReturn(Mono.just(List.of(active)), Mono.just(List.of(normal)));
+    when(cloud.record("cloud-meter", "platform-record")).thenReturn(Mono.just(active), Mono.just(normal));
     when(cloud.relieve(active, "checked")).thenReturn(Mono.empty());
     when(writer.acceptRelief(device, normal, row, "checked")).thenReturn(
       Mono.error(new org.hswebframework.web.exception.BusinessException("error.facility.conflict", 409)), Mono.empty());
@@ -74,25 +74,25 @@ class FacilityAlarmReliefTest {
 
   @Test void localRecoveryRetryIsBoundedAndOtherFailuresAreNotRetried() {
     var active = source("warning"); var normal = source("normal");
-    when(cloud.records("cloud-meter")).thenReturn(Mono.just(List.of(active)), Mono.just(List.of(normal)));
+    when(cloud.record("cloud-meter", "platform-record")).thenReturn(Mono.just(active), Mono.just(normal));
     when(cloud.relieve(active, "checked")).thenReturn(Mono.empty());
     when(writer.acceptRelief(device, normal, row, "checked")).thenReturn(
       Mono.error(new org.hswebframework.web.exception.BusinessException("error.facility.conflict", 409)));
     StepVerifier.create(service().relieve("local", 4, "checked")).expectError().verify();
     verify(writer, times(3)).acceptRelief(device, normal, row, "checked");
     clearInvocations(writer);
-    when(cloud.records("cloud-meter")).thenReturn(Mono.just(List.of(active)), Mono.just(List.of(normal)));
+    when(cloud.record("cloud-meter", "platform-record")).thenReturn(Mono.just(active), Mono.just(normal));
     when(writer.acceptRelief(device, normal, row, "checked")).thenReturn(Mono.error(new IllegalStateException("audit unavailable")));
     StepVerifier.create(service().relieve("local", 4, "checked")).expectError(IllegalStateException.class).verify();
     verify(writer, times(1)).acceptRelief(device, normal, row, "checked");
   }
 
   @Test void alreadyClearedOnlyReconcilesAndNewRoundMustBeRefreshed() {
-    var normal = source("normal"); when(cloud.records(anyString())).thenReturn(Mono.just(List.of(normal)));
+    var normal = source("normal"); when(cloud.record(anyString(), anyString())).thenReturn(Mono.just(normal));
     StepVerifier.create(service().relieve("local", 4, "reason")).expectNext(row).verifyComplete();
     verify(cloud, never()).relieve(any(), anyString()); verify(writer).accept(device, normal);
     var newer = source("warning"); newer.setAlarmTime(5000L);
-    when(cloud.records(anyString())).thenReturn(Mono.just(List.of(newer)));
+    when(cloud.record(anyString(), anyString())).thenReturn(Mono.just(newer));
     StepVerifier.create(service().relieve("local", 4, "reason")).expectError().verify();
     verify(cloud, never()).relieve(any(), anyString());
   }
@@ -110,7 +110,7 @@ class FacilityAlarmReliefTest {
     StepVerifier.create(service().relieve("local", 3, "reason")).expectError().verify();
     row.setSource("local"); StepVerifier.create(service().relieve("local", 4, "reason")).expectError().verify();
     row.setSource("saas"); var source = source("warning"); source.setTargetType("product");
-    when(cloud.records(anyString())).thenReturn(Mono.just(List.of(source)));
+    when(cloud.record(anyString(), anyString())).thenReturn(Mono.just(source));
     StepVerifier.create(service().relieve("local", 4, "reason")).expectError().verify();
     verify(cloud, never()).relieve(any(), anyString()); verifyNoInteractions(writer);
   }

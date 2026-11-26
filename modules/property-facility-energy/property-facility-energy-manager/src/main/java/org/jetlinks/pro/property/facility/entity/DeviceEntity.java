@@ -60,6 +60,11 @@ public class DeviceEntity extends FacilityEntity {
   @Column
   private Long lastSeenTime;
 
+  /** Last successfully queried upper bound for periodic SaaS alarm reconciliation. */
+  @com.fasterxml.jackson.annotation.JsonIgnore
+  @Column
+  private Long saasAlarmSyncedThrough;
+
   @Column(length = 256)
   private String pendingProjectId;
 

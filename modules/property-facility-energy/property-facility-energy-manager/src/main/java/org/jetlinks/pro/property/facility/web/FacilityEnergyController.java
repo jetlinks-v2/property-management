@@ -53,8 +53,11 @@ public class FacilityEnergyController {
 
   @PostMapping("/collect/{deviceId}")
   @SaveAction
-  public Mono<Void> collect(@PathVariable String deviceId) {
-    return mappings.forDevice(deviceId).flatMap(telemetry::collect);
+  public Mono<Void> collect(@PathVariable String deviceId,
+    @RequestParam(required = false) Long from, @RequestParam(required = false) Long to) {
+    FacilityScope.require((from == null) == (to == null), "invalid_period");
+    return mappings.forDevice(deviceId).flatMap(mapping ->
+      from == null ? telemetry.collect(mapping) : telemetry.collect(mapping, from, to));
   }
 
   @GetMapping("/series/{deviceId}")
