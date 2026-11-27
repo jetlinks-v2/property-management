@@ -58,12 +58,15 @@ public class FacilitySaasAlarms implements SmartLifecycle, FacilitySaasAlarmsMBe
   private boolean jobsEnabled = true;
 
   public Mono<Integer> refresh() {
-    return reconcile(null);
+    return reconcile(null, Set.of());
   }
 
-  Mono<Integer> reconcile(DeviceEntity owner) {
+  Mono<Integer> reconcile(DeviceEntity owner, Set<String> assigned) {
     var query = QueryParamEntity.newQuery().is("syncState", "active").notNull("projectId").noPaging();
-    if (owner != null) query.and("creatorId", owner.getCreatorId());
+    if (owner != null) {
+      if (assigned.isEmpty()) return Mono.just(0);
+      query.in("cloudDeviceId", assigned);
+    }
     return devices.currentQuery(query.getParam(), FacilityAssetType.facilityDevice, "id")
       .flatMapMany(this::selectedDevices)
       .concatMap(device -> {
@@ -115,12 +118,13 @@ public class FacilitySaasAlarms implements SmartLifecycle, FacilitySaasAlarmsMBe
       .reduce(0, Integer::sum);
   }
 
-  Mono<Integer> refresh(CloudAlarmRecord signal) {
+  Mono<Integer> refresh(CloudAlarmRecord signal, Set<String> assigned) {
     String id = signal.getAlarmRecordId() == null ? signal.getId() : signal.getAlarmRecordId();
     if (id == null || id.isBlank()) return Mono.just(0);
     var ids = new HashSet<String>();
     if ("device".equals(signal.getSourceType()) && signal.getSourceId() != null) ids.add(signal.getSourceId());
     if ("device".equals(signal.getTargetType()) && signal.getTargetId() != null) ids.add(signal.getTargetId());
+    ids.retainAll(assigned);
     if (ids.isEmpty()) return Mono.just(0);
     var query = QueryParamEntity.newQuery().is("syncState", "active").notNull("projectId")
       .in("cloudDeviceId", ids).noPaging().getParam();
@@ -138,34 +142,81 @@ public class FacilitySaasAlarms implements SmartLifecycle, FacilitySaasAlarmsMBe
       .flatMapMany(Flux::fromIterable);
   }
 
-  private Flux<DeviceEntity> identities() {
-    // 扫描只恢复真实身份；告警查询及每次消息落库仍经过当前应用绑定与 AssetsHolder。
-    return store.createQuery().where("deleted", false).and("syncState", "active").notNull("projectId")
-      .fetch().take(20001).collectList()
-      .doOnNext(rows -> FacilityScope.require(rows.size() <= 20000, "too_many"))
-      .flatMapMany(rows -> Flux.fromIterable(rows.stream().collect(java.util.stream.Collectors.toMap(
-        FacilitySaasAlarms::identity, row -> row, (a, b) -> a)).values()));
-  }
-
   private static List<String> identity(DeviceEntity row) {
     return List.of(row.getTenantId(), row.getApplicationId(), row.getCreatorId());
   }
 
-  Mono<Set<String>> subscriptionDevices() {
-    var query = QueryParamEntity.newQuery().is("syncState", "active").notNull("projectId").noPaging().getParam();
-    return devices.currentQuery(query, FacilityAssetType.facilityDevice, "id")
-      .flatMapMany(q -> store.createQuery().setParam(q).fetch()).take(20001).collectList()
-      .doOnNext(rows -> FacilityScope.require(rows.size() <= 20000, "too_many"))
-      .map(rows -> rows.stream().map(DeviceEntity::getCloudDeviceId).filter(Objects::nonNull)
-        .collect(java.util.stream.Collectors.toUnmodifiableSet()));
+  private synchronized Map<List<String>, Set<String>> previousAssignments() {
+    return Map.copyOf(subscribedDevices);
+  }
+
+  private Flux<Selection> assignments() {
+    // 本地扫描仅用于分派候选，分派结果须经过对应身份的当前资产权限和 SaaS 绑定校验。
+    return Flux.defer(() -> {
+      var previous = previousAssignments();
+      return store.createQuery().where("deleted", false).and("syncState", "active").notNull("projectId")
+        .notNull("cloudDeviceId").fetch().take(20001).collectList()
+        .doOnNext(rows -> FacilityScope.require(rows.size() <= 20000, "too_many"))
+        .flatMapMany(rows -> Flux.fromIterable(rows).filter(row -> row.getCloudDeviceId() != null && !row.getCloudDeviceId().isBlank())
+          .collectMultimap(row -> List.of(row.getTenantId(), row.getApplicationId()))
+          .flatMapMany(groups -> Flux.fromIterable(groups.values())))
+        .concatMap(rows -> assignApplication(rows, previous));
+    });
+  }
+
+  private Flux<Selection> assignApplication(Collection<DeviceEntity> rows, Map<List<String>, Set<String>> previous) {
+    var owners = new TreeMap<String, DeviceEntity>();
+    var remaining = new LinkedHashMap<String, DeviceEntity>();
+    for (var row : rows) {
+      if (row.getCreatorId() != null && !row.getCreatorId().isBlank()) owners.putIfAbsent(row.getCreatorId(), row);
+      remaining.put(row.getId(), row);
+    }
+    var previousOwner = new HashMap<String, String>();
+    for (var owner : owners.values()) {
+      for (var cloudId : previous.getOrDefault(identity(owner), Set.of())) previousOwner.put(cloudId, owner.getCreatorId());
+    }
+    var preferred = new HashMap<String, Set<String>>();
+    for (var row : rows) {
+      var creator = previousOwner.getOrDefault(row.getCloudDeviceId(), row.getCreatorId());
+      preferred.computeIfAbsent(creator, ignored -> new HashSet<>()).add(row.getId());
+    }
+    var selected = new LinkedHashMap<String, Set<String>>();
+    return Flux.fromIterable(owners.values())
+      .concatMap(owner -> assign(owner, preferred.getOrDefault(owner.getCreatorId(), Set.of()), remaining, selected))
+      .thenMany(Flux.fromIterable(owners.values()).concatMap(owner -> {
+        var tried = preferred.getOrDefault(owner.getCreatorId(), Set.of());
+        var fallback = new HashSet<>(remaining.keySet());
+        fallback.removeAll(tried);
+        return assign(owner, fallback, remaining, selected);
+      }))
+      .thenMany(Flux.defer(() -> {
+        if (!remaining.isEmpty()) {
+          log.warn("SaaS alarm devices have no authorized subscription owner: application={}, count={}",
+            rows.iterator().next().getApplicationId(), remaining.size());
+        }
+        return Flux.fromIterable(selected.entrySet())
+          .map(entry -> new Selection(owners.get(entry.getKey()), Set.copyOf(entry.getValue())));
+      }));
+  }
+
+  private Mono<Void> assign(DeviceEntity owner, Set<String> candidates, Map<String, DeviceEntity> remaining,
+    Map<String, Set<String>> selected) {
+    if (candidates.isEmpty()) return Mono.empty();
+    var query = QueryParamEntity.newQuery().in("id", candidates).is("syncState", "active").notNull("projectId").getParam();
+    return execution.asOwner(owner, () -> devices.currentIds(query)).doOnNext(allowed -> {
+      for (var id : allowed) {
+        if (!candidates.contains(id)) continue;
+        var device = remaining.remove(id);
+        if (device != null) selected.computeIfAbsent(owner.getCreatorId(), ignored -> new HashSet<>()).add(device.getCloudDeviceId());
+      }
+    }).onErrorResume(error -> {
+      failure(owner, error);
+      return Mono.empty();
+    }).then();
   }
 
   Mono<Void> maintain() {
-    return identities().concatMap(row -> execution.asOwner(row, this::subscriptionDevices)
-        .map(ids -> new Selection(row, ids)).onErrorResume(error -> {
-          failure(row, error); return Mono.empty();
-        }))
-      .collectList().doOnNext(this::maintain).then().doOnError(error -> {
+    return assignments().collectList().doOnNext(this::maintain).then().doOnError(error -> {
         failures.incrementAndGet(); lastError = error.getClass().getSimpleName();
         log.warn("Facility SaaS alarm subscription scan failed: type={}", lastError);
       });
@@ -197,7 +248,7 @@ public class FacilitySaasAlarms implements SmartLifecycle, FacilitySaasAlarmsMBe
       var signals = topics.watch(ids).concatWith(Flux.error(new IllegalStateException("SaaS alarm subscription closed")));
       var catchup = new CloudAlarmRecord();
       return Flux.merge(signals, Flux.just(catchup)).concatMap(signal -> execution.asOwner(row,
-        () -> signal == catchup ? reconcile(row) : refresh(signal)).onErrorResume(error -> {
+        () -> signal == catchup ? reconcile(row, ids) : refresh(signal, ids)).onErrorResume(error -> {
           failure(row, error); return Mono.empty();
         }), 1);
     }).doOnError(error -> failure(row, error))
@@ -221,10 +272,9 @@ public class FacilitySaasAlarms implements SmartLifecycle, FacilitySaasAlarmsMBe
   public Mono<Void> poll() {
     return Mono.defer(() -> {
       if (!polling.compareAndSet(false, true)) return Mono.empty();
-      return identities()
-        .concatMap(row -> execution.asOwner(row, () -> reconcile(row)).onErrorResume(error -> {
-          failures.incrementAndGet(); lastError = error.getClass().getSimpleName();
-          log.warn("Facility SaaS alarm sync failed: application={}, type={}", row.getApplicationId(), lastError);
+      return assignments()
+        .concatMap(row -> execution.asOwner(row.owner(), () -> reconcile(row.owner(), row.devices())).onErrorResume(error -> {
+          failure(row.owner(), error);
           return Mono.empty();
         })).then().doOnError(error -> {
           failures.incrementAndGet(); lastError = error.getClass().getSimpleName();

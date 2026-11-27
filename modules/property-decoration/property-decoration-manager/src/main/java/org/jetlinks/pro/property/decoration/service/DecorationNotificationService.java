@@ -2,6 +2,7 @@ package org.jetlinks.pro.property.decoration.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hswebframework.ezorm.rdb.mapping.ReactiveUpdate;
 import org.hswebframework.web.api.crud.entity.PagerResult;
 import org.hswebframework.web.api.crud.entity.QueryParamEntity;
 import org.hswebframework.web.crud.query.QueryHelper;
@@ -17,6 +18,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
@@ -25,6 +27,8 @@ import java.util.concurrent.atomic.AtomicLong;
 /** 业务事务内只入队；站内信提交后投递，故障不回滚装修办理，也不冒充消息已送达。 */
 @Service @Slf4j @RequiredArgsConstructor
 public class DecorationNotificationService {
+    private static final Duration DELIVERY_LEASE = Duration.ofMinutes(1);
+    private static final Duration DELIVERY_TIMEOUT = Duration.ofSeconds(20);
     private final DecorationNotificationRepository repository;
     private final DecorationApplicationRepository applications;
     private final DecorationScope scope;
@@ -106,43 +110,61 @@ public class DecorationNotificationService {
 
     /** 有界数据库分页及租约CAS；远端无幂等收据，成功应答丢失时可能至少投递一次。 */
     public Mono<Void> poll() {
-        long now=System.currentTimeMillis();
-        var query=QueryParamEntity.newQuery().where("state","in",List.of("pending","sending"))
-            .and("nextAttemptTime","lte",now).orderByAsc("nextAttemptTime").orderByAsc("id").getParam();
-        query.setPageIndex(0);query.setPageSize(50);
-        return repository.createQuery().setParam(query).fetch().collectList().doOnNext(rows->pendingObserved=rows.size())
-            .flatMapMany(Flux::fromIterable).concatMap(notice->deliver(notice,now)).then()
-            .as(MonoTracer.create("/property/decoration/notifications"));
+        return poll(Clock.systemUTC());
     }
-    private Mono<Void> deliver(DecorationNotificationEntity notice,long now) {
-        int attempt=notice.getAttempts()+1;
-        return repository.createUpdate().set("state","sending").set("attempts",attempt).set("nextAttemptTime",now+60_000)
-            .where("id",notice.getId()).and("state",notice.getState()).and("nextAttemptTime",notice.getNextAttemptTime())
-            .execute().filter(n->n==1).flatMap(ignore->sendCurrent(notice)
-                .onErrorResume(error->{
-                    failures.incrementAndGet();String type=error.getClass().getSimpleName();
-                    if(error instanceof ObsoleteRecipientException)return repository.createUpdate().set("state","cancelled").where("id",notice.getId()).execute().then();
-                    log.warn("Decoration notice delivery failed: id={}, errorType={}",notice.getId(),type);
-                    return repository.createUpdate().set("state","pending").set("lastErrorType",type)
-                        .set("nextAttemptTime",System.currentTimeMillis()+retryDelay(attempt)).where("id",notice.getId()).execute().then();
-                })).then();
+
+    Mono<Void> poll(Clock clock) {
+        return Mono.defer(() -> {
+            var query = QueryParamEntity.newQuery().where("state", "in", List.of("pending", "sending"))
+                .and("nextAttemptTime", "lte", clock.millis()).orderByAsc("nextAttemptTime").orderByAsc("id").getParam();
+            query.setPageIndex(0);
+            query.setPageSize(50);
+            return repository.createQuery().setParam(query).fetch().collectList().doOnNext(rows -> pendingObserved = rows.size())
+                .flatMapMany(Flux::fromIterable).concatMap(notice -> deliver(notice, clock)).then();
+        }).as(MonoTracer.create("/property/decoration/notifications"));
     }
-    private Mono<Void> sendCurrent(DecorationNotificationEntity notice) {
+
+    private Mono<Void> deliver(DecorationNotificationEntity notice, Clock clock) {
+        int attempt = Objects.requireNonNullElse(notice.getAttempts(), 0) + 1;
+        var claim = repository.createUpdate().set("state", "sending").set("attempts", attempt)
+            .set("nextAttemptTime", clock.millis() + DELIVERY_LEASE.toMillis())
+            .where("id", notice.getId()).and("state", notice.getState()).and("nextAttemptTime", notice.getNextAttemptTime());
+        if (notice.getAttempts() == null) claim.isNull("attempts");
+        else claim.and("attempts", notice.getAttempts());
+        return claim.execute().filter(count -> count == 1).flatMap(ignore -> sendCurrent(notice)
+            .timeout(DELIVERY_TIMEOUT)
+            .onErrorReturn(ObsoleteRecipientException.class, false)
+            .onErrorResume(error -> {
+                failures.incrementAndGet();
+                String type = error.getClass().getSimpleName();
+                log.warn("Decoration notice delivery failed: id={}, errorType={}", notice.getId(), type);
+                return claimed(notice, attempt).set("state", "pending").set("lastErrorType", type)
+                    .set("nextAttemptTime", clock.millis() + retryDelay(attempt)).execute().then(Mono.empty());
+            })
+            .flatMap(delivered -> {
+                boolean sentToUser = delivered && !notice.getUserId().isEmpty();
+                var result = claimed(notice, attempt).set("state", sentToUser ? "sent" : delivered ? "expanded" : "cancelled");
+                if (sentToUser) result.set("sentTime", clock.millis());
+                return result.execute().doOnNext(count -> {
+                    if (count == 1 && sentToUser) sent.incrementAndGet();
+                });
+            })).then();
+    }
+
+    private ReactiveUpdate<DecorationNotificationEntity> claimed(DecorationNotificationEntity notice, int attempt) {
+        // attempts 标识本次领用，过期后旧实例的迟到结果不能覆盖新一轮。
+        return repository.createUpdate().where("id", notice.getId()).and("state", "sending").and("attempts", attempt);
+    }
+
+    private Mono<Boolean> sendCurrent(DecorationNotificationEntity notice) {
         // 发件快照不得在申请删除、归属改变后继续向旧收件人投递；无身份令牌写入通知链接。
         return applications.findById(notice.getDecorationId()).filter(row->!Boolean.TRUE.equals(row.getDeleted())
                 &&Objects.equals(row.getTenantId(),notice.getTenantId())&&Objects.equals(row.getApplicationId(),notice.getApplicationId())
                 &&Objects.equals(row.getProjectId(),notice.getProjectId()))
             .filterWhen(row -> "staff".equals(notice.getRecipientSide()) ? currentTask(notice).hasElement()
                 : Mono.just(Objects.equals(row.getOwnerUserId(),notice.getUserId())))
-            .flatMap(row->send(notice).timeout(Duration.ofSeconds(20))
-                .then(Mono.defer(() -> {
-                    boolean expanded=notice.getUserId().isEmpty();
-                    var update=repository.createUpdate().set("state",expanded?"expanded":"sent");
-                    if(!expanded)update.set("sentTime",System.currentTimeMillis());
-                    return update.where("id",notice.getId()).execute();
-                })).doOnNext(ignore->{if(!notice.getUserId().isEmpty())sent.incrementAndGet();}).thenReturn(true))
-            .switchIfEmpty(repository.createUpdate().set("state","cancelled").where("id",notice.getId()).execute().thenReturn(false))
-            .then().contextWrite(TenantHolder.makeCurrent(notice.getTenantId()));
+            .flatMap(row -> send(notice).thenReturn(true))
+            .defaultIfEmpty(false).contextWrite(TenantHolder.makeCurrent(notice.getTenantId()));
     }
     private Mono<Void> send(DecorationNotificationEntity notice) {
         if(!"staff".equals(notice.getRecipientSide()))return sender.send(notice);

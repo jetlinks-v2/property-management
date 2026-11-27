@@ -31,8 +31,10 @@ import org.testcontainers.containers.GenericContainer;
 import reactor.core.publisher.*;
 import reactor.test.StepVerifier;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -157,6 +159,66 @@ class DecorationPersistenceTest {
         when(mailSender.send(any())).thenReturn(Mono.empty());notifications.poll().block(WAIT);
         notice=notificationRows.findById(notice.getId()).block(WAIT);assertEquals("sent",notice.getState());assertNotNull(notice.getSentTime());assertEquals(2,notice.getAttempts());
     }
+    @Test void expiredNoticeAttemptCannotOverwriteTheNextDelivery(){
+        createSigned(create("notice-lease"),true).contextWrite(auth("owner")).block(WAIT);
+        var notice=notificationRows.createQuery().fetchOne().block(WAIT);
+        var started=Sinks.<Void>empty();
+        var release=Sinks.<Void>empty();
+        when(mailSender.send(any())).thenReturn(Mono.defer(()->{
+            started.tryEmitEmpty();
+            return release.asMono();
+        }),Mono.empty());
+
+        StepVerifier.create(notifications.poll()).then(()->{
+            started.asMono().block(WAIT);
+            notificationRows.createUpdate().set("nextAttemptTime",0L).where("id",notice.getId()).execute().block(WAIT);
+            notifications.poll().block(WAIT);
+            assertEquals("sent",notificationRows.findById(notice.getId()).block(WAIT).getState());
+            release.tryEmitError(new IllegalStateException("old request completed late"));
+        }).expectComplete().verify(WAIT);
+
+        var current=notificationRows.findById(notice.getId()).block(WAIT);
+        assertEquals(2,current.getAttempts());
+        assertEquals("sent",current.getState());
+        assertNotNull(current.getSentTime());
+    }
+
+    @Test void leaseStartsWhenTheQueuedNoticeIsClaimed(){
+        createSigned(create("queued-notice"),true).contextWrite(auth("owner")).block(WAIT);
+        var first=notificationRows.createQuery().fetchOne().block(WAIT);
+        var second=new DecorationNotificationEntity();
+        org.hswebframework.web.bean.FastBeanCopier.copy(first,second);
+        second.setId("queued-notice");
+        second.setNextAttemptTime(first.getNextAttemptTime()+1);
+        notificationRows.insert(second).block(WAIT);
+        var time=new AtomicLong(second.getNextAttemptTime());
+        var clock=mock(Clock.class);
+        when(clock.millis()).thenAnswer(call->time.get());
+        var firstStarted=Sinks.<Void>empty();
+        var secondStarted=Sinks.<Void>empty();
+        var firstDone=Sinks.<Void>empty();
+        var secondDone=Sinks.<Void>empty();
+        when(mailSender.send(argThat(row->row!=null&&first.getId().equals(row.getId()))))
+            .thenReturn(Mono.defer(()->{firstStarted.tryEmitEmpty(); return firstDone.asMono();}));
+        when(mailSender.send(argThat(row->row!=null&&second.getId().equals(row.getId()))))
+            .thenReturn(Mono.defer(()->{secondStarted.tryEmitEmpty(); return secondDone.asMono();}));
+
+        StepVerifier.create(notifications.poll(clock)).then(()->{
+            firstStarted.asMono().block(WAIT);
+            long claimTime=time.addAndGet(61_000);
+            firstDone.tryEmitEmpty();
+            secondStarted.asMono().block(WAIT);
+            var claimed=notificationRows.findById(second.getId()).block(WAIT);
+            assertEquals("sending",claimed.getState());
+            assertEquals(claimTime+60_000,claimed.getNextAttemptTime());
+            notifications.poll(clock).block(WAIT);
+            assertEquals(1,notificationRows.findById(second.getId()).block(WAIT).getAttempts());
+            secondDone.tryEmitEmpty();
+        }).expectComplete().verify(WAIT);
+        assertEquals("sent",notificationRows.findById(second.getId()).block(WAIT).getState());
+        verify(mailSender,times(1)).send(argThat(row->second.getId().equals(row.getId())));
+    }
+
     @Test void employeeTaskAndRectificationNoticesAreScopedRetryableAndTransactional(){
         var row=ready();task(row,"notice-acceptance",1,"firstAcceptance","staff","pending");
         var acceptance=tasks.findById("notice-acceptance").block(WAIT);
