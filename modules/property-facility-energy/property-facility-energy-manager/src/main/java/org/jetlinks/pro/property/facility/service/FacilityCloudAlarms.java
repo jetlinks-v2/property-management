@@ -64,6 +64,18 @@ public class FacilityCloudAlarms {
         recordId.equals(record.getId()) && record.belongsTo(deviceId), "invalid_alarm_source"));
   }
 
+  Mono<List<CloudAlarmRecord>> records(String deviceId, List<String> recordIds) {
+    var query = deviceQuery(deviceId).toNestQuery().in("id", recordIds).doPaging(0, recordIds.size()).getParam();
+    return page(query).map(pager -> {
+      var rows = pager.getData();
+      FacilityScope.require(pager.getTotal() == rows.size()
+        && rows.stream().map(CloudAlarmRecord::getId).distinct().count() == rows.size(), "source_incomplete");
+      FacilityScope.require(rows.stream().allMatch(record -> recordIds.contains(record.getId())
+        && record.belongsTo(deviceId)), "invalid_alarm_source");
+      return rows;
+    });
+  }
+
   public Mono<List<CloudAlarmRecord>> changes(String deviceId, long from, long until, boolean initial) {
     return page(changesQuery(deviceId, from, until, initial, 0)).flatMap(first -> {
       FacilityScope.require(first.getTotal() <= 20000, "too_many");

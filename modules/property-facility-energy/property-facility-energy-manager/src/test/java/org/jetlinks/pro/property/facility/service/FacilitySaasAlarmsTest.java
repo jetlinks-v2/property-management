@@ -12,6 +12,7 @@ import java.util.function.Supplier;
 import org.hswebframework.ezorm.rdb.mapping.ReactiveQuery;
 import org.jetlinks.core.event.EventBus;
 import org.jetlinks.pro.plugin.context.ClusterPluginScheduler;
+import org.jetlinks.pro.property.facility.entity.AlertEntity;
 import org.jetlinks.pro.property.facility.entity.DeviceEntity;
 import org.jetlinks.pro.property.facility.model.CloudAlarmRecord;
 
@@ -42,7 +43,7 @@ class FacilitySaasAlarmsTest {
       return Mono.just(new org.hswebframework.web.api.crud.entity.PagerResult<>(1, List.of(record)));
     }).when(support).execute(any(org.jetlinks.sdk.server.commons.cmd.QueryPagerCommand.class));
     when(writer.accept(row, record)).thenReturn(Mono.empty());
-    var service = new FacilitySaasAlarms(store, devices, mock(FacilityExecution.class), cloud, writer, mock(FacilityAlarmTopics.class));
+    var service = new FacilitySaasAlarms(store, devices, mock(FacilityExecution.class), cloud, writer, mock(FacilityAlarmTopics.class), mock(AlertStore.class));
     var event = org.hswebframework.web.bean.FastBeanCopier.copy(Map.of(
       "id", "alarm-history-id", "alarmRecordId", "authoritative-record",
       "targetType", "device", "targetId", "meter"), new CloudAlarmRecord());
@@ -81,7 +82,7 @@ class FacilitySaasAlarmsTest {
     when(writer.accept(row, cleared)).thenReturn(Mono.error(new IllegalStateException("write failed")), Mono.empty());
     when(store.advanceAlarmCursor(row, until)).thenReturn(Mono.just(1));
     var service = new FacilitySaasAlarms(store, mock(FacilityDevices.class), execution(), cloud, writer,
-      mock(FacilityAlarmTopics.class));
+      mock(FacilityAlarmTopics.class), mock(AlertStore.class));
 
     StepVerifier.create(service.reconcileDevice(row, true)).expectError(IllegalStateException.class).verify();
     verifyNoInteractions(store);
@@ -90,12 +91,43 @@ class FacilitySaasAlarmsTest {
     verify(store).advanceAlarmCursor(row, until);
   }
 
+  @Test @SuppressWarnings("unchecked")
+  void initialCatchupChecksOldOpenRecordsAndPreservesCursorOnSourceFailure() {
+    var store = mock(DeviceStore.class);
+    var cloud = mock(FacilityCloudAlarms.class);
+    var writer = mock(FacilitySaasAlarmWriter.class);
+    var alerts = mock(AlertStore.class);
+    ReactiveQuery<AlertEntity> query = mock(ReactiveQuery.class, RETURNS_SELF);
+    when(alerts.createQuery()).thenReturn(query);
+    var row = device("a"); row.setCloudDeviceId("meter");
+    var open = new AlertEntity(); open.setSourceRecordId("old-record");
+    when(query.fetch()).thenReturn(Flux.just(open));
+    var cleared = signal("meter");
+    cleared.setId("old-record"); cleared.setState("normal");
+    cleared.setAlarmTime(1L); cleared.setHandleTime(2L);
+    when(cloud.changes(eq("meter"), anyLong(), anyLong(), eq(true))).thenReturn(Mono.just(List.of()));
+    when(cloud.records("meter", List.of("old-record")))
+      .thenReturn(Mono.error(new IllegalStateException("source unavailable")), Mono.just(List.of(cleared)));
+    when(writer.accept(row, cleared)).thenReturn(Mono.empty());
+    when(store.advanceAlarmCursor(eq(row), anyLong())).thenReturn(Mono.just(1));
+    var service = new FacilitySaasAlarms(store, mock(FacilityDevices.class), execution(), cloud, writer,
+      mock(FacilityAlarmTopics.class), alerts);
+
+    StepVerifier.create(service.reconcileDevice(row, true)).expectError(IllegalStateException.class).verify();
+    verifyNoInteractions(writer, store);
+    StepVerifier.create(service.reconcileDevice(row, true)).expectNext(1).verifyComplete();
+    var ordered = inOrder(writer, store);
+    ordered.verify(writer).accept(row, cleared);
+    ordered.verify(store).advanceAlarmCursor(eq(row), anyLong());
+    verify(query, times(2)).and("state", "open");
+  }
+
   @Test void aFailedEventDoesNotStopLaterSignalsAndEachRestoresCurrentPermissions() {
     var execution = execution(); var cloud = mock(FacilityCloudAlarms.class); var topics = mock(FacilityAlarmTopics.class);
     var signals = Sinks.many().unicast().<CloudAlarmRecord>onBackpressureBuffer();
     when(topics.watch(anySet())).thenReturn(signals.asFlux());
     var service = spy(new FacilitySaasAlarms(mock(DeviceStore.class), mock(FacilityDevices.class), execution, cloud,
-      mock(FacilitySaasAlarmWriter.class), topics));
+      mock(FacilitySaasAlarmWriter.class), topics, mock(AlertStore.class)));
     doReturn(Mono.just(0)).when(service).reconcile(any());
     var denied = signal("revoked"); var permitted = signal("permitted");
     doReturn(Mono.error(new org.hswebframework.web.authorization.exception.AccessDenyException())).when(service).refresh(denied);
@@ -116,7 +148,7 @@ class FacilitySaasAlarmsTest {
     var second = Sinks.many().unicast().<CloudAlarmRecord>onBackpressureBuffer();
     when(topics.watch(anySet())).thenAnswer(call -> streams.incrementAndGet() == 1 ? first.asFlux() : second.asFlux());
     var service = spy(new FacilitySaasAlarms(mock(DeviceStore.class), mock(FacilityDevices.class), execution, cloud,
-      mock(FacilitySaasAlarmWriter.class), topics));
+      mock(FacilitySaasAlarmWriter.class), topics, mock(AlertStore.class)));
     doReturn(Mono.just(0)).when(service).reconcile(any());
     StepVerifier.withVirtualTime(() -> service.listen(device("a"), Set.of("meter"))).expectNext(0)
       .then(() -> first.tryEmitError(new IllegalStateException("connection lost")))
@@ -132,7 +164,7 @@ class FacilitySaasAlarmsTest {
     var a = device("a"); var b = device("b");
     when(query.fetch()).thenReturn(Flux.just(a, b));
     var service = spy(new FacilitySaasAlarms(store, mock(FacilityDevices.class), execution(),
-      mock(FacilityCloudAlarms.class), mock(FacilitySaasAlarmWriter.class), mock(FacilityAlarmTopics.class)));
+      mock(FacilityCloudAlarms.class), mock(FacilitySaasAlarmWriter.class), mock(FacilityAlarmTopics.class), mock(AlertStore.class)));
     doReturn(Mono.just(Set.of("meter"))).when(service).subscriptionDevices();
     var aClosed = new AtomicInteger(); var bClosed = new AtomicInteger();
     doReturn(Flux.<Integer>never().doOnCancel(aClosed::incrementAndGet)).when(service).listen(a, Set.of("meter"));
@@ -160,7 +192,7 @@ class FacilitySaasAlarmsTest {
     when(store.createQuery()).thenReturn(query);
     var row = device("a"); when(query.fetch()).thenReturn(Flux.just(row));
     var service = spy(new FacilitySaasAlarms(store, mock(FacilityDevices.class), execution(),
-      mock(FacilityCloudAlarms.class), mock(FacilitySaasAlarmWriter.class), mock(FacilityAlarmTopics.class)));
+      mock(FacilityCloudAlarms.class), mock(FacilitySaasAlarmWriter.class), mock(FacilityAlarmTopics.class), mock(AlertStore.class)));
     var closed = new AtomicInteger();
     doReturn(Flux.<Integer>never().doOnCancel(closed::incrementAndGet)).when(service).listen(eq(row), anySet());
     org.springframework.test.util.ReflectionTestUtils.setField(service, "running", true);
@@ -190,7 +222,7 @@ class FacilitySaasAlarmsTest {
       var bus = mock(EventBus.class);
       var topics = new FacilityAlarmTopics(bus, "_default", "jetlinks-smart-park");
       var service = spy(new FacilitySaasAlarms(mock(DeviceStore.class), mock(FacilityDevices.class), execution(),
-        mock(FacilityCloudAlarms.class), mock(FacilitySaasAlarmWriter.class), topics));
+        mock(FacilityCloudAlarms.class), mock(FacilitySaasAlarmWriter.class), topics, mock(AlertStore.class)));
       doReturn(Mono.empty()).when(service).poll();
       try {
         service.start();
@@ -217,7 +249,7 @@ class FacilitySaasAlarmsTest {
     when(execution.asOwner(eq(first), any())).thenReturn(Mono.error(new IllegalStateException("unavailable")));
     when(execution.asOwner(eq(second), any())).thenReturn(Mono.just(0));
     var service = new FacilitySaasAlarms(store, mock(FacilityDevices.class), execution,
-      mock(FacilityCloudAlarms.class), mock(FacilitySaasAlarmWriter.class), mock(FacilityAlarmTopics.class));
+      mock(FacilityCloudAlarms.class), mock(FacilitySaasAlarmWriter.class), mock(FacilityAlarmTopics.class), mock(AlertStore.class));
     StepVerifier.create(service.poll()).verifyComplete();
     verify(execution).asOwner(eq(first), any()); verify(execution).asOwner(eq(second), any());
     assertEquals(1, service.getFailureCount()); assertFalse(service.isPolling());
@@ -229,7 +261,7 @@ class FacilitySaasAlarmsTest {
     ReactiveQuery<DeviceEntity> query = mock(ReactiveQuery.class, RETURNS_SELF);
     when(store.createQuery()).thenReturn(query); when(query.fetch()).thenReturn(Flux.never());
     var service = new FacilitySaasAlarms(store, mock(FacilityDevices.class), mock(FacilityExecution.class),
-      mock(FacilityCloudAlarms.class), mock(FacilitySaasAlarmWriter.class), mock(FacilityAlarmTopics.class));
+      mock(FacilityCloudAlarms.class), mock(FacilitySaasAlarmWriter.class), mock(FacilityAlarmTopics.class), mock(AlertStore.class));
     var subscription = service.poll().subscribe(); assertTrue(service.isPolling());
     StepVerifier.create(service.poll()).verifyComplete(); verify(store, times(1)).createQuery();
     subscription.dispose(); assertFalse(service.isPolling());

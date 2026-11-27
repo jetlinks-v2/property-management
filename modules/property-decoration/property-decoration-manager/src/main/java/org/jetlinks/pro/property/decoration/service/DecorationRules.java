@@ -41,7 +41,8 @@ public final class DecorationRules {
         return permit != null && (permit.getCollectedTime() != null
             || permit.getPrintTime() != null || permit.getDownloadTime() != null);
     }
-    public static void active(DecorationApplicationEntity row) { require(row.getRefundStatus() != 2 && row.getActualEndTime() == null, "ended"); }
+    static boolean refunded(DecorationApplicationEntity row) { return Integer.valueOf(2).equals(row.getRefundStatus()); }
+    public static void active(DecorationApplicationEntity row) { require(!refunded(row) && row.getActualEndTime() == null, "ended"); }
     public static void editable(DecorationApplicationEntity row) {
         active(row); require(row.getPaymentStatus() == 0 && row.getPermit() == null, "payment_locked");
     }

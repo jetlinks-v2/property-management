@@ -28,7 +28,6 @@ public class FacilityAlertController {
   private final AlertEpisodeStore episodes;
   private final ProcessStore processes;
   private final FacilitySaasAlarms saas;
-  private final FacilityDevices devices;
   private final FacilityCloudAlarms cloud;
   private final FacilityScope scope;
   private final FacilityAlarmRelief relief;
@@ -55,12 +54,8 @@ public class FacilityAlertController {
   @PostMapping("/_query")
   @QueryAction
   public Mono<PagerResult<AlertEntity>> query(@RequestBody QueryParamEntity q) {
-    return devices.currentIds().flatMap(ids -> {
-      var current = q.clone().toNestQuery().notNull("deviceId")
-        .in("ruleType", List.of("saas", "overdue", "dueSoon"));
-      if (ids.isEmpty()) current.isNull("id"); else current.in("deviceId", ids);
-      return queries.childrenInProjects(alerts, current.getParam(), FacilityAssetType.facilityDevice, "deviceId");
-    });
+    var current = q.clone().toNestQuery().notNull("deviceId").in("ruleType", List.of("saas", "overdue", "dueSoon"));
+    return queries.currentDeviceChildren(alerts, current.getParam(), FacilityAssetType.facilityDevice, "deviceId", true);
   }
 
   @GetMapping("/{id}") @QueryAction

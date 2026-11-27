@@ -7,7 +7,10 @@ import com.alibaba.fastjson.JSON;
 
 import lombok.RequiredArgsConstructor;
 
+import org.hswebframework.ezorm.rdb.executor.SqlRequests;
+import org.hswebframework.ezorm.rdb.executor.wrapper.ResultWrappers;
 import org.hswebframework.ezorm.rdb.mapping.ReactiveRepository;
+import org.hswebframework.ezorm.rdb.operator.DatabaseOperator;
 import org.hswebframework.web.api.crud.entity.*;
 import org.hswebframework.web.authorization.Authentication;
 import org.hswebframework.web.crud.query.QueryHelper;
@@ -36,6 +39,7 @@ public class AllocationService {
     private final ReactiveRepository<AllocationBookEntity, String> books;
     private final ReactiveRepository<AllocationNumberEntity, String> numbers;
     private final ReactiveRepository<AllocationLogEntity, String> logs;
+    private final DatabaseOperator database;
     private static final List<String> EDITABLE_FIELDS =
             List.of(
                     "buyDate",
@@ -63,6 +67,21 @@ public class AllocationService {
     private record Actor(Authentication auth, String tenant) {}
 
     private record Prepared(AllocationInput input, AllocationBookEntity row) {}
+
+    private static long poolKey(String tenant, String project, AllocationBookEntity book) {
+        var digest = PaymentRules.digest(JSON.toJSONString(
+                List.of("property.finance.allocation.pool", tenant, project, book.getBillType(), book.getBillCode())));
+        return Long.parseUnsignedLong(digest.substring(0, 16), 16);
+    }
+
+    private Mono<Void> lockPools(Flux<Long> keys) {
+        // 批量插入可能重排号码，按固定顺序锁同一唯一键范围，锁随事务自动释放。
+        return keys.distinct().sort()
+                .concatMap(key -> database.sql().reactive().select(
+                        SqlRequests.of("select true as acquired from pg_advisory_xact_lock(?)", key),
+                        ResultWrappers.map()))
+                .then();
+    }
 
     public Mono<Options> options(String project) {
         return scope.project(project, CrudAssetPermission.read)
@@ -149,7 +168,9 @@ public class AllocationService {
                     return Flux.fromIterable(input)
                             .concatMap(i -> prepare(i, null))
                             .collectList()
-                            .flatMapMany(Flux::fromIterable)
+                            .flatMapMany(prepared -> lockPools(Flux.fromIterable(prepared)
+                                    .map(template -> poolKey(actor.tenant(), project, template.row())))
+                                    .thenMany(Flux.fromIterable(prepared)))
                             .concatMap(
                                     template ->
                                             Flux.range(0, template.input().bookCount())
@@ -199,7 +220,10 @@ public class AllocationService {
         version(old.getVersion(), input.version());
         return unused(old.getId())
                 .then(prepare(input, old))
-                .flatMap(prepared -> writeReplacement(old, prepared.row(), actor.auth()));
+                .flatMap(prepared -> lockPools(Flux.just(
+                                poolKey(old.getTenantId(), old.getProjectId(), old),
+                                poolKey(old.getTenantId(), old.getProjectId(), prepared.row())))
+                        .then(Mono.defer(() -> writeReplacement(old, prepared.row(), actor.auth()))));
     }
 
     private Mono<AllocationBookEntity> writeReplacement(

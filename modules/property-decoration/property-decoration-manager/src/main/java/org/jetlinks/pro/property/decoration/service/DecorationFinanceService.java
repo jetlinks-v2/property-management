@@ -99,7 +99,7 @@ public class DecorationFinanceService {
     record RefundPlan(String stage, BigDecimal amount, boolean last) {}
     /** 二验通过后按冻结协议一次性结算；历史分期配置合并总额，并扣除已核验退款。 */
     static RefundPlan refundPlan(DecorationApplicationEntity row) {
-        require(row.getPaymentStatus() == 2 && row.getRefundStatus() != 2, "refund_not_allowed");
+        require(row.getPaymentStatus() == 2 && !DecorationRules.refunded(row), "refund_not_allowed");
         require("acceptance_passed".equals(row.getStatus()), "refund_not_allowed");
         var agreement = row.getDetails().getAgreement();
         BigDecimal total = agreement.getRefundAmount();

@@ -26,7 +26,7 @@ record DecorationProgressNotice(String code,String step) {
             case "second_acceptance_failed" -> new DecorationProgressNotice("secondFailed","second");
             case "pending_second_acceptance" -> new DecorationProgressNotice("firstPassed","second");
             case "acceptance_passed" -> new DecorationProgressNotice("secondPassed","refund");
-            case "finished" -> row.getRefundStatus()!=null&&row.getRefundStatus()==2
+            case "finished" -> DecorationRules.refunded(row)
                 ?new DecorationProgressNotice("finished","refund"):null;
             default -> null;
         };

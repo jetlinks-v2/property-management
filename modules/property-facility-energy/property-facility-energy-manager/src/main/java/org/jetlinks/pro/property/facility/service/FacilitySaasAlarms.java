@@ -13,6 +13,7 @@ import org.jetlinks.core.trace.MonoTracer;
 import org.jetlinks.pro.plugin.context.ClusterPluginScheduler;
 import org.jetlinks.pro.property.facility.asset.FacilityAssetType;
 import org.jetlinks.pro.property.facility.entity.DeviceEntity;
+import org.jetlinks.pro.property.facility.entity.AlertEntity;
 import org.jetlinks.pro.property.facility.model.CloudAlarmRecord;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,7 @@ public class FacilitySaasAlarms implements SmartLifecycle, FacilitySaasAlarmsMBe
   private final FacilityCloudAlarms cloud;
   private final FacilitySaasAlarmWriter writer;
   private final FacilityAlarmTopics topics;
+  private final AlertStore alerts;
   private final AtomicBoolean polling = new AtomicBoolean();
   private final AtomicLong failures = new AtomicLong(), processed = new AtomicLong();
   private final ClusterPluginScheduler scheduler = new ClusterPluginScheduler("property-facility-energy");
@@ -87,11 +89,30 @@ public class FacilitySaasAlarms implements SmartLifecycle, FacilitySaasAlarmsMBe
         .flatMapMany(Flux::fromIterable)
         .concatMap(source -> writer.accept(device, source).thenReturn(1))
         .reduce(0, Integer::sum);
+      if (initial && advance) changed = changed.flatMap(count -> reconcileOpenRecords(device).map(recovered -> count + recovered));
       // Only the scheduled owner can advance this cursor. A user's manual refresh can see fewer records.
       return changed.flatMap(count -> advance && (initial || until > cursor)
         ? store.advanceAlarmCursor(device, until).thenReturn(count) : Mono.just(count))
         .doFinally(signal -> reconciling.remove(device.getId()));
     });
+  }
+
+  private Mono<Integer> reconcileOpenRecords(DeviceEntity device) {
+    // 首次补齐窗口外的解除，只查本地仍在告警的来源记录；缺失记录不能推断为已解除。
+    return alerts.createQuery().where("tenantId", device.getTenantId()).and("applicationId", device.getApplicationId())
+      .and("deviceId", device.getId()).and("projectId", device.getProjectId()).and("deleted", false)
+      .and("ruleType", "saas").and("state", "open").notNull("sourceRecordId")
+      .fetch().map(AlertEntity::getSourceRecordId).filter(id -> !id.isBlank()).distinct()
+      .take(20001).collectList().doOnNext(ids -> FacilityScope.require(ids.size() <= 20000, "too_many"))
+      .flatMapMany(Flux::fromIterable).buffer(100)
+      .concatMap(ids -> cloud.records(device.getCloudDeviceId(), ids).doOnNext(records -> {
+        if (records.size() < ids.size()) log.warn("SaaS alarm record unavailable during initial sync: device={}, missing={}",
+          device.getId(), ids.size() - records.size());
+      }))
+      .concatMapIterable(records -> records)
+      .filter(record -> "normal".equals(record.stateValue()))
+      .concatMap(source -> writer.accept(device, source).thenReturn(1))
+      .reduce(0, Integer::sum);
   }
 
   Mono<Integer> refresh(CloudAlarmRecord signal) {

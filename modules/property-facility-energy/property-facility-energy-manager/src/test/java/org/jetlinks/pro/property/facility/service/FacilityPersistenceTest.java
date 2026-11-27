@@ -2321,7 +2321,7 @@ class FacilityPersistenceTest {
     var legacy = FacilityScope.initialize(new AlertEntity(), new FacilityContext("tenant", "app", "admin", "管理员"));
     legacy.setId("retired-local-alarm"); legacy.setDeviceId(device.getId()); legacy.setProjectId("p-a"); legacy.setRuleType("offline");
     alerts.insert(legacy).block();
-    var controller = new org.jetlinks.pro.property.facility.web.FacilityAlertController(alerts, null, null, null, queries, null, null, null, deviceManager, null, scope, null);
+    var controller = new org.jetlinks.pro.property.facility.web.FacilityAlertController(alerts, null, null, null, queries, null, null, null, null, scope, null);
     var filter = QueryParamEntity.newQuery().is("id", current.getId()).or("id", legacy.getId()).getParam();
     var page = as("admin", controller.query(filter)).block();
     assertEquals(List.of(current.getId()), page.getData().stream().map(AlertEntity::getId).toList());
@@ -2330,6 +2330,8 @@ class FacilityPersistenceTest {
     assertNotNull(alerts.findById(current.getId()).block()); assertNotNull(alerts.findById(legacy.getId()).block());
     bindSource(device.getCloudDeviceId());
     assertEquals(1, as("admin", controller.query(filter)).block().getTotal());
+    verify(cloud, never()).snapshot(null);
+    verify(cloud, atLeastOnce()).boundDeviceIds(Set.of(device.getCloudDeviceId()));
   }
 
   @Test void cycleRemindersMigrateOnceRetainOwnershipAndDeletingRulesDoesNotRecreateThem() {

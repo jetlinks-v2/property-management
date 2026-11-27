@@ -361,17 +361,20 @@ class MeterConfigurationPersistenceTest {
     readingStore.insert(reading).block(WAIT);
     var query=org.hswebframework.web.api.crud.entity.QueryParamEntity.newQuery().is("deviceId",two.getId())
       .or("deviceId",one.getId()).doPaging(0,1).getParam();
-    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(sourceDevice(one.getCloudDeviceId()))));
+    var cloudIds = Set.of(one.getCloudDeviceId(), two.getCloudDeviceId());
+    doReturn(Mono.just(Set.of(one.getCloudDeviceId()))).when(cloud).boundDeviceIds(cloudIds);
     var active=mappingManager.query(query).block(WAIT);
     assertEquals(1,active.getTotal()); assertEquals(first.getId(),active.getData().get(0).getId());
     assertEquals(second.getId(),mappingManager.forDevice(two.getId()).block(WAIT).getId());
-    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of()));
+    doReturn(Mono.just(Set.of())).when(cloud).boundDeviceIds(cloudIds);
     assertEquals(0,mappingManager.query(query).block(WAIT).getTotal());
     assertEquals(0,BigDecimal.TEN.compareTo(readingStore.findById(reading.getId()).block(WAIT).getValue()));
-    when(cloud.snapshot(null)).thenReturn(Mono.just(List.of(sourceDevice(one.getCloudDeviceId()),sourceDevice(two.getCloudDeviceId()))));
+    doReturn(Mono.just(cloudIds)).when(cloud).boundDeviceIds(cloudIds);
     assertEquals(2,mappingManager.query(query).block(WAIT).getTotal());
     assertEquals(second.getId(),mappingManager.forDevice(two.getId()).block(WAIT).getId());
     assertEquals(1,readingStore.createQuery().where("deviceId",two.getId()).count().block(WAIT));
+    verify(cloud, never()).snapshot(null);
+    verify(cloud, times(3)).boundDeviceIds(cloudIds);
   }
   @Autowired ReadingStore readingStore;
   @Test void historicalReplacementNamesSurviveRevocationWithoutExposingUnauthorizedDevices() {

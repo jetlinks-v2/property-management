@@ -21,11 +21,12 @@ public class FacilityMappings {
   private final FacilityCloud cloud;
   private final FacilityScope scope;
   private final FacilityRecords records;
+  private final FacilityQueries queries;
 
   public Mono<org.hswebframework.web.api.crud.entity.PagerResult<MappingEntity>> query(
     org.hswebframework.web.api.crud.entity.QueryParamEntity query
   ) {
-    return devices.currentQuery(query, FacilityAssetType.facilityMapping, "deviceId").flatMap(mappings::queryPager);
+    return queries.currentDeviceChildren(mappings, query, FacilityAssetType.facilityMapping, "id", false);
   }
 
   @Transactional

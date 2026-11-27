@@ -59,7 +59,7 @@ class FacilityCloudAlarmsTest {
   @Test void levelEndpointRequiresAnApplicationContextBeforeReadingPlatformConfiguration() {
     var cloud = mock(FacilityCloudAlarms.class); var scope = mock(FacilityScope.class);
     var controller = new org.jetlinks.pro.property.facility.web.FacilityAlertController(
-      null, null, null, null, null, null, null, null, null, cloud, scope, null);
+      null, null, null, null, null, null, null, null, cloud, scope, null);
     when(scope.current()).thenReturn(Mono.error(new IllegalStateException("missing application")));
     StepVerifier.create(controller.levels()).expectError(IllegalStateException.class).verify();
     verifyNoInteractions(cloud);

@@ -51,19 +51,30 @@ public class FacilityDevices {
 
   /** 当前目录取 Cloud 应用绑定与本地资产权限的交集；历史 read/writable 不受今天解绑影响。 */
   public Mono<Set<String>> currentIds() {
-    return cloud.snapshot(null).flatMap(source -> {
-      if (source.isEmpty()) return scope.current().thenReturn(Set.<String>of());
-      var param = QueryParamEntity.newQuery().in("cloudDeviceId", source.stream()
-        .map(org.jetlinks.sdk.server.device.DeviceInfo::getId).toList()).noPaging().getParam();
-      return scope.query(param, FacilityAssetType.facilityDevice, "id")
-        .flatMapMany(q -> store.createQuery().setParam(q).fetch()).take(20001).collectList()
-        .doOnNext(rows -> require(rows.size() <= 20000, "too_many"))
-        .map(rows -> rows.stream().map(DeviceEntity::getId).collect(java.util.stream.Collectors.toSet()));
-    });
+    return currentIds(new QueryParamEntity());
+  }
+
+  Mono<Set<String>> currentIds(QueryParamEntity input) {
+    // 先按业务筛选和资产权限取本地候选，平台仅核对候选设备的当前绑定及权限。
+    var candidates = new QueryParamEntity();
+    candidates.setTerms(input.clone().getTerms());
+    candidates.setPaging(false);
+    return scope.query(candidates.toNestQuery().notNull("cloudDeviceId").getParam(), FacilityAssetType.facilityDevice, "id")
+      .flatMapMany(q -> store.createQuery().setParam(q).fetch())
+      .take(20001).collectList().doOnNext(rows -> require(rows.size() <= 20000, "too_many"))
+      .flatMapMany(Flux::fromIterable)
+      .filter(row -> row.getCloudDeviceId() != null && !row.getCloudDeviceId().isBlank())
+      .buffer(100)
+      .concatMap(batch -> {
+        var cloudIds = batch.stream().map(DeviceEntity::getCloudDeviceId).collect(java.util.stream.Collectors.toSet());
+        return cloud.boundDeviceIds(cloudIds).flatMapMany(bound -> Flux.fromIterable(batch)
+          .filter(row -> bound.contains(row.getCloudDeviceId())).map(DeviceEntity::getId));
+      }).collect(java.util.stream.Collectors.toSet());
   }
 
   public Mono<QueryParamEntity> currentQuery(QueryParamEntity q, org.jetlinks.pro.assets.AssetType type, String field) {
-    return currentIds().flatMap(ids -> {
+    var idsForQuery = FacilityAssetType.facilityDevice.equals(type) && "id".equals(field) ? currentIds(q) : currentIds();
+    return idsForQuery.flatMap(ids -> {
       // 单独嵌套后再 AND，防止调用方 OR 条件绕过当前绑定范围；空集合显式无结果。
       var active = q.clone().toNestQuery();
       if (ids.isEmpty()) active.isNull("id"); else active.in(field, ids);

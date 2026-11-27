@@ -19,7 +19,7 @@ class FacilityAlertProjectQueryTest {
     when(scope.query(any(), eq(FacilityAssetType.facilityDevice), eq("deviceId")))
       .thenAnswer(call -> Mono.just(call.getArgument(0)));
     when(store.queryPager(any(QueryParamEntity.class))).thenReturn(Mono.just(PagerResult.of(0, List.<AlertEntity>of(), new QueryParamEntity())));
-    var service = new FacilityQueries(scope, null, directory);
+    var service = new FacilityQueries(scope, null, directory, null);
     service.childrenInProjects(store, new QueryParamEntity(), FacilityAssetType.facilityDevice, "deviceId").block();
     var captured = org.mockito.ArgumentCaptor.forClass(QueryParamEntity.class);
     verify(scope).query(captured.capture(), eq(FacilityAssetType.facilityDevice), eq("deviceId"));

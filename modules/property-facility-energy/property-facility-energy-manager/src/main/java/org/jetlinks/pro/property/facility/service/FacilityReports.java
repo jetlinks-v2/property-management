@@ -99,12 +99,17 @@ public class FacilityReports {
   }
 
   public Mono<Map<String, Object>> overviewProjects(List<String> projectIds) {
+    var candidates = QueryParamEntity.newQuery().when(!projectIds.isEmpty(), q -> q.in("projectId", projectIds)).getParam();
+    return Mono.defer(() -> overviewProjects(projectIds, deviceManager.currentIds(candidates).cache()));
+  }
+
+  private Mono<Map<String, Object>> overviewProjects(List<String> projectIds, Mono<Set<String>> currentDevices) {
     return Mono.zip(
-      deviceManager.currentIds().flatMap(ids -> rowsInProjects(devices, FacilityAssetType.facilityDevice, "id", projectIds)
+      currentDevices.flatMap(ids -> rowsInProjects(devices, FacilityAssetType.facilityDevice, "id", projectIds)
         .map(rows -> rows.stream().filter(row -> ids.contains(row.getId())).toList())),
       rowsInProjects(tasks, FacilityAssetType.facilityTask, "id", projectIds),
       rowsInProjects(faults, FacilityAssetType.facilityFault, "id", projectIds),
-      deviceManager.currentIds().flatMap(ids -> bothParentsInProjects(alerts, projectIds)
+      currentDevices.flatMap(ids -> bothParentsInProjects(alerts, projectIds)
         .map(rows -> rows.stream().filter(row -> row.getTargetId() != null ||
           ids.contains(row.getDeviceId()) && Set.of("saas", "overdue", "dueSoon").contains(Objects.toString(row.getRuleType(), ""))).toList())),
       bothParentsInProjects(notifications, projectIds),

@@ -24,7 +24,7 @@ class FacilityOverviewTest {
     when(scope.current()).thenReturn(Mono.just(new FacilityContext("tenant", "app", "reviewer", "Reviewer")));
     when(scope.query(any(), any(), anyString())).thenAnswer(call -> Mono.just(call.getArgument(0)));
     var deviceManager = mock(FacilityDevices.class);
-    when(deviceManager.currentIds()).thenReturn(Mono.just(Set.of("current-0", "current-1", "current-2")));
+    when(deviceManager.currentIds(any())).thenReturn(Mono.just(Set.of("current-0", "current-1", "current-2")));
     ReactiveQuery<DeviceEntity> deviceQuery = mock(ReactiveQuery.class, RETURNS_SELF);
     when(devices.createQuery()).thenReturn(deviceQuery);
     when(deviceQuery.fetch()).thenReturn(Flux.range(0, 10).map(index -> {
@@ -55,6 +55,7 @@ class FacilityOverviewTest {
     assertEquals(3L, result.get("inProgress"));
     assertEquals(2L, result.get("pendingReview"));
     assertEquals(7L, result.get("overdue"));
+    verify(deviceManager, times(1)).currentIds(argThat(param -> contains(param, "projectId", List.of("project"))));
     // 主任务筛选先于资产查询，项目条件也不能在统计时丢失。
     verify(scope).query(argThat(param -> contains(param, "projectId", "project") && contains(param, "parentTaskId", null)), eq(FacilityAssetType.facilityTask), eq("id"));
   }

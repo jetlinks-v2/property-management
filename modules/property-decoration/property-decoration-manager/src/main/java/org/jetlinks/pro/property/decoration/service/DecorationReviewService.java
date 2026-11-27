@@ -88,7 +88,7 @@ public class DecorationReviewService {
     /** 退费完成才结束办理；此处仅更正已完成申请的结束时间，不改变状态及房屋占用。 */
     public Mono<DecorationApplicationEntity> changeActualEndTime(String id, DecorationRequests.ChangeActualEndTime input) {
         return applications.mutate(id, "changeActualEndTime", input, false, (row, ctx) -> {
-            require(row.getRefundStatus() == 2, "refund_completion_required");
+            require(DecorationRules.refunded(row), "refund_completion_required");
             require(input.getActualEndTime() >= row.getDetails().getStartTime(), "invalid_dates");
             row.setActualEndTime(input.getActualEndTime());
             return Mono.empty();
@@ -97,7 +97,7 @@ public class DecorationReviewService {
     /** 保留既有动作契约供补充结束说明，禁止用手动结束代替退费完成。 */
     public Mono<DecorationApplicationEntity> end(String id, DecorationRequests.Action input) {
         return applications.mutate(id, "end", input, false, (row, ctx) -> {
-            require(row.getRefundStatus() == 2, "refund_completion_required");
+            require(DecorationRules.refunded(row), "refund_completion_required");
             require(input.getRemark() != null && !input.getRemark().isBlank(), "remark_required");
             row.setEndReason(input.getRemark()); return Mono.empty();
         });
